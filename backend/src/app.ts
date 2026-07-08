@@ -10,6 +10,10 @@ import {
   notFoundHandler
 } from "./middleware/error.handler.js";
 import { healthRouter } from "./routes/health.routes.js";
+import { authRouter } from "./routes/auth.routes.js";
+import { userRouter } from "./routes/user.routes.js";
+import { globalLimiter } from "./middleware/rateLimit.middleware.js";
+import { businessAccountRouter } from "./routes/businessAccount.routes.js";
 
 export const app = express();
 
@@ -28,6 +32,7 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(cookieParser());
+app.use(globalLimiter);
 
 if (env.NODE_ENV !== "production") {
   app.use(morgan("dev"));
@@ -41,6 +46,9 @@ app.get("/", (_request, response) => {
 });
 
 app.use("/api/v1/health", healthRouter);
+app.use("/api/v1/auth", authRouter);
+app.use("/api/v1/users", userRouter);
+app.use("/api/v1/business-accounts", businessAccountRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

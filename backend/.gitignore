@@ -1,0 +1,14 @@
+# Backend ignore
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+private_uploads/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs
+*.log

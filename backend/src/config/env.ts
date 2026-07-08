@@ -11,6 +11,12 @@ const environmentSchema = z.object({
   CLIENT_URL: z.string().url(),
 
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
+  REDIS_URL: z.string().url().optional(),
+  JWT_SECRET: z.string().min(1, "JWT_SECRET is required for signing tokens"),
+  ACCESS_TOKEN_EXPIRES_IN: z.string().default("15m"),
+  REFRESH_TOKEN_EXPIRES_IN: z.string().default("7d"),
+  ADMIN_EMAIL: z.string().email().optional(),
+  ADMIN_PASSWORD: z.string().optional(),
 });
 
 const result = environmentSchema.safeParse(process.env);
