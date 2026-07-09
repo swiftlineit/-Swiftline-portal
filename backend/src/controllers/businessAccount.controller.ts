@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import path from "path";
 import mongoose from "mongoose";
 import { z } from "zod";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 import {
   BusinessAccount,
   businessAccountStatuses,
@@ -15,38 +16,365 @@ import {
   IBusinessKycReview,
   ShipmentType
 } from "../models/businessAccount.model.js";
+import { Branch } from "../models/branch.model.js";
 
-const shipmentTypeSchema = z.enum(["domestic", "international"]);
-const documentTypeSchema = z.enum(["gstCertificate", "panCard", "iecCertificate"]);
+const shipmentTypeSchema = z.enum(["international_cargo", "international_courier"]);
+const companyTypeSchema = z.enum(["pvt_ltd", "llp", "enterprise"]).or(z.literal(""));
+const registrationCountrySchema = z.enum([
+  "United Kingdom",
+  "United States",
+  "India",
+  "France",
+  "Netherlands",
+  "Kuwait",
+  "Canada",
+  "Switzerland",
+  "Poland"
+]);
+const documentTypeSchema = z.enum([
+  "aadhaarCard",
+  "panCard",
+  "adCertificate",
+  "msmeCertificate",
+  "tanCertificate",
+  "otherCertificate",
+  "gstCertificate",
+  "iecCertificate"
+]);
 const businessAccountStatusSchema = z.enum(businessAccountStatuses);
-const businessKycCheckKeySchema = z.enum(["contactDetails", "companyDetails", "gstCertificate", "panCard", "iecCertificate"]);
+const businessKycCheckKeySchema = z.enum([
+  "contactDetails",
+  "companyDetails",
+  "aadhaarCard",
+  "panCard",
+  "adCertificate",
+  "msmeCertificate",
+  "tanCertificate",
+  "otherCertificate",
+  "gstCertificate",
+  "iecCertificate"
+]);
 const businessKycCheckStatusSchema = z.enum(businessKycCheckStatuses);
+const assignBranchBodySchema = z.object({
+  branchId: z.string().trim().refine((value) => mongoose.Types.ObjectId.isValid(value), "Invalid branch ID")
+});
+const allowedPersonalEmailDomains = new Set(["gmail.com", "yahoo.com", "outlook.com"]);
+const reservedPersonalEmailNames = new Set(["gmail", "yahoo", "outlook", "hotmail"]);
+const blockedEmailTlds = new Set(["con", "comm", "cpm", "coom", "om"]);
+const emailValidationMessage = "Use gmail.com, yahoo.com, outlook.com, or a valid company email domain.";
+const phoneValidationMessage = "Enter a valid phone number for the selected country code.";
+const countriesWithoutRegistrationId = new Set(["United States", "Kuwait"]);
+const countriesWithSecondaryRegistrationId = new Set(["France", "Netherlands"]);
+const nullableCreditLimitSchema = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? null : value,
+  z.coerce.number().nonnegative().max(100000, "Requested credit limit cannot exceed 100000.").nullable().optional()
+);
+const fiveDigitPostalCodeCountries = new Set([
+  "Saudi Arabia",
+  "Germany",
+  "France",
+  "Italy",
+  "Spain",
+  "South Korea",
+  "Indonesia",
+  "Malaysia",
+  "Thailand",
+  "Vietnam",
+  "Nepal",
+  "Sri Lanka",
+  "Mexico",
+  "Kuwait"
+]);
+const fourDigitPostalCodeCountries = new Set([
+  "Australia",
+  "Belgium",
+  "Switzerland",
+  "Bangladesh",
+  "South Africa",
+  "New Zealand"
+]);
+const sixDigitPostalCodeCountries = new Set(["India", "Singapore", "China"]);
+const postalCodeFormats: Record<string, string> = {
+  India: "######",
+  "United States": "##### or #####-####",
+  "United Kingdom": "A9 9AA / A99 9AA / A9A 9AA / AA9 9AA / AA99 9AA / AA9A 9AA",
+  Canada: "A1A 1A1",
+  Australia: "####",
+  "United Arab Emirates": "No standard postal code",
+  "Saudi Arabia": "#####",
+  Singapore: "######",
+  China: "######",
+  Japan: "###-####",
+  Germany: "#####",
+  France: "#####",
+  Italy: "#####",
+  Netherlands: "#### AA",
+  Belgium: "####",
+  Spain: "#####",
+  Switzerland: "####",
+  "South Korea": "#####",
+  Indonesia: "#####",
+  Malaysia: "#####",
+  Thailand: "#####",
+  Vietnam: "#####",
+  Bangladesh: "####",
+  Nepal: "#####",
+  "Sri Lanka": "#####",
+  "South Africa": "####",
+  Brazil: "#####-###",
+  Mexico: "#####",
+  "New Zealand": "####",
+  Qatar: "No standard postal code",
+  Oman: "###",
+  Kuwait: "#####",
+  Bahrain: "### or ####",
+  Other: "Country-specific"
+};
+
+function isValidBusinessContactEmail(value: string) {
+  const email = value.trim().toLowerCase();
+  const basicEmailPattern = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+  if (!basicEmailPattern.test(email)) return false;
+
+  const domain = email.split("@")[1] ?? "";
+  const parts = domain.split(".");
+  const domainName = parts[0];
+  const tld = parts.at(-1) ?? "";
+
+  if (!domainName) return false;
+  if (blockedEmailTlds.has(tld)) return false;
+  if (reservedPersonalEmailNames.has(domainName)) return allowedPersonalEmailDomains.has(domain);
+
+  // Custom company domains are allowed, while common typo TLDs such as ".con" are rejected.
+  return /^[a-z]{2,24}$/.test(tld);
+}
+
+function isValidPhoneForCountryCode(countryCode: string, mobileNumber: string) {
+  const phoneNumber = parsePhoneNumberFromString(`${countryCode.trim()}${mobileNumber.trim()}`);
+
+  return Boolean(phoneNumber?.isValid());
+}
+
+function compactRegistrationId(value: string) {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+function getPrimaryRegistrationError(country: string, registrationId: string, registrationIdType?: string) {
+  const value = compactRegistrationId(registrationId);
+
+  if (!value) return "";
+
+  if (country === "United Kingdom" && !/^(\d{8}|[A-Z]{2}\d{6})$/.test(value)) {
+    return "Enter a valid CRID: 8 digits or 2 letters followed by 6 digits.";
+  }
+
+  if (country === "India" && !/^[A-Z]{5}\d{4}[A-Z]$/.test(value)) {
+    return "Enter a valid PAN, for example ABCDE1234F.";
+  }
+
+  if (country === "France" && !/^FR\d{11}$/.test(value)) {
+    return "Enter a valid French VAT number, for example FR12123456789.";
+  }
+
+  if (country === "Netherlands" && !/^(NL)?\d{9}B\d{2}$/.test(value)) {
+    return "Enter a valid Dutch VAT number, for example NL123456789B01.";
+  }
+
+  if (country === "Canada") {
+    const requiredLength = registrationIdType === "business_number" ? 9 : 10;
+    if (!new RegExp(`^\\d{${requiredLength}}$`).test(value)) {
+      return registrationIdType === "business_number"
+        ? "Enter a valid CRA Business Number: exactly 9 digits."
+        : "Enter a valid Canadian registration number: exactly 10 digits.";
+    }
+  }
+
+  if (country === "Switzerland" && !/^CHE-\d{3}\.\d{3}\.\d{3}$/.test(value)) {
+    return "Enter a valid Swiss UID, for example CHE-123.456.789.";
+  }
+
+  if (country === "Poland" && !/^(PL)?\d{10}$/.test(value)) {
+    return "Enter a valid Polish VAT/NIP, for example PL1234567890 or 1234567890.";
+  }
+
+  return "";
+}
+
+function getSecondaryRegistrationError(country: string, registrationId: string) {
+  const value = compactRegistrationId(registrationId);
+
+  if (!value) return "";
+
+  if (country === "France" && !/^\d{9}$/.test(value)) {
+    return "Enter a valid SIREN: exactly 9 digits.";
+  }
+
+  if (country === "Netherlands" && !/^\d{8}$/.test(value)) {
+    return "Enter a valid KVK number: exactly 8 digits.";
+  }
+
+  return "";
+}
+
+function isValidPostalCodeForCountry(country: string, postalCode: string) {
+  const value = postalCode.trim().toUpperCase();
+
+  if (!value) return false;
+  if (country === "United Arab Emirates" || country === "Qatar" || country === "Other") return true;
+  if (sixDigitPostalCodeCountries.has(country)) return /^\d{6}$/.test(value);
+  if (fiveDigitPostalCodeCountries.has(country)) return /^\d{5}$/.test(value);
+  if (fourDigitPostalCodeCountries.has(country)) return /^\d{4}$/.test(value);
+
+  if (country === "United States") return /^\d{5}(-\d{4})?$/.test(value);
+  if (country === "United Kingdom") return /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/.test(value);
+  if (country === "Canada") return /^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/.test(value);
+  if (country === "Japan") return /^\d{3}-\d{4}$/.test(value);
+  if (country === "Netherlands") return /^\d{4}\s?[A-Z]{2}$/.test(value);
+  if (country === "Brazil") return /^\d{5}-\d{3}$/.test(value);
+  if (country === "Oman") return /^\d{3}$/.test(value);
+  if (country === "Bahrain") return /^\d{3,4}$/.test(value);
+
+  return true;
+}
+
+function getPostalCodeValidationMessage(country: string) {
+  return `Enter a valid postal code for ${country}.`;
+}
 
 const businessAccountBodySchema = z.object({
   contact: z.object({
-    firstName: z.string().trim().min(2).max(80),
-    lastName: z.string().trim().min(1).max(80),
-    email: z.string().trim().email().toLowerCase(),
+    title: z.enum(["mr.", "mrs.", "ms.", "dr.", "prof."]),
+    firstName: z.string().trim().min(2).max(22),
+    lastName: z.string().trim().min(1).max(22),
+    email: z.string().trim().email().toLowerCase().refine(isValidBusinessContactEmail, emailValidationMessage),
+    mobileType: z.enum(["mobile", "office"]),
     countryCode: z.string().trim().min(1).max(8),
     mobileNumber: z.string().trim().regex(/^\d{6,15}$/, "Mobile number must contain 6 to 15 digits"),
+    jobTitle: z.string().trim().min(1).max(80),
     department: z.string().trim().min(1).max(80),
     shipmentTypes: z.array(shipmentTypeSchema).min(1)
   }),
   company: z.object({
-    registrationCountry: z.string().trim().min(1).max(80),
-    registrationId: z.string().trim().regex(/^[a-zA-Z0-9-_/ ]{2,50}$/, "Registration ID must contain valid letters and numbers"),
-    companyName: z.string().trim().min(2).max(160),
-    registeredAddress: z.string().trim().min(5).max(500),
-    city: z.string().trim().min(1).max(80),
-    stateOrProvince: z.string().trim().min(1).max(80),
-    postalCode: z.string().trim().min(3).max(20),
-    operatingCountries: z.array(z.string().trim().min(1).max(80)).min(1),
+    registrationCountry: registrationCountrySchema,
+    registrationIdType: z.string().trim().max(80).optional().default(""),
+    registrationId: z.string().trim().max(50).optional().default(""),
+    secondaryRegistrationId: z.string().trim().max(50).optional().default(""),
+    noCompanyRegistration: z.coerce.boolean().optional().default(false),
+    noCompany: z.coerce.boolean().optional().default(false),
+    companyType: companyTypeSchema.default(""),
+    companyName: z.string().trim().max(160).optional().default(""),
+    registeredAddress: z.string().trim().max(500).optional().default(""),
+    city: z.string().trim().max(80).optional().default(""),
+    stateOrProvince: z.string().trim().max(80).optional().default(""),
+    postalCode: z.string().trim().max(20).optional().default(""),
+    addressCountry: z.string().trim().max(80).optional().default(""),
+    useCompanyAddressAsBillingAddress: z.coerce.boolean().optional().default(true),
+    operatingCountries: z.array(z.string().trim().min(1).max(80)).default([]),
     website: z.string().trim().url().optional().or(z.literal("")).or(z.null()),
-    industry: z.string().trim().min(1).max(100),
-    monthlyShipmentVolume: z.string().trim().min(1).max(80),
+    industry: z.string().trim().max(100).optional().default(""),
+    monthlyShipmentVolume: z.string().trim().max(80).optional().default(""),
     requestedCreditCurrency: z.string().trim().min(3).max(3).default("INR"),
-    requestedCreditLimit: z.coerce.number().nonnegative().optional().nullable()
+    requestedCreditLimit: nullableCreditLimitSchema
   })
+}).superRefine((data, context) => {
+  if (!isValidPhoneForCountryCode(data.contact.countryCode, data.contact.mobileNumber)) {
+    context.addIssue({
+      code: "custom",
+      path: ["contact", "mobileNumber"],
+      message: phoneValidationMessage
+    });
+  }
+
+  const registrationId = data.company.registrationId.trim();
+  const secondaryRegistrationId = data.company.secondaryRegistrationId.trim();
+  const noCompany = data.company.noCompany;
+  const canSkipRegistration = noCompany || data.company.noCompanyRegistration || countriesWithoutRegistrationId.has(data.company.registrationCountry);
+
+  if (!noCompany && !data.company.companyType.trim()) {
+    context.addIssue({
+      code: "custom",
+      path: ["company", "companyType"],
+      message: "Company type is required"
+    });
+  }
+
+  if (!canSkipRegistration && !registrationId) {
+    context.addIssue({
+      code: "custom",
+      path: ["company", "registrationId"],
+      message: "Registration ID is required for the selected country."
+    });
+  }
+
+  const primaryRegistrationError = getPrimaryRegistrationError(data.company.registrationCountry, registrationId, data.company.registrationIdType);
+  if (!canSkipRegistration && primaryRegistrationError) {
+    context.addIssue({
+      code: "custom",
+      path: ["company", "registrationId"],
+      message: primaryRegistrationError
+    });
+  }
+
+  if (!canSkipRegistration && countriesWithSecondaryRegistrationId.has(data.company.registrationCountry) && !secondaryRegistrationId) {
+    context.addIssue({
+      code: "custom",
+      path: ["company", "secondaryRegistrationId"],
+      message: "Additional registration code is required for the selected country."
+    });
+  }
+
+  const secondaryRegistrationError = getSecondaryRegistrationError(data.company.registrationCountry, secondaryRegistrationId);
+  if (!canSkipRegistration && secondaryRegistrationError) {
+    context.addIssue({
+      code: "custom",
+      path: ["company", "secondaryRegistrationId"],
+      message: secondaryRegistrationError
+    });
+  }
+
+  if (!noCompany) {
+    const requiredCompanyFields: [keyof typeof data.company, string][] = [
+      ["companyName", "Company name is required"],
+      ["registeredAddress", "Registered address is required"],
+      ["city", "City is required"],
+      ["stateOrProvince", "State or province is required"],
+      ["postalCode", "Postal code is required"],
+      ["addressCountry", "Country is required"],
+      ["industry", "Company industry is required"],
+      ["monthlyShipmentVolume", "Monthly shipment volume is required"]
+    ];
+
+    for (const [field, message] of requiredCompanyFields) {
+      if (!String(data.company[field] ?? "").trim()) {
+        context.addIssue({
+          code: "custom",
+          path: ["company", field],
+          message
+        });
+      }
+    }
+
+    if (!data.company.operatingCountries.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["company", "operatingCountries"],
+        message: "Select at least one operating country"
+      });
+    }
+
+    if (
+      data.company.postalCode.trim()
+      && data.company.addressCountry.trim()
+      && !isValidPostalCodeForCountry(data.company.addressCountry, data.company.postalCode)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["company", "postalCode"],
+        message: getPostalCodeValidationMessage(data.company.addressCountry)
+      });
+    }
+  }
 });
 
 type BusinessAccountBody = z.infer<typeof businessAccountBodySchema>;
@@ -75,6 +403,7 @@ const businessKycReviewBodySchema = z.object({
 });
 
 type BusinessKycReviewBody = z.infer<typeof businessKycReviewBodySchema>;
+type AssignBranchBody = z.infer<typeof assignBranchBodySchema>;
 
 const statusActionMessages: Record<BusinessAccountStatus, string> = {
   draft: "Business account moved to draft.",
@@ -127,8 +456,13 @@ function getUploadedFiles(request: Request): Partial<Record<DocumentType, Expres
   const files = request.files as Partial<Record<DocumentType, Express.Multer.File[]>> | undefined;
 
   return {
-    gstCertificate: files?.gstCertificate?.[0],
+    aadhaarCard: files?.aadhaarCard?.[0],
     panCard: files?.panCard?.[0],
+    adCertificate: files?.adCertificate?.[0],
+    msmeCertificate: files?.msmeCertificate?.[0],
+    tanCertificate: files?.tanCertificate?.[0],
+    otherCertificate: files?.otherCertificate?.[0],
+    gstCertificate: files?.gstCertificate?.[0],
     iecCertificate: files?.iecCertificate?.[0]
   };
 }
@@ -150,12 +484,19 @@ function buildAccountPayload(data: BusinessAccountBody) {
     contact: data.contact,
     company: {
       registrationCountry: data.company.registrationCountry,
+      registrationIdType: data.company.registrationIdType,
       registrationId: data.company.registrationId,
+      secondaryRegistrationId: data.company.secondaryRegistrationId,
+      noCompanyRegistration: data.company.noCompanyRegistration,
+      noCompany: data.company.noCompany,
+      companyType: data.company.companyType,
       companyName: data.company.companyName,
       registeredAddress: data.company.registeredAddress,
       city: data.company.city,
       stateOrProvince: data.company.stateOrProvince,
       postalCode: data.company.postalCode,
+      addressCountry: data.company.addressCountry,
+      useCompanyAddressAsBillingAddress: data.company.useCompanyAddressAsBillingAddress,
       operatingCountries: data.company.operatingCountries,
       website: data.company.website || null,
       industry: data.company.industry,
@@ -186,13 +527,18 @@ async function hasDuplicateBusinessIdentity(
   data: BusinessAccountBody,
   accountIdToExclude?: string
 ): Promise<string | null> {
+  const identityChecks: Record<string, string>[] = [
+    { "contact.email": data.contact.email },
+    { "contact.mobileNumber": data.contact.mobileNumber }
+  ];
+
+  if (data.company.registrationId.trim()) {
+    identityChecks.push({ "company.registrationId": data.company.registrationId });
+  }
+
   const duplicate = await BusinessAccount.findOne({
     _id: accountIdToExclude ? { $ne: accountIdToExclude } : { $exists: true },
-    $or: [
-      { "contact.email": data.contact.email },
-      { "contact.mobileNumber": data.contact.mobileNumber },
-      { "company.registrationId": data.company.registrationId }
-    ]
+    $or: identityChecks
   })
     .select("contact.email contact.mobileNumber company.registrationId")
     .lean()
@@ -202,20 +548,19 @@ async function hasDuplicateBusinessIdentity(
 
   if (duplicate.contact.email === data.contact.email) return "Email address already exists";
   if (duplicate.contact.mobileNumber === data.contact.mobileNumber) return "Mobile number already exists";
-  return "Company registration ID already exists";
+  if (data.company.registrationId.trim() && duplicate.company.registrationId === data.company.registrationId) {
+    return "Company registration ID already exists";
+  }
+
+  return null;
 }
 
 function getDocumentRequirementError(
   shipmentTypes: ShipmentType[],
   documents: Partial<Record<DocumentType, IBusinessDocument>>
 ): string | null {
-  if (!documents.gstCertificate) return "GST Certificate is required";
+  if (!documents.aadhaarCard) return "Aadhaar Card is required";
   if (!documents.panCard) return "PAN Card Copy is required";
-
-  // IEC is a trade-compliance document, so domestic-only accounts must not be blocked by it.
-  if (shipmentTypes.includes("international") && !documents.iecCertificate) {
-    return "IEC Certificate is required for international shipment accounts";
-  }
 
   return null;
 }
@@ -224,10 +569,10 @@ function getRequiredKycCheckKeys(
   shipmentTypes: ShipmentType[],
   documents: Partial<Record<DocumentType, IBusinessDocument>>
 ): BusinessKycCheckKey[] {
-  const keys: BusinessKycCheckKey[] = ["contactDetails", "companyDetails", "gstCertificate", "panCard"];
+  const keys: BusinessKycCheckKey[] = ["contactDetails", "companyDetails", "aadhaarCard", "panCard"];
 
-  if (shipmentTypes.includes("international") || documents.iecCertificate) {
-    keys.push("iecCertificate");
+  for (const optionalKey of ["adCertificate", "msmeCertificate", "tanCertificate", "otherCertificate", "gstCertificate", "iecCertificate"] as DocumentType[]) {
+    if (documents[optionalKey]) keys.push(optionalKey);
   }
 
   return keys;
@@ -239,9 +584,8 @@ function getMissingRequiredDocuments(
 ) {
   const missing: DocumentType[] = [];
 
-  if (!documents.gstCertificate) missing.push("gstCertificate");
+  if (!documents.aadhaarCard) missing.push("aadhaarCard");
   if (!documents.panCard) missing.push("panCard");
-  if (shipmentTypes.includes("international") && !documents.iecCertificate) missing.push("iecCertificate");
 
   return missing;
 }
@@ -378,7 +722,7 @@ function attachUploadedDocuments(
   documents: Partial<Record<DocumentType, IBusinessDocument>>,
   files: Partial<Record<DocumentType, Express.Multer.File>>
 ) {
-  for (const type of ["gstCertificate", "panCard", "iecCertificate"] as DocumentType[]) {
+  for (const type of ["aadhaarCard", "panCard", "adCertificate", "msmeCertificate", "tanCertificate", "otherCertificate", "gstCertificate", "iecCertificate"] as DocumentType[]) {
     const file = files[type];
     if (file) documents[type] = toBusinessDocument(type, file);
   }
@@ -412,11 +756,15 @@ export async function validateBusinessAccountUniqueness(request: Request, respon
 }
 
 export async function listBusinessAccounts(request: Request, response: Response): Promise<Response> {
-  const { status, search } = request.query;
+  const { status, search, branchId } = request.query;
   const filters: Record<string, unknown> = {};
 
   if (typeof status === "string" && status) {
     filters.status = status;
+  }
+
+  if (typeof branchId === "string" && mongoose.Types.ObjectId.isValid(branchId)) {
+    filters.assignedBranch = new mongoose.Types.ObjectId(branchId);
   }
 
   if (typeof search === "string" && search.trim()) {
@@ -434,6 +782,7 @@ export async function listBusinessAccounts(request: Request, response: Response)
 
   const accounts = await BusinessAccount.find(filters)
     .populate("createdBy", "email name")
+    .populate("assignedBranch", "name code status")
     .sort({ createdAt: -1 })
     .lean()
     .exec();
@@ -472,6 +821,7 @@ export async function createBusinessAccount(request: Request, response: Response
 export async function getBusinessAccount(request: Request, response: Response): Promise<Response> {
   const account = await BusinessAccount.findOne({ accountId: request.params.accountId })
     .populate("createdBy", "email name")
+    .populate("assignedBranch", "name code status")
     .lean()
     .exec();
 
@@ -569,6 +919,40 @@ export async function updateBusinessAccountStatus(request: Request, response: Re
     success: true,
     message: statusActionMessages[parsed.data],
     account
+  });
+}
+
+export async function assignBusinessAccountBranch(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = assignBranchBodySchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, errors: parsed.error.format() });
+
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
+  if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
+
+  const branchId = new mongoose.Types.ObjectId((parsed.data as AssignBranchBody).branchId);
+  const branch = await Branch.findOne({ _id: branchId, status: "ACTIVE" }).select("_id").lean().exec();
+  if (!branch) return response.status(404).json({ success: false, message: "Active branch not found" });
+
+  // Assignment is its own workflow step; the account status reflects that the branch link is now real.
+  account.assignedBranch = branchId;
+  account.status = "branch_assigned";
+  account.updatedBy = userId;
+  account.kycReview = applyDerivedKycStatus(account);
+  await account.save();
+
+  const updatedAccount = await BusinessAccount.findOne({ accountId: account.accountId })
+    .populate("createdBy", "email name")
+    .populate("assignedBranch", "name code status")
+    .lean()
+    .exec();
+
+  return response.status(200).json({
+    success: true,
+    message: "Branch assigned successfully.",
+    account: updatedAccount
   });
 }
 

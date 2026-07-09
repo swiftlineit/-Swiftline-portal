@@ -6,6 +6,10 @@ import { useEffect, useState } from "react";
 import { FiChevronDown } from "react-icons/fi";
 import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
 import {
+  canadaRegistrationTypeOptions,
+  registrationConfig
+} from "@/components/business-accounts/FormFieldControls";
+import {
   BusinessAccount,
   BusinessKycCheckKey,
   BusinessKycCheckStatus,
@@ -21,9 +25,34 @@ function formatStatus(status: string) {
   return status.replaceAll("_", " ");
 }
 
+function formatShipmentType(value: string) {
+  if (value === "international_cargo") return "International Cargo";
+  if (value === "international_courier") return "International Courier";
+  return value.replaceAll("_", " ");
+}
+
 function formatOperatingCountries(account: BusinessAccount) {
   return (account.company.operatingCountries ?? (account.company.operatingCountry ? [account.company.operatingCountry] : [])).join(", ");
 }
+
+function getRegistrationIdLabel(account: BusinessAccount) {
+  if (account.company.registrationCountry === "Canada") {
+    return canadaRegistrationTypeOptions.find((option) => option.value === account.company.registrationIdType)?.label ?? "Registration ID";
+  }
+
+  return registrationConfig[account.company.registrationCountry]?.primaryLabel ?? "Registration ID";
+}
+
+const documentSummaryRows: { key: DocumentType; label: string; required?: boolean }[] = [
+  { key: "aadhaarCard", label: "Aadhaar Card", required: true },
+  { key: "panCard", label: "PAN Card Copy", required: true },
+  { key: "adCertificate", label: "AD Certificate" },
+  { key: "msmeCertificate", label: "MSME Certificate" },
+  { key: "tanCertificate", label: "TAN Certificate" },
+  { key: "gstCertificate", label: "GST Certificate" },
+  { key: "iecCertificate", label: "IEC Certificate" },
+  { key: "otherCertificate", label: "Other Certificate" }
+];
 
 const kycCheckStatusOptions: { value: BusinessKycCheckStatus; label: string }[] = [
   { value: "not_started", label: "Not Started" },
@@ -163,8 +192,6 @@ export default function BusinessAccountDetailsPage() {
     );
   }
 
-  const isInternational = account.contact.shipmentTypes.includes("international");
-
   return (
     <BusinessAccountsShell user={user}>
       {/* Account header and navigation actions */}
@@ -194,13 +221,14 @@ export default function BusinessAccountDetailsPage() {
           ["Email", account.contact.email],
           ["Mobile", `${account.contact.countryCode} ${account.contact.mobileNumber}`],
           ["Department", account.contact.department],
-          ["Shipment Type", account.contact.shipmentTypes.join(", ")]
+          ["Shipment Type", account.contact.shipmentTypes.map(formatShipmentType).join(", ")]
         ]} />
 
         {/* Company details */}
         <DetailSection title="Company Details" rows={[
           ["Registration Country", account.company.registrationCountry],
-          ["Registration ID", account.company.registrationId],
+          [getRegistrationIdLabel(account), account.company.registrationId || "Not provided"],
+          ...(account.company.secondaryRegistrationId ? [[registrationConfig[account.company.registrationCountry]?.secondaryLabel ?? "Additional Registration Code", account.company.secondaryRegistrationId]] : []),
           ["Registered Address", account.company.registeredAddress],
           ["City", account.company.city],
           ["State or Province", account.company.stateOrProvince],
@@ -216,28 +244,18 @@ export default function BusinessAccountDetailsPage() {
         <section className="border border-slate-200 bg-white p-5 lg:col-span-2">
           <h2 className="mb-4 text-base font-semibold text-slate-950">Documents</h2>
           <div className="grid gap-3 md:grid-cols-3">
-            <DocumentSummary
-              label="GST Certificate"
-              value={account.documents?.gstCertificate?.originalName}
-              required
-              opening={documentOpening === "gstCertificate"}
-              onView={account.documents?.gstCertificate ? () => void handleViewDocument("gstCertificate") : undefined}
-            />
-            <DocumentSummary
-              label="PAN Card Copy"
-              value={account.documents?.panCard?.originalName}
-              required
-              opening={documentOpening === "panCard"}
-              onView={account.documents?.panCard ? () => void handleViewDocument("panCard") : undefined}
-            />
-            <DocumentSummary
-              label="IEC Certificate"
-              value={account.documents?.iecCertificate?.originalName}
-              required={isInternational}
-              // helper={isInternational ? "Required for international shipments" : "Optional for domestic-only accounts"}
-              opening={documentOpening === "iecCertificate"}
-              onView={account.documents?.iecCertificate ? () => void handleViewDocument("iecCertificate") : undefined}
-            />
+            {documentSummaryRows
+              .filter((row) => row.required || account.documents?.[row.key])
+              .map((row) => (
+                <DocumentSummary
+                  key={row.key}
+                  label={row.label}
+                  value={account.documents?.[row.key]?.originalName}
+                  required={row.required}
+                  opening={documentOpening === row.key}
+                  onView={account.documents?.[row.key] ? () => void handleViewDocument(row.key) : undefined}
+                />
+              ))}
           </div>
         </section>
 
@@ -257,11 +275,8 @@ export default function BusinessAccountDetailsPage() {
 
 function getRequiredDocumentLabels(account: BusinessAccount) {
   const labels: string[] = [];
-  if (!account.documents?.gstCertificate) labels.push("GST Certificate");
+  if (!account.documents?.aadhaarCard) labels.push("Aadhaar Card");
   if (!account.documents?.panCard) labels.push("PAN Card Copy");
-  if (account.contact.shipmentTypes.includes("international") && !account.documents?.iecCertificate) {
-    labels.push("IEC Certificate");
-  }
 
   return labels;
 }
@@ -270,16 +285,18 @@ function getKycCheckRows(account: BusinessAccount): { key: BusinessKycCheckKey; 
   const rows: { key: BusinessKycCheckKey; label: string; helper: string }[] = [
     { key: "contactDetails", label: "Contact Details", helper: "Name, email, mobile, department, and shipment type." },
     { key: "companyDetails", label: "Company Details", helper: "Registration, address, operating countries, industry, and website." },
-    { key: "gstCertificate", label: "GST Certificate", helper: account.documents?.gstCertificate?.originalName || "Required document missing." },
+    { key: "aadhaarCard", label: "Aadhaar Card", helper: account.documents?.aadhaarCard?.originalName || "Required document missing." },
     { key: "panCard", label: "PAN Card Copy", helper: account.documents?.panCard?.originalName || "Required document missing." }
   ];
 
-  if (account.contact.shipmentTypes.includes("international") || account.documents?.iecCertificate) {
-    rows.push({
-      key: "iecCertificate",
-      label: "IEC Certificate",
-      helper: account.documents?.iecCertificate?.originalName || "Required for international shipments."
-    });
+  for (const row of documentSummaryRows.filter((item) => !item.required)) {
+    if (account.documents?.[row.key]) {
+      rows.push({
+        key: row.key,
+        label: row.label,
+        helper: account.documents[row.key]?.originalName || "Uploaded optional document."
+      });
+    }
   }
 
   return rows;

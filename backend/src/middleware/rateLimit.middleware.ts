@@ -3,7 +3,7 @@ import { env } from "../config/env.js";
 
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: env.NODE_ENV === "production" ? 100 : 2000, // keep local development from blocking normal dashboard/API testing
   standardHeaders: true,
   legacyHeaders: false
 });

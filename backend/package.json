@@ -23,6 +23,7 @@
     "express-rate-limit": "^6.7.0",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.0",
+    "libphonenumber-js": "^1.13.8",
     "mongoose": "^9.7.3",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",

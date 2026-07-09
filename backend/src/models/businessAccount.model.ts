@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-export type ShipmentType = "domestic" | "international";
+export type ShipmentType = "international_cargo" | "international_courier";
 export const businessAccountStatuses = [
   "draft",
   "pending_review",
@@ -18,7 +18,15 @@ export const businessAccountStatuses = [
   "ledger_viewed"
 ] as const;
 export type BusinessAccountStatus = (typeof businessAccountStatuses)[number];
-export type DocumentType = "gstCertificate" | "panCard" | "iecCertificate";
+export type DocumentType =
+  | "aadhaarCard"
+  | "panCard"
+  | "adCertificate"
+  | "msmeCertificate"
+  | "tanCertificate"
+  | "otherCertificate"
+  | "gstCertificate"
+  | "iecCertificate";
 export const businessKycCheckStatuses = [
   "not_started",
   "under_review",
@@ -67,22 +75,32 @@ export interface IBusinessAccount extends mongoose.Document {
   accountId: string;
   status: BusinessAccountStatus;
   contact: {
+    title: string;
     firstName: string;
     lastName: string;
     email: string;
+    mobileType: "mobile" | "office";
     countryCode: string;
     mobileNumber: string;
+    jobTitle: string;
     department: string;
     shipmentTypes: ShipmentType[];
   };
   company: {
     registrationCountry: string;
+    registrationIdType?: string;
     registrationId: string;
+    secondaryRegistrationId?: string;
+    noCompanyRegistration?: boolean;
+    noCompany?: boolean;
+    companyType: string;
     companyName: string;
     registeredAddress: string;
     city: string;
     stateOrProvince: string;
     postalCode: string;
+    addressCountry?: string;
+    useCompanyAddressAsBillingAddress?: boolean;
     operatingCountries: string[];
     website?: string | null;
     industry: string;
@@ -94,6 +112,7 @@ export interface IBusinessAccount extends mongoose.Document {
   };
   documents: Partial<Record<DocumentType, IBusinessDocument>>;
   kycReview: IBusinessKycReview;
+  assignedBranch?: mongoose.Types.ObjectId | null;
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
   submittedAt?: Date | null;
@@ -105,7 +124,7 @@ const businessDocumentSchema = new mongoose.Schema<IBusinessDocument>(
   {
     type: {
       type: String,
-      enum: ["gstCertificate", "panCard", "iecCertificate"],
+      enum: ["aadhaarCard", "panCard", "adCertificate", "msmeCertificate", "tanCertificate", "otherCertificate", "gstCertificate", "iecCertificate"],
       required: true
     },
     originalName: { type: String, required: true },
@@ -143,8 +162,13 @@ const businessKycReviewSchema = new mongoose.Schema<IBusinessKycReview>(
     checks: {
       contactDetails: { type: businessKycCheckSchema },
       companyDetails: { type: businessKycCheckSchema },
-      gstCertificate: { type: businessKycCheckSchema },
+      aadhaarCard: { type: businessKycCheckSchema },
       panCard: { type: businessKycCheckSchema },
+      adCertificate: { type: businessKycCheckSchema },
+      msmeCertificate: { type: businessKycCheckSchema },
+      tanCertificate: { type: businessKycCheckSchema },
+      otherCertificate: { type: businessKycCheckSchema },
+      gstCertificate: { type: businessKycCheckSchema },
       iecCertificate: { type: businessKycCheckSchema }
     },
     finalDecision: {
@@ -169,15 +193,18 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
       index: true
     },
     contact: {
+      title: { type: String, enum: ["mr.", "mrs.", "ms.", "dr.", "prof."], required: true, trim: true },
       firstName: { type: String, required: true, trim: true },
       lastName: { type: String, required: true, trim: true },
       email: { type: String, required: true, lowercase: true, trim: true, index: true },
+      mobileType: { type: String, enum: ["mobile", "office"], required: true, default: "mobile", trim: true },
       countryCode: { type: String, required: true, trim: true },
       mobileNumber: { type: String, required: true, trim: true, index: true },
+      jobTitle: { type: String, required: true, trim: true },
       department: { type: String, required: true, trim: true },
       shipmentTypes: {
         type: [String],
-        enum: ["domestic", "international"],
+        enum: ["international_cargo", "international_courier"],
         required: true,
         validate: {
           validator: (value: ShipmentType[]) => value.length > 0,
@@ -187,12 +214,19 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
     },
     company: {
       registrationCountry: { type: String, required: true, trim: true },
-      registrationId: { type: String, required: true, trim: true, index: true },
-      companyName: { type: String, required: true, trim: true },
-      registeredAddress: { type: String, required: true, trim: true },
-      city: { type: String, required: true, trim: true },
-      stateOrProvince: { type: String, required: true, trim: true },
-      postalCode: { type: String, required: true, trim: true },
+      registrationIdType: { type: String, default: "", trim: true },
+      registrationId: { type: String, default: "", trim: true, index: true },
+      secondaryRegistrationId: { type: String, default: "", trim: true },
+      noCompanyRegistration: { type: Boolean, default: false },
+      noCompany: { type: Boolean, default: false },
+      companyType: { type: String, enum: ["", "pvt_ltd", "llp", "enterprise"], default: "", trim: true },
+      companyName: { type: String, default: "", trim: true },
+      registeredAddress: { type: String, default: "", trim: true },
+      city: { type: String, default: "", trim: true },
+      stateOrProvince: { type: String, default: "", trim: true },
+      postalCode: { type: String, default: "", trim: true },
+      addressCountry: { type: String, default: "", trim: true },
+      useCompanyAddressAsBillingAddress: { type: Boolean, default: true },
       operatingCountries: {
         type: [String],
         required: true,
@@ -202,16 +236,21 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
         }
       },
       website: { type: String, default: null, trim: true },
-      industry: { type: String, required: true, trim: true },
-      monthlyShipmentVolume: { type: String, required: true, trim: true },
+      industry: { type: String, default: "", trim: true },
+      monthlyShipmentVolume: { type: String, default: "", trim: true },
       requestedCreditLimit: {
         currency: { type: String, default: "INR", trim: true },
         amount: { type: Number, default: null }
       }
     },
     documents: {
-      gstCertificate: { type: businessDocumentSchema },
+      aadhaarCard: { type: businessDocumentSchema },
       panCard: { type: businessDocumentSchema },
+      adCertificate: { type: businessDocumentSchema },
+      msmeCertificate: { type: businessDocumentSchema },
+      tanCertificate: { type: businessDocumentSchema },
+      otherCertificate: { type: businessDocumentSchema },
+      gstCertificate: { type: businessDocumentSchema },
       iecCertificate: { type: businessDocumentSchema }
     },
     kycReview: {
@@ -221,6 +260,7 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
         checks: {}
       })
     },
+    assignedBranch: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", default: null, index: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     submittedAt: { type: Date, default: null }

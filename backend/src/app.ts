@@ -14,6 +14,7 @@ import { authRouter } from "./routes/auth.routes.js";
 import { userRouter } from "./routes/user.routes.js";
 import { globalLimiter } from "./middleware/rateLimit.middleware.js";
 import { businessAccountRouter } from "./routes/businessAccount.routes.js";
+import { branchRouter } from "./routes/branch.routes.js";
 
 export const app = express();
 
@@ -49,6 +50,7 @@ app.use("/api/v1/health", healthRouter);
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/business-accounts", businessAccountRouter);
+app.use("/api/v1/branches", branchRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

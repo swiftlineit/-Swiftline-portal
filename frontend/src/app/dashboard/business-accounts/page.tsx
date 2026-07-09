@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import { FiChevronDown } from "react-icons/fi";
 import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
 import {
+  assignBusinessAccountBranch,
   BusinessAccount,
   BusinessAccountStatus,
   listBusinessAccounts,
   submitBusinessAccount,
   updateBusinessAccountStatus
 } from "@/lib/businessAccounts";
+import { Branch, listBranches } from "@/lib/branches";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 function formatStatus(status: string) {
@@ -32,6 +34,10 @@ function getKycReason(account: BusinessAccount) {
   return Object.values(account.kycReview?.checks ?? {}).find((check) => check?.note)?.note ?? "";
 }
 
+function getAssignedBranch(account: BusinessAccount) {
+  return account.assignedBranch && typeof account.assignedBranch === "object" ? account.assignedBranch : null;
+}
+
 const accountActions: { label: string; status: BusinessAccountStatus }[] = [
   { label: "Approve", status: "approved" },
   { label: "Reject", status: "rejected" },
@@ -41,7 +47,6 @@ const accountActions: { label: string; status: BusinessAccountStatus }[] = [
   { label: "Deposit Received", status: "deposit_received" },
   { label: "Activate Account", status: "active" },
   { label: "Suspend Account", status: "suspended" },
-  { label: "Assign Branch", status: "branch_assigned" },
   { label: "Generate Agreement", status: "agreement_generated" },
   { label: "View Ledger", status: "ledger_viewed" }
 ];
@@ -54,6 +59,11 @@ export default function BusinessAccountsPage() {
   const [error, setError] = useState("");
   const [accountsLoading, setAccountsLoading] = useState(true);
   const [updatingAction, setUpdatingAction] = useState<string | null>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [branchSearch, setBranchSearch] = useState("");
+  const [selectedBranchId, setSelectedBranchId] = useState("");
+  const [assigningAccount, setAssigningAccount] = useState<BusinessAccount | null>(null);
+  const [branchesLoading, setBranchesLoading] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -97,6 +107,38 @@ export default function BusinessAccountsPage() {
     await refreshAccount(account.accountId, () => updateBusinessAccountStatus(account.accountId, status));
   }
 
+  async function openAssignBranchModal(account: BusinessAccount) {
+    const assignedBranch = getAssignedBranch(account);
+
+    setAssigningAccount(account);
+    setSelectedBranchId(assignedBranch?._id ?? "");
+    setBranchSearch("");
+    setBranchesLoading(true);
+    setError("");
+
+    try {
+      const data = await listBranches("", "ACTIVE");
+      setBranches(data.branches);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to load branches.");
+    } finally {
+      setBranchesLoading(false);
+    }
+  }
+
+  function closeAssignBranchModal() {
+    setAssigningAccount(null);
+    setSelectedBranchId("");
+    setBranchSearch("");
+  }
+
+  async function handleAssignBranch() {
+    if (!assigningAccount || !selectedBranchId) return;
+
+    await refreshAccount(assigningAccount.accountId, () => assignBusinessAccountBranch(assigningAccount.accountId, selectedBranchId));
+    closeAssignBranchModal();
+  }
+
   async function handleSubmitForReview(account: BusinessAccount) {
     await refreshAccount(account.accountId, () => submitBusinessAccount(account.accountId));
   }
@@ -119,12 +161,23 @@ export default function BusinessAccountsPage() {
       return;
     }
 
+    if (value === "assign_branch") {
+      await openAssignBranchModal(account);
+      return;
+    }
+
     if (value.startsWith("status:")) {
       await handleStatusAction(account, value.replace("status:", "") as BusinessAccountStatus);
     }
   }
 
   if (loading || !user) return <BusinessAccountsLoading />;
+
+  const filteredBranches = branches.filter((branch) =>
+    `${branch.name} ${branch.code} ${branch.address.city} ${branch.address.countryName}`
+      .toLowerCase()
+      .includes(branchSearch.toLowerCase())
+  );
 
   return (
     <BusinessAccountsShell user={user}>
@@ -182,7 +235,16 @@ export default function BusinessAccountsPage() {
                 <td className="px-4 py-3 text-slate-500">Not available</td>
                 <td className="px-4 py-3 capitalize">{formatStatus(account.status)}</td>
                 <td className="px-4 py-3">{formatDeposit(account)}</td>
-                <td className="px-4 py-3 text-slate-500">Not assigned</td>
+                <td className="px-4 py-3">
+                  {getAssignedBranch(account) ? (
+                    <>
+                      <p className="font-semibold text-slate-700">{getAssignedBranch(account)?.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{getAssignedBranch(account)?.code}</p>
+                    </>
+                  ) : (
+                    <span className="text-slate-500">Not assigned</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <p className="capitalize text-slate-700">{formatKycStatus(account)}</p>
                   {account.kycReview?.overallStatus === "additional_information_required" && getKycReason(account) ? (
@@ -201,6 +263,7 @@ export default function BusinessAccountsPage() {
                       <option value={`current:${account.status}`}>{updatingAction === account.accountId ? "Updating..." : formatStatus(account.status)}</option>
                       <option value="view">View</option>
                       <option value="kyc">KYC</option>
+                      <option value="assign_branch">Assign Branch</option>
                       {account.status === "draft" ? <option value="submit">Submit for Review</option> : null}
                       {accountActions.map((action) => (
                         <option key={action.status} value={`status:${action.status}`}>
@@ -219,6 +282,80 @@ export default function BusinessAccountsPage() {
           </tbody>
         </table>
       </div>
+
+      {assigningAccount ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 px-4">
+          <div className="w-full max-w-xl border border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <h2 className="text-lg font-semibold text-slate-950">Assign Branch</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {assigningAccount.company.companyName} - {assigningAccount.accountId}
+              </p>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <label className="block text-sm font-semibold text-slate-700">
+                Search Branch
+                <input
+                  value={branchSearch}
+                  onChange={(event) => setBranchSearch(event.target.value)}
+                  placeholder="Branch name, code, city, country"
+                  className="mt-2 block h-10 w-full border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+
+              <div className="max-h-72 overflow-y-auto border border-slate-200">
+                {branchesLoading ? (
+                  <p className="px-4 py-6 text-center text-sm text-slate-500">Loading active branches...</p>
+                ) : filteredBranches.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-sm text-slate-500">No active branches found.</p>
+                ) : filteredBranches.map((branch) => (
+                  <label
+                    key={branch._id}
+                    className={`flex cursor-pointer items-start gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 ${
+                      selectedBranchId === branch._id ? "bg-blue-50" : "bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="assignedBranch"
+                      checked={selectedBranchId === branch._id}
+                      onChange={() => setSelectedBranchId(branch._id)}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-900">{branch.name}</span>
+                      <span className="mt-1 block text-xs font-semibold text-blue-900">{branch.code}</span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {[branch.address.city, branch.address.countryName].filter(Boolean).join(", ") || "Location not set"}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={closeAssignBranchModal}
+                disabled={updatingAction === assigningAccount.accountId}
+                className="border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-900 hover:text-blue-900 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleAssignBranch()}
+                disabled={!selectedBranchId || updatingAction === assigningAccount.accountId}
+                className="bg-blue-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-950 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {updatingAction === assigningAccount.accountId ? "Assigning..." : "Assign Branch"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </BusinessAccountsShell>
   );
 }

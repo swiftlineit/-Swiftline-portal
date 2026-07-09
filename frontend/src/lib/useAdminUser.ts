@@ -29,9 +29,19 @@ export function useAdminUser() {
       }
 
       try {
-        const response = await fetch(apiUrl("/api/v1/auth/me"), {
+        let response = await fetch(apiUrl("/api/v1/auth/me"), {
           headers: { Authorization: `Bearer ${token}` }
         });
+
+        if (response.status === 401) {
+          token = await refreshAccessToken();
+          if (!token) throw new Error("Unauthorized");
+
+          response = await fetch(apiUrl("/api/v1/auth/me"), {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        }
+
         const data = await response.json();
 
         if (!data.success) throw new Error("Unauthorized");

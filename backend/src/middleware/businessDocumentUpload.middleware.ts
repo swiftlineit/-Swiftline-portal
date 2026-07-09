@@ -24,7 +24,7 @@ export const businessDocumentUpload = multer({
   storage,
   limits: {
     fileSize: maxDocumentSizeBytes,
-    files: 3
+    files: 8
   },
   fileFilter: (_request, file, callback) => {
     if (!allowedMimeTypes.has(file.mimetype)) {
@@ -35,7 +35,12 @@ export const businessDocumentUpload = multer({
     callback(null, true);
   }
 }).fields([
-  { name: "gstCertificate", maxCount: 1 },
+  { name: "aadhaarCard", maxCount: 1 },
   { name: "panCard", maxCount: 1 },
+  { name: "adCertificate", maxCount: 1 },
+  { name: "msmeCertificate", maxCount: 1 },
+  { name: "tanCertificate", maxCount: 1 },
+  { name: "otherCertificate", maxCount: 1 },
+  { name: "gstCertificate", maxCount: 1 },
   { name: "iecCertificate", maxCount: 1 }
 ]);

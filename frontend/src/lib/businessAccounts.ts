@@ -1,7 +1,7 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 
-export type ShipmentType = "domestic" | "international";
+export type ShipmentType = "international_cargo" | "international_courier";
 export const businessAccountStatuses = [
   "draft",
   "pending_review",
@@ -19,7 +19,15 @@ export const businessAccountStatuses = [
   "ledger_viewed"
 ] as const;
 export type BusinessAccountStatus = (typeof businessAccountStatuses)[number];
-export type DocumentType = "gstCertificate" | "panCard" | "iecCertificate";
+export type DocumentType =
+  | "aadhaarCard"
+  | "panCard"
+  | "adCertificate"
+  | "msmeCertificate"
+  | "tanCertificate"
+  | "otherCertificate"
+  | "gstCertificate"
+  | "iecCertificate";
 export const businessKycCheckStatuses = [
   "not_started",
   "under_review",
@@ -51,22 +59,32 @@ export type BusinessAccount = {
   accountId: string;
   status: BusinessAccountStatus;
   contact: {
+    title: string;
     firstName: string;
     lastName: string;
     email: string;
+    mobileType: "mobile" | "office";
     countryCode: string;
     mobileNumber: string;
+    jobTitle: string;
     department: string;
     shipmentTypes: ShipmentType[];
   };
   company: {
     registrationCountry: string;
+    registrationIdType?: string;
     registrationId: string;
+    secondaryRegistrationId?: string;
+    noCompanyRegistration?: boolean;
+    noCompany?: boolean;
+    companyType: string;
     companyName: string;
     registeredAddress: string;
     city: string;
     stateOrProvince: string;
     postalCode: string;
+    addressCountry?: string;
+    useCompanyAddressAsBillingAddress?: boolean;
     operatingCountries: string[];
     operatingCountry?: string;
     website?: string | null;
@@ -90,6 +108,12 @@ export type BusinessAccount = {
     reviewedAt?: string | null;
     reviewedBy?: string | null;
   };
+  assignedBranch?: {
+    _id: string;
+    name: string;
+    code: string;
+    status?: string;
+  } | string | null;
   createdBy?: { email?: string; name?: string };
   createdAt: string;
   submittedAt?: string | null;
@@ -151,8 +175,11 @@ async function fetchWithAuth(input: string, init: RequestInit = {}) {
 
 function appendPayload(formData: FormData, data: BusinessAccountFormData, files: BusinessAccountFiles) {
   formData.append("contact", JSON.stringify(data.contact));
+  const requestedCreditLimit = data.company.requestedCreditLimit.trim();
+
   formData.append("company", JSON.stringify({
     ...data.company,
+    requestedCreditLimit: requestedCreditLimit ? Number(requestedCreditLimit) : null,
     website: data.company.website ?? ""
   }));
 
@@ -188,9 +215,10 @@ function findFirstApiError(value: unknown): string {
   return "";
 }
 
-export async function listBusinessAccounts(search = "") {
+export async function listBusinessAccounts(search = "", branchId = "") {
   const url = new URL(apiUrl("/api/v1/business-accounts"));
   if (search) url.searchParams.set("search", search);
+  if (branchId) url.searchParams.set("branchId", branchId);
 
   const response = await fetchWithAuth(url.toString());
 
@@ -263,6 +291,16 @@ export async function updateBusinessAccountStatus(accountId: string, status: Bus
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status })
+  });
+
+  return parseApiResponse<{ success: true; account: BusinessAccount; message: string }>(response);
+}
+
+export async function assignBusinessAccountBranch(accountId: string, branchId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/assign-branch`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ branchId })
   });
 
   return parseApiResponse<{ success: true; account: BusinessAccount; message: string }>(response);

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  assignBusinessAccountBranch,
   createBusinessAccount,
   getBusinessAccount,
   listBusinessAccounts,
@@ -24,6 +25,7 @@ businessAccountRouter.post("/", businessDocumentUpload, createBusinessAccount);
 businessAccountRouter.get("/:accountId", getBusinessAccount);
 businessAccountRouter.get("/:accountId/documents/:documentType", viewBusinessAccountDocument);
 businessAccountRouter.patch("/:accountId", businessDocumentUpload, updateBusinessAccount);
+businessAccountRouter.patch("/:accountId/assign-branch", assignBusinessAccountBranch);
 businessAccountRouter.patch("/:accountId/kyc-review", updateBusinessAccountKycReview);
 businessAccountRouter.patch("/:accountId/status", updateBusinessAccountStatus);
 businessAccountRouter.post("/:accountId/submit", submitBusinessAccount);

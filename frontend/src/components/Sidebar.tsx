@@ -4,11 +4,12 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FiBriefcase, FiChevronLeft, FiChevronRight, FiGrid, FiUsers } from "react-icons/fi";
+import { FiBriefcase, FiChevronLeft, FiChevronRight, FiGrid, FiMapPin, FiUsers } from "react-icons/fi";
 
 const navigationItems = [
   { label: "Dashboard", href: "/dashboard", icon: FiGrid, adminOnly: false },
   { label: "Business Accounts", href: "/dashboard/business-accounts", icon: FiBriefcase, adminOnly: true },
+  { label: "Branches", href: "/dashboard/branches", icon: FiMapPin, adminOnly: true },
   { label: "Users", href: "/dashboard/users", icon: FiUsers, adminOnly: true }
 ];
 
