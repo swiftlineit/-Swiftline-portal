@@ -6,18 +6,16 @@ export const businessAccountStatuses = [
   "pending_review",
   "approved",
   "rejected",
-  "more_info_needed",
-  "credit_limit_approved",
-  "credit_limit_not_approved",
-  "deposit_required",
-  "deposit_received",
   "active",
-  "suspended",
-  "branch_assigned",
-  "agreement_generated",
-  "ledger_viewed"
+  "suspended"
 ] as const;
 export type BusinessAccountStatus = (typeof businessAccountStatuses)[number];
+export const creditLimitStatusValues = ["not_reviewed", "approved", "not_approved"] as const;
+export type CreditLimitStatus = (typeof creditLimitStatusValues)[number];
+export const depositStatusValues = ["not_required", "required", "received"] as const;
+export type DepositStatus = (typeof depositStatusValues)[number];
+export const agreementStatusValues = ["not_generated", "generated", "signed"] as const;
+export type AgreementStatus = (typeof agreementStatusValues)[number];
 export type DocumentType =
   | "aadhaarCard"
   | "panCard"
@@ -90,6 +88,7 @@ export interface IBusinessAccount extends mongoose.Document {
     registrationCountry: string;
     registrationIdType?: string;
     registrationId: string;
+    gstin?: string;
     secondaryRegistrationId?: string;
     noCompanyRegistration?: boolean;
     noCompany?: boolean;
@@ -112,6 +111,10 @@ export interface IBusinessAccount extends mongoose.Document {
   };
   documents: Partial<Record<DocumentType, IBusinessDocument>>;
   kycReview: IBusinessKycReview;
+  creditLimitStatus: CreditLimitStatus;
+  depositStatus: DepositStatus;
+  agreementStatus: AgreementStatus;
+  ledgerViewedAt?: Date | null;
   assignedBranch?: mongoose.Types.ObjectId | null;
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
@@ -216,6 +219,7 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
       registrationCountry: { type: String, required: true, trim: true },
       registrationIdType: { type: String, default: "", trim: true },
       registrationId: { type: String, default: "", trim: true, index: true },
+      gstin: { type: String, uppercase: true, trim: true, default: "", maxlength: 15 },
       secondaryRegistrationId: { type: String, default: "", trim: true },
       noCompanyRegistration: { type: Boolean, default: false },
       noCompany: { type: Boolean, default: false },
@@ -240,7 +244,7 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
       monthlyShipmentVolume: { type: String, default: "", trim: true },
       requestedCreditLimit: {
         currency: { type: String, default: "INR", trim: true },
-        amount: { type: Number, default: null }
+        amount: { type: Number, min: 0, max: 100000, default: null }
       }
     },
     documents: {
@@ -260,6 +264,25 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
         checks: {}
       })
     },
+    creditLimitStatus: {
+      type: String,
+      enum: creditLimitStatusValues,
+      default: "not_reviewed",
+      index: true
+    },
+    depositStatus: {
+      type: String,
+      enum: depositStatusValues,
+      default: "not_required",
+      index: true
+    },
+    agreementStatus: {
+      type: String,
+      enum: agreementStatusValues,
+      default: "not_generated",
+      index: true
+    },
+    ledgerViewedAt: { type: Date, default: null },
     assignedBranch: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", default: null, index: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -267,6 +290,37 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
   },
   { timestamps: true }
 );
+
+businessAccountSchema.pre("validate", function normalizeLegacyWorkflowStatus() {
+  const account = this as IBusinessAccount & { status: BusinessAccountStatus | string };
+  const status = String(account.status);
+
+  // Historical workflow milestones used to live in `status`. Keep lifecycle
+  // status permanent and move those legacy values into their dedicated fields.
+  if (status === "branch_assigned") {
+    account.status = "approved";
+  } else if (status === "credit_limit_approved") {
+    account.status = "approved";
+    account.creditLimitStatus = "approved";
+  } else if (status === "credit_limit_not_approved") {
+    account.status = "approved";
+    account.creditLimitStatus = "not_approved";
+  } else if (status === "deposit_required") {
+    account.status = "approved";
+    account.depositStatus = "required";
+  } else if (status === "deposit_received") {
+    account.status = "approved";
+    account.depositStatus = "received";
+  } else if (status === "agreement_generated") {
+    account.status = "approved";
+    account.agreementStatus = "generated";
+  } else if (status === "ledger_viewed") {
+    account.status = "approved";
+    account.ledgerViewedAt = account.ledgerViewedAt ?? new Date();
+  } else if (status === "more_info_needed") {
+    account.status = "pending_review";
+  }
+});
 
 export const BusinessAccount = mongoose.model<IBusinessAccount>(
   "BusinessAccount",

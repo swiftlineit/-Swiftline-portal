@@ -47,6 +47,7 @@ const defaultFormData: BusinessAccountFormData = {
     registrationCountry: "India",
     registrationIdType: "pan",
     registrationId: "",
+    gstin: "",
     secondaryRegistrationId: "",
     noCompanyRegistration: false,
     noCompany: false,
@@ -89,6 +90,7 @@ const stepValidationKeys = [
     "registrationCountry",
     "registrationIdType",
     "registrationId",
+    "gstin",
     "secondaryRegistrationId",
     "noCompanyRegistration",
     "noCompany",
@@ -489,6 +491,9 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
       if (!canSkipRegistration && formData.company.secondaryRegistrationId?.trim() && secondaryRegistrationRule && !secondaryRegistrationRule.validate(formData.company.secondaryRegistrationId)) {
         nextErrors.secondaryRegistrationId = secondaryRegistrationRule.message;
       }
+      if (formData.company.gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(formData.company.gstin)) {
+        nextErrors.gstin = "Enter a valid 15-character GSTIN.";
+      }
 
       if (!noCompany && !formData.company.companyName.trim()) nextErrors.companyName = "Company name is required.";
       if (!noCompany && !formData.company.registeredAddress.trim()) nextErrors.registeredAddress = "Registered address is required.";
@@ -620,7 +625,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
         <div>
           <h2 className="mb-3 text-4xl font-bold uppercase text-slate-800">Let&apos;s Get Started</h2>
           <p className="mb-3 text-sm text-slate-500">
-            Enter your contact details. Fields marked with asterisk (<span className="text-red-600">*</span>) are mandatory.
+            Enter your {steps[step]}. Fields marked with asterisk (<span className="text-red-600">*</span>) are mandatory.
           </p>
         </div>
         <button

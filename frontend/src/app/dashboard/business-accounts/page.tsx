@@ -8,9 +8,11 @@ import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/bus
 import {
   assignBusinessAccountBranch,
   BusinessAccount,
+  BusinessAccountOperationalAction,
   BusinessAccountStatus,
   listBusinessAccounts,
   submitBusinessAccount,
+  updateBusinessAccountOperationalAction,
   updateBusinessAccountStatus
 } from "@/lib/businessAccounts";
 import { Branch, listBranches } from "@/lib/branches";
@@ -21,8 +23,9 @@ function formatStatus(status: string) {
 }
 
 function formatDeposit(account: BusinessAccount) {
-  if (account.status === "deposit_required") return "Required";
-  if (account.status === "deposit_received") return "Received";
+  if (account.depositStatus === "required") return "Required";
+  if (account.depositStatus === "received") return "Received";
+  if (account.depositStatus === "not_required") return "Not required";
   return "Not set";
 }
 
@@ -38,17 +41,17 @@ function getAssignedBranch(account: BusinessAccount) {
   return account.assignedBranch && typeof account.assignedBranch === "object" ? account.assignedBranch : null;
 }
 
-const accountActions: { label: string; status: BusinessAccountStatus }[] = [
+const lifecycleActions: { label: string; status: BusinessAccountStatus }[] = [
   { label: "Approve", status: "approved" },
   { label: "Reject", status: "rejected" },
-  { label: "Credit Limit Approved", status: "credit_limit_approved" },
-  { label: "Credit Limit Not Approved", status: "credit_limit_not_approved" },
-  { label: "Deposit Required", status: "deposit_required" },
-  { label: "Deposit Received", status: "deposit_received" },
   { label: "Activate Account", status: "active" },
-  { label: "Suspend Account", status: "suspended" },
-  { label: "Generate Agreement", status: "agreement_generated" },
-  { label: "View Ledger", status: "ledger_viewed" }
+  { label: "Suspend Account", status: "suspended" }
+];
+
+const operationalActions: { label: string; action: BusinessAccountOperationalAction }[] = [
+  { label: "Deposit Required", action: "deposit_required" },
+  { label: "Deposit Received", action: "deposit_received" },
+  { label: "View Ledger", action: "ledger_viewed" }
 ];
 
 export default function BusinessAccountsPage() {
@@ -64,6 +67,8 @@ export default function BusinessAccountsPage() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [assigningAccount, setAssigningAccount] = useState<BusinessAccount | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 4;
 
   useEffect(() => {
     if (!user) return;
@@ -105,6 +110,10 @@ export default function BusinessAccountsPage() {
 
   async function handleStatusAction(account: BusinessAccount, status: BusinessAccountStatus) {
     await refreshAccount(account.accountId, () => updateBusinessAccountStatus(account.accountId, status));
+  }
+
+  async function handleOperationalAction(account: BusinessAccount, action: BusinessAccountOperationalAction) {
+    await refreshAccount(account.accountId, () => updateBusinessAccountOperationalAction(account.accountId, action));
   }
 
   async function openAssignBranchModal(account: BusinessAccount) {
@@ -168,11 +177,20 @@ export default function BusinessAccountsPage() {
 
     if (value.startsWith("status:")) {
       await handleStatusAction(account, value.replace("status:", "") as BusinessAccountStatus);
+      return;
+    }
+
+    if (value.startsWith("operation:")) {
+      await handleOperationalAction(account, value.replace("operation:", "") as BusinessAccountOperationalAction);
     }
   }
 
   if (loading || !user) return <BusinessAccountsLoading />;
 
+  const totalPages = Math.max(1, Math.ceil(accounts.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const visibleAccounts = accounts.slice(startIndex, startIndex + pageSize);
   const filteredBranches = branches.filter((branch) =>
     `${branch.name} ${branch.code} ${branch.address.city} ${branch.address.countryName}`
       .toLowerCase()
@@ -196,7 +214,10 @@ export default function BusinessAccountsPage() {
           Search
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             placeholder="Account ID, company, contact, email, mobile, registration ID"
             className="mt-2 block w-full border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
           />
@@ -224,7 +245,7 @@ export default function BusinessAccountsPage() {
               <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500">Loading accounts...</td></tr>
             ) : accounts.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500">No business accounts found.</td></tr>
-            ) : accounts.map((account) => (
+            ) : visibleAccounts.map((account) => (
               <tr key={account.accountId} className="border-b border-slate-100 last:border-b-0">
                 <td className="px-4 py-3">
                   <p className="font-semibold text-slate-950">{account.company.companyName}</p>
@@ -265,8 +286,13 @@ export default function BusinessAccountsPage() {
                       <option value="kyc">KYC</option>
                       <option value="assign_branch">Assign Branch</option>
                       {account.status === "draft" ? <option value="submit">Submit for Review</option> : null}
-                      {accountActions.map((action) => (
+                      {lifecycleActions.map((action) => (
                         <option key={action.status} value={`status:${action.status}`}>
+                          {action.label}
+                        </option>
+                      ))}
+                      {operationalActions.map((action) => (
+                        <option key={action.action} value={`operation:${action.action}`}>
                           {action.label}
                         </option>
                       ))}
@@ -282,6 +308,33 @@ export default function BusinessAccountsPage() {
           </tbody>
         </table>
       </div>
+
+      {accounts.length > pageSize ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+          <p>
+            Showing {startIndex + 1}-{Math.min(startIndex + pageSize, accounts.length)} of {accounts.length} accounts
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={safePage === 1}
+              className="border border-slate-300 px-3 py-2 font-semibold text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="px-2 font-semibold text-slate-700">Page {safePage} of {totalPages}</span>
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              disabled={safePage === totalPages}
+              className="border border-slate-300 px-3 py-2 font-semibold text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {assigningAccount ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 px-4">

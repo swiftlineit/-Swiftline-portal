@@ -27,12 +27,14 @@ export type Branch = {
   _id: string;
   name: string;
   code: string;
+  labelCode: string;
   openingDate?: string | null;
   description?: string;
   address: {
     countryCode: string;
     countryName: string;
     city: string;
+    stateOrProvince: string;
     postalCode: string;
     address: string;
   };
@@ -47,6 +49,8 @@ export type Branch = {
     workingDays: WorkingDay[];
   };
   baseCurrency: string;
+  gstin: string;
+  invoiceSacCode: string;
   status: BranchStatus;
   createdBy?: { email?: string; name?: string };
   createdAt: string;
@@ -56,12 +60,15 @@ export type Branch = {
 export type BranchFormData = {
   name: string;
   code: string;
+  labelCode: string;
   openingDate: string;
   description: string;
   address: Branch["address"];
   contact: Branch["contact"];
   operations: Branch["operations"];
   baseCurrency: string;
+  gstin: string;
+  invoiceSacCode: string;
 };
 
 export const countryOptions = [
@@ -183,12 +190,14 @@ export function branchToFormData(branch: Branch): BranchFormData {
   return {
     name: branch.name,
     code: branch.code,
+    labelCode: branch.labelCode ?? "",
     openingDate: branch.openingDate ? branch.openingDate.slice(0, 10) : "",
     description: branch.description ?? "",
     address: {
       countryCode: branch.address.countryCode ?? "",
       countryName: branch.address.countryName ?? "",
       city: branch.address.city ?? "",
+      stateOrProvince: branch.address.stateOrProvince ?? "",
       postalCode: branch.address.postalCode ?? "",
       address: branch.address.address ?? ""
     },
@@ -202,7 +211,9 @@ export function branchToFormData(branch: Branch): BranchFormData {
       operatingCountries: branch.operations.operatingCountries ?? [],
       workingDays: branch.operations.workingDays ?? []
     },
-    baseCurrency: branch.baseCurrency ?? ""
+    baseCurrency: branch.baseCurrency ?? "",
+    gstin: branch.gstin ?? "",
+    invoiceSacCode: branch.invoiceSacCode ?? ""
   };
 }
 

@@ -25,12 +25,14 @@ export type BranchStatus = (typeof branchStatusValues)[number];
 export interface IBranch extends mongoose.Document {
   name: string;
   code: string;
+  labelCode?: string;
   openingDate?: Date | null;
   description?: string;
   address: {
     countryCode?: string;
     countryName?: string;
     city?: string;
+    stateOrProvince?: string;
     postalCode?: string;
     address?: string;
   };
@@ -45,6 +47,8 @@ export interface IBranch extends mongoose.Document {
     workingDays: WorkingDay[];
   };
   baseCurrency?: string;
+  gstin?: string;
+  invoiceSacCode?: string;
   status: BranchStatus;
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId | null;
@@ -63,12 +67,20 @@ const branchSchema = new mongoose.Schema<IBranch>(
       trim: true,
       match: /^[A-Z0-9-]{3,20}$/
     },
+    labelCode: {
+      type: String,
+      uppercase: true,
+      trim: true,
+      match: /^[A-Z0-9]{2,4}$/,
+      default: ""
+    },
     openingDate: { type: Date, default: null },
     description: { type: String, trim: true, maxlength: 500, default: "" },
     address: {
       countryCode: { type: String, uppercase: true, trim: true, default: "" },
       countryName: { type: String, trim: true, default: "" },
       city: { type: String, trim: true, default: "" },
+      stateOrProvince: { type: String, trim: true, default: "" },
       postalCode: { type: String, trim: true, default: "" },
       address: { type: String, trim: true, maxlength: 500, default: "" }
     },
@@ -83,6 +95,8 @@ const branchSchema = new mongoose.Schema<IBranch>(
       workingDays: [{ type: String, enum: workingDayValues }]
     },
     baseCurrency: { type: String, uppercase: true, trim: true, default: "" },
+    gstin: { type: String, uppercase: true, trim: true, default: "", maxlength: 15 },
+    invoiceSacCode: { type: String, trim: true, default: "", maxlength: 12 },
     status: { type: String, enum: branchStatusValues, default: "DRAFT", index: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }

@@ -198,6 +198,17 @@ export function CompanyStep({
             searchable={false}
             required={!noCompanyChecked}
           />
+          {selectedRegistrationCountry === "India" ? (
+            <Field
+              label="GSTIN"
+              value={formData.company.gstin ?? ""}
+              onChange={(value) => onCompanyChange("gstin", value.toUpperCase().replace(/\s+/g, ""))}
+              error={validationErrors.gstin}
+              info="Optional for customers who are not registered under GST."
+              disabled={noCompanyChecked}
+              maxLength={15}
+            />
+          ) : null}
         </div>
       </section>
 

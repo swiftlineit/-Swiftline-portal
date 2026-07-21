@@ -24,6 +24,7 @@ type FormErrors = Partial<Record<string, string>>;
 type FieldKey =
   | "name"
   | "code"
+  | "labelCode"
   | "country"
   | "city"
   | "postalCode"
@@ -39,12 +40,14 @@ type SaveAction = "DRAFT" | "ACTIVE";
 const initialForm: BranchFormData = {
   name: "",
   code: "",
+  labelCode: "",
   openingDate: "",
   description: "",
   address: {
     countryCode: "",
     countryName: "",
     city: "",
+    stateOrProvince: "",
     postalCode: "",
     address: ""
   },
@@ -58,11 +61,17 @@ const initialForm: BranchFormData = {
     operatingCountries: [],
     workingDays: ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]
   },
-  baseCurrency: ""
+  baseCurrency: "",
+  gstin: "",
+  invoiceSacCode: ""
 };
 
 function normalizeBranchCode(value: string) {
   return value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 20);
+}
+
+function normalizeLabelCode(value: string) {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
 }
 
 function isValidEmail(value: string) {
@@ -78,6 +87,7 @@ function validateForm(data: BranchFormData, action: SaveAction, codeExists: bool
 
   if (data.name.trim().length < 3) errors.name = "Branch name must be at least 3 characters.";
   if (!/^[A-Z0-9-]{3,20}$/.test(data.code)) errors.code = "Use 3-20 uppercase letters, numbers, or hyphens.";
+  if (!/^[A-Z0-9]{2,4}$/.test(data.labelCode)) errors.labelCode = "Use 2-4 uppercase letters or numbers.";
   if (codeExists) errors.code = "This branch code already exists.";
 
   if (action === "DRAFT") return errors;
@@ -403,6 +413,17 @@ export default function BranchForm({
             error={visibleErrors.code}
             placeholder="DEL-HUB"
           />
+          <TextField
+            label="Label Code"
+            required
+            value={form.labelCode}
+            onChange={(event) => {
+              markTouched("labelCode");
+              updateForm({ labelCode: normalizeLabelCode(event.target.value) });
+            }}
+            error={visibleErrors.labelCode}
+            placeholder="DL"
+          />
           <label className="block text-sm font-semibold text-slate-700 md:col-span-2">
             Description
             <textarea
@@ -442,6 +463,11 @@ export default function BranchForm({
             error={visibleErrors.city}
           />
           <TextField
+            label="State or Province"
+            value={form.address.stateOrProvince}
+            onChange={(event) => updateAddress({ stateOrProvince: event.target.value })}
+          />
+          <TextField
             label="Postal Code"
             required
             value={form.address.postalCode}
@@ -466,6 +492,20 @@ export default function BranchForm({
             type="date"
             value={form.openingDate}
             onChange={(event) => updateForm({ openingDate: event.target.value })}
+          />
+          <TextField
+            label="Branch GSTIN"
+            value={form.gstin}
+            onChange={(event) => updateForm({ gstin: event.target.value.toUpperCase().replace(/\s+/g, "") })}
+            maxLength={15}
+            placeholder="06ABCDE1234F1Z5"
+          />
+          <TextField
+            label="Invoice SAC Code"
+            value={form.invoiceSacCode}
+            onChange={(event) => updateForm({ invoiceSacCode: event.target.value.replace(/[^0-9]/g, "") })}
+            maxLength={12}
+            placeholder="Applicable service code"
           />
           
           <TextField

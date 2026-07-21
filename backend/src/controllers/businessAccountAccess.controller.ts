@@ -1,0 +1,360 @@
+import crypto from "crypto";
+import type { Request, Response } from "express";
+import mongoose from "mongoose";
+import { z } from "zod";
+import { env } from "../config/env.js";
+import { Branch } from "../models/branch.model.js";
+import { BusinessAccount } from "../models/businessAccount.model.js";
+import { BusinessAccountInvitation } from "../models/businessAccountInvitation.model.js";
+import {
+  BusinessAccountMember,
+  businessAccountMemberRoleValues,
+  IBusinessAccountMember
+} from "../models/businessAccountMember.model.js";
+import { IUser, User } from "../models/user.model.js";
+import { sendClientInvitationEmail } from "../services/mail.service.js";
+
+const invitationLifetimeMs = 24 * 60 * 60 * 1000;
+
+const createClientAccessSchema = z.object({
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  email: z.string().trim().email().toLowerCase(),
+  phone: z.string().trim().max(30).optional().default(""),
+  role: z.enum(businessAccountMemberRoleValues),
+  assignedBranches: z.array(z.string().trim()).optional().default([]),
+  sendInvitationEmail: z.boolean().optional().default(true)
+});
+
+function getAuthenticatedUserId(request: Request): mongoose.Types.ObjectId | null {
+  const user = (request as Request & { user?: { _id?: unknown } }).user;
+  const id = user?._id;
+
+  if (!id || !mongoose.Types.ObjectId.isValid(String(id))) return null;
+  return new mongoose.Types.ObjectId(String(id));
+}
+
+function hashInvitationToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function createInvitationToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function buildActivationUrl(token: string) {
+  return `${env.CLIENT_URL.replace(/\/$/, "")}/auth/activate?token=${encodeURIComponent(token)}`;
+}
+
+function formatUserName(firstName: string, lastName: string) {
+  return `${firstName} ${lastName}`.trim();
+}
+
+function isClientAccessAllowed(account: Awaited<ReturnType<typeof BusinessAccount.findOne>>) {
+  return Boolean(
+    account
+    && ["approved", "active"].includes(account.status)
+    && account.kycReview?.overallStatus === "verified"
+  );
+}
+
+async function resolveClientAccessBranch(account: Awaited<ReturnType<typeof BusinessAccount.findOne>>, branchIds: string[]) {
+  if (!account?.assignedBranch) {
+    throw new Error("Assign a branch to this business account before creating client access.");
+  }
+
+  const uniqueBranchIds = [...new Set(branchIds.filter(Boolean))];
+  const assignedBranchId = String(account.assignedBranch);
+
+  if (uniqueBranchIds.some((branchId) => !mongoose.Types.ObjectId.isValid(branchId))) {
+    throw new Error("Invalid assigned branch.");
+  }
+
+  if (uniqueBranchIds.length > 1) {
+    throw new Error("Client access can only use the business account assigned branch.");
+  }
+
+  if (uniqueBranchIds[0] && uniqueBranchIds[0] !== assignedBranchId) {
+    throw new Error("Client access branch must match the business account assigned branch.");
+  }
+
+  const branchExists = await Branch.exists({ _id: account.assignedBranch }).exec();
+  if (!branchExists) throw new Error("The assigned business account branch does not exist.");
+
+  return [new mongoose.Types.ObjectId(assignedBranchId)];
+}
+
+async function createInvitation(
+  member: IBusinessAccountMember,
+  createdBy: mongoose.Types.ObjectId
+) {
+  // Only one pending invitation should be usable for a member at a time.
+  await BusinessAccountInvitation.updateMany(
+    { member: member._id, acceptedAt: null, revokedAt: null },
+    { $set: { revokedAt: new Date() } }
+  ).exec();
+
+  const token = createInvitationToken();
+  const invitation = await BusinessAccountInvitation.create({
+    user: member.user,
+    businessAccount: member.businessAccount,
+    member: member._id,
+    tokenHash: hashInvitationToken(token),
+    expiresAt: new Date(Date.now() + invitationLifetimeMs),
+    createdBy
+  });
+
+  return {
+    invitation,
+    activationUrl: buildActivationUrl(token)
+  };
+}
+
+async function deliverInvitationEmail(input: {
+  user: Pick<IUser, "email" | "firstName" | "lastName" | "name">;
+  companyName: string;
+  activationUrl: string;
+  expiresAt: Date;
+}) {
+  const displayName = input.user.name || formatUserName(input.user.firstName ?? "", input.user.lastName ?? "");
+
+  return sendClientInvitationEmail({
+    to: input.user.email,
+    name: displayName,
+    companyName: input.companyName,
+    activationUrl: input.activationUrl,
+    expiresAt: input.expiresAt
+  });
+}
+
+async function serializeMember(member: IBusinessAccountMember) {
+  const invitation = await BusinessAccountInvitation.findOne({
+    member: member._id,
+    acceptedAt: null,
+    revokedAt: null
+  })
+    .sort({ createdAt: -1 })
+    .lean()
+    .exec();
+
+  const rawUser = member.user && typeof member.user === "object"
+    ? member.user as unknown as Partial<IUser> & { _id?: mongoose.Types.ObjectId }
+    : null;
+  const rawBranches = Array.isArray(member.assignedBranches)
+    ? member.assignedBranches as unknown as Array<{ _id?: mongoose.Types.ObjectId; name?: string; code?: string } | mongoose.Types.ObjectId | null>
+    : [];
+
+  return {
+    _id: String(member._id),
+    role: member.role,
+    status: member.status,
+    joinedAt: member.joinedAt ?? null,
+    createdAt: member.createdAt,
+    user: {
+      _id: String(rawUser?._id ?? member.user ?? ""),
+      firstName: rawUser?.firstName ?? "",
+      lastName: rawUser?.lastName ?? "",
+      name: rawUser?.name ?? "",
+      email: rawUser?.email ?? "",
+      phone: rawUser?.phone ?? "",
+      userStatus: rawUser?.userStatus ?? "active",
+      lastLogin: rawUser?.lastLogin ?? null
+    },
+    assignedBranches: rawBranches
+      .filter((branch): branch is { _id?: mongoose.Types.ObjectId; name?: string; code?: string } | mongoose.Types.ObjectId => Boolean(branch))
+      .map((branch) => {
+        const branchDocument = branch && typeof branch === "object" && "_id" in branch
+          ? branch
+          : { _id: branch as mongoose.Types.ObjectId };
+
+        return {
+          _id: String(branchDocument._id ?? ""),
+          name: "name" in branchDocument ? branchDocument.name ?? "" : "",
+          code: "code" in branchDocument ? branchDocument.code ?? "" : ""
+        };
+      }),
+    invitation: invitation ? {
+      expiresAt: invitation.expiresAt,
+      acceptedAt: invitation.acceptedAt ?? null,
+      revokedAt: invitation.revokedAt ?? null
+    } : null
+  };
+}
+
+export async function listBusinessAccountMembers(request: Request, response: Response): Promise<Response> {
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).select("_id").lean().exec();
+
+  if (!account) {
+    return response.status(404).json({ success: false, message: "Business account not found." });
+  }
+
+  const members = await BusinessAccountMember.find({ businessAccount: account._id, status: { $ne: "removed" } })
+    .populate("user", "firstName lastName name email phone userStatus lastLogin")
+    .populate("assignedBranches", "name code")
+    .sort({ createdAt: -1 })
+    .exec();
+
+  return response.status(200).json({
+    success: true,
+    members: await Promise.all(members.map(serializeMember))
+  });
+}
+
+export async function createBusinessAccountClientAccess(request: Request, response: Response): Promise<Response> {
+  const parsed = createClientAccessSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return response.status(400).json({ success: false, errors: parsed.error.format() });
+  }
+
+  const adminId = getAuthenticatedUserId(request);
+  if (!adminId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
+  if (!account) return response.status(404).json({ success: false, message: "Business account not found." });
+
+  if (!isClientAccessAllowed(account)) {
+    return response.status(409).json({
+      success: false,
+      message: "Client login can be created only after account approval and KYC verification."
+    });
+  }
+
+  let assignedBranches: mongoose.Types.ObjectId[];
+  try {
+    assignedBranches = await resolveClientAccessBranch(account, parsed.data.assignedBranches);
+  } catch (error) {
+    return response.status(400).json({ success: false, message: error instanceof Error ? error.message : "Invalid assigned branches." });
+  }
+
+  const existingUser = await User.findOne({ email: parsed.data.email }).exec();
+  const user = existingUser ?? await User.create({
+    firstName: parsed.data.firstName,
+    lastName: parsed.data.lastName,
+    name: formatUserName(parsed.data.firstName, parsed.data.lastName),
+    email: parsed.data.email,
+    phone: parsed.data.phone,
+    role: "client",
+    userStatus: "invited",
+    isVerified: false,
+    invitedBy: adminId
+  });
+
+  if (existingUser) {
+    user.firstName = user.firstName || parsed.data.firstName;
+    user.lastName = user.lastName || parsed.data.lastName;
+    user.name = user.name || formatUserName(parsed.data.firstName, parsed.data.lastName);
+    user.phone = user.phone || parsed.data.phone;
+    if (user.role !== "client") user.role = "client";
+    if ((user.userStatus ?? "invited") === "disabled") {
+      return response.status(409).json({ success: false, message: "This user login is disabled." });
+    }
+    if (!user.passwordHash) user.userStatus = "invited";
+    await user.save();
+  }
+
+  const duplicateMember = await BusinessAccountMember.findOne({
+    businessAccount: account._id,
+    user: user._id,
+    status: { $in: ["invited", "active", "suspended"] }
+  }).exec();
+
+  if (duplicateMember) {
+    return response.status(409).json({ success: false, message: "This user already has access to this business account." });
+  }
+
+  const member = await BusinessAccountMember.create({
+    businessAccount: account._id,
+    user: user._id,
+    role: parsed.data.role,
+    assignedBranches,
+    status: "invited",
+    invitedBy: adminId
+  });
+
+  const { invitation, activationUrl } = await createInvitation(member, adminId);
+  let emailDelivery = { sent: false, skipped: !parsed.data.sendInvitationEmail };
+
+  if (parsed.data.sendInvitationEmail) {
+    try {
+      emailDelivery = await deliverInvitationEmail({
+        user,
+        companyName: account.company.companyName,
+        activationUrl,
+        expiresAt: invitation.expiresAt
+      });
+    } catch (error) {
+      return response.status(502).json({
+        success: false,
+        message: error instanceof Error ? error.message : "Invitation email could not be sent.",
+        activationUrl
+      });
+    }
+  }
+
+  const populatedMember = await BusinessAccountMember.findById(member._id)
+    .populate("user", "firstName lastName name email phone userStatus lastLogin")
+    .populate("assignedBranches", "name code")
+    .exec();
+
+  return response.status(201).json({
+    success: true,
+    member: populatedMember ? await serializeMember(populatedMember) : null,
+    activationUrl,
+    emailQueued: parsed.data.sendInvitationEmail,
+    emailSent: emailDelivery.sent,
+    emailSkipped: emailDelivery.skipped
+  });
+}
+
+export async function resendBusinessAccountInvitation(request: Request, response: Response): Promise<Response> {
+  const adminId = getAuthenticatedUserId(request);
+  if (!adminId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).select("_id company.companyName").exec();
+  if (!account) {
+    return response.status(404).json({ success: false, message: "Business account not found." });
+  }
+
+  const member = await BusinessAccountMember.findById(request.params.memberId)
+    .populate("user", "firstName lastName name email")
+    .exec();
+
+  if (!member || member.status === "removed") {
+    return response.status(404).json({ success: false, message: "Account member not found." });
+  }
+
+  if (String(member.businessAccount) !== String(account._id)) {
+    return response.status(404).json({ success: false, message: "Account member not found." });
+  }
+
+  if (member.status === "active") {
+    return response.status(409).json({ success: false, message: "This member has already activated access." });
+  }
+
+  const { invitation, activationUrl } = await createInvitation(member, adminId);
+  const invitedUser = member.user as unknown as Pick<IUser, "email" | "firstName" | "lastName" | "name">;
+  let emailDelivery;
+
+  try {
+    emailDelivery = await deliverInvitationEmail({
+      user: invitedUser,
+      companyName: account.company.companyName,
+      activationUrl,
+      expiresAt: invitation.expiresAt
+    });
+  } catch (error) {
+    return response.status(502).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Invitation email could not be sent.",
+      activationUrl
+    });
+  }
+
+  return response.status(200).json({
+    success: true,
+    activationUrl,
+    emailSent: emailDelivery.sent,
+    emailSkipped: emailDelivery.skipped
+  });
+}

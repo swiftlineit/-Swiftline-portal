@@ -7,18 +7,17 @@ export const businessAccountStatuses = [
   "pending_review",
   "approved",
   "rejected",
-  "more_info_needed",
-  "credit_limit_approved",
-  "credit_limit_not_approved",
-  "deposit_required",
-  "deposit_received",
   "active",
-  "suspended",
-  "branch_assigned",
-  "agreement_generated",
-  "ledger_viewed"
+  "suspended"
 ] as const;
 export type BusinessAccountStatus = (typeof businessAccountStatuses)[number];
+export type BusinessAccountOperationalAction =
+  | "deposit_required"
+  | "deposit_received"
+  | "ledger_viewed";
+export type CreditLimitStatus = "not_reviewed" | "approved" | "not_approved";
+export type DepositStatus = "not_required" | "required" | "received";
+export type AgreementStatus = "not_generated" | "generated" | "signed";
 export type DocumentType =
   | "aadhaarCard"
   | "panCard"
@@ -74,6 +73,7 @@ export type BusinessAccount = {
     registrationCountry: string;
     registrationIdType?: string;
     registrationId: string;
+    gstin?: string;
     secondaryRegistrationId?: string;
     noCompanyRegistration?: boolean;
     noCompany?: boolean;
@@ -108,6 +108,10 @@ export type BusinessAccount = {
     reviewedAt?: string | null;
     reviewedBy?: string | null;
   };
+  creditLimitStatus?: CreditLimitStatus;
+  depositStatus?: DepositStatus;
+  agreementStatus?: AgreementStatus;
+  ledgerViewedAt?: string | null;
   assignedBranch?: {
     _id: string;
     name: string;
@@ -143,6 +147,54 @@ export type BusinessKycReviewUpdate = {
   }>>;
   finalDecision?: "rejected" | null;
   startReview?: boolean;
+};
+
+export const businessAccountMemberRoles = [
+  "account_owner",
+  "account_admin",
+  "operations",
+  "finance",
+  "tracking_only"
+] as const;
+export type BusinessAccountMemberRole = (typeof businessAccountMemberRoles)[number];
+export type BusinessAccountMemberStatus = "invited" | "active" | "suspended" | "removed";
+
+export type BusinessAccountMember = {
+  _id: string;
+  role: BusinessAccountMemberRole;
+  status: BusinessAccountMemberStatus;
+  joinedAt?: string | null;
+  createdAt: string;
+  user: {
+    _id: string;
+    firstName: string;
+    lastName: string;
+    name: string;
+    email: string;
+    phone: string;
+    userStatus: "invited" | "active" | "suspended" | "disabled";
+    lastLogin?: string | null;
+  };
+  assignedBranches: Array<{
+    _id: string;
+    name: string;
+    code: string;
+  }>;
+  invitation?: {
+    expiresAt: string;
+    acceptedAt?: string | null;
+    revokedAt?: string | null;
+  } | null;
+};
+
+export type CreateClientAccessInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  role: BusinessAccountMemberRole;
+  assignedBranches: string[];
+  sendInvitationEmail: boolean;
 };
 
 function buildAuthHeaders(headers: HeadersInit | undefined, token: string | null) {
@@ -296,6 +348,16 @@ export async function updateBusinessAccountStatus(accountId: string, status: Bus
   return parseApiResponse<{ success: true; account: BusinessAccount; message: string }>(response);
 }
 
+export async function updateBusinessAccountOperationalAction(accountId: string, action: BusinessAccountOperationalAction) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/operational-action`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action })
+  });
+
+  return parseApiResponse<{ success: true; account: BusinessAccount; message: string }>(response);
+}
+
 export async function assignBusinessAccountBranch(accountId: string, branchId: string) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/assign-branch`), {
     method: "PATCH",
@@ -324,4 +386,35 @@ export async function updateBusinessAccountKycReview(accountId: string, update: 
   });
 
   return parseApiResponse<{ success: true; account: BusinessAccount }>(response);
+}
+
+export async function listBusinessAccountMembers(accountId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/members`));
+
+  return parseApiResponse<{ success: true; members: BusinessAccountMember[] }>(response);
+}
+
+export async function createBusinessAccountClientAccess(accountId: string, input: CreateClientAccessInput) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/client-access`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+
+  return parseApiResponse<{
+    success: true;
+    member: BusinessAccountMember;
+    activationUrl: string;
+    emailQueued: boolean;
+    emailSent: boolean;
+    emailSkipped: boolean;
+  }>(response);
+}
+
+export async function resendBusinessAccountInvitation(accountId: string, memberId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/members/${memberId}/resend-invitation`), {
+    method: "POST"
+  });
+
+  return parseApiResponse<{ success: true; activationUrl: string; emailSent: boolean; emailSkipped: boolean }>(response);
 }

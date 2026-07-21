@@ -13,22 +13,27 @@ import {
 const currencyValues = ["INR", "USD", "AED", "GBP", "EUR", "SGD", "CAD", "AUD", "SAR"] as const;
 const countryCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Country code must be a two-letter ISO code");
 const branchCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{3,20}$/, "Branch code must be 3-20 uppercase letters, numbers, or hyphens");
+const branchLabelCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9]{2,4}$/, "Label code must be 2-4 uppercase letters or numbers");
+const gstinSchema = z.string().trim().toUpperCase().regex(/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "Enter a valid 15-character GSTIN");
 
 const branchPayloadSchema = z.object({
   name: z.string().trim().min(3).max(100),
   code: branchCodeSchema,
+  labelCode: branchLabelCodeSchema.optional().or(z.literal("")),
   openingDate: z.string().trim().optional().nullable(),
   description: z.string().trim().max(500).optional().default(""),
   address: z.object({
     countryCode: countryCodeSchema.optional().or(z.literal("")),
     countryName: z.string().trim().max(80).optional().default(""),
     city: z.string().trim().max(80).optional().default(""),
+    stateOrProvince: z.string().trim().max(80).optional().default(""),
     postalCode: z.string().trim().max(20).optional().default(""),
     address: z.string().trim().max(500).optional().default("")
   }).optional().default({
     countryCode: "",
     countryName: "",
     city: "",
+    stateOrProvince: "",
     postalCode: "",
     address: ""
   }),
@@ -48,6 +53,8 @@ const branchPayloadSchema = z.object({
     workingDays: []
   }),
   baseCurrency: z.enum(currencyValues).optional().or(z.literal("")),
+  gstin: gstinSchema.optional().or(z.literal("")),
+  invoiceSacCode: z.string().trim().max(12).optional().default(""),
   status: z.enum(["DRAFT", "ACTIVE"])
 });
 
@@ -63,6 +70,7 @@ function getAuthenticatedUserId(request: Request): mongoose.Types.ObjectId | nul
 }
 
 function getActiveBranchValidationError(data: BranchPayload): string | null {
+  if (!data.labelCode) return "Label code is required";
   if (!data.address.countryCode || !data.address.countryName) return "Country is required";
   if (!data.address.city) return "City is required";
   if (!data.address.postalCode) return "Postal code is required";
@@ -90,12 +98,14 @@ function normalizeBranchPayload(data: BranchPayload, userId: mongoose.Types.Obje
   const payload = {
     name: data.name,
     code: data.code,
+    labelCode: data.labelCode || "",
     openingDate: openingDate && Number.isFinite(openingDate.getTime()) ? openingDate : null,
     description: data.description ?? "",
     address: {
       countryCode: data.address.countryCode || "",
       countryName: data.address.countryName || "",
       city: data.address.city || "",
+      stateOrProvince: data.address.stateOrProvince || "",
       postalCode: data.address.postalCode || "",
       address: data.address.address || ""
     },
@@ -110,6 +120,8 @@ function normalizeBranchPayload(data: BranchPayload, userId: mongoose.Types.Obje
       workingDays: data.operations.workingDays
     },
     baseCurrency: data.baseCurrency || "",
+    gstin: data.gstin || "",
+    invoiceSacCode: data.invoiceSacCode || "",
     status: data.status as BranchStatus,
     updatedBy: userId
   };

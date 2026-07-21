@@ -1,0 +1,101 @@
+import { CountryRateCard } from "@/lib/countryRateCards";
+import { ShipmentServiceType } from "@/lib/dpdLabels";
+
+export const defaultGstRate = 0.18;
+
+export type PricingParcelInput = {
+  weightKg: string | number;
+  lengthCm?: string | number;
+  widthCm?: string | number;
+  heightCm?: string | number;
+};
+
+export type ParcelChargeEstimate = {
+  actualWeightKg: number;
+  volumetricWeightKg: number;
+  chargeableWeightKg: number;
+  rate: CountryRateCard | null;
+  baseAmount: number;
+  exceedsMaxBoxKg: boolean;
+};
+
+function numeric(value: string | number | undefined) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function getVolumetricDivisor(serviceType: ShipmentServiceType) {
+  return serviceType === "CARGO" ? 6000 : 5000;
+}
+
+export function roundShipmentMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+export function getParcelVolumetricWeight(parcel: PricingParcelInput, serviceType: ShipmentServiceType) {
+  const lengthCm = numeric(parcel.lengthCm);
+  const widthCm = numeric(parcel.widthCm);
+  const heightCm = numeric(parcel.heightCm);
+  if (!lengthCm || !widthCm || !heightCm) return 0;
+
+  return (lengthCm * widthCm * heightCm) / getVolumetricDivisor(serviceType);
+}
+
+export function findRateForWeight(
+  rates: CountryRateCard[],
+  countryCode: string,
+  serviceType: ShipmentServiceType,
+  chargeableWeightKg: number
+) {
+  return rates.find((rate) =>
+    rate.countryCode === countryCode
+    && rate.service === serviceType
+    && chargeableWeightKg >= rate.fromKg
+    && chargeableWeightKg <= rate.toKg
+  ) ?? null;
+}
+
+export function calculateShipmentEstimate(input: {
+  parcels: PricingParcelInput[];
+  rates: CountryRateCard[];
+  countryCode: string;
+  serviceType: ShipmentServiceType;
+  gstRate?: number;
+}) {
+  const gstRate = input.gstRate ?? defaultGstRate;
+  const parcels = input.parcels.map((parcel) => {
+    const actualWeightKg = numeric(parcel.weightKg);
+    const volumetricWeightKg = getParcelVolumetricWeight(parcel, input.serviceType);
+    const chargeableWeightKg = Math.max(actualWeightKg, volumetricWeightKg);
+    const rate = findRateForWeight(input.rates, input.countryCode, input.serviceType, chargeableWeightKg);
+    const baseAmount = rate ? roundShipmentMoney(chargeableWeightKg * rate.chargesPerKg) : 0;
+
+    return {
+      actualWeightKg,
+      volumetricWeightKg,
+      chargeableWeightKg,
+      rate,
+      baseAmount,
+      exceedsMaxBoxKg: Boolean(rate && chargeableWeightKg > rate.maxBoxKg)
+    };
+  });
+  const baseAmount = roundShipmentMoney(parcels.reduce((total, parcel) => total + parcel.baseAmount, 0));
+  const gstAmount = roundShipmentMoney(baseAmount * gstRate);
+
+  return {
+    parcels,
+    baseAmount,
+    gstAmount,
+    totalAmount: roundShipmentMoney(baseAmount + gstAmount),
+    missingRate: parcels.some((parcel) => !parcel.rate && parcel.chargeableWeightKg > 0),
+    exceedsMaxBoxKg: parcels.some((parcel) => parcel.exceedsMaxBoxKg)
+  };
+}
+
+export function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2
+  }).format(value);
+}

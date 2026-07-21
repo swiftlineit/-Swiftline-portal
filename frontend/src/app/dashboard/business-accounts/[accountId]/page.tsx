@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FiChevronDown } from "react-icons/fi";
 import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import { BusinessAccountAccessPanel } from "@/components/business-accounts/BusinessAccountAccessPanel";
 import {
   canadaRegistrationTypeOptions,
   registrationConfig
@@ -214,7 +215,7 @@ export default function BusinessAccountDetailsPage() {
       {/* Error alert */}
       {error ? <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2 capitalize">
         {/* Contact details */}
         <DetailSection title="Contact Details" rows={[
           ["Primary Contact", `${account.contact.firstName} ${account.contact.lastName}`],
@@ -268,6 +269,9 @@ export default function BusinessAccountDetailsPage() {
           onReject={() => void handleRejectKyc()}
           onCheckChange={(key, status, note) => void handleKycCheckChange(key, status, note)}
         />
+
+        {/* Users and access */}
+        <BusinessAccountAccessPanel account={account} />
       </div>
     </BusinessAccountsShell>
   );
@@ -550,3 +554,12 @@ function DocumentSummary({
     </div>
   );
 }
+
+
+
+
+
+
+
+
+

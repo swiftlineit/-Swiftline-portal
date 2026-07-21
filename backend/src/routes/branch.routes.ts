@@ -12,3 +12,4 @@ branchRouter.get("/validate-code", validateBranchCode);
 branchRouter.post("/", createBranch);
 branchRouter.get("/:branchId", getBranch);
 branchRouter.patch("/:branchId", updateBranch);
+

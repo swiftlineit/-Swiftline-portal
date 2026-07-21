@@ -11,7 +11,10 @@ const createUserSchema = z.object({
 });
 
 export async function listUsers(_req: Request, res: Response): Promise<Response> {
-  const users = await User.find().select("email role name isVerified hasSeenWelcome lockedUntil").lean().exec();
+  const users = await User.find()
+    .select("email role name isVerified userStatus hasSeenWelcome lockedUntil")
+    .lean()
+    .exec();
   return res.status(200).json({ success: true, users });
 }
 
@@ -41,6 +44,28 @@ export async function unlockUser(req: Request, res: Response): Promise<Response>
   await user.save();
 
   return res.status(200).json({ success: true });
+}
+
+const updateUserStatusSchema = z.object({
+  status: z.enum(["invited", "active", "suspended", "disabled"])
+});
+
+export async function updateUserStatus(req: Request, res: Response): Promise<Response> {
+  const { id } = req.params;
+  const parsed = updateUserStatusSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ success: false, errors: parsed.error.format() });
+
+  const user = await User.findById(id).exec();
+  if (!user) return res.status(404).json({ success: false });
+
+  user.userStatus = parsed.data.status;
+  if (parsed.data.status === "active") {
+    user.lockedUntil = null;
+    user.failedLoginAttempts = 0;
+  }
+  await user.save();
+
+  return res.status(200).json({ success: true, user: { _id: user._id, email: user.email, role: user.role, name: user.name, isVerified: user.isVerified, userStatus: user.userStatus, hasSeenWelcome: user.hasSeenWelcome, lockedUntil: user.lockedUntil } });
 }
 
 export async function changeRole(req: Request, res: Response): Promise<Response> {

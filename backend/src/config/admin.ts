@@ -23,7 +23,9 @@ export async function ensureAdminSeeded(): Promise<void> {
     return;
   }
 
-  const currentMatches = await comparePassword(env.ADMIN_PASSWORD, existing.passwordHash);
+  const currentMatches = existing.passwordHash
+    ? await comparePassword(env.ADMIN_PASSWORD, existing.passwordHash)
+    : false;
   if (!currentMatches) {
     existing.passwordHash = passwordHash;
     await existing.save();

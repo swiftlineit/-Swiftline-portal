@@ -42,6 +42,11 @@ const documentTypeSchema = z.enum([
   "iecCertificate"
 ]);
 const businessAccountStatusSchema = z.enum(businessAccountStatuses);
+const businessAccountOperationalActionSchema = z.enum([
+  "deposit_required",
+  "deposit_received",
+  "ledger_viewed"
+]);
 const businessKycCheckKeySchema = z.enum([
   "contactDetails",
   "companyDetails",
@@ -259,6 +264,7 @@ const businessAccountBodySchema = z.object({
     registrationCountry: registrationCountrySchema,
     registrationIdType: z.string().trim().max(80).optional().default(""),
     registrationId: z.string().trim().max(50).optional().default(""),
+    gstin: z.string().trim().toUpperCase().regex(/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "Enter a valid 15-character GSTIN").optional().or(z.literal("")),
     secondaryRegistrationId: z.string().trim().max(50).optional().default(""),
     noCompanyRegistration: z.coerce.boolean().optional().default(false),
     noCompany: z.coerce.boolean().optional().default(false),
@@ -410,15 +416,13 @@ const statusActionMessages: Record<BusinessAccountStatus, string> = {
   pending_review: "Business account submitted for review.",
   approved: "Business account approved.",
   rejected: "Business account rejected.",
-  more_info_needed: "Business account marked as needing more information.",
-  credit_limit_approved: "Credit limit approved.",
-  credit_limit_not_approved: "Credit limit not approved.",
+  active: "Business account activated.",
+  suspended: "Business account suspended."
+};
+
+const operationalActionMessages: Record<z.infer<typeof businessAccountOperationalActionSchema>, string> = {
   deposit_required: "Deposit required.",
   deposit_received: "Deposit received.",
-  active: "Business account activated.",
-  suspended: "Business account suspended.",
-  branch_assigned: "Branch assignment marked.",
-  agreement_generated: "Agreement generation marked.",
   ledger_viewed: "Ledger review marked."
 };
 
@@ -486,6 +490,7 @@ function buildAccountPayload(data: BusinessAccountBody) {
       registrationCountry: data.company.registrationCountry,
       registrationIdType: data.company.registrationIdType,
       registrationId: data.company.registrationId,
+      gstin: data.company.gstin,
       secondaryRegistrationId: data.company.secondaryRegistrationId,
       noCompanyRegistration: data.company.noCompanyRegistration,
       noCompany: data.company.noCompany,
@@ -718,6 +723,51 @@ function applyDerivedKycStatus(account: { contact: { shipmentTypes: ShipmentType
   return review;
 }
 
+function normalizeBusinessAccountSnapshot<T extends { status?: string; creditLimitStatus?: string; depositStatus?: string; agreementStatus?: string; ledgerViewedAt?: Date | string | null; updatedAt?: Date | string }>(account: T): T {
+  // Lean reads do not run schema hooks. Normalize legacy milestone statuses in
+  // API responses so old records behave like the new permanent data model.
+  if (account.status === "branch_assigned") {
+    account.status = "approved";
+  } else if (account.status === "credit_limit_approved") {
+    account.status = "approved";
+    account.creditLimitStatus = account.creditLimitStatus ?? "approved";
+  } else if (account.status === "credit_limit_not_approved") {
+    account.status = "approved";
+    account.creditLimitStatus = account.creditLimitStatus ?? "not_approved";
+  } else if (account.status === "deposit_required") {
+    account.status = "approved";
+    account.depositStatus = account.depositStatus ?? "required";
+  } else if (account.status === "deposit_received") {
+    account.status = "approved";
+    account.depositStatus = account.depositStatus ?? "received";
+  } else if (account.status === "agreement_generated") {
+    account.status = "approved";
+    account.agreementStatus = account.agreementStatus ?? "generated";
+  } else if (account.status === "ledger_viewed") {
+    account.status = "approved";
+    account.ledgerViewedAt = account.ledgerViewedAt ?? account.updatedAt ?? new Date();
+  } else if (account.status === "more_info_needed") {
+    account.status = "pending_review";
+  }
+
+  account.creditLimitStatus = account.creditLimitStatus ?? "not_reviewed";
+  account.depositStatus = account.depositStatus ?? "not_required";
+  account.agreementStatus = account.agreementStatus ?? "not_generated";
+  account.ledgerViewedAt = account.ledgerViewedAt ?? null;
+
+  return account;
+}
+
+async function getPopulatedBusinessAccount(accountId: string) {
+  const account = await BusinessAccount.findOne({ accountId })
+    .populate("createdBy", "email name")
+    .populate("assignedBranch", "name code status")
+    .lean()
+    .exec();
+
+  return account ? normalizeBusinessAccountSnapshot(account) : null;
+}
+
 function attachUploadedDocuments(
   documents: Partial<Record<DocumentType, IBusinessDocument>>,
   files: Partial<Record<DocumentType, Express.Multer.File>>
@@ -787,7 +837,7 @@ export async function listBusinessAccounts(request: Request, response: Response)
     .lean()
     .exec();
 
-  return response.status(200).json({ success: true, accounts });
+  return response.status(200).json({ success: true, accounts: accounts.map(normalizeBusinessAccountSnapshot) });
 }
 
 export async function createBusinessAccount(request: Request, response: Response): Promise<Response> {
@@ -827,7 +877,7 @@ export async function getBusinessAccount(request: Request, response: Response): 
 
   if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
 
-  return response.status(200).json({ success: true, account });
+  return response.status(200).json({ success: true, account: normalizeBusinessAccountSnapshot(account) });
 }
 
 export async function updateBusinessAccount(request: Request, response: Response): Promise<Response> {
@@ -882,10 +932,12 @@ export async function submitBusinessAccount(request: Request, response: Response
   account.kycReview = applyDerivedKycStatus(account);
   await account.save();
 
+  const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
+
   return response.status(200).json({
     success: true,
     message: "Business account created successfully and submitted for review.",
-    account
+    account: updatedAccount
   });
 }
 
@@ -915,10 +967,46 @@ export async function updateBusinessAccountStatus(request: Request, response: Re
   account.kycReview = applyDerivedKycStatus(account);
   await account.save();
 
+  const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
+
   return response.status(200).json({
     success: true,
     message: statusActionMessages[parsed.data],
-    account
+    account: updatedAccount
+  });
+}
+
+export async function updateBusinessAccountOperationalAction(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = businessAccountOperationalActionSchema.safeParse((request.body as { action?: unknown }).action);
+  if (!parsed.success) {
+    return response.status(400).json({ success: false, message: "Invalid business account operational action" });
+  }
+
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
+  if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
+
+  // Operational actions update their own row/field. They must not overwrite
+  // account lifecycle status such as approved, active, suspended, or rejected.
+  if (parsed.data === "deposit_required") {
+    account.depositStatus = "required";
+  } else if (parsed.data === "deposit_received") {
+    account.depositStatus = "received";
+  } else if (parsed.data === "ledger_viewed") {
+    account.ledgerViewedAt = new Date();
+  }
+
+  account.updatedBy = userId;
+  await account.save();
+
+  const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
+
+  return response.status(200).json({
+    success: true,
+    message: operationalActionMessages[parsed.data],
+    account: updatedAccount
   });
 }
 
@@ -936,18 +1024,13 @@ export async function assignBusinessAccountBranch(request: Request, response: Re
   const branch = await Branch.findOne({ _id: branchId, status: "ACTIVE" }).select("_id").lean().exec();
   if (!branch) return response.status(404).json({ success: false, message: "Active branch not found" });
 
-  // Assignment is its own workflow step; the account status reflects that the branch link is now real.
+  // Branch assignment is an operational field. It must not change lifecycle
+  // status, otherwise approved accounts become impossible to use downstream.
   account.assignedBranch = branchId;
-  account.status = "branch_assigned";
   account.updatedBy = userId;
-  account.kycReview = applyDerivedKycStatus(account);
   await account.save();
 
-  const updatedAccount = await BusinessAccount.findOne({ accountId: account.accountId })
-    .populate("createdBy", "email name")
-    .populate("assignedBranch", "name code status")
-    .lean()
-    .exec();
+  const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
 
   return response.status(200).json({
     success: true,

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { AuthenticatedUser } from "@/lib/useAdminUser";
 import { logout } from "@/lib/auth";
+import NotificationBell from "@/components/NotificationBell";
 
 export default function BusinessAccountsShell({
   user,
@@ -22,14 +23,15 @@ export default function BusinessAccountsShell({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="flex min-h-screen">
+    <div className="h-screen overflow-hidden bg-slate-50">
+      <div className="flex h-full">
         <Sidebar userRole={user.role} />
-        <main className="flex flex-1 flex-col">
-          <header className="flex h-20 items-center justify-end border-b border-slate-200 bg-white px-8 shadow-sm">
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8 shadow-sm">
             <div className="flex items-center gap-4">
+              <NotificationBell />
               <div className="text-right">
-                <p className="text-sm font-semibold text-slate-900">{user.name || user.email}</p>
+                <p className="text-sm font-semibold uppercase text-slate-900">{user.name || user.email}</p>
                 <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">{user.role}</p>
               </div>
               <button
@@ -41,7 +43,7 @@ export default function BusinessAccountsShell({
               </button>
             </div>
           </header>
-          <div className="flex-1 px-8 py-6">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">{children}</div>
         </main>
       </div>
     </div>

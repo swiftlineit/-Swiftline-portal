@@ -60,21 +60,20 @@ export default function BranchesPage() {
       </div>
 
       <div className="mb-4 grid gap-4 border border-slate-200 bg-white p-4 md:grid-cols-[1fr_220px]">
-        <label className="block text-sm font-semibold text-slate-700">
-          Search
+       
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Branch name, code, city, email"
+            placeholder=" Search By Branch Name, Code, City, Email"
             className="mt-2 block h-10 w-full border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
           />
-        </label>
-        <label className="block text-sm font-semibold text-slate-700">
-          Status
+        
+     
           <select
-            value={status}
+            value={status}  
             onChange={(event) => setStatus(event.target.value)}
             className="mt-2 block h-10 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+
           >
             <option value="">All statuses</option>
             <option value="DRAFT">Draft</option>
@@ -83,7 +82,7 @@ export default function BranchesPage() {
             <option value="SUSPENDED">Suspended</option>
             <option value="CLOSED">Closed</option>
           </select>
-        </label>
+       
       </div>
 
       {error ? <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}

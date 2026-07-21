@@ -41,7 +41,7 @@ export default function Home() {
       }
 
       setAccessToken(data.accessToken);
-      router.push("/dashboard");
+      router.push(data.user?.role === "client" ? "/client/dashboard" : "/dashboard");
     } catch {
       setError("Unable to sign in. Please try again.");
       setLoading(false);
@@ -82,9 +82,14 @@ export default function Home() {
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-800">
-              Password
-            </label>
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-800">
+                Password
+              </label>
+              <Link href="/auth/forgot-password" className="text-sm font-medium text-sky-700 hover:underline">
+                Forgot password?
+              </Link>
+            </div>
             <input
               id="password"
               name="password"

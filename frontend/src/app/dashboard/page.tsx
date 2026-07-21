@@ -35,6 +35,11 @@ export default function DashboardPage() {
           throw new Error("Unauthorized");
         }
 
+        if (data.user.role === "client") {
+          router.replace("/client/dashboard");
+          return;
+        }
+
         setUser(data.user);
         if (!data.user.hasSeenWelcome) {
           setShowModal(true);
@@ -47,6 +52,11 @@ export default function DashboardPage() {
           });
           const data = await response.json();
           if (data.success) {
+            if (data.user.role === "client") {
+              router.replace("/client/dashboard");
+              return;
+            }
+
             setUser(data.user);
             if (!data.user.hasSeenWelcome) {
               setShowModal(true);
@@ -113,12 +123,12 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 ">
-      <div className="flex min-h-screen">
+    <div className="h-screen overflow-hidden bg-slate-50">
+      <div className="flex h-full">
         <Sidebar userRole={user?.role} />
 
-        <main className="flex flex-1 flex-col">
-          <header className="flex h-20 items-center justify-end border-b border-slate-200 bg-white px-8 shadow-sm  ">
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8 shadow-sm">
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <p className="text-sm font-semibold text-slate-900 ">
@@ -139,7 +149,7 @@ export default function DashboardPage() {
             </div>
           </header>
 
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 py-6">
+          <div className="min-h-0 flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-8 py-6">
             <h1 className="text-8xl font-semibold text-blue-900">Dashboard</h1>
             <p className="mt-2 text-sm text-slate-600">
               Welcome to the Swiftline Cargo dashboard. Here you can manage your shipments, track deliveries, and access various tools to streamline your logistics operations.

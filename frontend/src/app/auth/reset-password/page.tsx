@@ -1,0 +1,114 @@
+"use client";
+
+import Link from "next/link";
+import Image from "next/image";
+import { FormEvent, Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { resetPassword } from "@/lib/auth";
+
+function ResetPasswordForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token") ?? "";
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState(token ? "" : "Reset token is missing.");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!token) return;
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setLoading(true);
+
+    try {
+      const result = await resetPassword({ token, password, confirmPassword });
+      setMessage(result.message);
+      setPassword("");
+      setConfirmPassword("");
+      window.setTimeout(() => router.push("/"), 2000);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to reset password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div>
+        <label htmlFor="password" className="block text-sm font-medium text-gray-800">
+          New password
+        </label>
+        <input
+          id="password"
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
+          required
+          disabled={!token || Boolean(message)}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          className="mt-2 block w-full border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:bg-gray-50"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-800">
+          Confirm password
+        </label>
+        <input
+          id="confirmPassword"
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
+          required
+          disabled={!token || Boolean(message)}
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          className="mt-2 block w-full border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:bg-gray-50"
+        />
+      </div>
+
+      {message ? <p className="text-sm font-medium text-emerald-700">{message}</p> : null}
+      {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+
+      <button
+        type="submit"
+        disabled={loading || !token || Boolean(message)}
+        className="w-full bg-blue-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-blue-900/70"
+      >
+        {loading ? "Resetting..." : "Reset Password"}
+      </button>
+    </form>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-blue-900 px-4 py-8">
+      <section className="w-full max-w-md border border-gray-200 bg-white px-8 py-10 shadow-lg">
+        <div className="mb-8 text-center">
+          <Image src="/Slogo.png" alt="Swiftline Cargo" width={64} height={64} className="mx-auto mb-4 h-16 w-16 rounded" priority />
+          <h1 className="text-2xl font-semibold text-gray-900">Reset Password</h1>
+          <p className="mt-2 text-sm text-gray-600">Create a new password for your Swiftline Portal login.</p>
+        </div>
+
+        <Suspense fallback={<p className="text-sm text-gray-600">Loading reset link...</p>}>
+          <ResetPasswordForm />
+        </Suspense>
+
+        <Link href="/" className="mt-6 block text-center text-sm font-medium text-sky-700 hover:underline">
+          Back to Sign In
+        </Link>
+      </section>
+    </main>
+  );
+}

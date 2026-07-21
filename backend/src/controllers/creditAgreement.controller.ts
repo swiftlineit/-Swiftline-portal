@@ -1,0 +1,274 @@
+import type { Request, Response } from "express";
+import mongoose from "mongoose";
+import { z } from "zod";
+import { AuditLog } from "../models/auditLog.model.js";
+import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
+import { CreditAgreement, creditAgreementStatusValues } from "../models/creditAgreement.model.js";
+import {
+  createCreditAgreementDraft,
+  CreditAgreementServiceError,
+  generateCreditAgreement,
+  serializeCreditAgreement,
+  signCreditAgreement
+} from "../services/creditAgreement.service.js";
+import { resolveCreditAgreementPdfPath } from "../services/creditAgreementStorage.service.js";
+import { getMemberCreditPermissions } from "../services/creditAccount.service.js";
+
+const listAdminQuerySchema = z.object({
+  businessAccountId: z.string().trim().optional(),
+  status: z.enum(creditAgreementStatusValues).optional()
+});
+
+const signAgreementSchema = z.object({
+  signerName: z.string().trim().min(2, "Enter the authorised signer's full name.").max(160),
+  jobTitle: z.string().trim().min(2, "Enter the authorised signer's designation.").max(120),
+  accepted: z.literal(true, { error: "Confirm that you have read and accept the agreement." })
+});
+
+function authenticatedUser(request: Request) {
+  return (request as Request & { user?: { _id?: unknown; email?: string; name?: string } }).user;
+}
+
+function authenticatedUserId(request: Request) {
+  const id = authenticatedUser(request)?._id;
+  return id && mongoose.Types.ObjectId.isValid(String(id)) ? new mongoose.Types.ObjectId(String(id)) : null;
+}
+
+function objectId(value: unknown) {
+  return typeof value === "string" && mongoose.Types.ObjectId.isValid(value)
+    ? new mongoose.Types.ObjectId(value)
+    : null;
+}
+
+async function clientMembership(request: Request, businessAccountId: mongoose.Types.ObjectId) {
+  const userId = authenticatedUserId(request);
+  if (!userId) return null;
+  return BusinessAccountMember.findOne({
+    businessAccount: businessAccountId,
+    user: userId,
+    status: "active"
+  }).exec();
+}
+
+function serviceErrorResponse(error: CreditAgreementServiceError, response: Response) {
+  if (["BUSINESS_NOT_FOUND", "AGREEMENT_NOT_FOUND"].includes(error.code)) {
+    return response.status(404).json({ success: false, message: error.message });
+  }
+  return response.status(409).json({ success: false, message: error.message, code: error.code });
+}
+
+export async function generateAdminCreditAgreement(request: Request, response: Response): Promise<Response> {
+  const userId = authenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  const agreementId = objectId(request.params.agreementId);
+  if (!agreementId) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+
+  try {
+    const agreement = await generateCreditAgreement({ agreementId, generatedBy: userId });
+    return response.status(200).json({
+      success: true,
+      message: "Credit agreement generated.",
+      agreement: serializeCreditAgreement(agreement, { includeAuditDetails: true })
+    });
+  } catch (error) {
+    if (error instanceof CreditAgreementServiceError) return serviceErrorResponse(error, response);
+    throw error;
+  }
+}
+
+export async function getAdminCreditAgreementPdf(request: Request, response: Response): Promise<Response | void> {
+  const agreementId = objectId(request.params.agreementId);
+  if (!agreementId) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const agreement = await CreditAgreement.findById(agreementId).exec();
+  const document = agreement?.signedDocument ?? agreement?.generatedDocument;
+  if (!agreement || !document) {
+    return response.status(409).json({ success: false, message: "Generate the credit agreement before opening its PDF." });
+  }
+
+  const filename = document.originalName.replace(/[\r\n\"]/g, "");
+  response.setHeader("Content-Type", "application/pdf");
+  response.setHeader(
+    "Content-Disposition",
+    `${request.query.download === "1" ? "attachment" : "inline"}; filename="${filename}"`
+  );
+  response.setHeader("Cache-Control", "private, no-store");
+  return response.sendFile(resolveCreditAgreementPdfPath(document.storageKey), (error) => {
+    if (error && !response.headersSent) {
+      response.status(404).json({ success: false, message: "The generated agreement file could not be found." });
+    }
+  });
+}
+
+export async function createAdminCreditAgreementDraft(request: Request, response: Response): Promise<Response> {
+  const userId = authenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  const businessAccountId = objectId(request.params.businessAccountId);
+  if (!businessAccountId) return response.status(404).json({ success: false, message: "Business account was not found." });
+
+  try {
+    const agreement = await createCreditAgreementDraft({ businessAccountId, createdBy: userId });
+    return response.status(201).json({
+      success: true,
+      message: "Credit agreement draft created.",
+      agreement: serializeCreditAgreement(agreement, { includeAuditDetails: true })
+    });
+  } catch (error) {
+    if (error instanceof CreditAgreementServiceError) return serviceErrorResponse(error, response);
+    throw error;
+  }
+}
+
+export async function listAdminCreditAgreements(request: Request, response: Response): Promise<Response> {
+  const parsed = listAdminQuerySchema.safeParse(request.query);
+  if (!parsed.success) return response.status(400).json({ success: false, message: "Check the agreement filters." });
+  const filter: Record<string, unknown> = {};
+  if (parsed.data.status) filter.status = parsed.data.status;
+  if (parsed.data.businessAccountId) {
+    const businessAccountId = objectId(parsed.data.businessAccountId);
+    if (!businessAccountId) return response.status(400).json({ success: false, message: "Business account filter is invalid." });
+    filter.businessAccountId = businessAccountId;
+  }
+
+  const agreements = await CreditAgreement.find(filter).sort({ createdAt: -1 }).limit(100).exec();
+  return response.status(200).json({
+    success: true,
+    agreements: agreements.map((agreement) => serializeCreditAgreement(agreement, { includeAuditDetails: true }))
+  });
+}
+
+export async function getAdminCreditAgreement(request: Request, response: Response): Promise<Response> {
+  const agreementId = objectId(request.params.agreementId);
+  if (!agreementId) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const agreement = await CreditAgreement.findById(agreementId).exec();
+  if (!agreement) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const auditHistory = await AuditLog.find({ entityType: "CREDIT_AGREEMENT", entityId: agreement._id })
+    .sort({ performedAt: -1 })
+    .lean()
+    .exec();
+  return response.status(200).json({
+    success: true,
+    agreement: serializeCreditAgreement(agreement, { includeAuditDetails: true }),
+    auditHistory
+  });
+}
+
+export async function listClientCreditAgreements(request: Request, response: Response): Promise<Response> {
+  const businessAccountId = objectId(request.query.businessAccountId);
+  if (!businessAccountId) return response.status(400).json({ success: false, message: "Select a valid business account." });
+  const membership = await clientMembership(request, businessAccountId);
+  if (!membership) return response.status(404).json({ success: false, message: "Business account access was not found." });
+  const permissions = getMemberCreditPermissions(membership.role, membership.creditPermissions);
+  if (!permissions.includes("viewCreditDetails")) {
+    return response.status(403).json({ success: false, message: "Your account role cannot view credit agreements." });
+  }
+  const agreements = await CreditAgreement.find({ businessAccountId }).sort({ version: -1 }).limit(50).exec();
+  return response.status(200).json({
+    success: true,
+    canSign: ["account_owner", "account_admin"].includes(membership.role),
+    agreements: agreements.map((agreement) => serializeCreditAgreement(agreement))
+  });
+}
+
+export async function getClientCreditAgreement(request: Request, response: Response): Promise<Response> {
+  const agreementId = objectId(request.params.agreementId);
+  if (!agreementId) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const agreement = await CreditAgreement.findById(agreementId).exec();
+  if (!agreement) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const membership = await clientMembership(request, agreement.businessAccountId);
+  if (!membership) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const permissions = getMemberCreditPermissions(membership.role, membership.creditPermissions);
+  if (!permissions.includes("viewCreditDetails")) {
+    return response.status(403).json({ success: false, message: "Your account role cannot view credit agreements." });
+  }
+  return response.status(200).json({
+    success: true,
+    canSign: ["account_owner", "account_admin"].includes(membership.role),
+    agreement: serializeCreditAgreement(agreement)
+  });
+}
+
+export async function getClientCreditAgreementPdf(request: Request, response: Response): Promise<Response | void> {
+  const userId = authenticatedUserId(request);
+  const agreementId = objectId(request.params.agreementId);
+  if (!userId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  if (!agreementId) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+
+  const agreement = await CreditAgreement.findById(agreementId).exec();
+  if (!agreement || agreement.status === "DRAFT") return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const membership = await clientMembership(request, agreement.businessAccountId);
+  if (!membership) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const permissions = getMemberCreditPermissions(membership.role, membership.creditPermissions);
+  if (!permissions.includes("viewCreditDetails")) {
+    return response.status(403).json({ success: false, message: "Your account role cannot view credit agreements." });
+  }
+
+  const document = agreement.signedDocument ?? agreement.generatedDocument;
+  if (!document) return response.status(409).json({ success: false, message: "The agreement document is not available yet." });
+
+  if (["GENERATED", "SENT"].includes(agreement.status)) {
+    const viewedAt = new Date();
+    const viewed = await CreditAgreement.findOneAndUpdate(
+      { _id: agreement._id, status: { $in: ["GENERATED", "SENT"] } },
+      { $set: { status: "VIEWED", viewedAt, updatedBy: userId } },
+      { returnDocument: "after" }
+    ).exec();
+    if (viewed) {
+      await AuditLog.create({
+        action: "CREDIT_AGREEMENT_VIEWED",
+        entityType: "CREDIT_AGREEMENT",
+        entityId: agreement._id,
+        performedBy: userId,
+        performedAt: viewedAt,
+        metadata: { businessAccountId: agreement.businessAccountId, agreementNumber: agreement.agreementNumber }
+      });
+    }
+  }
+
+  const filename = document.originalName.replace(/[\r\n\"]/g, "");
+  response.setHeader("Content-Type", "application/pdf");
+  response.setHeader("Content-Disposition", `${request.query.download === "1" ? "attachment" : "inline"}; filename="${filename}"`);
+  response.setHeader("Cache-Control", "private, no-store");
+  return response.sendFile(resolveCreditAgreementPdfPath(document.storageKey), (error) => {
+    if (error && !response.headersSent) response.status(404).json({ success: false, message: "The agreement file could not be found." });
+  });
+}
+
+export async function signClientCreditAgreement(request: Request, response: Response): Promise<Response> {
+  const currentUser = authenticatedUser(request);
+  const currentUserId = authenticatedUserId(request);
+  const agreementId = objectId(request.params.agreementId);
+  if (!currentUserId || !currentUser?.email) return response.status(401).json({ success: false, message: "Please sign in again." });
+  if (!agreementId) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const parsed = signAgreementSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Complete the signing details." });
+
+  const agreement = await CreditAgreement.findById(agreementId).exec();
+  if (!agreement || agreement.status === "DRAFT") return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  const membership = await clientMembership(request, agreement.businessAccountId);
+  if (!membership) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  if (!["account_owner", "account_admin"].includes(membership.role)) {
+    return response.status(403).json({ success: false, message: "Only the account owner or account admin can sign this agreement." });
+  }
+
+  try {
+    const signed = await signCreditAgreement({
+      agreementId,
+      signedBy: currentUserId,
+      signer: {
+        name: parsed.data.signerName,
+        email: currentUser.email,
+        jobTitle: parsed.data.jobTitle,
+        ipAddress: request.ip || "unknown",
+        userAgent: request.get("user-agent") || ""
+      }
+    });
+    return response.status(200).json({
+      success: true,
+      message: "Credit agreement signed successfully.",
+      agreement: serializeCreditAgreement(signed)
+    });
+  } catch (error) {
+    if (error instanceof CreditAgreementServiceError) return serviceErrorResponse(error, response);
+    throw error;
+  }
+}

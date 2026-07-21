@@ -1,0 +1,166 @@
+"use client";
+
+import { useState } from "react";
+import { FiDownload, FiEye, FiPrinter } from "react-icons/fi";
+
+export type ShipmentLabelItem = {
+  id: string;
+  parcelNumber: string;
+  labelType: "DPD" | "SWIFTLINE";
+  providerMode: "SIMULATED" | "LIVE";
+  format: string;
+  labelSize: string;
+};
+
+type LabelAction = "view" | "download" | "print";
+
+export function ShipmentLabelsPanel({
+  labels,
+  swiftlineTrackingNumber,
+  compact = false,
+  getAccessUrl
+}: {
+  labels: ShipmentLabelItem[];
+  swiftlineTrackingNumber?: string;
+  compact?: boolean;
+  getAccessUrl: (labelId: string, disposition: "inline" | "attachment") => Promise<{ url: string }>;
+}) {
+  const [activeAction, setActiveAction] = useState("");
+  const [error, setError] = useState("");
+  void swiftlineTrackingNumber;
+
+  async function runAction(label: ShipmentLabelItem, action: LabelAction) {
+    const actionKey = `${label.id}:${action}`;
+    const openedWindow = action === "download" ? null : window.open("about:blank", "_blank");
+    setActiveAction(actionKey);
+    setError("");
+
+    try {
+      const access = await getAccessUrl(label.id, action === "download" ? "attachment" : "inline");
+
+      if (action === "download") {
+        const anchor = document.createElement("a");
+        anchor.href = access.url;
+        anchor.download = `${label.labelType.toLowerCase()}-label-${label.parcelNumber}.pdf`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        return;
+      }
+
+      if (!openedWindow) throw new Error("Allow pop-ups to open the shipment label.");
+      openedWindow.location.href = access.url;
+      if (action === "print") {
+        openedWindow.addEventListener("load", () => {
+          window.setTimeout(() => openedWindow.print(), 500);
+        }, { once: true });
+      }
+    } catch (caughtError) {
+      openedWindow?.close();
+      setError(caughtError instanceof Error ? caughtError.message : "The shipment label could not be opened.");
+    } finally {
+      setActiveAction("");
+    }
+  }
+
+  if (!labels.length) return null;
+
+  return (
+    <section className="border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">Shipment Labels</h2>
+          <p className="mt-1 text-sm text-slate-600">View, download, or print each parcel label.</p>
+        </div>
+      </div>
+
+      {error ? <p className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</p> : null}
+
+      {compact ? (
+        <div className="divide-y divide-slate-200">
+          {labels.map((label) => (
+            <div key={label.id} className="p-4">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold text-slate-950">
+                    {label.labelType === "DPD" ? "DPD Label" : "Swiftline Internal Label"}
+                  </h3>
+                  <span className="text-xs font-medium text-slate-500">{label.format} {label.labelSize}</span>
+                </div>
+                <p className="mt-1 break-all text-sm font-medium text-slate-700">{label.parcelNumber}</p>
+                {label.labelType === "DPD" && label.providerMode === "SIMULATED" ? (
+                  <p className="mt-1 text-xs font-semibold text-red-700">Test - Not for carriage</p>
+                ) : null}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <LabelButton icon={<FiEye />} label="View" busy={activeAction === `${label.id}:view`} onClick={() => runAction(label, "view")} compact />
+                <LabelButton icon={<FiDownload />} label="Download" busy={activeAction === `${label.id}:download`} onClick={() => runAction(label, "download")} compact />
+                <LabelButton icon={<FiPrinter />} label="Print" busy={activeAction === `${label.id}:print`} onClick={() => runAction(label, "print")} compact />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-[760px] w-full text-left text-sm">
+            <thead className="bg-slate-100 text-xs uppercase text-slate-600">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Label</th>
+                <th className="px-4 py-3 font-semibold">Parcel Number</th>
+                <th className="px-4 py-3 font-semibold">Format</th>
+                <th className="px-4 py-3 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {labels.map((label) => (
+                <tr key={label.id}>
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-slate-950">{label.labelType === "DPD" ? "DPD Label" : "Swiftline Internal Label"}</p>
+                    {label.labelType === "DPD" && label.providerMode === "SIMULATED" ? (
+                      <p className="mt-1 text-xs font-semibold text-red-700">Test - Not for carriage</p>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3 font-medium text-slate-800">{label.parcelNumber}</td>
+                  <td className="px-4 py-3 text-slate-600">{label.format} {label.labelSize}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      <LabelButton icon={<FiEye />} label="View" busy={activeAction === `${label.id}:view`} onClick={() => runAction(label, "view")} />
+                      <LabelButton icon={<FiDownload />} label="Download" busy={activeAction === `${label.id}:download`} onClick={() => runAction(label, "download")} />
+                      <LabelButton icon={<FiPrinter />} label="Print" busy={activeAction === `${label.id}:print`} onClick={() => runAction(label, "print")} />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LabelButton({
+  icon,
+  label,
+  busy,
+  onClick,
+  compact = false
+}: {
+  icon: React.ReactNode;
+  label: string;
+  busy: boolean;
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className={`inline-flex h-9 items-center justify-center border border-slate-300 bg-white font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-wait disabled:opacity-60 ${compact ? "min-w-0 gap-1.5 px-2 text-sm" : "gap-2 px-3"}`}
+    >
+      <span aria-hidden="true" className="text-base">{icon}</span>
+      {busy ? "Opening..." : label}
+    </button>
+  );
+}

@@ -48,6 +48,7 @@ export function ReviewStep({
         values={[
           ["Company", formData.company.companyName],
           ["Registration", `${formData.company.registrationCountry} - ${formData.company.registrationId}`],
+          ["GSTIN", formData.company.gstin || "Not provided"],
           ["Operating Countries", formData.company.operatingCountries.join(", ")],
           ["Address", `${formData.company.registeredAddress}, ${formData.company.city}`],
           ["Industry", formData.company.industry],
