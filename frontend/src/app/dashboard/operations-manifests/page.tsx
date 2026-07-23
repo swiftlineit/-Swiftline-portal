@@ -1,0 +1,30 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { FiArrowRight, FiPlus, FiRefreshCw } from "react-icons/fi";
+import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import { listOperationsManifests, type ManifestStatus, type OperationsManifest } from "@/lib/operationsManifests";
+import { useAdminUser } from "@/lib/useAdminUser";
+
+const statuses: ManifestStatus[] = ["DRAFT", "PACKING", "READY_TO_SEAL", "SEALED", "DISPATCHED", "CANCELLED"];
+
+export default function OperationsManifestListPage() {
+  const { user, loading } = useAdminUser(true);
+  const [items, setItems] = useState<OperationsManifest[]>([]);
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => { setBusy(true); setError(""); try { const data = await listOperationsManifests(page, status); setItems(data.items); setPages(data.pagination.pages); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load operations manifests."); } finally { setBusy(false); } }, [page, status]);
+  useEffect(() => { if (!user) return; let active = true; void Promise.resolve().then(() => { if (active) return load(); }); return () => { active = false; }; }, [load, user]);
+  if (loading || !user) return <BusinessAccountsLoading />;
+
+  return <BusinessAccountsShell user={user}><div className="mx-auto max-w-7xl">
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-lg border border-[#EEEDED] bg-white p-5 shadow-sm"><div><h1 className="text-2xl font-semibold text-[#0D1282]">Operations Manifests</h1><p className="mt-1 text-sm text-slate-500">Build flight manifests by scanning Swiftline parcel labels into bags.</p></div><div className="flex gap-2"><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} className="h-10 rounded-md border border-[#0D1282]/20 bg-white px-3 pr-9 text-sm font-medium text-[#0D1282]"><option value="">All statuses</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button type="button" onClick={() => void load()} title="Refresh" className="flex h-10 w-10 items-center justify-center rounded-md border border-[#0D1282]/20 bg-white text-[#0D1282] hover:bg-[#EEEDED]"><FiRefreshCw className={busy ? "animate-spin" : ""} /></button><Link href="/dashboard/operations-manifests/new" className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90"><FiPlus />New Manifest</Link></div></div>
+    {error ? <div className="mb-4 rounded-md border border-[#D71313]/30 bg-[#D71313]/5 p-4 text-sm font-semibold text-[#D71313]">{error}</div> : null}
+    <div className="overflow-hidden rounded-lg border border-[#EEEDED] bg-white shadow-sm"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-[#0D1282] text-xs uppercase text-white"><tr><th className="px-5 py-4">Manifest</th><th className="px-5 py-4">Branch</th><th className="px-5 py-4">Route / Flight</th><th className="px-5 py-4 text-center">Bags</th><th className="px-5 py-4 text-center">Consignments</th><th className="px-5 py-4">Status</th><th className="px-5 py-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-[#EEEDED]">{items.map((item) => <tr key={item.id} className="hover:bg-[#EEEDED]/40"><td className="px-5 py-4 font-semibold text-[#0D1282]">{item.manifestNumber}<p className="mt-1 text-xs font-normal text-slate-500">{new Date(item.updatedAt).toLocaleString("en-IN")}</p></td><td className="px-5 py-4">{item.branch?.name ?? "Branch"}<p className="text-xs text-slate-500">{item.branch?.code}</p></td><td className="px-5 py-4">{item.header.originIataCode && item.header.destinationIataCode ? `${item.header.originIataCode} - ${item.header.destinationIataCode}` : "Route pending"}<p className="text-xs text-slate-500">{item.header.flightNumber || "Flight pending"}</p></td><td className="px-5 py-4 text-center">{item.totalBags}</td><td className="px-5 py-4 text-center">{item.totalConsignments}</td><td className="px-5 py-4"><span className="rounded border border-[#0D1282]/20 bg-[#EEEDED] px-2 py-1 text-xs font-semibold text-[#0D1282]">{item.status.replaceAll("_", " ")}</span></td><td className="px-5 py-4 text-right"><Link href={`/dashboard/operations-manifests/${item.id}`} className="inline-flex items-center gap-2 font-semibold text-[#0D1282]">Open <FiArrowRight /></Link></td></tr>)}{!busy && !items.length ? <tr><td colSpan={7} className="px-5 py-14 text-center text-slate-500">No operations manifests found.</td></tr> : null}</tbody></table></div></div>
+    <div className="mt-4 flex justify-end gap-2"><button disabled={page === 1} onClick={() => setPage((value) => value - 1)} className="h-9 rounded-md border border-[#0D1282]/20 bg-white px-4 text-sm text-[#0D1282] disabled:opacity-40">Previous</button><span className="flex h-9 items-center px-3 text-sm text-slate-600">Page {page} of {pages}</span><button disabled={page >= pages} onClick={() => setPage((value) => value + 1)} className="h-9 rounded-md border border-[#0D1282]/20 bg-white px-4 text-sm text-[#0D1282] disabled:opacity-40">Next</button></div>
+  </div></BusinessAccountsShell>;
+}

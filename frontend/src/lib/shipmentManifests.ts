@@ -42,7 +42,7 @@ export type ShipmentManifestContext = {
   eligibleShipments: ManifestEligibleShipment[];
 };
 
-export type CreateShipmentManifestInput = {
+export type CreateAdminShipmentManifestInput = {
   currentShipmentDraftId: string;
   destinationAgent: string;
   flightNumber: string;
@@ -57,6 +57,13 @@ export type CreateShipmentManifestInput = {
     bagNumber: string;
   }>;
 };
+
+export type CreateClientShipmentManifestInput = {
+  currentShipmentDraftId: string;
+  declaredValueMinor: number;
+};
+
+export type CreateShipmentManifestInput = CreateAdminShipmentManifestInput | CreateClientShipmentManifestInput;
 
 async function fetchWithAuth(input: string, init?: RequestInit) {
   let token = getAccessToken() ?? await refreshAccessToken();

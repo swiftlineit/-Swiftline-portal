@@ -23,6 +23,7 @@ import {
   autocompleteAddress,
   confirmAddress,
   createDpdLabel,
+  createSwiftlineShipment,
   formatShipmentValidationIssues,
   getDpdLabelAccessUrl,
   getPlaceAddress,
@@ -187,6 +188,7 @@ function shipmentHistoryToResult(item: DpdShipmentHistoryItem): DpdShipmentResul
       dpdShipmentId: item.dpdShipment.dpdShipmentId,
       dpdTransactionId: item.dpdShipment.dpdTransactionId,
       swiftlineTrackingNumber: item.dpdShipment.swiftlineTrackingNumber,
+      bookingProvider: item.dpdShipment.bookingProvider,
       providerMode: item.dpdShipment.providerMode,
       parcelNumbers: item.dpdShipment.parcelNumbers,
       serviceCode: item.dpdShipment.serviceCode,
@@ -575,7 +577,7 @@ export default function DpdLabelDraftPage() {
     }
   }
 
-  async function handleCreateLabel() {
+  async function handleCreateLabel(bookingProvider: "DPD" | "SWIFTLINE" = "DPD") {
     if (!draft) return;
 
     setBusy(true);
@@ -633,7 +635,9 @@ export default function DpdLabelDraftPage() {
         return;
       }
 
-      const data = await createDpdLabel(draftForValidation._id);
+      const data = bookingProvider === "DPD"
+        ? await createDpdLabel(draftForValidation._id)
+        : await createSwiftlineShipment(draftForValidation._id);
       setResult(data);
       toast.success(data.reused ? "Existing booked shipment opened." : "Shipment booked successfully.");
     } catch (caughtError) {
@@ -888,6 +892,10 @@ export default function DpdLabelDraftPage() {
                   </div>
                 ))}
 
+                <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Enter the actual parcel contents. Incorrect or mismatched descriptions may result in inspection and additional penalty charges.
+                </p>
+
                 <div className="grid gap-4 md:grid-cols-2">
                   <ShipmentSelectField label="Service Type" required value={draftCorrectionForm.serviceType} onChange={handleCorrectionFieldChange("serviceType")}>
                       <option value="COURIER">Courier</option>
@@ -902,12 +910,21 @@ export default function DpdLabelDraftPage() {
             <section className="border border-slate-200 bg-white p-4">
               <button
                 type="button"
-                onClick={handleCreateLabel}
+                onClick={() => void handleCreateLabel("DPD")}
                 disabled={busy}
                 className="inline-flex h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
                 {busy ? "Creating..." : "Create Shipment"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCreateLabel("SWIFTLINE")}
+                disabled={busy}
+                className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+              >
+                <FiTruck aria-hidden="true" className="h-4 w-4" />
+                {busy ? "Creating..." : "Create Without DPD Label"}
               </button>
               <div className="mt-4 border border-slate-200 bg-slate-50 p-3 text-sm">
                 <div className="flex items-center justify-between gap-3">

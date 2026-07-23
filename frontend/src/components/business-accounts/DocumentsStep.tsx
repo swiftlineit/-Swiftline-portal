@@ -45,25 +45,27 @@ export function DocumentsStep({
   );
 
   return (
-    <div className="grid gap-4">
-      <div className="border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm leading-6 text-slate-800">
+    <div className="grid gap-5">
+      <div className="rounded-2xl border-l-4 border-[#F0DE36] bg-[#F0DE36]/20 px-5 py-4 text-sm leading-6 text-slate-700">
         Upload Aadhaar Card and PAN Card to submit this account request. Additional documents may be needed later to complete KYC verification. You can add supporting certificates now or provide them when the KYC reviewer asks for them.
       </div>
 
-      {requiredFields.map((field) => (
-        <DocumentInput
-          key={field.type}
-          type={field.type}
-          required={field.required}
-          helper={field.helper}
-          existingFileName={existingDocuments[field.type]?.originalName}
-          file={files[field.type] ?? null}
-          error={documentErrors[field.type]}
-          onChange={(file) => onDocumentChange(field.type, file)}
-        />
-      ))}
+      <div className="grid gap-4">
+        {requiredFields.map((field) => (
+          <DocumentInput
+            key={field.type}
+            type={field.type}
+            required={field.required}
+            helper={field.helper}
+            existingFileName={existingDocuments[field.type]?.originalName}
+            file={files[field.type] ?? null}
+            error={documentErrors[field.type]}
+            onChange={(file) => onDocumentChange(field.type, file)}
+          />
+        ))}
+      </div>
 
-      <div className="grid gap-4 border border-slate-200 p-4">
+      <div className="grid gap-5 rounded-3xl bg-[#EEEDED]/55 p-5 ring-1 ring-[#EEEDED] sm:p-6">
         <MultiSearchableSelect
           label="Other Documents"
           values={selectedOptionalDocuments}
@@ -84,7 +86,9 @@ export function DocumentsStep({
             onChange={(file) => onDocumentChange(optionalField.type, file)}
           />
         )) : (
-          <p className="text-sm font-medium text-slate-500">Select one or more optional documents to upload.</p>
+          <p className="rounded-xl bg-white/70 px-4 py-4 text-sm font-medium text-slate-500">
+            Select one or more optional documents to upload.
+          </p>
         )}
       </div>
     </div>

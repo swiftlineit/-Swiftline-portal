@@ -66,7 +66,10 @@ const shipmentManifestSchema = new mongoose.Schema<IShipmentManifest>({
 
 shipmentManifestSchema.index({ businessAccountId: 1, branchId: 1, generatedAt: -1 });
 shipmentManifestSchema.index({ "lineSnapshots.shipmentDraftId": 1, generatedAt: -1 });
-shipmentManifestSchema.index({ shipmentDraftIds: 1 }, { unique: true });
+shipmentManifestSchema.index(
+  { shipmentDraftIds: 1, actorRole: 1 },
+  { unique: true, name: "shipmentDraftIds_1_actorRole_1" }
+);
 
 export const ShipmentManifest = mongoose.model<IShipmentManifest>(
   "ShipmentManifest",

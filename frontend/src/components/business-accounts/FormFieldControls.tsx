@@ -254,7 +254,7 @@ function DropdownChevron({ open, className = "" }: { open: boolean; className?: 
   return (
     <FiChevronDown
       aria-hidden="true"
-      className={`h-5 w-5 shrink-0 stroke-[2.6] text-slate-600 transition ${open ? "rotate-180" : ""} ${className}`}
+      className={`h-5 w-5 shrink-0 stroke-[2.6] text-[#0D1282] transition ${open ? "rotate-180" : ""} ${className}`}
     />
   );
 }
@@ -315,12 +315,12 @@ export function Field({
           placeholder={inputPlaceholder}
           aria-label={label}
           aria-invalid={Boolean(error)}
-          className={`block h-14 w-full border py-0 pl-3 text-sm outline-none transition placeholder:text-slate-400 focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 ${
+          className={`block h-14 w-full rounded-xl border bg-white py-0 pl-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
             info ? "pr-10" : "pr-3"
           } ${
             error
-              ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-              : "border-slate-300 focus:border-blue-900 focus:ring-blue-100"
+              ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
+              : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
           }`}
         />
         {info ? (
@@ -328,17 +328,17 @@ export function Field({
             <span
               aria-label={info}
               tabIndex={0}
-              className="flex h-4 w-4 items-center justify-center bg-slate-600 text-[10px] font-bold text-white outline-none focus:bg-slate-900"
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0D1282] text-[10px] font-bold text-white outline-none transition focus:ring-2 focus:ring-[#F0DE36]/50"
             >
               i
             </span>
-            <span className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden w-56 max-w-[calc(100vw-2rem)] border border-slate-800 bg-slate-950 px-3 py-2 text-left text-xs font-semibold leading-5 text-white shadow-xl group-hover:block group-focus-within:block">
+            <span className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden w-56 max-w-[calc(100vw-2rem)] rounded-xl bg-[#0D1282] px-3 py-2 text-left text-xs font-semibold leading-5 text-white shadow-xl group-hover:block group-focus-within:block">
               {info}
             </span>
           </span>
         ) : null}
       </span>
-      {error ? <p className="mt-1 text-xs font-semibold text-red-600">{error}</p> : null}
+      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
       {!error && helper ? <p className="mt-1 text-xs font-medium text-slate-500">{helper}</p> : null}
     </label>
   );
@@ -362,7 +362,7 @@ export function CheckboxField({
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 border-slate-300 disabled:cursor-not-allowed"
+        className="h-4 w-4 rounded border-[#EEEDED] accent-[#0D1282] disabled:cursor-not-allowed"
       />
       <span>{label}</span>
     </label>
@@ -448,10 +448,10 @@ export function CountryRegistrationSelect({
           setOpen((current) => !current);
           setHighlightedIndex(0);
         }}
-        className={`flex h-14 w-full min-w-0 items-center gap-3 border bg-white px-3 text-left text-sm outline-none transition focus:ring-2 ${
+        className={`flex h-14 w-full min-w-0 items-center gap-3 rounded-xl border bg-white px-3 text-left text-sm shadow-sm outline-none transition focus:ring-2 ${
           error
-            ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-            : "border-slate-300 focus:border-blue-900 focus:ring-blue-100"
+            ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
+            : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
         }`}
       >
         <span className="flex h-8 w-10 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
@@ -467,7 +467,7 @@ export function CountryRegistrationSelect({
       </button>
 
       {open ? (
-        <div className="absolute top-full z-50 mt-1 max-h-64 w-full overflow-y-auto border border-slate-200 bg-white shadow-lg" ref={listRef}>
+        <div className="absolute top-full z-50 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-[#EEEDED] bg-white p-1 shadow-xl" ref={listRef}>
           {registrationCountryOptions.map((option, index) => (
             <button
               key={option.value}
@@ -476,7 +476,7 @@ export function CountryRegistrationSelect({
               onMouseEnter={() => setHighlightedIndex(index)}
               onClick={() => selectOption(option)}
               className={`flex h-12 w-full items-center gap-3 px-3 text-left text-sm ${
-                highlightedIndex === index ? "bg-blue-50 text-blue-900" : "text-slate-700 hover:bg-slate-50"
+                highlightedIndex === index ? "rounded-lg bg-[#F0DE36]/20 text-[#0D1282]" : "rounded-lg text-slate-700 hover:bg-[#EEEDED]/60"
               }`}
             >
               <span className="flex h-6 w-8 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
@@ -488,7 +488,7 @@ export function CountryRegistrationSelect({
         </div>
       ) : null}
 
-      {error ? <p className="mt-1 text-xs font-semibold text-red-600">{error}</p> : null}
+      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
     </div>
   );
 }
@@ -517,10 +517,10 @@ export function CountryCodeField({
             {...rootProps}
             type="button"
             aria-label={`Country${required ? " required" : ""}`}
-            className={`flex h-14 w-full min-w-0 items-center gap-2 border bg-white px-3 py-0 text-left text-sm outline-none transition focus:ring-2 ${
+            className={`flex h-14 w-full min-w-0 items-center gap-2 rounded-xl border bg-white px-3 py-0 text-left text-sm shadow-sm outline-none transition focus:ring-2 ${
               error
-                ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-                : "border-slate-300 focus:border-blue-900 focus:ring-blue-100"
+                ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
+                : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
             }`}
           >
             <span className="flex h-6 w-8 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
@@ -528,11 +528,11 @@ export function CountryCodeField({
             </span>
             <span className="min-w-0 flex-1 truncate text-slate-900">{selectedCountry.name} {""} +{selectedCountry.dialCode}</span>
             {/* <span className="shrink-0 font-semibold text-slate-600">+{selectedCountry.dialCode}</span> */}
-            <FiChevronDown aria-hidden="true" className="mr-1 h-5 w-5 shrink-0 stroke-[2.6] text-slate-600" />
+            <FiChevronDown aria-hidden="true" className="mr-1 h-5 w-5 shrink-0 stroke-[2.6] text-[#0D1282]" />
           </button>
         )}
       />
-      {error ? <p className="mt-1 text-xs font-semibold text-red-600">{error}</p> : null}
+      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
     </div>
   );
 }
@@ -663,10 +663,10 @@ export function SearchableSelect({
           });
           setHighlightedIndex(0);
         }}
-        className={`flex h-14 w-full min-w-0 items-center border bg-white py-0 pl-3 pr-11 text-left text-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 ${
+        className={`flex h-14 w-full min-w-0 items-center rounded-xl border bg-white py-0 pl-4 pr-11 text-left text-sm shadow-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
           error
-            ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-            : "border-slate-300 focus:border-blue-900 focus:ring-blue-100"
+            ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
+            : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
         }`}
       >
         <span className="flex min-w-0 items-center gap-2">
@@ -684,7 +684,7 @@ export function SearchableSelect({
 
       {open && !disabled ? (
         <div
-          className={`absolute z-50 w-full overflow-hidden border border-slate-200 bg-white shadow-lg ${
+          className={`absolute z-50 w-full overflow-hidden rounded-xl border border-[#EEEDED] bg-white p-1 shadow-xl ${
             openUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
         >
@@ -698,7 +698,7 @@ export function SearchableSelect({
                 onMouseEnter={() => setHighlightedIndex(index)}
                 onClick={() => selectOption(option)}
                 className={`flex h-10 w-full items-center gap-2 px-3 text-left text-sm ${
-                  highlightedIndex === index ? "bg-blue-50 text-blue-900" : "text-slate-700 hover:bg-slate-50"
+                  highlightedIndex === index ? "rounded-lg bg-[#F0DE36]/20 text-[#0D1282]" : "rounded-lg text-slate-700 hover:bg-[#EEEDED]/60"
                 }`}
               >
                 {option.iso2 ? (
@@ -714,7 +714,7 @@ export function SearchableSelect({
           </div>
         </div>
       ) : null}
-      {error ? <p className="mt-1 text-xs font-semibold text-red-600">{error}</p> : null}
+      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
     </div>
   );
 }
@@ -846,17 +846,17 @@ export function MultiSearchableSelect({
           });
           setHighlightedIndex(0);
         }}
-        className={`flex min-h-14 w-full min-w-0 items-center border bg-white py-0 pl-3 pr-11 text-left text-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 ${
+        className={`flex min-h-14 w-full min-w-0 items-center rounded-xl border bg-white py-2 pl-4 pr-11 text-left text-sm shadow-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
           error
-            ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-            : "border-slate-300 focus:border-blue-900 focus:ring-blue-100"
+            ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
+            : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
         }`}
       >
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 overflow-hidden">
           {search ? (
             <span className="truncate text-slate-900">{search}</span>
           ) : visibleChips.length ? visibleChips.map((option) => (
-            <span key={option.value} title={option.label} className="inline-flex max-w-42.5 items-center gap-1 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+            <span key={option.value} title={option.label} className="inline-flex max-w-42.5 items-center gap-1 rounded-full bg-[#EEEDED] px-2.5 py-1 text-xs font-semibold text-[#0D1282]">
               {option.iso2 ? (
                 <span className="flex h-4 w-6 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
                   <FlagImage iso2={option.iso2} size="16px" />
@@ -870,7 +870,7 @@ export function MultiSearchableSelect({
                   event.stopPropagation();
                   toggleValue(option.value);
                 }}
-                className="text-slate-500 hover:text-red-600"
+                className="text-slate-500 hover:text-[#D71313]"
               >
                 x
               </span>
@@ -883,13 +883,13 @@ export function MultiSearchableSelect({
 
       {open && !disabled ? (
         <div
-          className={`absolute z-50 w-full overflow-hidden border border-slate-200 bg-white shadow-lg ${
+          className={`absolute z-50 w-full overflow-hidden rounded-xl border border-[#EEEDED] bg-white p-1 shadow-xl ${
             openUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
         >
           {values.length ? (
-            <div className="sticky top-0 border-b border-slate-200 bg-white p-2">
-              <button type="button" onClick={() => onChange([])} className="text-xs font-semibold text-red-600">
+            <div className="sticky top-0 z-10 mb-1 rounded-lg bg-[#EEEDED]/65 p-2">
+              <button type="button" onClick={() => onChange([])} className="text-xs font-semibold text-[#D71313]">
                 Clear all
               </button>
             </div>
@@ -907,7 +907,7 @@ export function MultiSearchableSelect({
                   onMouseEnter={() => setHighlightedIndex(index)}
                   onClick={() => toggleValue(option.value)}
                   className={`flex h-10 w-full items-center justify-between gap-3 px-3 text-left text-sm ${
-                    highlightedIndex === index ? "bg-blue-50 text-blue-900" : "text-slate-700 hover:bg-slate-50"
+                    highlightedIndex === index ? "rounded-lg bg-[#F0DE36]/20 text-[#0D1282]" : "rounded-lg text-slate-700 hover:bg-[#EEEDED]/60"
                   }`}
                 >
                   <span className="flex min-w-0 items-center gap-2">
@@ -918,7 +918,7 @@ export function MultiSearchableSelect({
                     ) : null}
                     <span className="truncate">{option.label}</span>
                   </span>
-                  {selected ? <span className="shrink-0 font-semibold text-blue-900">Selected</span> : null}
+                  {selected ? <span className="shrink-0 rounded-full bg-[#F0DE36]/25 px-2 py-1 text-xs font-semibold text-[#0D1282]">Selected</span> : null}
                 </button>
               );
             }) : (
@@ -927,7 +927,7 @@ export function MultiSearchableSelect({
           </div>
         </div>
       ) : null}
-      {error ? <p className="mt-1 text-xs font-semibold text-red-600">{error}</p> : null}
+      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
     </div>
   );
 }
@@ -952,27 +952,27 @@ export function DocumentInput({
   const inputId = `document-upload-${type}`;
 
   return (
-    <div className="border border-slate-200 p-4">
+    <div className="rounded-2xl bg-[#EEEDED]/35 p-5 ring-1 ring-[#EEEDED]">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-stretch">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-900">
-            {getDocumentLabel(type)} {required ? <span className="text-red-600">*</span> : null}
+          <h3 className="text-sm font-semibold text-[#0D1282]">
+            {getDocumentLabel(type)} {required ? <span className="text-[#D71313]">*</span> : null}
           </h3>
           <p className="mt-1 text-sm text-slate-500">{helper}</p>
           <p className="mt-1 text-xs text-slate-400">Supported formats: PDF, JPG, JPEG, PNG. Max size: 5 MB.</p>
 
           <label
             htmlFor={inputId}
-            className={`mt-4 flex min-h-28 cursor-pointer flex-col justify-center border border-dashed px-4 py-5 transition hover:border-blue-900 hover:bg-blue-50/40 ${
-              error ? "border-red-400 bg-red-50/40" : "border-slate-300"
+            className={`mt-4 flex min-h-28 cursor-pointer flex-col justify-center rounded-xl border-2 border-dashed px-5 py-5 transition hover:border-[#0D1282]/50 hover:bg-[#F0DE36]/10 ${
+              error ? "border-[#D71313] bg-[#D71313]/5" : "border-[#0D1282]/20 bg-white/70"
             }`}
           >
-            <span className="text-sm font-semibold text-blue-900">
+            <span className="rounded-lg px-2 py-1 text-sm font-semibold text-[#0D1282] transition hover:bg-[#F0DE36]/15">
               {file || existingFileName ? "Replace file" : "Browse file"}
             </span>
             <span className="mt-1 text-sm text-slate-500">Choose one PDF or image document.</span>
           </label>
-          {error ? <p className="mt-2 text-xs font-semibold text-red-600">{error}</p> : null}
+          {error ? <p className="mt-2 text-xs font-semibold text-[#D71313]">{error}</p> : null}
           <input
             id={inputId}
             type="file"
@@ -1016,15 +1016,15 @@ export function DocumentPreviewCard({
 
   if (!fileName) {
     return (
-      <div className="flex min-h-40 items-center justify-center border border-slate-200 bg-slate-50 px-4 text-center text-sm font-medium text-slate-400">
+      <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed border-[#0D1282]/15 bg-white/65 px-4 text-center text-sm font-medium text-slate-400">
         No file selected
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-40 flex-col border border-slate-200 bg-white p-3">
-      <div className="flex h-24 items-center justify-center overflow-hidden bg-slate-50">
+    <div className="flex min-h-40 flex-col rounded-xl bg-white p-3 shadow-sm ring-1 ring-[#EEEDED]">
+      <div className="flex h-24 items-center justify-center overflow-hidden rounded-lg bg-[#EEEDED]/55">
         {isImage && previewUrl ? (
           <button
             type="button"
@@ -1034,7 +1034,7 @@ export function DocumentPreviewCard({
             style={{ backgroundImage: `url("${previewUrl}")` }}
           />
         ) : (
-          <div className="flex h-16 w-16 items-center justify-center border border-slate-300 bg-white text-sm font-bold text-blue-900">
+          <div className="flex h-16 w-16 items-center justify-center rounded-xl border border-[#0D1282]/15 bg-white text-sm font-bold text-[#0D1282] shadow-sm">
             {isPdf ? "PDF" : "FILE"}
           </div>
         )}
@@ -1049,15 +1049,15 @@ export function DocumentPreviewCard({
 
       <div className="mt-3 flex flex-wrap gap-3 text-xs font-semibold">
         {previewUrl ? (
-          <button type="button" onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")} className="text-blue-900">
+          <button type="button" onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")} className="text-[#0D1282] transition hover:text-[#D71313]">
             Preview
           </button>
         ) : null}
-        <label htmlFor={inputId} className="cursor-pointer text-blue-900">
+        <label htmlFor={inputId} className="cursor-pointer text-[#0D1282] transition hover:text-[#D71313]">
           Replace
         </label>
         {file ? (
-          <button type="button" onClick={onRemove} className="text-red-600">
+          <button type="button" onClick={onRemove} className="text-[#D71313]">
             Remove
           </button>
         ) : null}
@@ -1076,18 +1076,45 @@ export function ReviewSection({
   onEdit: () => void;
 }) {
   return (
-    <section className="border border-slate-200 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-slate-950">{title}</h2>
-        <button type="button" onClick={onEdit} className="text-sm font-semibold text-blue-900">
-          Edit
-        </button>
+    <section className="overflow-hidden rounded-3xl bg-white shadow-[0_14px_40px_rgba(13,18,130,0.08)] ring-1 ring-[#EEEDED]">
+      <div className="relative overflow-hidden bg-[#0D1282] px-5 py-5 sm:px-6">
+        <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#F0DE36]/15" />
+        <div className="absolute -bottom-12 right-16 h-24 w-24 rounded-full bg-white/5" />
+
+        <div className="relative flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="mb-2 h-1 w-10 rounded-full bg-[#F0DE36]" />
+            <h2 className="truncate text-lg font-bold tracking-tight text-white">{title}</h2>
+            <p className="mt-1 text-xs font-medium text-white/65">
+              Review the information below before submission.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onEdit}
+            className="shrink-0 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#0D1282] shadow-sm transition hover:bg-[#F0DE36] focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/60 focus:ring-offset-2 focus:ring-offset-[#0D1282]"
+          >
+            Edit
+          </button>
+        </div>
       </div>
-      <dl className="grid gap-3 md:grid-cols-2">
+
+      <dl className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
         {values.map(([label, value]) => (
-          <div key={label}>
-            <dt className="text-xs font-semibold uppercase text-slate-400">{label}</dt>
-            <dd className="mt-1 text-sm text-slate-700">{value || "Not provided"}</dd>
+          <div
+            key={label}
+            className="group relative min-w-0 overflow-hidden rounded-2xl bg-[#EEEDED]/45 px-4 py-4 transition hover:bg-[#F0DE36]/10"
+          >
+            <span className="absolute inset-y-4 left-0 w-1 rounded-r-full bg-[#F0DE36] transition-all group-hover:inset-y-3" />
+            <div className="pl-2">
+              <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#0D1282]/55">
+                {label}
+              </dt>
+              <dd className="mt-2 wrap-break-words text-sm font-semibold leading-6 text-slate-800">
+                {value || "Not provided"}
+              </dd>
+            </div>
           </div>
         ))}
       </dl>

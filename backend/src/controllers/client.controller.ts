@@ -696,6 +696,7 @@ function serializeClientDpdShipment(shipment: {
   dpdShipmentId?: string;
   dpdTransactionId?: string;
   swiftlineTrackingNumber?: string;
+  bookingProvider?: string;
   providerMode?: string;
   parcelNumbers: string[];
   serviceCode: string;
@@ -711,6 +712,7 @@ function serializeClientDpdShipment(shipment: {
     dpdShipmentId: shipment.dpdShipmentId ?? "",
     dpdTransactionId: shipment.dpdTransactionId ?? "",
     swiftlineTrackingNumber: shipment.swiftlineTrackingNumber ?? "",
+    bookingProvider: shipment.bookingProvider ?? "DPD",
     providerMode: shipment.providerMode ?? "LIVE",
     parcelNumbers: shipment.parcelNumbers,
     serviceCode: shipment.serviceCode,
@@ -1024,7 +1026,11 @@ export async function downloadClientShipmentInvoicePdf(request: Request, respons
   return downloadShipmentInvoicePdf(request, response);
 }
 
-export async function createClientDpdLabel(request: Request, response: Response): Promise<Response> {
+async function createClientShipment(
+  request: Request,
+  response: Response,
+  bookingProvider: "DPD" | "SWIFTLINE"
+): Promise<Response> {
   const userId = getAuthenticatedUserId(request);
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
     return response.status(401).json({ success: false, message: "Unauthorized" });
@@ -1039,7 +1045,7 @@ export async function createClientDpdLabel(request: Request, response: Response)
     const result = await createLabelForShipmentDraft(
       draftId,
       new mongoose.Types.ObjectId(userId),
-      { actor: "client", paymentSource: "BUSINESS_ACCOUNT" }
+      { actor: "client", paymentSource: "BUSINESS_ACCOUNT", bookingProvider }
     );
     await ensureClientShipmentBookedEvent({
       shipmentDraftId: new mongoose.Types.ObjectId(draftId),
@@ -1074,9 +1080,19 @@ export async function createClientDpdLabel(request: Request, response: Response)
 
     return response.status(502).json({
       success: false,
-      message: "DPD is temporarily unavailable."
+      message: bookingProvider === "DPD"
+        ? "DPD is temporarily unavailable."
+        : "The Swiftline shipment could not be created."
     });
   }
+}
+
+export async function createClientDpdLabel(request: Request, response: Response): Promise<Response> {
+  return createClientShipment(request, response, "DPD");
+}
+
+export async function createClientSwiftlineShipment(request: Request, response: Response): Promise<Response> {
+  return createClientShipment(request, response, "SWIFTLINE");
 }
 
 export async function createClientShipmentLabelAccess(request: Request, response: Response): Promise<Response> {

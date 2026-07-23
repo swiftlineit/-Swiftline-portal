@@ -50,6 +50,14 @@ async function insertNotifications(
   await PortalNotification.bulkWrite(operations, { ordered: false, session });
 }
 
+export async function notifyPortalUsers(
+  recipientUserIds: mongoose.Types.ObjectId[],
+  input: NotificationInput,
+  session?: mongoose.ClientSession
+) {
+  await insertNotifications(recipientUserIds, input, session);
+}
+
 export async function notifyBusinessFinancialMembers(
   businessAccountId: mongoose.Types.ObjectId,
   input: NotificationInput,

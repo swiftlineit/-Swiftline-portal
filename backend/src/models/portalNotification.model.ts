@@ -13,7 +13,10 @@ export const portalNotificationTypeValues = [
   "SHIPMENT_QUOTE_REQUESTED",
   "SHIPMENT_QUOTE_PUBLISHED",
   "SHIPMENT_QUOTE_DECLINED",
-  "SHIPMENT_QUOTE_CONVERTED"
+  "SHIPMENT_QUOTE_CONVERTED",
+  "SUPPORT_TICKET_CREATED",
+  "SUPPORT_TICKET_REPLY",
+  "SUPPORT_TICKET_STATUS_UPDATED"
 ] as const;
 export type PortalNotificationType = (typeof portalNotificationTypeValues)[number];
 

@@ -20,6 +20,13 @@ const roleLabels: Record<BusinessAccountMemberRole, string> = {
   tracking_only: "Tracking Only"
 };
 
+const statusStyles: Record<string, string> = {
+  active: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  invited: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  suspended: "bg-rose-50 text-rose-700 ring-rose-600/20",
+  disabled: "bg-slate-100 text-slate-600 ring-slate-500/20"
+};
+
 const emptyForm = {
   firstName: "",
   lastName: "",
@@ -48,6 +55,12 @@ function getAssignedBranchLabel(account: BusinessAccount) {
   const branch = getAssignedBranch(account);
   if (!branch) return "No branch assigned";
   return `${branch.name || "Branch"}${branch.code ? ` (${branch.code})` : ""}`;
+}
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
 }
 
 export function BusinessAccountAccessPanel({ account }: { account: BusinessAccount }) {
@@ -132,136 +145,212 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
   }
 
   return (
-    <section className="border border-slate-200 bg-white p-5 lg:col-span-2">
+    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-slate-950">Users & Access</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-[#0D1282]">Users &amp; Access</h2>
           <p className="mt-1 text-sm text-slate-500">Create client logins without storing passwords in the business account record.</p>
         </div>
         <button
           type="button"
           onClick={() => setModalOpen(true)}
           disabled={!canCreateClientLogin}
-          className="bg-blue-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-950 disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0D1282]/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
         >
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M10 4a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H5a1 1 0 1 1 0-2h4V5a1 1 0 0 1 1-1Z" />
+          </svg>
           Create Client Login
         </button>
       </div>
 
       {!canCreateClientLogin ? (
-        <div className="mt-4 border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-          Client login creation unlocks after the account is approved or active, KYC is verified, and one branch is assigned.
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          <svg className="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.63-1.516 2.63H3.72c-1.347 0-2.189-1.463-1.516-2.63L8.485 2.495ZM10 6a1 1 0 0 1 1 1v3a1 1 0 1 1-2 0V7a1 1 0 0 1 1-1Zm0 8a1.25 1.25 0 1 1 0-2.5A1.25 1.25 0 0 1 10 14Z" clipRule="evenodd" />
+          </svg>
+          <span>Client login creation unlocks after the account is approved or active, KYC is verified, and one branch is assigned.</span>
         </div>
       ) : null}
 
       {emailNotice ? (
-        <div className="mt-4 border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900">
-          {emailNotice}
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-[#0D1282]/15 bg-[#0D1282]/5 px-4 py-3 text-sm font-medium text-[#0D1282]">
+          <svg className="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
+          </svg>
+          <span>{emailNotice}</span>
         </div>
       ) : null}
 
-      {error ? <div className="mt-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="mt-4 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          <svg className="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.28 7.22a.75.75 0 0 0-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 1 0 1.06 1.06L10 11.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L11.06 10l1.72-1.72a.75.75 0 0 0-1.06-1.06L10 8.94 8.28 7.22Z" clipRule="evenodd" />
+          </svg>
+          <span>{error}</span>
+        </div>
+      ) : null}
 
-      <div className="mt-5 overflow-x-auto border border-slate-200">
+      <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
         <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
+          <thead className="border-[#0D1282] bg-[#0D1282] text-white ">
             <tr>
-              <th className="px-4 py-3">User</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Branches</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Last Login</th>
-              <th className="px-4 py-3">Actions</th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide ">User</th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide ">Role</th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide ">Branches</th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide ">Status</th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide ">Last Login</th>
+              <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide ">Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-100">
             {loading ? (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">Loading access...</td></tr>
-            ) : members.length ? members.map((member) => (
-              <tr key={member._id} className="border-b border-slate-100 last:border-b-0">
-                <td className="px-4 py-3">
-                  <p className="font-semibold text-slate-900">{member.user.name || `${member.user.firstName} ${member.user.lastName}`.trim()}</p>
-                  <p className="mt-1 text-xs text-slate-500">{member.user.email}</p>
-                </td>
-                <td className="px-4 py-3 font-semibold text-slate-700">{roleLabels[member.role]}</td>
-                <td className="px-4 py-3 text-slate-600">
-                  {member.assignedBranches.length ? member.assignedBranches.map((branch) => branch.code || branch.name).join(", ") : getAssignedBranchLabel(account)}
-                </td>
-                <td className="px-4 py-3 capitalize text-slate-600">{formatStatus(member.status)}</td>
-                <td className="px-4 py-3 text-slate-600">{formatDate(member.user.lastLogin)}</td>
-                <td className="px-4 py-3">
-                  {member.status === "invited" ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleResendInvitation(member._id)}
-                      disabled={saving}
-                      className="text-sm font-semibold text-blue-900 disabled:text-slate-400"
-                    >
-                      Resend Invitation
-                    </button>
-                  ) : (
-                    <span className="text-xs font-semibold text-slate-400">No actions</span>
-                  )}
+              Array.from({ length: 3 }).map((_, index) => (
+                <tr key={index}>
+                  <td colSpan={6} className="px-4 py-4">
+                    <div className="h-4 w-full max-w-sm animate-pulse rounded-full bg-slate-100" />
+                  </td>
+                </tr>
+              ))
+            ) : members.length ? members.map((member) => {
+              const displayName = member.user.name || `${member.user.firstName} ${member.user.lastName}`.trim();
+              return (
+                <tr key={member._id} className="transition hover:bg-slate-50/80">
+                  <td className="px-4 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#0D1282]/10 text-xs font-semibold text-[#0D1282]">
+                        {getInitials(displayName)}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-[#0D1282]">{displayName}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{member.user.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                      {roleLabels[member.role]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-600">
+                    {member.assignedBranches.length ? member.assignedBranches.map((branch) => branch.code || branch.name).join(", ") : getAssignedBranchLabel(account)}
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ring-1 ring-inset ${statusStyles[member.status] || "bg-slate-100 text-slate-600 ring-slate-500/20"}`}>
+                      {formatStatus(member.status)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5 text-slate-500">{formatDate(member.user.lastLogin)}</td>
+                  <td className="px-4 py-3.5">
+                    {member.status === "invited" ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleResendInvitation(member._id)}
+                        disabled={saving}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-[#0D1282] transition hover:bg-[#0D1282]/5 disabled:text-slate-300"
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
+                        </svg>
+                        Resend
+                      </button>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-300">No actions</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            }) : (
+              <tr>
+                <td colSpan={6} className="px-4 py-12 text-center">
+                  <div className="flex flex-col items-center gap-2 text-slate-400">
+                    <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+                    </svg>
+                    <p className="text-sm font-medium text-slate-500">No client users have been added yet.</p>
+                  </div>
                 </td>
               </tr>
-            )) : (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-500">No client users have been added yet.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
       {modalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
-          <form onSubmit={handleCreateClientLogin} className="w-full max-w-2xl border border-slate-200 bg-white p-5 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm">
+          <form onSubmit={handleCreateClientLogin} className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-base font-semibold text-slate-950">Create Client Login</h3>
+                <h3 className="text-lg font-semibold tracking-tight text-[#0D1282]">Create Client Login</h3>
                 <p className="mt-1 text-sm text-slate-500">The client receives an activation link and creates their own password.</p>
               </div>
-              <button type="button" onClick={() => setModalOpen(false)} className="text-sm font-semibold text-slate-500">Close</button>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                </svg>
+              </button>
             </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
               <AccessField label="First Name" value={form.firstName} onChange={(value) => updateForm("firstName", value)} required />
               <AccessField label="Last Name" value={form.lastName} onChange={(value) => updateForm("lastName", value)} required />
               <AccessField label="Email" type="email" value={form.email} onChange={(value) => updateForm("email", value)} required />
               <AccessField label="Phone Number" value={form.phone} onChange={(value) => updateForm("phone", value)} />
               <label className="block">
-                <span className="sr-only">Client Role</span>
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Client Role</span>
                 <select
                   value={form.role}
                   onChange={(event) => updateForm("role", event.target.value as BusinessAccountMemberRole)}
-                  className="block h-12 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  className="block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-[#0D1282] outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
                 >
                   {businessAccountMemberRoles.map((role) => (
                     <option key={role} value={role}>{roleLabels[role]}</option>
                   ))}
                 </select>
               </label>
-              <label className="flex h-12 items-center gap-3 border border-slate-300 px-3 text-sm font-semibold text-slate-700">
+              <label className="flex h-11 cursor-pointer items-center gap-3 self-end rounded-xl border border-slate-200 px-3 text-sm font-medium text-slate-700 transition hover:border-slate-300">
                 <input
                   type="checkbox"
                   checked={form.sendInvitationEmail}
                   onChange={(event) => updateForm("sendInvitationEmail", event.target.checked)}
-                  className="h-4 w-4"
+                  className="h-4 w-4 rounded accent-[#0D1282]"
                 />
                 Send Invitation Email
               </label>
             </div>
 
-            <div className="mt-5 border border-slate-200 p-4">
-              <p className="text-sm font-semibold text-slate-900">Assigned Branch</p>
-              <p className="mt-2 text-sm text-slate-600">{getAssignedBranchLabel(account)}</p>
-              <p className="mt-1 text-xs text-slate-500">Client login access is restricted to the business account assigned branch.</p>
+            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-[#0D1282]">Assigned Branch</p>
+              <p className="mt-1.5 text-sm text-slate-600">{getAssignedBranchLabel(account)}</p>
+              <p className="mt-1 text-xs text-slate-400">Client login access is restricted to the business account assigned branch.</p>
             </div>
 
-            <div className="mt-5 flex justify-end gap-3">
-              <button type="button" onClick={() => setModalOpen(false)} className="border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
                 Cancel
               </button>
-              <button type="submit" disabled={saving} className="bg-blue-900 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300">
-                {saving ? "Creating..." : "Create Login"}
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0D1282]/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+              >
+                {saving ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4Z" />
+                    </svg>
+                    Creating...
+                  </>
+                ) : "Create Login"}
               </button>
             </div>
           </form>
@@ -286,14 +375,16 @@ function AccessField({
 }) {
   return (
     <label className="block">
-      <span className="sr-only">{label}</span>
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}{required ? <span className="text-rose-500"> *</span> : null}
+      </span>
       <input
         type={type}
         value={value}
         required={required}
-        placeholder={`${label}${required ? " *" : ""}`}
+        placeholder={label}
         onChange={(event) => onChange(event.target.value)}
-        className="block h-12 w-full border border-slate-300 px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+        className="block h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-[#0D1282] outline-none transition placeholder:text-slate-300 focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
       />
     </label>
   );

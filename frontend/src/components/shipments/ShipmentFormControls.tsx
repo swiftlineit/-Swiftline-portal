@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, ReactNode, useState } from "react";
+import { ChangeEvent, ReactNode, useEffect, useState } from "react";
 import { CountrySelector, FlagImage } from "react-international-phone";
 import { FiChevronDown } from "react-icons/fi";
 import {
@@ -135,6 +135,12 @@ export function ShipmentPhoneCodeField({
   const [touched, setTouched] = useState(false);
   const selectedCountry = getPhoneCountryByDialCode(value);
   const showError = touched || revealError;
+
+  // The selector displays India when no code is stored; keep the controlled
+  // form value in sync so the visible default is also a valid submission value.
+  useEffect(() => {
+    if (!value.trim()) onChange(`+${selectedCountry.dialCode}`);
+  }, [onChange, selectedCountry.dialCode, value]);
 
   return (
     <div className="min-w-0">

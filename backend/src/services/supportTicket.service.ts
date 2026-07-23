@@ -1,0 +1,314 @@
+import mongoose from "mongoose";
+import { AuditLog } from "../models/auditLog.model.js";
+import { Branch } from "../models/branch.model.js";
+import { BusinessAccount } from "../models/businessAccount.model.js";
+import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
+import { ShipmentDraft } from "../models/shipmentDraft.model.js";
+import {
+  SupportTicket, supportTicketCategoryValues, supportTicketPriorityValues, supportTicketStatusValues,
+  type SupportTicketCategory, type SupportTicketPriority, type SupportTicketStatus
+} from "../models/supportTicket.model.js";
+import { SupportTicketCounter } from "../models/supportTicketCounter.model.js";
+import { SupportTicketMessage } from "../models/supportTicketMessage.model.js";
+import { User } from "../models/user.model.js";
+import { notifyActiveAdmins, notifyPortalUsers } from "./portalNotification.service.js";
+
+export class SupportTicketError extends Error {
+  constructor(message: string, public readonly statusCode = 400) {
+    super(message);
+    this.name = "SupportTicketError";
+  }
+}
+
+export type CreateSupportTicketInput = {
+  businessAccountId: string;
+  category: SupportTicketCategory;
+  subject: string;
+  description: string;
+  relatedShipmentDraftId?: string | null;
+};
+
+export type SupportTicketFilters = {
+  page: number;
+  limit: number;
+  status?: SupportTicketStatus;
+  priority?: SupportTicketPriority;
+  category?: SupportTicketCategory;
+  search?: string;
+};
+
+function financialYear(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit" }).formatToParts(date);
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  const start = month >= 4 ? year : year - 1;
+  return `${String(start).slice(-2)}-${String(start + 1).slice(-2)}`;
+}
+
+async function nextTicketNumber(now: Date, session: mongoose.ClientSession) {
+  const year = financialYear(now);
+  const counter = await SupportTicketCounter.findOneAndUpdate(
+    { financialYear: year },
+    { $inc: { sequence: 1 }, $setOnInsert: { financialYear: year } },
+    { upsert: true, returnDocument: "after", runValidators: true, session }
+  ).exec();
+  if (!counter) throw new SupportTicketError("A ticket number could not be generated. Please try again.", 500);
+  return `TKT/${year}/${String(counter.sequence).padStart(5, "0")}`;
+}
+
+async function activeMembership(userId: mongoose.Types.ObjectId, businessAccountId: mongoose.Types.ObjectId) {
+  return BusinessAccountMember.findOne({ user: userId, businessAccount: businessAccountId, status: "active" }).exec();
+}
+
+async function assertClientCanView(ticket: InstanceType<typeof SupportTicket>, userId: mongoose.Types.ObjectId) {
+  const membership = await activeMembership(userId, ticket.businessAccountId);
+  if (!membership) throw new SupportTicketError("Ticket not found.", 404);
+  const canViewCompanyTickets = ["account_owner", "account_admin"].includes(membership.role);
+  if (!canViewCompanyTickets && String(ticket.createdBy) !== String(userId)) {
+    throw new SupportTicketError("Ticket not found.", 404);
+  }
+  return membership;
+}
+
+async function contextFor(ticket: InstanceType<typeof SupportTicket>) {
+  const [account, branch, creator, assignee, shipment] = await Promise.all([
+    BusinessAccount.findById(ticket.businessAccountId).select("accountId company.companyName").lean().exec(),
+    Branch.findById(ticket.branchId).select("name code").lean().exec(),
+    User.findById(ticket.createdBy).select("name email").lean().exec(),
+    ticket.assignedTo ? User.findById(ticket.assignedTo).select("name email").lean().exec() : null,
+    ticket.relatedShipmentDraftId ? ShipmentDraft.findById(ticket.relatedShipmentDraftId).select("_id").lean().exec() : null
+  ]);
+  return {
+    account: account ? { id: String(account._id), accountId: account.accountId, companyName: account.company.companyName } : null,
+    branch: branch ? { id: String(branch._id), name: branch.name, code: branch.code } : null,
+    creator: creator ? { id: String(creator._id), name: creator.name || creator.email, email: creator.email } : null,
+    assignee: assignee ? { id: String(assignee._id), name: assignee.name || assignee.email, email: assignee.email } : null,
+    relatedShipment: shipment ? { draftId: String(shipment._id) } : null
+  };
+}
+
+export async function serializeSupportTicket(ticket: InstanceType<typeof SupportTicket>, audience: "CLIENT" | "ADMIN", includeMessages = false) {
+  const context = await contextFor(ticket);
+  const messages = includeMessages
+    ? await SupportTicketMessage.find({ ticketId: ticket._id, ...(audience === "CLIENT" ? { internal: false } : {}) })
+      .sort({ createdAt: 1 }).exec()
+    : [];
+  const authors = includeMessages
+    ? new Map((await User.find({ _id: { $in: messages.map((message) => message.authorId) } }).select("name email").lean().exec())
+      .map((user) => [String(user._id), user]))
+    : new Map<string, { name?: string; email: string }>();
+  return {
+    id: String(ticket._id), ticketNumber: ticket.ticketNumber,
+    businessAccountId: String(ticket.businessAccountId), branchId: String(ticket.branchId),
+    category: ticket.category, priority: ticket.priority, status: ticket.status, subject: ticket.subject,
+    relatedShipmentDraftId: ticket.relatedShipmentDraftId ? String(ticket.relatedShipmentDraftId) : null,
+    assignedTo: ticket.assignedTo ? String(ticket.assignedTo) : null,
+    lastMessageAt: ticket.lastMessageAt, resolvedAt: ticket.resolvedAt ?? null, closedAt: ticket.closedAt ?? null,
+    createdAt: ticket.createdAt, updatedAt: ticket.updatedAt, ...context,
+    statusHistory: ticket.statusHistory.map((item) => ({
+      fromStatus: item.fromStatus ?? null, toStatus: item.toStatus, changedBy: String(item.changedBy),
+      note: item.note, changedAt: item.changedAt
+    })),
+    messages: messages.map((message) => {
+      const author = authors.get(String(message.authorId));
+      return {
+        id: String(message._id), authorId: String(message.authorId), authorType: message.authorType,
+        authorName: author?.name || author?.email || "Portal user", message: message.message,
+        internal: audience === "ADMIN" ? message.internal : false, createdAt: message.createdAt
+      };
+    })
+  };
+}
+
+function ticketQuery(filters: SupportTicketFilters) {
+  const query: Record<string, unknown> = {};
+  if (filters.status && supportTicketStatusValues.includes(filters.status)) query.status = filters.status;
+  if (filters.priority && supportTicketPriorityValues.includes(filters.priority)) query.priority = filters.priority;
+  if (filters.category && supportTicketCategoryValues.includes(filters.category)) query.category = filters.category;
+  if (filters.search) {
+    const escaped = filters.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.$or = [{ ticketNumber: { $regex: escaped, $options: "i" } }, { subject: { $regex: escaped, $options: "i" } }];
+  }
+  return query;
+}
+
+export async function listAdminSupportTickets(filters: SupportTicketFilters) {
+  const query = ticketQuery(filters);
+  const [tickets, total] = await Promise.all([
+    SupportTicket.find(query).sort({ lastMessageAt: -1 }).skip((filters.page - 1) * filters.limit).limit(filters.limit).exec(),
+    SupportTicket.countDocuments(query)
+  ]);
+  return { tickets: await Promise.all(tickets.map((ticket) => serializeSupportTicket(ticket, "ADMIN"))), total };
+}
+
+export async function listClientSupportTickets(userId: mongoose.Types.ObjectId, filters: SupportTicketFilters) {
+  const memberships = await BusinessAccountMember.find({ user: userId, status: "active" }).select("businessAccount role").lean().exec();
+  const visibility = memberships.map((membership) => ["account_owner", "account_admin"].includes(membership.role)
+    ? { businessAccountId: membership.businessAccount }
+    : { businessAccountId: membership.businessAccount, createdBy: userId });
+  const query = { $and: [ticketQuery(filters), { $or: visibility.length ? visibility : [{ _id: null }] }] };
+  const [tickets, total] = await Promise.all([
+    SupportTicket.find(query).sort({ lastMessageAt: -1 }).skip((filters.page - 1) * filters.limit).limit(filters.limit).exec(),
+    SupportTicket.countDocuments(query)
+  ]);
+  return { tickets: await Promise.all(tickets.map((ticket) => serializeSupportTicket(ticket, "CLIENT"))), total };
+}
+
+export async function createClientSupportTicket(userId: mongoose.Types.ObjectId, input: CreateSupportTicketInput) {
+  if (!mongoose.Types.ObjectId.isValid(input.businessAccountId)) throw new SupportTicketError("Select a valid business account.");
+  const accountId = new mongoose.Types.ObjectId(input.businessAccountId);
+  const [membership, account] = await Promise.all([
+    activeMembership(userId, accountId),
+    BusinessAccount.findById(accountId).select("assignedBranch status").exec()
+  ]);
+  if (!membership || !account) throw new SupportTicketError("You do not have access to this business account.", 403);
+  if (!account.assignedBranch) throw new SupportTicketError("Contact Swiftline because this account has no assigned branch.", 409);
+  const branchId = account.assignedBranch;
+  let shipmentId: mongoose.Types.ObjectId | null = null;
+  if (input.relatedShipmentDraftId) {
+    if (!mongoose.Types.ObjectId.isValid(input.relatedShipmentDraftId)) throw new SupportTicketError("Select a valid related shipment.");
+    shipmentId = new mongoose.Types.ObjectId(input.relatedShipmentDraftId);
+    const shipment = await ShipmentDraft.exists({ _id: shipmentId, businessAccountId: accountId });
+    if (!shipment) throw new SupportTicketError("The selected shipment does not belong to this business account.", 400);
+  }
+  const now = new Date();
+  const session = await mongoose.startSession();
+  let createdTicketId: mongoose.Types.ObjectId | null = null;
+  try {
+    await session.withTransaction(async () => {
+      const created = await SupportTicket.create([{
+        ticketNumber: await nextTicketNumber(now, session), businessAccountId: accountId,
+        branchId, createdBy: userId, relatedShipmentDraftId: shipmentId,
+        category: input.category, priority: "NORMAL", status: "OPEN", subject: input.subject,
+        statusHistory: [{ fromStatus: null, toStatus: "OPEN", changedBy: userId, note: "Ticket raised by customer.", changedAt: now }],
+        lastMessageAt: now
+      }], { session });
+      const createdTicket = created[0];
+      if (!createdTicket) throw new SupportTicketError("The ticket could not be created. Please try again.", 500);
+      createdTicketId = createdTicket._id;
+      await SupportTicketMessage.create([{
+        ticketId: createdTicket._id, authorId: userId, authorType: "CLIENT", message: input.description, internal: false, createdAt: now
+      }], { session });
+      await AuditLog.create([{
+        action: "SUPPORT_TICKET_CREATED", entityType: "SUPPORT_TICKET", entityId: createdTicket._id,
+        performedBy: userId, performedAt: now, metadata: { ticketNumber: createdTicket.ticketNumber, businessAccountId: accountId }
+      }], { session });
+    });
+  } finally { await session.endSession(); }
+  if (!createdTicketId) throw new SupportTicketError("The ticket could not be created. Please try again.", 500);
+  const ticket = await SupportTicket.findById(createdTicketId).exec();
+  if (!ticket) throw new SupportTicketError("The ticket could not be loaded after creation. Please contact Swiftline support.", 500);
+  await notifyActiveAdmins({
+    type: "SUPPORT_TICKET_CREATED", title: "New support ticket",
+    message: `${ticket.ticketNumber} has been raised and requires review.`,
+    href: `/dashboard/tickets/${String(ticket._id)}`, idempotencyKey: `SUPPORT_TICKET_CREATED:${String(ticket._id)}`,
+    businessAccountId: ticket.businessAccountId, metadata: { ticketId: ticket._id }
+  });
+  return ticket;
+}
+
+export async function getSupportTicket(ticketId: string, audience: "CLIENT" | "ADMIN", userId?: mongoose.Types.ObjectId) {
+  if (!mongoose.Types.ObjectId.isValid(ticketId)) throw new SupportTicketError("Ticket not found.", 404);
+  const ticket = await SupportTicket.findById(ticketId).exec();
+  if (!ticket) throw new SupportTicketError("Ticket not found.", 404);
+  if (audience === "CLIENT") {
+    if (!userId) throw new SupportTicketError("Please sign in again.", 401);
+    await assertClientCanView(ticket, userId);
+  }
+  return ticket;
+}
+
+export async function addSupportTicketReply(input: {
+  ticket: InstanceType<typeof SupportTicket>; userId: mongoose.Types.ObjectId; audience: "CLIENT" | "ADMIN";
+  message: string; internal?: boolean;
+}) {
+  if (input.audience === "CLIENT") {
+    await assertClientCanView(input.ticket, input.userId);
+    if (input.ticket.status === "CLOSED") throw new SupportTicketError("This ticket is closed. Please raise a new ticket if you still need help.", 409);
+  }
+  const internal = input.audience === "ADMIN" && Boolean(input.internal);
+  const now = new Date();
+  await SupportTicketMessage.create({
+    ticketId: input.ticket._id, authorId: input.userId, authorType: input.audience, message: input.message, internal, createdAt: now
+  });
+  input.ticket.lastMessageAt = now;
+  await input.ticket.save();
+  await AuditLog.create({
+    action: "SUPPORT_TICKET_REPLIED", entityType: "SUPPORT_TICKET", entityId: input.ticket._id,
+    performedBy: input.userId, performedAt: now, metadata: { internal, audience: input.audience }
+  });
+  if (input.audience === "ADMIN" && !internal) {
+    await notifyPortalUsers([input.ticket.createdBy], {
+      type: "SUPPORT_TICKET_REPLY", title: "Swiftline replied to your ticket",
+      message: `${input.ticket.ticketNumber} has a new response.`,
+      href: `/client/tickets/${String(input.ticket._id)}`,
+      idempotencyKey: `SUPPORT_TICKET_REPLY:${String(input.ticket._id)}:${now.getTime()}`,
+      businessAccountId: input.ticket.businessAccountId, metadata: { ticketId: input.ticket._id }
+    });
+  } else if (input.audience === "CLIENT") {
+    const notification = {
+      type: "SUPPORT_TICKET_REPLY" as const, title: "Customer replied to support ticket",
+      message: `${input.ticket.ticketNumber} has a new customer response.`,
+      href: `/dashboard/tickets/${String(input.ticket._id)}`,
+      idempotencyKey: `SUPPORT_TICKET_CLIENT_REPLY:${String(input.ticket._id)}:${now.getTime()}`,
+      businessAccountId: input.ticket.businessAccountId, metadata: { ticketId: input.ticket._id }
+    };
+    if (input.ticket.assignedTo) await notifyPortalUsers([input.ticket.assignedTo], notification);
+    else await notifyActiveAdmins(notification);
+  }
+}
+
+const allowedTransitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
+  OPEN: ["IN_PROGRESS", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"],
+  IN_PROGRESS: ["WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"],
+  WAITING_FOR_CUSTOMER: ["IN_PROGRESS", "RESOLVED", "CLOSED"],
+  RESOLVED: ["IN_PROGRESS", "CLOSED"],
+  CLOSED: ["IN_PROGRESS"]
+};
+
+export async function updateSupportTicketByAdmin(input: {
+  ticket: InstanceType<typeof SupportTicket>; userId: mongoose.Types.ObjectId;
+  status?: SupportTicketStatus; priority?: SupportTicketPriority; assignedTo?: string | null; note?: string;
+}) {
+  const previousStatus = input.ticket.status;
+  if (input.status && input.status !== previousStatus) {
+    if (!allowedTransitions[previousStatus].includes(input.status)) {
+      throw new SupportTicketError(`A ${previousStatus.replaceAll("_", " ").toLowerCase()} ticket cannot move directly to ${input.status.replaceAll("_", " ").toLowerCase()}.`, 409);
+    }
+    input.ticket.status = input.status;
+    input.ticket.statusHistory.push({
+      fromStatus: previousStatus, toStatus: input.status, changedBy: input.userId,
+      note: input.note || (previousStatus === "CLOSED" ? "Ticket reopened by Swiftline support." : "Status updated by Swiftline support."),
+      changedAt: new Date()
+    });
+    input.ticket.resolvedAt = input.status === "RESOLVED" ? new Date() : input.ticket.resolvedAt;
+    input.ticket.closedAt = input.status === "CLOSED" ? new Date() : null;
+  }
+  if (input.priority) input.ticket.priority = input.priority;
+  if (input.assignedTo !== undefined) {
+    if (input.assignedTo) {
+      if (!mongoose.Types.ObjectId.isValid(input.assignedTo)) throw new SupportTicketError("Select a valid support assignee.");
+      const admin = await User.exists({ _id: input.assignedTo, role: "admin", userStatus: "active" });
+      if (!admin) throw new SupportTicketError("The selected support assignee is unavailable.");
+      input.ticket.assignedTo = new mongoose.Types.ObjectId(input.assignedTo);
+    } else input.ticket.assignedTo = null;
+  }
+  await input.ticket.save();
+  await AuditLog.create({
+    action: "SUPPORT_TICKET_UPDATED", entityType: "SUPPORT_TICKET", entityId: input.ticket._id,
+    performedBy: input.userId, performedAt: new Date(), metadata: { previousStatus, status: input.ticket.status, priority: input.ticket.priority }
+  });
+  if (input.status && input.status !== previousStatus) {
+    await notifyPortalUsers([input.ticket.createdBy], {
+      type: "SUPPORT_TICKET_STATUS_UPDATED", title: "Support ticket updated",
+      message: `${input.ticket.ticketNumber} is now ${input.ticket.status.replaceAll("_", " ").toLowerCase()}.`,
+      href: `/client/tickets/${String(input.ticket._id)}`,
+      idempotencyKey: `SUPPORT_TICKET_STATUS:${String(input.ticket._id)}:${input.ticket.status}:${input.ticket.statusHistory.length}`,
+      businessAccountId: input.ticket.businessAccountId, metadata: { ticketId: input.ticket._id, status: input.ticket.status }
+    });
+  }
+}
+
+export async function listActiveSupportAdmins() {
+  return User.find({ role: "admin", userStatus: "active" }).select("name email").sort({ name: 1, email: 1 }).lean().exec();
+}

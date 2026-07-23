@@ -323,10 +323,11 @@ export default function ClientShipmentDetailsPage() {
                   <DetailRow label="Updated" value={formatDateTime(shipment.shipmentDraft.updatedAt)} />
                 </DetailPanel>
 
-                <DetailPanel title="Carrier" icon={<FiFileText aria-hidden="true" className="h-4 w-4" />}>
-                  <DetailRow label="DPD Shipment ID" value={shipment.dpdShipment?.dpdShipmentId || "Pending"} />
+                <DetailPanel title="Booking" icon={<FiFileText aria-hidden="true" className="h-4 w-4" />}>
+                  <DetailRow label="Label Provider" value={shipment.dpdShipment?.bookingProvider === "SWIFTLINE" ? "Swiftline Only" : "DPD"} />
+                  {shipment.dpdShipment?.bookingProvider !== "SWIFTLINE" ? <DetailRow label="DPD Shipment ID" value={shipment.dpdShipment?.dpdShipmentId || "Pending"} /> : null}
                   <DetailRow label="Swiftline Tracking" value={shipment.dpdShipment?.swiftlineTrackingNumber || "Pending"} />
-                  <DetailRow label="Carrier Parcels" value={shipment.dpdShipment?.parcelNumbers.join(", ") || "Pending"} />
+                  {shipment.dpdShipment?.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Parcels" value={shipment.dpdShipment?.parcelNumbers.join(", ") || "Pending"} /> : null}
                   <DetailRow label="Booked At" value={formatDateTime(shipment.dpdShipment?.createdAt)} />
                 </DetailPanel>
 

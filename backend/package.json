@@ -9,6 +9,7 @@
     "start": "tsx src/server.ts",
     "seed:demo-shipment": "tsx src/scripts/createDemoShipment.ts",
     "backfill:shipment-invoices": "tsx src/scripts/backfillShipmentInvoices.ts",
+    "migrate:shipment-manifest-indexes": "tsx src/scripts/migrateShipmentManifestIndexes.ts",
     "credit:migration:dry-run": "tsx src/scripts/creditMigrationDryRun.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:prepaid:phase2": "tsx src/scripts/prepaidPhase2.tests.ts",
@@ -30,7 +31,9 @@
     "test:shipment:labels": "tsx --test src/tests/shipmentLabels.test.ts",
     "test:shipment:labels-integration": "tsx --test src/tests/shipmentLabels.integration.test.ts",
     "test:shipment:manifests": "tsx --test src/tests/shipmentManifest.test.ts",
-    "test:shipment:quotes": "tsx --test src/tests/shipmentQuote.test.ts"
+    "test:shipment:quotes": "tsx --test src/tests/shipmentQuote.test.ts",
+    "test:support-tickets": "tsx --test src/tests/supportTicket.integration.test.ts",
+    "test:operations-manifests": "tsx --test src/tests/operationsManifest.test.ts"
   },
   "keywords": [],
   "author": "",

@@ -3,6 +3,7 @@ import {
   createClientShipmentAmendment,
   downloadClientShipmentInvoicePdf,
   createClientDpdLabel,
+  createClientSwiftlineShipment,
   createClientShipmentLabelAccess,
   createClientManualShipmentDraft,
   createClientInvoiceUpload,
@@ -71,11 +72,19 @@ import {
   convertClientShipmentQuote, createClientQuoteShipmentDraft, createClientShipmentQuote, estimateClientShipmentQuote,
   getClientQuoteContext, getClientShipmentQuote, listClientShipmentQuotes
 } from "../controllers/shipmentQuote.controller.js";
+import {
+  createClientTicket, getClientTicket, listClientTickets, replyClientTicket
+} from "../controllers/supportTicket.controller.js";
 
 export const clientRouter = Router();
 
 clientRouter.use(attachUser);
 clientRouter.use(requireRole("client"));
+
+clientRouter.get("/support-tickets", listClientTickets);
+clientRouter.post("/support-tickets", createClientTicket);
+clientRouter.get("/support-tickets/:ticketId", getClientTicket);
+clientRouter.post("/support-tickets/:ticketId/replies", replyClientTicket);
 
 clientRouter.get("/dashboard", getClientDashboard);
 clientRouter.get("/quotes/context", getClientQuoteContext);
@@ -117,6 +126,7 @@ clientRouter.post("/dpd-labels/drafts/manual", createClientManualShipmentDraft);
 clientRouter.get("/dpd-labels/drafts/:id", getClientShipmentDraft);
 clientRouter.patch("/dpd-labels/drafts/:id", updateClientShipmentDraft);
 clientRouter.post("/dpd-labels/drafts/:id/create-dpd-label", createClientDpdLabel);
+clientRouter.post("/dpd-labels/drafts/:id/create-swiftline-shipment", createClientSwiftlineShipment);
 clientRouter.get("/shipments", listClientShipments);
 clientRouter.get("/tracking/:trackingNumber", trackClientShipment);
 clientRouter.get("/shipments/:draftId/labels/:labelId/access", createClientShipmentLabelAccess);

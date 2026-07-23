@@ -32,6 +32,8 @@ import { notificationRouter } from "./routes/notification.routes.js";
 import { shipmentCancellationRouter } from "./routes/shipmentCancellation.routes.js";
 import { shipmentManifestRouter } from "./routes/shipmentManifest.routes.js";
 import { shipmentQuoteRouter } from "./routes/shipmentQuote.routes.js";
+import { supportTicketRouter } from "./routes/supportTicket.routes.js";
+import { operationsManifestRouter } from "./routes/operationsManifest.routes.js";
 
 export const app = express();
 
@@ -81,6 +83,8 @@ app.use("/api/v1/shipment-amendments", shipmentAmendmentRouter);
 app.use("/api/v1/shipment-cancellations", shipmentCancellationRouter);
 app.use("/api/v1/shipment-manifests", shipmentManifestRouter);
 app.use("/api/v1/quote-requests", shipmentQuoteRouter);
+app.use("/api/v1/support-tickets", supportTicketRouter);
+app.use("/api/v1/operations-manifests", operationsManifestRouter);
 app.use("/api/v1/tax-invoices", taxInvoiceRouter);
 app.use("/api/v1/credit-accounts", creditAccountRouter);
 app.use("/api/v1/credit-agreements", creditAgreementRouter);

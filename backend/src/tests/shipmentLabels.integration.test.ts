@@ -282,6 +282,56 @@ describe("Swiftline tracking sequence", () => {
     const lockedDraft = await ShipmentDraft.findById(draft._id).orFail().lean().exec();
     assert.equal(lockedDraft.bookingState, "BOOKED");
 
+    const swiftlineUpload = await InvoiceUpload.create({
+      businessAccountId: account._id,
+      branchId: branch._id,
+      templateVersion: "TEST-1.0",
+      invoiceNumber: `SWIFTLINE-INV-${Date.now()}`,
+      shipmentReference: `SWIFTLINE-SHIP-${Date.now()}`,
+      originalFilename: "swiftline-booking-test.pdf",
+      storagePath: "test://swiftline-booking-test.pdf",
+      fileChecksum: new mongoose.Types.ObjectId().toHexString().padEnd(64, "1"),
+      extractedData: {},
+      status: "PARSED",
+      uploadedBy: userId
+    });
+    const swiftlineDraft = await ShipmentDraft.create({
+      invoiceUploadId: swiftlineUpload._id,
+      businessAccountId: account._id,
+      branchId: branch._id,
+      sender: draft.sender,
+      consigneeEnteredAddress: draft.consigneeEnteredAddress,
+      consigneeValidatedAddress: draft.consigneeValidatedAddress,
+      addressValidationStatus: "VALIDATED",
+      addressValidationResult: { outcome: "VALID" },
+      parcelList: draft.parcelList,
+      serviceType: "COURIER",
+      status: "READY_FOR_DPD",
+      bookingState: "EDITABLE",
+      createdBy: userId
+    });
+    const swiftlineOnly = await createLabelForShipmentDraft(String(swiftlineDraft._id), userId, {
+      actor: "admin",
+      paymentSource: "TEST",
+      bookingProvider: "SWIFTLINE"
+    });
+    swiftlineOnly.labels.forEach((label) => generatedFiles.add(label.storagePath));
+    assert.equal(swiftlineOnly.dpdShipment.bookingProvider, "SWIFTLINE");
+    assert.equal(swiftlineOnly.dpdShipment.dpdShipmentId, "");
+    assert.deepEqual(swiftlineOnly.dpdShipment.parcelNumbers, []);
+    assert.equal(swiftlineOnly.labels.length, 2);
+    assert.ok(swiftlineOnly.labels.every((label) => label.labelType === "SWIFTLINE"));
+    assert.equal(swiftlineOnly.shipmentInvoice.totalAmountMinor, first.shipmentInvoice.totalAmountMinor);
+
+    const swiftlineReuse = await createLabelForShipmentDraft(String(swiftlineDraft._id), userId, {
+      actor: "admin",
+      paymentSource: "TEST",
+      bookingProvider: "DPD"
+    });
+    assert.equal(swiftlineReuse.reused, true);
+    assert.equal(swiftlineReuse.labels.length, 2);
+    assert.ok(swiftlineReuse.labels.every((label) => label.labelType === "SWIFTLINE"));
+
     const amendedDraft = await ShipmentDraft.findById(draft._id).orFail().exec();
     amendedDraft.parcelList = amendedDraft.parcelList.map((parcel) => ({
       ...parcel,

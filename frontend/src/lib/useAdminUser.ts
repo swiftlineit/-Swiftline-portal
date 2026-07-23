@@ -12,7 +12,7 @@ export type AuthenticatedUser = {
   hasSeenWelcome?: boolean;
 };
 
-export function useAdminUser() {
+export function useAdminUser(allowInternalStaff = false) {
   const router = useRouter();
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,7 +46,7 @@ export function useAdminUser() {
 
         if (!data.success) throw new Error("Unauthorized");
 
-        if (data.user.role !== "admin") {
+        if (data.user.role !== "admin" && !(allowInternalStaff && data.user.role === "staff")) {
           setForbidden(true);
           router.replace("/dashboard");
           return;
@@ -62,7 +62,7 @@ export function useAdminUser() {
     }
 
     void loadUser();
-  }, [router]);
+  }, [allowInternalStaff, router]);
 
   return { user, loading, forbidden };
 }

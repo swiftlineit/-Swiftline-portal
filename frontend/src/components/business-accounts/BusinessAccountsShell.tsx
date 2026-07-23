@@ -23,20 +23,21 @@ export default function BusinessAccountsShell({
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50">
-      <div className="flex h-full">
+    <div className="flex h-screen flex-col overflow-hidden bg-[#EEEDED]/60">
+      <div className="h-1 shrink-0 bg-[#0D1282]" />
+      <div className="flex min-h-0 flex-1">
         <Sidebar userRole={user.role} />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8 shadow-sm">
+          <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8">
             <div className="flex items-center gap-4">
               <NotificationBell />
               <div className="text-right">
-                <p className="text-sm font-semibold uppercase text-slate-900">{user.name || user.email}</p>
+                <p className="text-sm font-semibold uppercase text-[#0D1282]">{user.name || user.email}</p>
                 <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">{user.role}</p>
               </div>
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center gap-2 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                className="inline-flex items-center gap-2 rounded-lg bg-[#D71313] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2"
               >
                 <FiLogOut aria-hidden="true" className="h-4 w-4" />
                 Logout
@@ -52,8 +53,8 @@ export default function BusinessAccountsShell({
 
 export function BusinessAccountsLoading() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <p className="text-sm font-semibold text-slate-500">Loading business accounts...</p>
+    <div className="flex min-h-screen items-center justify-center bg-[#EEEDED]/60">
+      <p className="text-sm font-semibold text-[#0D1282]">Loading business accounts...</p>
     </div>
   );
 }

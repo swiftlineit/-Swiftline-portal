@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
-import { FiBriefcase, FiChevronLeft, FiChevronRight, FiClipboard, FiCreditCard, FiDollarSign, FiFileText, FiGrid, FiLogOut, FiTruck } from "react-icons/fi";
+import { FiBriefcase, FiChevronLeft, FiChevronRight, FiClipboard, FiCreditCard, FiDollarSign, FiFileText, FiGrid, FiHelpCircle, FiLogOut, FiTruck } from "react-icons/fi";
 import { usePathname, useRouter } from "next/navigation";
 import { logout } from "@/lib/auth";
 import NotificationBell from "@/components/NotificationBell";
@@ -59,6 +59,7 @@ export function ClientDashboardShell({
     { label: "Get Quote", href: "/client/get-quote", icon: FiClipboard, quoteRequest: true },
     { label: "My Quotes", href: "/client/quotes", icon: FiFileText, quote: true },
     { label: "Tracking", href: "/client/tracking", icon: FiTruck },
+    { label: "Support Tickets", href: "/client/tickets", icon: FiHelpCircle },
     { label: "Credit Account", href: "/client/credit", icon: FiDollarSign },
     { label: "Credit Statements", href: "/client/credit/statements", icon: FiFileText, financial: true },
     { label: "Payments", href: "/client/payments", icon: FiCreditCard, financial: true }

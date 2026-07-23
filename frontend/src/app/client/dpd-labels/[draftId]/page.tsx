@@ -22,6 +22,7 @@ import {
   autocompleteClientAddress,
   confirmClientAddress,
   createClientDpdLabel,
+  createClientSwiftlineShipment,
   getClientPlaceAddress,
   getClientShipmentDraft,
   updateClientShipmentDraft,
@@ -512,7 +513,7 @@ export default function ClientDpdDraftReviewPage() {
     }
   }
 
-  async function handleCreateLabel() {
+  async function handleCreateLabel(bookingProvider: "DPD" | "SWIFTLINE" = "DPD") {
     if (!draft) return;
 
     const issues = getReviewIssues(addressForm, contactForm, parcelForms);
@@ -551,7 +552,9 @@ export default function ClientDpdDraftReviewPage() {
         }
       }
 
-      const result = await createClientDpdLabel(currentDraft._id);
+      const result = bookingProvider === "DPD"
+        ? await createClientDpdLabel(currentDraft._id)
+        : await createClientSwiftlineShipment(currentDraft._id);
       setNotice(result.reused ? "Existing shipment label found for this draft." : "Shipment request created.");
       toast.success(result.reused ? "Existing booked shipment opened." : "Shipment booked successfully.");
       router.push(`/client/shipments/${currentDraft._id}`);
@@ -770,6 +773,10 @@ export default function ClientDpdDraftReviewPage() {
                     </div>
                   ))}
 
+                  <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Enter the actual parcel contents. Incorrect or mismatched descriptions may result in inspection and additional penalty charges.
+                  </p>
+
                   <div className="grid gap-4 md:grid-cols-2">
                     <ShipmentSelectField label="Service Type" required value={contactForm.serviceType} onChange={handleContactChange("serviceType")}>
                         <option value="COURIER">Courier</option>
@@ -784,12 +791,21 @@ export default function ClientDpdDraftReviewPage() {
               <section className="border border-slate-200 bg-white p-4">
                 <button
                   type="button"
-                  onClick={handleCreateLabel}
+                  onClick={() => void handleCreateLabel("DPD")}
                   disabled={busy}
                   className="inline-flex h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
                   {busy ? "Processing..." : "Create Shipment"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCreateLabel("SWIFTLINE")}
+                  disabled={busy}
+                  className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                >
+                  <FiTruck aria-hidden="true" className="h-4 w-4" />
+                  {busy ? "Processing..." : "Create Without DPD Label"}
                 </button>
                 <div className="mt-3 text-sm font-medium text-slate-600">
                   <p>The total shown below will be reserved from Customer Advance first, then available business credit.</p>

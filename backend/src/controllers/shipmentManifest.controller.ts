@@ -36,6 +36,13 @@ const createManifestSchema = z.object({
   lines: z.array(manifestLineInputSchema).min(1, "Select at least one shipment.").max(100)
 });
 
+const createClientManifestSchema = z.object({
+  currentShipmentDraftId: z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Shipment not found."),
+  declaredValueMinor: z.number().int().min(1, "Goods value must be greater than zero.").max(100_000_000_00)
+});
+
+type NormalizedManifestInput = z.infer<typeof createManifestSchema>;
+
 function getUserId(request: Request) {
   const value = (request as Request & { user?: { _id?: unknown } }).user?._id;
   return value && mongoose.Types.ObjectId.isValid(String(value))
@@ -103,7 +110,10 @@ async function loadManifestContext(draftId: mongoose.Types.ObjectId, userId: mon
   }
 
   const [existingManifests, drafts] = await Promise.all([
-    ShipmentManifest.find({ shipmentDraftIds: currentDraft._id }).sort({ generatedAt: -1 }).exec(),
+    ShipmentManifest.find({
+      shipmentDraftIds: currentDraft._id,
+      ...(actorRole === "client" ? { actorRole: "client" } : {})
+    }).sort({ generatedAt: -1 }).exec(),
     ShipmentDraft.find({
       businessAccountId: currentDraft.businessAccountId,
       branchId: currentDraft.branchId
@@ -113,7 +123,10 @@ async function loadManifestContext(draftId: mongoose.Types.ObjectId, userId: mon
   const draftIds = drafts.map((draft) => draft._id);
   const [bookings, assignedManifests, cancelledEvents] = await Promise.all([
     DpdShipment.find({ shipmentDraftId: { $in: draftIds }, status: "LABEL_RECEIVED" }).exec(),
-    ShipmentManifest.find({ shipmentDraftIds: { $in: draftIds } }).select("shipmentDraftIds").lean().exec(),
+    ShipmentManifest.find({ shipmentDraftIds: { $in: draftIds }, actorRole })
+      .select("shipmentDraftIds")
+      .lean()
+      .exec(),
     ShipmentEvent.find({ shipmentDraftId: { $in: draftIds }, status: "SHIPMENT_CANCELLED" })
       .select("shipmentDraftId")
       .lean()
@@ -140,21 +153,45 @@ async function loadManifestContext(draftId: mongoose.Types.ObjectId, userId: mon
 async function createManifest(request: Request, response: Response, actorRole: "admin" | "client") {
   const userId = getUserId(request);
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
-  const parsed = createManifestSchema.safeParse(request.body);
-  if (!parsed.success) {
-    return response.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? "Manifest details are invalid." });
+  let manifestInput: NormalizedManifestInput;
+  if (actorRole === "client") {
+    const parsed = createClientManifestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return response.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? "Manifest details are invalid." });
+    }
+    manifestInput = {
+      currentShipmentDraftId: parsed.data.currentShipmentDraftId,
+      destinationAgent: "",
+      flightNumber: "",
+      departureDate: "",
+      mawbNumber: "",
+      originIataCode: "",
+      destinationIataCode: "",
+      valueType: "",
+      lines: [{
+        shipmentDraftId: parsed.data.currentShipmentDraftId,
+        declaredValueMinor: parsed.data.declaredValueMinor,
+        bagNumber: "1"
+      }]
+    };
+  } else {
+    const parsed = createManifestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return response.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? "Manifest details are invalid." });
+    }
+    manifestInput = parsed.data;
   }
 
   try {
-    const currentDraft = await ShipmentDraft.findById(parsed.data.currentShipmentDraftId).exec();
+    const currentDraft = await ShipmentDraft.findById(manifestInput.currentShipmentDraftId).exec();
     if (!currentDraft) throw new ShipmentManifestServiceError("Shipment not found.", 404);
     if (actorRole === "client") await assertClientAccess(userId, currentDraft, true);
 
-    const selectedIds = [...new Set(parsed.data.lines.map((line) => line.shipmentDraftId))];
-    if (!selectedIds.includes(parsed.data.currentShipmentDraftId)) {
+    const selectedIds = [...new Set(manifestInput.lines.map((line) => line.shipmentDraftId))];
+    if (!selectedIds.includes(manifestInput.currentShipmentDraftId)) {
       throw new ShipmentManifestServiceError("The current shipment must be included in its manifest.");
     }
-    if (selectedIds.length !== parsed.data.lines.length) {
+    if (selectedIds.length !== manifestInput.lines.length) {
       throw new ShipmentManifestServiceError("A shipment cannot appear twice in the same manifest.");
     }
 
@@ -162,7 +199,7 @@ async function createManifest(request: Request, response: Response, actorRole: "
     const [drafts, bookings, existingAssignment, cancelledEvent, assignedBranch] = await Promise.all([
       ShipmentDraft.find({ _id: { $in: selectedObjectIds } }).exec(),
       DpdShipment.find({ shipmentDraftId: { $in: selectedObjectIds }, status: "LABEL_RECEIVED" }).exec(),
-      ShipmentManifest.findOne({ shipmentDraftIds: { $in: selectedObjectIds } }).lean().exec(),
+      ShipmentManifest.findOne({ shipmentDraftIds: { $in: selectedObjectIds }, actorRole }).lean().exec(),
       ShipmentEvent.findOne({ shipmentDraftId: { $in: selectedObjectIds }, status: "SHIPMENT_CANCELLED" }).lean().exec(),
       Branch.findById(currentDraft.branchId).lean().exec()
     ]);
@@ -177,7 +214,7 @@ async function createManifest(request: Request, response: Response, actorRole: "
     }
 
     const bookingByDraft = new Map(bookings.map((booking) => [String(booking.shipmentDraftId), booking]));
-    const inputByDraft = new Map(parsed.data.lines.map((line) => [line.shipmentDraftId, line]));
+    const inputByDraft = new Map(manifestInput.lines.map((line) => [line.shipmentDraftId, line]));
     const lineSnapshots = selectedIds.map((draftId) => {
       const booking = bookingByDraft.get(draftId);
       const lineInput = inputByDraft.get(draftId);
@@ -204,13 +241,13 @@ async function createManifest(request: Request, response: Response, actorRole: "
       headerSnapshot: {
         originBranch: [assignedBranch.name, assignedBranch.code].filter(Boolean).join(" - "),
         originAddress: formatManifestOrigin(assignedBranch),
-        destinationAgent: parsed.data.destinationAgent,
-        flightNumber: parsed.data.flightNumber,
-        departureDate: parsed.data.departureDate,
-        mawbNumber: parsed.data.mawbNumber,
-        originIataCode: parsed.data.originIataCode,
-        destinationIataCode: parsed.data.destinationIataCode,
-        valueType: parsed.data.valueType
+        destinationAgent: manifestInput.destinationAgent,
+        flightNumber: manifestInput.flightNumber,
+        departureDate: manifestInput.departureDate,
+        mawbNumber: manifestInput.mawbNumber,
+        originIataCode: manifestInput.originIataCode,
+        destinationIataCode: manifestInput.destinationIataCode,
+        valueType: manifestInput.valueType
       },
       lineSnapshots,
       totalPieces: lineSnapshots.reduce((sum, line) => sum + line.pieces, 0),
@@ -243,6 +280,9 @@ async function downloadManifest(request: Request, response: Response, actorRole:
   if (!manifest) return response.status(404).json({ success: false, message: "Manifest not found." });
 
   if (actorRole === "client") {
+    if (manifest.actorRole !== "client") {
+      return response.status(404).json({ success: false, message: "Manifest not found." });
+    }
     const draft = await ShipmentDraft.findById(manifest.shipmentDraftIds[0]).exec();
     if (!draft || !await clientCanAccessShipmentDraft({ userId, draft })) {
       return response.status(404).json({ success: false, message: "Manifest not found." });

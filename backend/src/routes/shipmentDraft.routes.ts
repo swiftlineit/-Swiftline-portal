@@ -5,7 +5,7 @@ import {
   updateShipmentDraft,
   validateShipmentDraft
 } from "../controllers/shipmentDraft.controller.js";
-import { createDpdLabel } from "../controllers/dpdShipment.controller.js";
+import { createDpdLabel, createSwiftlineShipment } from "../controllers/dpdShipment.controller.js";
 import {
   createAdminShipmentAmendment,
   previewShipmentAmendment
@@ -24,3 +24,4 @@ shipmentDraftRouter.post("/:id/amendments/preview", previewShipmentAmendment);
 shipmentDraftRouter.post("/:id/amendments", createAdminShipmentAmendment);
 shipmentDraftRouter.post("/:id/validate", validateShipmentDraft);
 shipmentDraftRouter.post("/:id/create-dpd-label", createDpdLabel);
+shipmentDraftRouter.post("/:id/create-swiftline-shipment", createSwiftlineShipment);

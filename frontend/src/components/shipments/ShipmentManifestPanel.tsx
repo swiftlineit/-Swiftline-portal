@@ -72,9 +72,11 @@ export default function ShipmentManifestPanel({
   const selectedShipments = useMemo(() => (
     context?.eligibleShipments.filter((shipment) => lines[shipment.shipmentDraftId]?.selected) ?? []
   ), [context, lines]);
-  const currentShipmentEligible = Boolean(context?.eligibleShipments.some((shipment) => shipment.shipmentDraftId === draftId));
+  const currentShipment = context?.eligibleShipments.find((shipment) => shipment.shipmentDraftId === draftId);
+  const currentShipmentEligible = Boolean(currentShipment);
   const selectedPieces = selectedShipments.reduce((sum, shipment) => sum + shipment.pieces, 0);
   const selectedWeight = selectedShipments.reduce((sum, shipment) => sum + shipment.weightKg, 0);
+  const ownManifestExists = Boolean(context?.existingManifests.some((manifest) => manifest.actorRole === audience));
 
   function updateHeader(field: keyof typeof header, value: string) {
     setHeader((current) => ({
@@ -92,6 +94,32 @@ export default function ShipmentManifestPanel({
 
   async function handleCreate() {
     if (!context || !selectedShipments.length) return;
+    if (audience === "client") {
+      const declaredValue = Number(lines[draftId]?.declaredValue);
+      if (!Number.isFinite(declaredValue) || declaredValue <= 0) {
+        setError("Enter a goods value greater than zero.");
+        return;
+      }
+
+      setBusy(true);
+      setError("");
+      try {
+        const result = await createShipmentManifest({
+          currentShipmentDraftId: draftId,
+          declaredValueMinor: Math.round(declaredValue * 100)
+        }, audience);
+        toast.success(`${result.manifest.manifestNumber} created successfully.`);
+        await downloadShipmentManifest(result.manifest, audience);
+        setShowForm(false);
+        await loadContext();
+      } catch (caughtError) {
+        setError(caughtError instanceof Error ? caughtError.message : "Manifest could not be created.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     const invalidLine = selectedShipments.find((shipment) => {
       const line = lines[shipment.shipmentDraftId];
       return !line?.bagNumber.trim() || !Number.isFinite(Number(line.declaredValue)) || Number(line.declaredValue) <= 0;
@@ -147,7 +175,7 @@ export default function ShipmentManifestPanel({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Manifest</h2>
           <p className="mt-1 text-sm text-slate-600">Create and download dispatch manifests from booked shipments.</p>
         </div>
-        {context?.canCreate && !context.existingManifests.length && currentShipmentEligible ? (
+        {context?.canCreate && !ownManifestExists && currentShipmentEligible ? (
           <button type="button" onClick={() => setShowForm((value) => !value)} className="inline-flex h-10 items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900">
             {showForm ? <FiX aria-hidden="true" /> : <FiPlus aria-hidden="true" />}
             {showForm ? "Close" : "Create Manifest"}
@@ -164,7 +192,14 @@ export default function ShipmentManifestPanel({
               <div className="flex min-w-0 items-start gap-3">
                 <FiFileText aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-blue-900" />
                 <div>
-                  <p className="font-semibold text-slate-950">{manifest.manifestNumber}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-slate-950">{manifest.manifestNumber}</p>
+                    {audience === "admin" ? (
+                      <span className="border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold uppercase text-slate-600">
+                        {manifest.actorRole === "client" ? "Client Manifest" : "Admin Manifest"}
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="mt-1 text-sm text-slate-500">{formatDashboardDate(manifest.generatedAt)} | {manifest.shipmentCount} shipment(s) | {manifest.totalWeightKg.toFixed(2)} kg</p>
                 </div>
               </div>
@@ -184,7 +219,31 @@ export default function ShipmentManifestPanel({
         </p>
       ) : null}
 
-      {showForm && context ? (
+      {showForm && context && audience === "client" && currentShipment ? (
+        <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_minmax(240px,360px)] md:items-end">
+          <div className="grid gap-4 border border-slate-200 bg-slate-50 p-4 sm:grid-cols-3">
+            <ManifestSummaryItem label="Swiftline Tracking" value={currentShipment.consignmentNumber} />
+            <ManifestSummaryItem label="Pieces" value={String(currentShipment.pieces)} />
+            <ManifestSummaryItem label="Weight" value={`${currentShipment.weightKg.toFixed(2)} kg`} />
+          </div>
+          <div>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase text-slate-500">Goods Value (INR)</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={lines[draftId]?.declaredValue ?? ""}
+                onChange={(event) => updateLine(draftId, { declaredValue: event.target.value })}
+                className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+            <button type="button" onClick={() => void handleCreate()} disabled={busy} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-400">
+              <FiFileText aria-hidden="true" /> {busy ? "Creating..." : "Create And Download Manifest"}
+            </button>
+          </div>
+        </div>
+      ) : showForm && context && audience === "admin" ? (
         <div className="space-y-5 p-5">
           <ManifestHeaderFields values={header} onChange={updateHeader} />
           <div className="overflow-x-auto border border-slate-200">
@@ -242,6 +301,15 @@ function ManifestHeaderFields({ values, onChange }: { values: ManifestHeaderStat
           />
         </label>
       ))}
+    </div>
+  );
+}
+
+function ManifestSummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-slate-950">{value}</p>
     </div>
   );
 }

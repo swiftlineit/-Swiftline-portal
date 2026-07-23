@@ -87,8 +87,8 @@ describe("shipment manifest workbook", () => {
     assert.equal(line.declaredValueMinor, 25_000_00);
     assert.equal(line.bagNumber, "BAG-01");
     assert.equal(line.serviceInfo, "EXP");
-    assert.equal(line.consignor.formatted, "Example Exporter\nMr. Ravi Sharma\n1 Export Road\nDelhi\nDelhi\n110001\nIndia\nTEL-+919000000000");
-    assert.equal(formatManifestOrigin(bookingSnapshot().sender), "Swiftline Delhi\n1 Logistics Park\nDelhi\nDelhi\n110001\nIndia");
+    assert.equal(line.consignor.formatted, "Example Exporter\nMr. Ravi Sharma\n1 Export Road\nDelhi\n110001\nIN\nTEL-+919000000000");
+    assert.equal(formatManifestOrigin(bookingSnapshot().sender), "SWIFTLINE DELHI\n1 LOGISTICS PARK\nDELHI\n110001\nIN");
   });
 
   it("creates a styled Excel manifest containing the header and shipment values", async () => {
@@ -133,24 +133,67 @@ describe("shipment manifest workbook", () => {
     await workbook.xlsx.load(workbookData);
     const sheet = workbook.getWorksheet("Manifest");
     assert.ok(sheet);
-    assert.equal(sheet.getCell("A1").value, "Courier Manifest");
-    assert.equal(sheet.getCell("E2").value, "FROM *");
-    assert.equal(sheet.getCell("F2").value, "TO *");
-    assert.equal(sheet.getCell("H2").value, "SLC-001");
-    assert.equal(sheet.getCell("E3").value, "Swiftline Delhi");
-    assert.equal(sheet.getCell("E4").value, "1 Logistics Park");
-    assert.equal(sheet.getCell("B13").value, "SLDL21072026000001");
-    assert.equal(sheet.getCell("C13").value, 2);
-    assert.equal(sheet.getCell("D13").value, 10);
-    assert.equal(sheet.getCell("E13").value, "Example Exporter");
-    assert.equal(sheet.getCell("E14").value, "Mr. Ravi Sharma");
-    assert.equal(sheet.getCell("E15").value, "1 Export Road");
-    assert.equal(sheet.getCell("H13").value, 25000);
-    assert.equal(sheet.getCell("J13").value, "BAG-01");
-    assert.equal(sheet.getCell("K13").value, "EXP");
+    assert.equal(sheet.getCell("A2").value, "Courier Manifest");
+    assert.equal(sheet.getCell("E3").value, "FROM *");
+    assert.equal(sheet.getCell("F3").value, "TO *");
+    assert.equal(sheet.getCell("H3").value, "SLC-001");
+    assert.equal(sheet.getCell("E4").value, "SWIFTLINE DELHI");
+    assert.equal(sheet.getCell("E5").value, "1 LOGISTICS PARK");
+    assert.equal(sheet.getCell("B15").value, "SLDL210720260001");
+    assert.equal(sheet.getCell("C15").value, 2);
+    assert.equal(sheet.getCell("D15").value, 10);
+    assert.equal(sheet.getCell("E15").value, "Example Exporter");
+    assert.equal(sheet.getCell("E16").value, "Mr. Ravi Sharma");
+    assert.equal(sheet.getCell("E17").value, "1 Export Road");
+    assert.equal(sheet.getCell("H15").value, 25000);
+    assert.equal(sheet.getCell("J15").value, "BAG-01");
+    assert.equal(sheet.getCell("K15").value, "EXP");
     assert.equal(sheet.autoFilter, undefined);
-    assert.equal(sheet.views[0]?.state, "frozen");
-    assert.equal(sheet.getCell("A1").font.bold, true);
-    assert.equal(sheet.getCell("A12").font.bold, true);
+    assert.notEqual(sheet.views[0]?.state, "frozen");
+    assert.equal(sheet.getCell("A2").font.bold, true);
+    assert.equal(sheet.getCell("A14").font.bold, true);
+  });
+
+  it("creates a client manifest with shipment data and no admin transport fields", async () => {
+    const line = buildManifestLine({
+      shipmentDraftId: new mongoose.Types.ObjectId(),
+      dpdShipmentId: new mongoose.Types.ObjectId(),
+      snapshot: bookingSnapshot(),
+      declaredValueMinor: 12_500_00,
+      bagNumber: "1"
+    });
+    const manifest = {
+      _id: new mongoose.Types.ObjectId(),
+      manifestNumber: "SLC-002",
+      businessAccountId: new mongoose.Types.ObjectId(),
+      branchId: new mongoose.Types.ObjectId(),
+      shipmentDraftIds: [line.shipmentDraftId],
+      headerSnapshot: {
+        originBranch: "Swiftline Delhi - DEL-001",
+        originAddress: "Swiftline Delhi\n1 Logistics Park\nDelhi\n110001\nIndia"
+      },
+      lineSnapshots: [line],
+      totalPieces: 2,
+      totalWeightKg: 10,
+      totalBags: 1,
+      actorRole: "client",
+      generatedAt: new Date("2026-07-21T10:00:00.000Z")
+    } as unknown as IShipmentManifest;
+
+    const workbook = new ExcelJS.Workbook();
+    const bytes = await buildShipmentManifestWorkbook(manifest);
+    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    const sheet = workbook.getWorksheet("Client Manifest");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("A1").value, "Client Shipment Manifest");
+    assert.equal(sheet.getCell("A2").value, "Manifest Number");
+    assert.equal(sheet.getCell("C2").value, "SLC-002");
+    assert.equal(sheet.getCell("B10").value, "SLDL21072026000001");
+    assert.equal(sheet.getCell("H10").value, 12500);
+
+    const visibleText = sheet.getSheetValues().flat().filter(Boolean).join(" ");
+    assert.equal(visibleText.includes("FLIGHT NUMBER"), false);
+    assert.equal(visibleText.includes("MAWB"), false);
+    assert.equal(visibleText.includes("Bag No"), false);
   });
 });

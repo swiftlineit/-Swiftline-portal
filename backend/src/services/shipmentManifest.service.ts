@@ -36,9 +36,29 @@ function compact(values: unknown[]) {
   return values.map(text).filter(Boolean);
 }
 
+function uniqueLines(values: unknown[]) {
+  const seen = new Set<string>();
+  return values.map(text).filter((value) => {
+    if (!value) return false;
+    const key = value.replace(/\s+/g, " ").toUpperCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function manifestCountryCode(nameValue: unknown, codeValue?: unknown) {
+  const code = text(codeValue).toUpperCase();
+  if (/^[A-Z]{2}$/.test(code)) return code;
+  const name = text(nameValue).toUpperCase();
+  if (["UNITED KINGDOM", "UK", "GREAT BRITAIN"].includes(name)) return "GB";
+  if (name === "INDIA") return "IN";
+  return name;
+}
+
 function formatPersonAddress(value: unknown, includePhone = false) {
   const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const lines = compact([
+  const lines = uniqueLines([
     source.companyName,
     source.contactName,
     source.addressLine1,
@@ -46,7 +66,7 @@ function formatPersonAddress(value: unknown, includePhone = false) {
     source.townOrCity,
     source.county,
     source.postcode,
-    source.countryName || source.countryCode
+    manifestCountryCode(source.countryName, source.countryCode)
   ]);
   const phone = `${text(source.mobileCountryCode)}${text(source.mobileNumber)}`;
   if (includePhone && phone) lines.push(`TEL-${phone}`);
@@ -58,14 +78,13 @@ function formatConsignor(snapshot: ShipmentBookingSnapshot) {
   const company = account.company ?? {};
   const contact = account.contact ?? {};
   const contactName = compact([contact.title, contact.firstName, contact.lastName]).join(" ");
-  return compact([
+  return uniqueLines([
     company.companyName,
     contactName,
     company.registeredAddress,
     company.city,
-    company.stateOrProvince || company.state,
     company.postalCode,
-    company.addressCountry,
+    manifestCountryCode(company.addressCountry),
     `${text(contact.countryCode)}${text(contact.mobileNumber)}`
       ? `TEL-${text(contact.countryCode)}${text(contact.mobileNumber)}`
       : ""
@@ -79,14 +98,18 @@ export function formatManifestOrigin(senderValue: unknown) {
   const address = sender.address && typeof sender.address === "object"
     ? sender.address as Record<string, unknown>
     : {};
-  return compact([
+  return uniqueLines([
     sender.name,
     address.address,
     address.city,
     address.stateOrProvince || address.state,
     address.postalCode,
-    address.countryName || address.countryCode
-  ]).join("\n");
+    manifestCountryCode(address.countryName, address.countryCode)
+  ]).map((line) => line.toUpperCase()).join("\n");
+}
+
+export function formatManifestConsignmentNumber(value: string) {
+  return text(value).toUpperCase().replace(/0{2}(?=\d{4}$)/, "");
 }
 
 export function buildManifestLine(input: ManifestLineInput): ShipmentManifestLineSnapshot {
@@ -196,7 +219,127 @@ function splitManifestLines(value: unknown, maximum = 8) {
   return text(value).split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, maximum);
 }
 
+function spreadManifestAddress(value: unknown) {
+  const lines = splitManifestLines(value, 10);
+  const phone = lines.find((line) => line.toUpperCase().startsWith("TEL-"));
+  const address = lines.filter((line) => line !== phone);
+  const spread = [...address.slice(0, 3), "", ...address.slice(3)];
+  if (phone) spread.push("", phone);
+  return spread;
+}
+
+async function buildClientShipmentManifestWorkbook(manifest: IShipmentManifest): Promise<Buffer> {
+  const header = manifest.headerSnapshot as Record<string, unknown>;
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Swiftline Portal";
+  workbook.company = "Swiftline Cargo and Express Logistics";
+  workbook.subject = `Client shipment manifest ${manifest.manifestNumber}`;
+  workbook.created = manifest.generatedAt;
+
+  const worksheet = workbook.addWorksheet("Client Manifest", {
+    views: [{ state: "frozen", ySplit: 9, activeCell: "A10", showGridLines: false, zoomScale: 85 }],
+    pageSetup: {
+      orientation: "landscape",
+      paperSize: 9,
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      horizontalCentered: true,
+      printTitlesRow: "9:9",
+      margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 }
+    }
+  });
+
+  worksheet.columns = [
+    { width: 7 }, { width: 25 }, { width: 9 }, { width: 13 }, { width: 34 },
+    { width: 38 }, { width: 34 }, { width: 16 }, { width: 14 }
+  ];
+  worksheet.mergeCells("A1:I1");
+  worksheet.getCell("A1").value = "Client Shipment Manifest";
+  worksheet.getRow(1).height = 30;
+  styleRange(worksheet, 1, 1, 1, 9, {
+    font: { bold: true, size: 15, color: { argb: manifestColours.text } },
+    fill: solidFill(manifestColours.white),
+    alignment: { horizontal: "center", vertical: "middle" },
+    border: manifestBorder
+  });
+
+  const firstLine = manifest.lineSnapshots[0];
+  const accountName = splitManifestLines(firstLine?.consignor.formatted, 1)[0] ?? "Business Account";
+  const details: Array<[string, string | number]> = [
+    ["Manifest Number", manifest.manifestNumber],
+    ["Generated Date", manifest.generatedAt.toLocaleDateString("en-GB")],
+    ["Business Account", accountName],
+    ["Origin Branch", text(header.originBranch)],
+    ["Origin Address", text(header.originAddress)],
+    ["Total Pieces", manifest.totalPieces],
+    ["Total Weight (KG)", manifest.totalWeightKg]
+  ];
+  details.forEach(([label, value], index) => {
+    const rowNumber = index + 2;
+    worksheet.mergeCells(rowNumber, 1, rowNumber, 2);
+    worksheet.mergeCells(rowNumber, 3, rowNumber, 9);
+    worksheet.getCell(rowNumber, 1).value = label;
+    worksheet.getCell(rowNumber, 3).value = value;
+    worksheet.getCell(rowNumber, 1).font = { bold: true, size: 10 };
+    worksheet.getCell(rowNumber, 1).fill = solidFill(manifestColours.labelFill);
+    worksheet.getCell(rowNumber, 3).font = { size: 10 };
+    worksheet.getRow(rowNumber).height = label === "Origin Address" ? 42 : 22;
+    styleRange(worksheet, rowNumber, 1, rowNumber, 9, {
+      alignment: { vertical: "middle", wrapText: true },
+      border: manifestBorder
+    });
+  });
+
+  const headingRowNumber = 9;
+  worksheet.getRow(headingRowNumber).values = [
+    "S.No", "Consignment No.", "Pieces", "Weight (KG)", "Consignor",
+    "Consignee", "Description", "Goods Value (INR)", "Service"
+  ];
+  worksheet.getRow(headingRowNumber).height = 32;
+  styleRange(worksheet, headingRowNumber, 1, headingRowNumber, 9, {
+    font: { bold: true, size: 10 },
+    fill: solidFill(manifestColours.labelFill),
+    alignment: { horizontal: "center", vertical: "middle", wrapText: true },
+    border: manifestBorder
+  });
+
+  manifest.lineSnapshots.forEach((line, index) => {
+    const row = worksheet.addRow([
+      index + 1,
+      line.consignmentNumber,
+      line.pieces,
+      line.weightKg,
+      line.consignor.formatted,
+      line.consignee.formatted,
+      line.description,
+      line.declaredValueMinor / 100,
+      line.serviceInfo
+    ]);
+    const addressLines = Math.max(
+      splitManifestLines(line.consignor.formatted, 12).length,
+      splitManifestLines(line.consignee.formatted, 12).length
+    );
+    row.height = Math.max(54, Math.min(150, addressLines * 17));
+    for (let column = 1; column <= 9; column += 1) {
+      const cell = row.getCell(column);
+      cell.font = { size: 10 };
+      cell.alignment = { horizontal: "center", vertical: "top", wrapText: true };
+      cell.border = manifestBorder;
+    }
+    row.getCell(4).numFmt = "0.000";
+    row.getCell(8).numFmt = "#,##0.00";
+  });
+
+  worksheet.pageSetup.printArea = `A1:I${worksheet.rowCount}`;
+  worksheet.headerFooter.oddFooter = "Swiftline Portal | Computer Generated Client Manifest | Page &P of &N";
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
 export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest): Promise<Buffer> {
+  if (manifest.actorRole === "client") return buildClientShipmentManifestWorkbook(manifest);
+
   const header = manifest.headerSnapshot as Record<string, unknown>;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Swiftline Portal";
@@ -205,7 +348,7 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
   workbook.created = manifest.generatedAt;
 
   const worksheet = workbook.addWorksheet("Manifest", {
-    views: [{ state: "frozen", ySplit: 12, activeCell: "A13", showGridLines: false, zoomScale: 85 }],
+    views: [{ state: "normal", showGridLines: false, zoomScale: 85 }],
     pageSetup: {
       orientation: "landscape",
       paperSize: 9,
@@ -213,7 +356,6 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
       fitToWidth: 1,
       fitToHeight: 0,
       horizontalCentered: true,
-      printTitlesRow: "12:12",
       margins: { left: 0.25, right: 0.25, top: 0.45, bottom: 0.45, header: 0.2, footer: 0.2 }
     },
     properties: { defaultRowHeight: 20 }
@@ -233,30 +375,31 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
     { key: "service", width: 14 }
   ];
 
-  worksheet.mergeCells("A1:K1");
-  worksheet.getCell("A1").value = "Courier Manifest";
-  worksheet.getRow(1).height = 28;
-  styleRange(worksheet, 1, 1, 1, 11, {
+  worksheet.mergeCells("A2:K2");
+  worksheet.getCell("A2").value = "Courier Manifest";
+  worksheet.getRow(1).height = 10;
+  worksheet.getRow(2).height = 24;
+  styleRange(worksheet, 2, 1, 2, 11, {
     font: { bold: true, size: 14, color: { argb: manifestColours.text } },
     fill: solidFill(manifestColours.white),
     alignment: { horizontal: "center", vertical: "middle" },
     border: manifestBorder
   });
 
-  styleRange(worksheet, 2, 1, 10, 11, {
+  styleRange(worksheet, 3, 1, 12, 11, {
     font: { size: 10, color: { argb: manifestColours.text } },
     fill: solidFill(manifestColours.white),
     alignment: { vertical: "middle", horizontal: "left", wrapText: true },
     border: manifestBorder
   });
-  for (let row = 2; row <= 10; row += 1) worksheet.getRow(row).height = 20;
+  for (let row = 3; row <= 12; row += 1) worksheet.getRow(row).height = 19;
 
-  worksheet.getCell("E2").value = "FROM *";
-  worksheet.getCell("F2").value = "TO *";
-  const originLines = splitManifestLines(header.originAddress || header.originBranch);
+  worksheet.getCell("E3").value = "FROM *";
+  worksheet.getCell("F3").value = "TO *";
+  const originLines = splitManifestLines(header.originAddress || header.originBranch).map((line) => line.toUpperCase());
   const destinationLines = splitManifestLines(header.destinationAgent);
-  originLines.forEach((line, index) => { worksheet.getCell(3 + index, 5).value = line; });
-  destinationLines.forEach((line, index) => { worksheet.getCell(3 + index, 6).value = line; });
+  originLines.forEach((line, index) => { worksheet.getCell(4 + index, 5).value = line; });
+  destinationLines.forEach((line, index) => { worksheet.getCell(4 + index, 6).value = line; });
 
   const manifestDetails: Array<[string, string | number]> = [
     ["Manifest Number", manifest.manifestNumber],
@@ -270,7 +413,7 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
     ["VALUE TYPE (HV, LV, TS, Docs)", text(header.valueType)]
   ];
   manifestDetails.forEach(([label, value], index) => {
-    const row = 2 + index;
+    const row = 3 + index;
     const labelCell = worksheet.getCell(row, 7);
     const valueCell = worksheet.getCell(row, 8);
     labelCell.value = label;
@@ -279,7 +422,7 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
     labelCell.fill = solidFill(manifestColours.labelFill);
     valueCell.font = { bold: true, size: 10, color: { argb: manifestColours.text } };
   });
-  for (let row = 2; row <= 10; row += 1) {
+  for (let row = 3; row <= 12; row += 1) {
     const wrappedLineCount = Math.max(
       1,
       Math.ceil(text(worksheet.getCell(row, 5).value).length / 30),
@@ -289,19 +432,19 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
     );
     worksheet.getRow(row).height = Math.max(20, Math.min(48, wrappedLineCount * 15));
   }
-  worksheet.getCell("E2").font = { bold: true, size: 10, color: { argb: manifestColours.text } };
-  worksheet.getCell("F2").font = { bold: true, size: 10, color: { argb: manifestColours.text } };
-  if (originLines.length) worksheet.getCell("E3").font = { bold: true, size: 10, color: { argb: manifestColours.text } };
-  if (destinationLines.length) worksheet.getCell("F3").font = { bold: true, size: 10, color: { argb: manifestColours.text } };
-  worksheet.getCell("H9").numFmt = "0.000";
+  worksheet.getCell("E3").font = { bold: true, size: 10, color: { argb: manifestColours.text } };
+  worksheet.getCell("F3").font = { bold: true, size: 10, color: { argb: manifestColours.text } };
+  if (originLines.length) worksheet.getCell("E4").font = { bold: true, size: 10, color: { argb: manifestColours.text } };
+  if (destinationLines.length) worksheet.getCell("F4").font = { bold: true, size: 10, color: { argb: manifestColours.text } };
+  worksheet.getCell("H10").numFmt = "0.000";
 
-  worksheet.getRow(11).height = 10;
+  worksheet.getRow(13).height = 10;
 
   const headings = ["S.No *", "Consignment No. *", "Pieces *", "Weight (kg)", "Consignor *", "Consignee *", "Description *", "Value *", "Currency *", "Bag No *", "Service Info"];
-  const headingRow = worksheet.getRow(12);
+  const headingRow = worksheet.getRow(14);
   headingRow.values = headings;
   headingRow.height = 32;
-  styleRange(worksheet, 12, 1, 12, 11, {
+  styleRange(worksheet, 14, 1, 14, 11, {
     font: { bold: true, size: 10, color: { argb: manifestColours.text } },
     fill: solidFill(manifestColours.white),
     alignment: { horizontal: "center", vertical: "middle", wrapText: true },
@@ -309,9 +452,9 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
   });
 
   manifest.lineSnapshots.forEach((line, index) => {
-    const consignorLines = splitManifestLines(line.consignor.formatted, 10);
-    const consigneeLines = splitManifestLines(line.consignee.formatted, 10);
-    const blockSize = Math.max(7, consignorLines.length, consigneeLines.length);
+    const consignorLines = spreadManifestAddress(line.consignor.formatted);
+    const consigneeLines = spreadManifestAddress(line.consignee.formatted);
+    const blockSize = Math.max(10, consignorLines.length, consigneeLines.length);
     const firstRowNumber = worksheet.rowCount + 1;
 
     for (let offset = 0; offset < blockSize; offset += 1) {
@@ -320,7 +463,7 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
       if (offset === 0) {
         row.values = [
           index + 1,
-          line.consignmentNumber,
+          formatManifestConsignmentNumber(line.consignmentNumber),
           line.pieces,
           line.weightKg,
           consignorLines[0] ?? "",
@@ -355,7 +498,7 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
     worksheet.getCell(firstRowNumber, 8).numFmt = "#,##0.00";
   });
 
-  const lastRow = Math.max(12, worksheet.rowCount);
+  const lastRow = Math.max(14, worksheet.rowCount);
   worksheet.pageSetup.printArea = `A1:K${lastRow}`;
   worksheet.headerFooter.oddFooter = "Swiftline Portal | Computer Generated Manifest | Page &P of &N";
 

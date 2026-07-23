@@ -17,6 +17,8 @@ export const dpdShipmentStatusValues = [
 export type DpdShipmentStatus = (typeof dpdShipmentStatusValues)[number];
 export const dpdProviderModeValues = ["SIMULATED", "LIVE"] as const;
 export type DpdProviderMode = (typeof dpdProviderModeValues)[number];
+export const shipmentBookingProviderValues = ["DPD", "SWIFTLINE"] as const;
+export type ShipmentBookingProvider = (typeof shipmentBookingProviderValues)[number];
 
 export interface IDpdShipment extends mongoose.Document {
   shipmentDraftId: mongoose.Types.ObjectId;
@@ -24,6 +26,7 @@ export interface IDpdShipment extends mongoose.Document {
   dpdShipmentId?: string;
   dpdTransactionId?: string;
   swiftlineTrackingNumber?: string;
+  bookingProvider: ShipmentBookingProvider;
   providerMode: DpdProviderMode;
   parcelNumbers: string[];
   serviceCode: string;
@@ -52,6 +55,7 @@ const dpdShipmentSchema = new mongoose.Schema<IDpdShipment>(
     dpdShipmentId: { type: String, trim: true, maxlength: 120, default: "" },
     dpdTransactionId: { type: String, trim: true, maxlength: 120, default: "" },
     swiftlineTrackingNumber: { type: String, trim: true, maxlength: 40, default: "" },
+    bookingProvider: { type: String, enum: shipmentBookingProviderValues, default: "DPD", required: true, index: true },
     providerMode: { type: String, enum: dpdProviderModeValues, default: "SIMULATED", required: true, index: true },
     parcelNumbers: [{ type: String, trim: true, maxlength: 80 }],
     serviceCode: { type: String, required: true, trim: true, maxlength: 40 },

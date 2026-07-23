@@ -1,0 +1,24 @@
+import { Router } from "express";
+import { attachUser, requireRole } from "../middleware/auth.middleware.js";
+import * as controller from "../controllers/operationsManifest.controller.js";
+
+export const operationsManifestRouter = Router();
+operationsManifestRouter.use(attachUser, requireRole("admin", "staff"));
+operationsManifestRouter.get("/branches/options", controller.listBranchOptions);
+operationsManifestRouter.get("/", controller.listManifests);
+operationsManifestRouter.post("/", controller.createManifest);
+operationsManifestRouter.get("/:manifestId", controller.getManifest);
+operationsManifestRouter.patch("/:manifestId", controller.updateManifest);
+operationsManifestRouter.post("/:manifestId/bags", controller.createBag);
+operationsManifestRouter.post("/:manifestId/scan", controller.scanParcel);
+operationsManifestRouter.patch("/:manifestId/consignments/:consignmentId/value", controller.setGoodsValue);
+operationsManifestRouter.post("/:manifestId/consignments/:consignmentId/move", controller.moveConsignment);
+operationsManifestRouter.post("/:manifestId/scans/:scanId/remove", controller.removeScan);
+operationsManifestRouter.post("/:manifestId/bags/:bagId/close", controller.closeBag);
+operationsManifestRouter.post("/:manifestId/bags/:bagId/reopen", controller.reopenBag);
+operationsManifestRouter.post("/:manifestId/bags/:bagId/cancel", controller.cancelBag);
+operationsManifestRouter.post("/:manifestId/seal", controller.sealManifest);
+operationsManifestRouter.post("/:manifestId/dispatch", controller.dispatchManifest);
+operationsManifestRouter.post("/:manifestId/cancel", controller.cancelManifest);
+operationsManifestRouter.get("/:manifestId/export.xlsx", controller.exportExcel);
+operationsManifestRouter.get("/:manifestId/export.pdf", controller.exportPdf);

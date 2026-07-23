@@ -197,6 +197,7 @@ export type ClientShipmentDetails = {
     dpdShipmentId: string;
     dpdTransactionId: string;
     swiftlineTrackingNumber: string;
+    bookingProvider: "DPD" | "SWIFTLINE";
     providerMode: "SIMULATED" | "LIVE";
     parcelNumbers: string[];
     serviceCode: string;
@@ -521,8 +522,8 @@ export async function updateClientShipmentDraft(shipmentDraftId: string, patch: 
   }>(response);
 }
 
-export async function createClientDpdLabel(shipmentDraftId: string) {
-  const response = await fetchWithAuth(apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/create-dpd-label`), {
+async function createClientShipmentBooking(shipmentDraftId: string, action: "create-dpd-label" | "create-swiftline-shipment") {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/${action}`), {
     method: "POST"
   });
 
@@ -534,6 +535,7 @@ export async function createClientDpdLabel(shipmentDraftId: string) {
       status: string;
       paymentSource: string;
       swiftlineTrackingNumber: string;
+      bookingProvider: "DPD" | "SWIFTLINE";
       providerMode: "SIMULATED" | "LIVE";
       parcelNumbers: string[];
     };
@@ -555,6 +557,14 @@ export async function createClientDpdLabel(shipmentDraftId: string) {
       status: "DRAFT" | "ISSUED";
     } | null;
   }>(response);
+}
+
+export function createClientDpdLabel(shipmentDraftId: string) {
+  return createClientShipmentBooking(shipmentDraftId, "create-dpd-label");
+}
+
+export function createClientSwiftlineShipment(shipmentDraftId: string) {
+  return createClientShipmentBooking(shipmentDraftId, "create-swiftline-shipment");
 }
 
 export async function getClientShipmentLabelAccessUrl(

@@ -620,24 +620,24 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="mx-auto w-full max-w-6xl">
       <div className="mb-6 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="mb-3 text-4xl font-bold uppercase text-slate-800">Let&apos;s Get Started</h2>
-          <p className="mb-3 text-sm text-slate-500">
-            Enter your {steps[step]}. Fields marked with asterisk (<span className="text-red-600">*</span>) are mandatory.
+        <div className="border-l-4 border-[#F0DE36] pl-4">
+          <h2 className="mb-2 text-3xl font-bold tracking-tight text-[#0D1282] sm:text-4xl">Let&apos;s Get Started</h2>
+          <p className="text-sm leading-6 text-slate-500">
+            Enter your {steps[step]}. Fields marked with asterisk (<span className="text-[#D71313]">*</span>) are mandatory.
           </p>
         </div>
         <button
           type="button"
           onClick={() => router.push("/dashboard/business-accounts")}
-          className="border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-900 hover:text-blue-900"
+          className="rounded-xl border border-[#EEEDED] bg-white px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition hover:border-[#0D1282]/30 hover:bg-[#EEEDED]/60 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/40"
         >
           Cancel
         </button>
       </div>
 
-      <div className="mb-6 grid grid-cols-4 border border-slate-200 bg-white">
+      <div className="mb-6 grid grid-cols-1 gap-1 rounded-2xl bg-[#EEEDED]/70 p-1 sm:grid-cols-2 lg:grid-cols-4">
         {steps.map((label, index) => {
           const isCurrent = step === index;
           const isCompleted = index < step;
@@ -647,12 +647,12 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
               key={label}
               type="button"
               onClick={() => void handleStepNavigation(index)}
-              className={`border-r border-slate-200 px-4 py-3 text-left text-sm font-semibold last:border-r-0 ${
+              className={`rounded-xl px-4 py-3 text-left text-sm font-semibold transition-all ${
                 isCurrent
-                  ? "bg-blue-600 text-white"
+                  ? "bg-[#0D1282] text-white shadow-sm"
                   : isCompleted
-                    ? "bg-green-500 text-white"
-                    : "text-slate-600 hover:text-blue-900"
+                    ? "bg-[#F0DE36] text-[#0D1282]"
+                    : "text-slate-600 hover:bg-white hover:text-[#0D1282]"
               }`}
             >
               {index + 1}. {label}
@@ -662,12 +662,12 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
       </div>
 
       {error ? (
-        <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+        <div className="mb-5 rounded-2xl border border-[#D71313]/20 bg-[#D71313]/5 px-4 py-3 text-sm font-semibold text-[#D71313]">
           {error}
         </div>
       ) : null}
 
-      <form noValidate onSubmit={handleContinue} className="border border-slate-200 bg-white p-6 shadow-sm">
+      <form noValidate onSubmit={handleContinue} className="rounded-3xl bg-white p-5 shadow-[0_16px_45px_rgba(13,18,130,0.08)] ring-1 ring-[#EEEDED] sm:p-7">
         {step === 0 ? (
           <ContactStep
             formData={formData}
@@ -718,12 +718,12 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
           />
         ) : null}
 
-        <div className="mt-8 flex flex-wrap justify-between gap-3 border-t border-slate-200 pt-5">
+        <div className="mt-8 flex flex-wrap justify-between gap-3 border-t border-[#EEEDED] pt-5">
           <button
             type="button"
             onClick={() => setStep((current) => Math.max(current - 1, 0))}
             disabled={step === 0 || saving}
-            className="border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-xl border border-[#EEEDED] bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282]/25 hover:text-[#0D1282] focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/40 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Back
           </button>
@@ -732,7 +732,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
               <button
                 type="submit"
                 disabled={saving || isCheckingUnique}
-                className="bg-blue-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-blue-900/60"
+                className="rounded-xl bg-[#0D1282] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D1282]/90 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/50 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#0D1282]/55"
               >
                 {isCheckingUnique ? "Checking..." : "Continue"}
               </button>
@@ -741,7 +741,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
                 type="button"
                 onClick={submitForReview}
                 disabled={saving || isCheckingUnique}
-                className="bg-blue-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-blue-900/60"
+                className="rounded-xl bg-[#0D1282] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D1282]/90 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/50 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#0D1282]/55"
               >
                 {saving
                   ? isEdit && !isDraftEdit ? "Saving..." : "Submitting..."
