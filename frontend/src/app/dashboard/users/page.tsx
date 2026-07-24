@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import { useAdminUser } from "@/lib/useAdminUser";
 import {
   listUserBranchOptions,
@@ -89,10 +89,10 @@ export default function UsersPage() {
     }
   }
 
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-slate-950">Users</h1>
         <p className="mt-1 text-sm text-slate-500">Manage portal roles, branch access, and login status.</p>
@@ -186,6 +186,6 @@ export default function UsersPage() {
           </tbody>
         </table>
       </div>
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }

@@ -257,8 +257,17 @@ async function getActiveClientMembership(userId: string, branchId?: string) {
   const assignedBranches = membership.assignedBranches as unknown as ClientBranchSnapshot[];
   const account = membership.businessAccount as unknown as {
     _id?: unknown;
+    status?: string;
+    kycReview?: { overallStatus?: string };
     assignedBranch?: ClientBranchSnapshot | null;
   };
+
+  // Every operational client path funnels through here, so the business account
+  // must itself be active and KYC-verified; a suspended or unverified account
+  // grants no working context even if the membership is active.
+  if (account.status !== "active" || account.kycReview?.overallStatus !== "verified") {
+    return null;
+  }
 
   // Prefer explicit member branches, then the account's assigned branch.
   // If neither exists, the client has account-level access only; do not expose
@@ -973,9 +982,21 @@ export async function trackClientShipment(request: Request, response: Response):
     return response.status(400).json({ success: false, message: "Enter a valid tracking number." });
   }
   const exact = new RegExp(`^${trackingNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
-  const shipment = await DpdShipment.findOne({
-    $or: [{ dpdShipmentId: exact }, { swiftlineTrackingNumber: exact }, { parcelNumbers: exact }]
-  }).select("shipmentDraftId").lean().exec();
+  const [shipmentByReference, pieceLabel] = await Promise.all([
+    DpdShipment.findOne({
+      $or: [{ dpdShipmentId: exact }, { swiftlineTrackingNumber: exact }, { parcelNumbers: exact }]
+    }).select("shipmentDraftId").lean().exec(),
+    LabelDocument.findOne({
+      parcelNumber: exact,
+      labelType: "SWIFTLINE",
+      voidedAt: null
+    }).select("dpdShipmentId").lean().exec()
+  ]);
+  const shipment = shipmentByReference ?? (
+    pieceLabel
+      ? await DpdShipment.findById(pieceLabel.dpdShipmentId).select("shipmentDraftId").lean().exec()
+      : null
+  );
   if (!shipment || !await clientCanAccessDraft(userId, String(shipment.shipmentDraftId))) {
     return response.status(404).json({ success: false, message: "No shipment was found for that tracking number." });
   }

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { FiChevronDown, FiX } from "react-icons/fi";
 import {
   BranchFormData,
   BranchService,
+  BranchStatus,
   ShipmentCoverage,
   WorkingDay,
   branchServices,
@@ -15,6 +16,7 @@ import {
   formatBranchLabel,
   shipmentCoverageTypes,
   updateBranch,
+  updateBranchStatus,
   validateBranchCode,
   validateBranchCodeForEdit,
   workingDays
@@ -33,9 +35,14 @@ type FieldKey =
   | "phone"
   | "supportedServices"
   | "shipmentCoverage"
+  | "operatingCountries"
   | "baseCurrency"
   | "workingDays";
-type SaveAction = "DRAFT" | "ACTIVE";
+type ValidationLevel = "DRAFT" | "ACTIVE";
+// draft  → save without activating
+// activate → create as active, or save edits and then activate
+// save   → persist edits to an existing non-draft branch (status unchanged)
+type SubmitMode = "draft" | "activate" | "save";
 
 const initialForm: BranchFormData = {
   name: "",
@@ -82,15 +89,19 @@ function isValidPhone(value: string) {
   return /^\+[1-9]\d{6,14}$/.test(value);
 }
 
-function validateForm(data: BranchFormData, action: SaveAction, codeExists: boolean | null): FormErrors {
+function isDomesticOnlyCoverage(coverage: ShipmentCoverage[]) {
+  return coverage.length === 1 && coverage[0] === "DOMESTIC";
+}
+
+function validateForm(data: BranchFormData, level: ValidationLevel, codeExists: boolean | null): FormErrors {
   const errors: FormErrors = {};
 
   if (data.name.trim().length < 3) errors.name = "Branch name must be at least 3 characters.";
   if (!/^[A-Z0-9-]{3,20}$/.test(data.code)) errors.code = "Use 3-20 uppercase letters, numbers, or hyphens.";
-  if (!/^[A-Z0-9]{2,4}$/.test(data.labelCode)) errors.labelCode = "Use 2-4 uppercase letters or numbers.";
+  if (level === "ACTIVE" && !/^[A-Z]{3}$/.test(data.labelCode)) errors.labelCode = "Use exactly 3 uppercase letters, for example DEL.";
   if (codeExists) errors.code = "This branch code already exists.";
 
-  if (action === "DRAFT") return errors;
+  if (level === "DRAFT") return errors;
 
   // Active branches must be operationally usable, while drafts can stay incomplete.
   if (!data.address.countryCode) errors.country = "Country is required.";
@@ -103,30 +114,75 @@ function validateForm(data: BranchFormData, action: SaveAction, codeExists: bool
   if (data.operations.shipmentCoverage.length === 0) errors.shipmentCoverage = "Select at least one coverage type.";
   if (!data.baseCurrency) errors.baseCurrency = "Base currency is required.";
   if (data.operations.workingDays.length === 0) errors.workingDays = "Select at least one working day.";
+  // Domestic-only branches infer their country from their address; anything
+  // crossing borders must state where it operates.
+  if (!isDomesticOnlyCoverage(data.operations.shipmentCoverage) && data.operations.operatingCountries.length === 0) {
+    errors.operatingCountries = "Select at least one operating country for international coverage.";
+  }
+  // Indian branches need a GSTIN or invoice generation fails after the fact.
+  if (data.address.countryCode === "IN" && !data.gstin.trim()) errors.gstin = "GSTIN is required for Indian branches.";
 
   return errors;
 }
 
 function FieldError({ message }: { message?: string }) {
-  return message ? <p className="mt-1 text-xs font-semibold text-red-600">{message}</p> : null;
+  return message ? <p className="mt-1.5 text-xs font-semibold text-[#D71313]">{message}</p> : null;
 }
 
 function RequiredMark() {
-  return <span className="text-red-600">*</span>;
+  return <span className="text-[#D71313]">*</span>;
 }
+
+const fieldClasses = "mt-2 block h-11 w-full rounded-xl border bg-white px-3.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2";
+const fieldToneClasses = (hasError?: string) => hasError
+  ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
+  : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35";
 
 function TextField({
   label,
   required,
   error,
+  helper,
   ...props
-}: React.InputHTMLAttributes<HTMLInputElement> & { label: string; required?: boolean; error?: string }) {
+}: React.InputHTMLAttributes<HTMLInputElement> & { label: string; required?: boolean; error?: string; helper?: string }) {
   return (
     <label className="block text-sm font-semibold text-slate-700">
       {label} {required ? <RequiredMark /> : null}
       <input
         {...props}
-        className="mt-2 block h-10 w-full border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+        aria-required={required || undefined}
+        aria-invalid={error ? true : undefined}
+        className={`${fieldClasses} ${fieldToneClasses(error)} disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500`}
+      />
+      <FieldError message={error} />
+      {!error && helper ? <p className="mt-1.5 text-xs font-medium text-slate-500">{helper}</p> : null}
+    </label>
+  );
+}
+
+function TextAreaField({
+  label,
+  required,
+  error,
+  value,
+  onChange,
+  maxLength
+}: {
+  label: string;
+  required?: boolean;
+  error?: string;
+  value: string;
+  onChange: (value: string) => void;
+  maxLength?: number;
+}) {
+  return (
+    <label className="block text-sm font-semibold text-slate-700">
+      {label} {required ? <RequiredMark /> : null}
+      <textarea
+        value={value}
+        maxLength={maxLength}
+        onChange={(event) => onChange(event.target.value)}
+        className={`mt-2 block min-h-24 w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 ${fieldToneClasses(error)}`}
       />
       <FieldError message={error} />
     </label>
@@ -152,11 +208,53 @@ function SearchSelect({
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const listboxId = useId();
   const filteredOptions = options.filter((option) =>
     `${option.label} ${option.value}`.toLowerCase().includes(query.toLowerCase())
   );
   const selectedLabel = options.find((option) => option.value === value)?.label ?? "";
   const displayValue = open ? query : selectedLabel;
+
+  function selectOption(option: { value: string }) {
+    onChange(option.value);
+    setQuery("");
+    setOpen(false);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+
+    if (!open) {
+      if (["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
+        event.preventDefault();
+        setOpen(true);
+        setHighlightedIndex(0);
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightedIndex((current) => Math.min(current + 1, filteredOptions.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedIndex((current) => Math.max(current - 1, 0));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setHighlightedIndex(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setHighlightedIndex(Math.max(filteredOptions.length - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const option = filteredOptions[highlightedIndex];
+      if (option) selectOption(option);
+    }
+  }
 
   return (
     <label className="block text-sm font-semibold text-slate-700">
@@ -164,29 +262,47 @@ function SearchSelect({
       <div className="relative mt-2">
         <input
           value={displayValue}
-          onChange={(event) => setQuery(event.target.value)}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-required={required || undefined}
+          aria-invalid={error ? true : undefined}
+          aria-activedescendant={open && filteredOptions[highlightedIndex] ? `${listboxId}-${highlightedIndex}` : undefined}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setHighlightedIndex(0);
+          }}
           onFocus={() => {
             setOpen(true);
             setQuery("");
+            setHighlightedIndex(0);
           }}
           onClick={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
           onBlur={() => window.setTimeout(() => setOpen(false), 120)}
           placeholder={placeholder}
-          className="block h-10 w-full border border-slate-300 px-3 pr-10 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+          className={`block h-11 w-full rounded-xl border bg-white px-3.5 pr-10 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 ${fieldToneClasses(error)}`}
         />
-        <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+        <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#0D1282]" />
         {open ? (
-          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto border border-slate-200 bg-white shadow-lg">
-            {filteredOptions.length ? filteredOptions.map((option) => (
+          <div
+            id={listboxId}
+            role="listbox"
+            className="absolute z-20 mt-1.5 max-h-56 w-full overflow-y-auto rounded-xl border border-[#EEEDED] bg-white p-1 shadow-xl"
+          >
+            {filteredOptions.length ? filteredOptions.map((option, index) => (
               <button
                 type="button"
                 key={option.value}
-                onClick={() => {
-                  onChange(option.value);
-                  setQuery("");
-                  setOpen(false);
-                }}
-                className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50"
+                id={`${listboxId}-${index}`}
+                role="option"
+                aria-selected={option.value === value}
+                onMouseEnter={() => setHighlightedIndex(index)}
+                onClick={() => selectOption(option)}
+                className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                  index === highlightedIndex ? "bg-[#F0DE36]/20 text-[#0D1282]" : "text-slate-700 hover:bg-[#EEEDED]/60"
+                }`}
               >
                 <span className="font-semibold">{option.label}</span>
                 {option.helper ? <span className="ml-2 text-xs text-slate-500">{option.helper}</span> : null}
@@ -221,6 +337,8 @@ function MultiSelect<T extends string>({
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const listboxId = useId();
   const availableOptions = options.filter((option) => !values.includes(option.value));
   const filteredOptions = availableOptions.filter((option) =>
     `${option.label} ${option.value}`.toLowerCase().includes(query.toLowerCase())
@@ -230,18 +348,68 @@ function MultiSelect<T extends string>({
     onChange(values.filter((current) => current !== value));
   }
 
+  function addValue(option: { value: T }) {
+    onChange([...values, option.value]);
+    setQuery("");
+    setOpen(false);
+    setHighlightedIndex(0);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+
+    // Backspace on an empty query removes the last chip, matching common token inputs.
+    if (event.key === "Backspace" && !query && values.length) {
+      event.preventDefault();
+      removeValue(values[values.length - 1]);
+      return;
+    }
+
+    if (!open) {
+      if (["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
+        event.preventDefault();
+        setOpen(true);
+        setHighlightedIndex(0);
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightedIndex((current) => Math.min(current + 1, filteredOptions.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedIndex((current) => Math.max(current - 1, 0));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setHighlightedIndex(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setHighlightedIndex(Math.max(filteredOptions.length - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const option = filteredOptions[highlightedIndex];
+      if (option) addValue(option);
+    }
+  }
+
   return (
     <div>
       <label className="block text-sm font-semibold text-slate-700">
         {label} {required ? <RequiredMark /> : null}
       </label>
+      {/* Clicking the chip area is a mouse convenience; all keyboard interaction
+          happens through the input below, which owns the combobox semantics. */}
       <div
         onClick={() => setOpen(true)}
-        className="mt-2 border border-slate-300 bg-white px-2 py-2 focus-within:border-blue-900 focus-within:ring-2 focus-within:ring-blue-100"
+        className={`mt-2 rounded-xl border bg-white px-2.5 py-2 shadow-sm transition focus-within:ring-2 ${error ? "border-[#D71313] focus-within:border-[#D71313] focus-within:ring-[#D71313]/15" : "border-[#EEEDED] focus-within:border-[#0D1282] focus-within:ring-[#F0DE36]/35"}`}
       >
         <div className="flex min-h-7 flex-wrap gap-2">
           {values.map((value) => (
-            <span key={value} className="inline-flex items-center gap-1 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+            <span key={value} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0D1282]/8 px-2.5 py-1 text-xs font-semibold text-[#0D1282]">
               {options.find((option) => option.value === value)?.label ?? value}
               <button type="button" onClick={() => removeValue(value)} aria-label={`Remove ${value}`}>
                 <FiX className="h-3 w-3" />
@@ -250,25 +418,38 @@ function MultiSelect<T extends string>({
           ))}
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            role="combobox"
+            aria-expanded={open}
+            aria-controls={listboxId}
+            aria-autocomplete="list"
+            aria-required={required || undefined}
+            aria-invalid={error ? true : undefined}
+            aria-activedescendant={open && filteredOptions[highlightedIndex] ? `${listboxId}-${highlightedIndex}` : undefined}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setHighlightedIndex(0);
+            }}
             onFocus={() => setOpen(true)}
+            onKeyDown={handleKeyDown}
             onBlur={() => window.setTimeout(() => setOpen(false), 120)}
             placeholder={values.length ? "" : placeholder}
-            className="min-w-44 flex-1 border-0 px-1 text-sm outline-none"
+            className="min-w-44 flex-1 border-0 bg-transparent px-1 text-sm outline-none placeholder:text-slate-400"
           />
         </div>
         {open ? (
-          <div className="mt-2 max-h-48 overflow-y-auto border-t border-slate-100 pt-2">
-            {filteredOptions.length ? filteredOptions.map((option) => (
+          <div id={listboxId} role="listbox" className="mt-2 max-h-48 overflow-y-auto border-t border-[#EEEDED] pt-2">
+            {filteredOptions.length ? filteredOptions.map((option, index) => (
               <button
                 type="button"
                 key={option.value}
-                onClick={() => {
-                  onChange([...values, option.value]);
-                  setQuery("");
-                  setOpen(false);
-                }}
-                className="block w-full px-2 py-2 text-left text-sm text-slate-700 hover:bg-blue-50"
+                id={`${listboxId}-${index}`}
+                role="option"
+                aria-selected={index === highlightedIndex}
+                onMouseEnter={() => setHighlightedIndex(index)}
+                onClick={() => addValue(option)}
+                className={`block w-full rounded-lg px-2.5 py-2 text-left text-sm transition ${
+                  index === highlightedIndex ? "bg-[#F0DE36]/20 text-[#0D1282]" : "text-slate-700 hover:bg-[#EEEDED]/60"
+                }`}
               >
                 {option.label}
               </button>
@@ -283,22 +464,45 @@ function MultiSelect<T extends string>({
   );
 }
 
+function FormSection({
+  title,
+  description,
+  children
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border border-[#EEEDED] bg-white p-6 shadow-sm">
+      <div className="border-l-4 border-[#F0DE36] pl-3.5">
+        <h2 className="text-base font-bold text-[#0D1282]">{title}</h2>
+        {description ? <p className="mt-0.5 text-sm text-slate-500">{description}</p> : null}
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
 export default function BranchForm({
   branchId,
   initialData,
-  initialStatus = "DRAFT"
+  initialStatus = "DRAFT",
+  identityLocked = false
 }: {
   branchId?: string;
   initialData?: BranchFormData;
-  initialStatus?: SaveAction;
+  initialStatus?: BranchStatus;
+  // True once the branch has been activated: its code and station code are baked
+  // into issued tracking numbers and can no longer change.
+  identityLocked?: boolean;
 }) {
   const router = useRouter();
   const isEditMode = Boolean(branchId);
   const [form, setForm] = useState<BranchFormData>(initialData ?? initialForm);
   const [codeExists, setCodeExists] = useState<boolean | null>(null);
-  const [savingAction, setSavingAction] = useState<SaveAction | null>(null);
+  const [savingMode, setSavingMode] = useState<SubmitMode | null>(null);
   const [submitError, setSubmitError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [touchedFields, setTouchedFields] = useState<Partial<Record<FieldKey, boolean>>>({});
 
@@ -320,18 +524,25 @@ export default function BranchForm({
       return;
     }
 
+    // Cancelled on cleanup so a slow response for an earlier code can never
+    // overwrite the result for the code currently in the box.
+    let cancelled = false;
+
     const timeout = window.setTimeout(async () => {
       try {
         const result = branchId
           ? await validateBranchCodeForEdit(form.code, branchId)
           : await validateBranchCode(form.code);
-        setCodeExists(result.exists);
+        if (!cancelled) setCodeExists(result.exists);
       } catch {
-        setCodeExists(null);
+        if (!cancelled) setCodeExists(null);
       }
     }, 300);
 
-    return () => window.clearTimeout(timeout);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
   }, [branchId, form.code]);
 
   function updateForm(update: Partial<BranchFormData>) {
@@ -354,8 +565,12 @@ export default function BranchForm({
     setForm((current) => ({ ...current, operations: { ...current.operations, ...update } }));
   }
 
-  async function handleSubmit(action: SaveAction) {
-    const errors = validateForm(form, action, codeExists);
+  async function handleSubmit(mode: SubmitMode) {
+    // Editing a live branch must keep it valid; drafts may stay incomplete.
+    const requiresActiveValidation = mode === "activate" || (mode === "save" && initialStatus === "ACTIVE");
+    const errors = validateForm(form, requiresActiveValidation ? "ACTIVE" : "DRAFT", codeExists);
+
+    // Errors are always surfaced on submit — the action is never silently blocked.
     if (Object.keys(errors).length) {
       setSubmitAttempted(true);
       setTouchedFields((current) => ({
@@ -366,31 +581,48 @@ export default function BranchForm({
       return;
     }
 
-    setSavingAction(action);
+    setSavingMode(mode);
     setSubmitError("");
-    setSuccessMessage("");
 
     try {
-      const result = branchId
-        ? await updateBranch(branchId, form, action)
-        : await createBranch(form, action);
-      setSuccessMessage(isEditMode ? "Branch updated successfully." : action === "ACTIVE" ? "Branch created successfully." : "Branch draft saved.");
-      router.push(`/dashboard/branches/${result.branch._id}`);
+      let branch;
+
+      if (!branchId) {
+        const result = await createBranch(form, mode === "activate" ? "ACTIVE" : "DRAFT");
+        branch = result.branch;
+      } else {
+        // Field changes are saved first; activation is a separate transition.
+        const result = await updateBranch(branchId, form);
+        branch = result.branch;
+
+        if (mode === "activate") {
+          const statusResult = await updateBranchStatus(branchId, "ACTIVE");
+          branch = statusResult.branch;
+        }
+      }
+
+      router.push(`/dashboard/branches/${branch._id}`);
     } catch (caughtError) {
       setSubmitError(caughtError instanceof Error ? caughtError.message : "Unable to save branch.");
     } finally {
-      setSavingAction(null);
+      setSavingMode(null);
     }
   }
 
+  const saving = savingMode !== null;
+  const secondaryButtonClasses = "rounded-xl border border-[#EEEDED] bg-white px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition hover:bg-[#EEEDED]/60 disabled:cursor-not-allowed disabled:opacity-50";
+  const primaryButtonClasses = "rounded-xl bg-[#0D1282] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] disabled:cursor-not-allowed disabled:opacity-50";
+
   return (
     <div className="space-y-6">
-      {submitError ? <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{submitError}</div> : null}
-      {successMessage ? <div className="border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">{successMessage}</div> : null}
+      {submitError ? (
+        <div className="rounded-xl border border-[#D71313]/25 bg-[#D71313]/5 px-4 py-3 text-sm font-semibold text-[#D71313]">
+          {submitError}
+        </div>
+      ) : null}
 
-      <section className="border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-slate-950">Basic Details</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <FormSection title="Basic Details" description="Branch identity and the station code used to build tracking numbers.">
+        <div className="grid gap-5 md:grid-cols-2">
           <TextField
             label="Branch Name"
             required
@@ -405,6 +637,8 @@ export default function BranchForm({
             label="Branch Code"
             required
             value={form.code}
+            disabled={identityLocked}
+            helper={identityLocked ? "Locked: the branch has been activated." : undefined}
             onChange={(event) => {
               markTouched("code");
               setCodeExists(null);
@@ -414,31 +648,37 @@ export default function BranchForm({
             placeholder="DEL-HUB"
           />
           <TextField
-            label="Label Code"
+            label="Station Code"
             required
             value={form.labelCode}
+            disabled={identityLocked}
+            helper={identityLocked ? "Locked: used by already-issued tracking numbers." : undefined}
             onChange={(event) => {
               markTouched("labelCode");
               updateForm({ labelCode: normalizeLabelCode(event.target.value) });
             }}
             error={visibleErrors.labelCode}
-            placeholder="DL"
+            placeholder="DEL"
           />
-          <label className="block text-sm font-semibold text-slate-700 md:col-span-2">
-            Description
-            <textarea
+          <TextField
+            label="Opening Date"
+            type="date"
+            value={form.openingDate}
+            onChange={(event) => updateForm({ openingDate: event.target.value })}
+          />
+          <div className="md:col-span-2">
+            <TextAreaField
+              label="Description"
               value={form.description}
-              onChange={(event) => updateForm({ description: event.target.value })}
               maxLength={500}
-              className="mt-2 block min-h-24 w-full border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+              onChange={(value) => updateForm({ description: value })}
             />
-          </label>
+          </div>
         </div>
-      </section>
+      </FormSection>
 
-      <section className="border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-slate-950">Address and Contact</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <FormSection title="Address and Contact" description="Required before this branch can be activated.">
+        <div className="grid gap-5 md:grid-cols-2">
           <SearchSelect
             label="Country"
             required
@@ -488,27 +728,6 @@ export default function BranchForm({
             error={visibleErrors.email}
           />
           <TextField
-            label="Opening Date"
-            type="date"
-            value={form.openingDate}
-            onChange={(event) => updateForm({ openingDate: event.target.value })}
-          />
-          <TextField
-            label="Branch GSTIN"
-            value={form.gstin}
-            onChange={(event) => updateForm({ gstin: event.target.value.toUpperCase().replace(/\s+/g, "") })}
-            maxLength={15}
-            placeholder="06ABCDE1234F1Z5"
-          />
-          <TextField
-            label="Invoice SAC Code"
-            value={form.invoiceSacCode}
-            onChange={(event) => updateForm({ invoiceSacCode: event.target.value.replace(/[^0-9]/g, "") })}
-            maxLength={12}
-            placeholder="Applicable service code"
-          />
-          
-          <TextField
             label="Phone"
             required
             value={form.contact.phone}
@@ -519,25 +738,44 @@ export default function BranchForm({
             error={visibleErrors.phone}
             placeholder="+919876543210"
           />
-
-          <label className="block text-sm font-semibold text-slate-700">
-            Full Address <RequiredMark />
-            <textarea
+          <div className="md:col-span-2">
+            <TextAreaField
+              label="Full Address"
+              required
               value={form.address.address}
-              onChange={(event) => {
+              error={visibleErrors.address}
+              onChange={(value) => {
                 markTouched("address");
-                updateAddress({ address: event.target.value });
+                updateAddress({ address: value });
               }}
-              className="mt-2 block min-h-24 w-full border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
             />
-            <FieldError message={visibleErrors.address} />
-          </label>
+          </div>
         </div>
-      </section>
+      </FormSection>
 
-      <section className="border border-slate-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-slate-950">Operations and Settings</h2>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <FormSection title="Tax and Invoicing" description="Indian branches require a GSTIN before they can go live.">
+        <div className="grid gap-5 md:grid-cols-2">
+          <TextField
+            label="Branch GSTIN"
+            required={form.address.countryCode === "IN"}
+            value={form.gstin}
+            onChange={(event) => updateForm({ gstin: event.target.value.toUpperCase().replace(/\s+/g, "") })}
+            error={visibleErrors.gstin}
+            maxLength={15}
+            placeholder="06ABCDE1234F1Z5"
+          />
+          <TextField
+            label="Invoice SAC Code"
+            value={form.invoiceSacCode}
+            onChange={(event) => updateForm({ invoiceSacCode: event.target.value.replace(/[^0-9]/g, "") })}
+            maxLength={12}
+            placeholder="Applicable service code"
+          />
+        </div>
+      </FormSection>
+
+      <FormSection title="Operations and Settings" description="Services, coverage, currency, and working days.">
+        <div className="grid gap-5 md:grid-cols-2">
           <MultiSelect<BranchService>
             label="Supported Services"
             required
@@ -564,10 +802,15 @@ export default function BranchForm({
           />
           <MultiSelect<string>
             label="Operating Countries"
+            required={!isDomesticOnlyCoverage(form.operations.shipmentCoverage)}
             values={form.operations.operatingCountries}
             options={countryOptions.map((country) => ({ value: country.code, label: `${country.name} (${country.code})` }))}
             placeholder="Search countries"
-            onChange={(values) => updateOperations({ operatingCountries: values })}
+            error={visibleErrors.operatingCountries}
+            onChange={(values) => {
+              markTouched("operatingCountries");
+              updateOperations({ operatingCountries: values });
+            }}
           />
           <SearchSelect
             label="Base Currency"
@@ -584,57 +827,62 @@ export default function BranchForm({
           <div className="md:col-span-2">
             <p className="text-sm font-semibold text-slate-700">Working Days <RequiredMark /></p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {workingDays.map((day) => (
-                <label key={day} className="flex items-center gap-2 border border-slate-200 px-3 py-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={form.operations.workingDays.includes(day)}
-                    onChange={(event) => {
-                      const nextDays: WorkingDay[] = event.target.checked
-                        ? [...form.operations.workingDays, day]
-                        : form.operations.workingDays.filter((current) => current !== day);
-                      markTouched("workingDays");
-                      updateOperations({ workingDays: nextDays });
-                    }}
-                    className="h-4 w-4"
-                  />
-                  {formatBranchLabel(day)}
-                </label>
-              ))}
+              {workingDays.map((day) => {
+                const checked = form.operations.workingDays.includes(day);
+
+                return (
+                  <label
+                    key={day}
+                    className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition ${
+                      checked
+                        ? "border-[#0D1282] bg-[#0D1282]/5 text-[#0D1282]"
+                        : "border-[#EEEDED] text-slate-700 hover:border-[#0D1282]/30"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => {
+                        const nextDays: WorkingDay[] = event.target.checked
+                          ? [...form.operations.workingDays, day]
+                          : form.operations.workingDays.filter((current) => current !== day);
+                        markTouched("workingDays");
+                        updateOperations({ workingDays: nextDays });
+                      }}
+                      className="h-4 w-4 accent-[#0D1282]"
+                    />
+                    {formatBranchLabel(day)}
+                  </label>
+                );
+              })}
             </div>
             <FieldError message={visibleErrors.workingDays} />
           </div>
         </div>
-      </section>
+      </FormSection>
 
-      <div className="flex flex-wrap justify-end gap-3">
-        {initialStatus !== "ACTIVE" ? (
-          <button
-            type="button"
-            onClick={() => void handleSubmit("DRAFT")}
-            disabled={savingAction !== null}
-            className="border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-900 hover:text-blue-900 disabled:opacity-60"
-          >
-            {savingAction === "DRAFT" ? "Saving..." : isEditMode ? "Save Draft" : "Save as Draft"}
-          </button>
-        ) : null}
-        {initialStatus === "ACTIVE" ? (
-          <button
-            type="button"
-            onClick={() => void handleSubmit("ACTIVE")}
-            disabled={savingAction !== null || Object.keys(activeErrors).length > 0}
-            className="bg-blue-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-950 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {savingAction === "ACTIVE" ? "Updating..." : "Update Branch"}
-          </button>
+      <div className="flex flex-wrap items-center justify-end gap-3 rounded-2xl border border-[#EEEDED] bg-white px-5 py-4 shadow-sm">
+        {!isEditMode ? (
+          <>
+            <button type="button" onClick={() => void handleSubmit("draft")} disabled={saving} className={secondaryButtonClasses}>
+              {savingMode === "draft" ? "Saving..." : "Save as Draft"}
+            </button>
+            <button type="button" onClick={() => void handleSubmit("activate")} disabled={saving} className={primaryButtonClasses}>
+              {savingMode === "activate" ? "Creating..." : "Create Branch"}
+            </button>
+          </>
+        ) : initialStatus === "DRAFT" ? (
+          <>
+            <button type="button" onClick={() => void handleSubmit("draft")} disabled={saving} className={secondaryButtonClasses}>
+              {savingMode === "draft" ? "Saving..." : "Save Draft"}
+            </button>
+            <button type="button" onClick={() => void handleSubmit("activate")} disabled={saving} className={primaryButtonClasses}>
+              {savingMode === "activate" ? "Activating..." : "Save & Activate"}
+            </button>
+          </>
         ) : (
-          <button
-            type="button"
-            onClick={() => void handleSubmit("ACTIVE")}
-            disabled={savingAction !== null || Object.keys(activeErrors).length > 0}
-            className="bg-blue-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-950 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {savingAction === "ACTIVE" ? (isEditMode ? "Activating..." : "Creating...") : isEditMode ? "Save and Activate" : "Create Branch"}
+          <button type="button" onClick={() => void handleSubmit("save")} disabled={saving} className={primaryButtonClasses}>
+            {savingMode === "save" ? "Saving..." : "Save Changes"}
           </button>
         )}
       </div>

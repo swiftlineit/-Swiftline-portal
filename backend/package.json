@@ -33,7 +33,11 @@
     "test:shipment:manifests": "tsx --test src/tests/shipmentManifest.test.ts",
     "test:shipment:quotes": "tsx --test src/tests/shipmentQuote.test.ts",
     "test:support-tickets": "tsx --test src/tests/supportTicket.integration.test.ts",
-    "test:operations-manifests": "tsx --test src/tests/operationsManifest.test.ts"
+    "test:operations-manifests": "tsx --test src/tests/operationsManifest.test.ts",
+    "test:business-accounts": "tsx --test src/tests/businessAccount.test.ts",
+    "test:business-accounts:integration": "tsx --test src/tests/businessAccount.integration.test.ts",
+    "test:branches": "tsx --test src/tests/branch.test.ts",
+    "test:branches:integration": "tsx --test src/tests/branch.integration.test.ts"
   },
   "keywords": [],
   "author": "",

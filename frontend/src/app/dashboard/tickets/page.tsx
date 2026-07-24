@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { FiRefreshCw, FiSearch } from "react-icons/fi";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import TicketTable from "@/components/tickets/TicketTable";
 import { listSupportTickets, ticketCategories, type SupportTicket } from "@/lib/supportTickets";
 import { useAdminUser } from "@/lib/useAdminUser";
@@ -21,9 +21,9 @@ export default function AdminTicketsPage() {
     finally { setDataLoading(false); }
   }, [category, page, priority, search, status]);
   useEffect(() => { if (user) void Promise.resolve().then(load); }, [load, user]);
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
   return (
-    <BusinessAccountsShell user={user}><div className="mx-auto max-w-7xl">
+    <DashboardShell user={user}><div className="mx-auto max-w-7xl">
       <div className="mb-6"><h1 className="text-2xl font-semibold text-slate-950">Support Tickets</h1><p className="mt-1 text-sm text-slate-500">Review customer requests, respond, and update progress.</p></div>
       <div className="mb-5 grid gap-3 border border-slate-200 bg-white p-4 lg:grid-cols-[minmax(220px,1fr)_190px_160px_210px_auto]">
         <label className="relative"><span className="sr-only">Search tickets</span><FiSearch className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="Ticket number or subject" className="h-10 w-full border border-slate-300 pl-10 pr-3 text-sm outline-none focus:border-blue-900" /></label>
@@ -35,6 +35,6 @@ export default function AdminTicketsPage() {
       {error ? <div className="mb-5 border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
       <TicketTable tickets={tickets} audience="admin" loading={dataLoading} />
       {totalPages > 1 ? <div className="mt-4 flex items-center justify-end gap-3"><button disabled={page === 1} onClick={() => setPage(page - 1)} className="h-9 border border-slate-300 px-3 text-sm font-semibold disabled:opacity-40">Previous</button><span className="text-sm text-slate-600">Page {page} of {totalPages}</span><button disabled={page === totalPages} onClick={() => setPage(page + 1)} className="h-9 border border-slate-300 px-3 text-sm font-semibold disabled:opacity-40">Next</button></div> : null}
-    </div></BusinessAccountsShell>
+    </div></DashboardShell>
   );
 }

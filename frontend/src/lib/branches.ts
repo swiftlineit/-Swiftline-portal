@@ -23,6 +23,16 @@ export type ShipmentCoverage = (typeof shipmentCoverageTypes)[number];
 export type WorkingDay = (typeof workingDays)[number];
 export type BranchStatus = (typeof branchStatuses)[number];
 
+// Allowed lifecycle transitions, mirroring the backend state machine so the UI
+// only ever offers status actions the API will accept.
+export const branchStatusTransitions: Record<BranchStatus, BranchStatus[]> = {
+  DRAFT: ["ACTIVE"],
+  ACTIVE: ["INACTIVE", "SUSPENDED", "CLOSED"],
+  INACTIVE: ["ACTIVE", "CLOSED"],
+  SUSPENDED: ["ACTIVE", "CLOSED"],
+  CLOSED: []
+};
+
 export type Branch = {
   _id: string;
   name: string;
@@ -52,6 +62,8 @@ export type Branch = {
   gstin: string;
   invoiceSacCode: string;
   status: BranchStatus;
+  // Set on first activation; once present, code and labelCode are frozen.
+  activatedAt?: string | null;
   createdBy?: { email?: string; name?: string };
   createdAt: string;
   updatedAt: string;
@@ -151,14 +163,24 @@ function findFirstApiError(value: unknown): string {
   return "";
 }
 
-export async function listBranches(search = "", status = "") {
+// Pagination is opt-in: pass a page to receive a bounded window plus the total
+// count; omit it (e.g. branch pickers) to receive every matching branch.
+export async function listBranches(search = "", status = "", page?: number, pageSize?: number) {
   const url = new URL(apiUrl("/api/v1/branches"));
   if (search) url.searchParams.set("search", search);
   if (status) url.searchParams.set("status", status);
+  if (page) url.searchParams.set("page", String(page));
+  if (pageSize) url.searchParams.set("pageSize", String(pageSize));
 
   const response = await fetchWithAuth(url.toString());
 
-  return parseApiResponse<{ success: true; branches: Branch[] }>(response);
+  return parseApiResponse<{
+    success: true;
+    branches: Branch[];
+    total?: number;
+    page?: number;
+    pageSize?: number;
+  }>(response);
 }
 
 export async function getBranch(branchId: string) {
@@ -227,11 +249,22 @@ export async function createBranch(data: BranchFormData, status: "DRAFT" | "ACTI
   return parseApiResponse<{ success: true; branch: Branch }>(response);
 }
 
-export async function updateBranch(branchId: string, data: BranchFormData, status: "DRAFT" | "ACTIVE") {
+// Updates branch fields only. Lifecycle status is changed through updateBranchStatus.
+export async function updateBranch(branchId: string, data: BranchFormData) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/branches/${branchId}`), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...data, status })
+    body: JSON.stringify(data)
+  });
+
+  return parseApiResponse<{ success: true; branch: Branch }>(response);
+}
+
+export async function updateBranchStatus(branchId: string, status: BranchStatus) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/branches/${branchId}/status`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
   });
 
   return parseApiResponse<{ success: true; branch: Branch }>(response);

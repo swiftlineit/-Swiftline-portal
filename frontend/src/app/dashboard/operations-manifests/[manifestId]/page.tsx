@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { FiAlertTriangle, FiArchive, FiCheck, FiDownload, FiPlus, FiPrinter, FiRefreshCw, FiSend, FiSmartphone, FiTrash2, FiWifi, FiWifiOff, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import {
   createOperationsBag,
   createOperationsScanSession,
@@ -127,8 +127,8 @@ export default function OperationsManifestWorkspace() {
     if (!scanning && !pendingReason) inputRef.current?.focus();
   }, [activeBagId, data?.scans.length, pendingReason, scanning]);
 
-  if (loading || !user) return <BusinessAccountsLoading />;
-  if (!data) return <BusinessAccountsShell user={user}><div className="p-10 text-center text-slate-500">{busy ? "Loading manifest..." : "Manifest is unavailable."}</div></BusinessAccountsShell>;
+  if (loading || !user) return <DashboardLoading />;
+  if (!data) return <DashboardShell user={user}><div className="p-10 text-center text-slate-500">{busy ? "Loading manifest..." : "Manifest is unavailable."}</div></DashboardShell>;
 
   const currentData = data;
   const manifest = data.manifest;
@@ -235,7 +235,7 @@ export default function OperationsManifestWorkspace() {
   }
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mx-auto max-w-[1500px]">
         <ManifestHeader
           data={data}
@@ -340,7 +340,7 @@ export default function OperationsManifestWorkspace() {
           }}
         />
       ) : null}
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }
 

@@ -1,16 +1,20 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
 import {
   BusinessAccount,
   BusinessAccountMember,
   BusinessAccountMemberRole,
+  BusinessAccountMemberStatus,
   businessAccountMemberRoles,
   createBusinessAccountClientAccess,
+  getBusinessAccountInvitationLink,
   listBusinessAccountMembers,
-  resendBusinessAccountInvitation
+  resendBusinessAccountInvitation,
+  updateBusinessAccountMemberStatus
 } from "@/lib/businessAccounts";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
+import { useDialog } from "@/lib/useDialog";
 
 const roleLabels: Record<BusinessAccountMemberRole, string> = {
   account_owner: "Account Owner",
@@ -63,6 +67,14 @@ function getInitials(name: string) {
   return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
 }
 
+// Turn an invitation email result into an admin-facing notice. When delivery
+// fails or is disabled, the copy-link action is the manual fallback.
+function describeEmailOutcome(result: { emailSent: boolean; emailSkipped: boolean; emailError?: string }) {
+  if (result.emailSent) return "Invitation email sent.";
+  if (result.emailSkipped) return "Email sending is disabled. Use “Copy invite link” to share access manually.";
+  return "Invitation email could not be sent. Use “Copy invite link” to share access manually.";
+}
+
 export function BusinessAccountAccessPanel({ account }: { account: BusinessAccount }) {
   const [members, setMembers] = useState<BusinessAccountMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +83,7 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState("");
   const [emailNotice, setEmailNotice] = useState("");
+  const modalRef = useDialog<HTMLFormElement>(modalOpen, () => setModalOpen(false));
   const canCreateClientLogin = ["approved", "active"].includes(account.status)
     && account.kycReview?.overallStatus === "verified"
     && Boolean(getAssignedBranch(account));
@@ -119,7 +132,7 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
         assignedBranches: assignedBranch?._id ? [assignedBranch._id] : []
       });
       setMembers((current) => [result.member, ...current]);
-      setEmailNotice(result.emailSent ? "Invitation email sent." : "Email was skipped. Check SMTP configuration and backend logs.");
+      setEmailNotice(describeEmailOutcome(result));
       setForm(emptyForm);
       setModalOpen(false);
     } catch (caughtError) {
@@ -136,9 +149,49 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
 
     try {
       const result = await resendBusinessAccountInvitation(account.accountId, memberId);
-      setEmailNotice(result.emailSent ? "Invitation email sent." : "Email was skipped. Check SMTP configuration and backend logs.");
+      setEmailNotice(describeEmailOutcome(result));
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to resend invitation.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCopyInviteLink(memberId: string) {
+    setSaving(true);
+    setError("");
+    setEmailNotice("");
+
+    try {
+      const result = await getBusinessAccountInvitationLink(account.accountId, memberId);
+
+      try {
+        await navigator.clipboard.writeText(result.activationUrl);
+        setEmailNotice("Invite link copied to clipboard. It is valid for 24 hours.");
+      } catch {
+        // Clipboard access can be denied; surface the link so it can still be shared.
+        setEmailNotice(`Copy this invite link manually: ${result.activationUrl}`);
+      }
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to generate an invite link.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleMemberStatusChange(memberId: string, status: Exclude<BusinessAccountMemberStatus, "invited">) {
+    setSaving(true);
+    setError("");
+    setEmailNotice("");
+
+    try {
+      const result = await updateBusinessAccountMemberStatus(account.accountId, memberId, status);
+      // A removed member drops out of the list; other status changes update in place.
+      setMembers((current) => status === "removed"
+        ? current.filter((member) => member._id !== memberId)
+        : current.map((member) => member._id === memberId ? result.member : member));
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to update member access.");
     } finally {
       setSaving(false);
     }
@@ -242,21 +295,31 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
                   </td>
                   <td className="px-4 py-3.5 text-slate-500">{formatDate(member.user.lastLogin)}</td>
                   <td className="px-4 py-3.5">
-                    {member.status === "invited" ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleResendInvitation(member._id)}
-                        disabled={saving}
-                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-[#0D1282] transition hover:bg-[#0D1282]/5 disabled:text-slate-300"
-                      >
-                        <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                          <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.989a.75.75 0 0 0-.75.75v4.242a.75.75 0 0 0 1.5 0v-2.43l.31.31a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm1.23-3.723a.75.75 0 0 0 .219-.53V2.929a.75.75 0 0 0-1.5 0V5.36l-.31-.31A7 7 0 0 0 3.239 8.188a.75.75 0 1 0 1.448.389A5.5 5.5 0 0 1 13.89 6.11l.311.31h-2.432a.75.75 0 0 0 0 1.5h4.243a.75.75 0 0 0 .53-.219Z" clipRule="evenodd" />
-                        </svg>
-                        Resend
-                      </button>
-                    ) : (
-                      <span className="text-xs font-medium text-slate-300">No actions</span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {member.status === "invited" ? (
+                        <>
+                          <MemberActionButton onClick={() => void handleCopyInviteLink(member._id)} disabled={saving}>
+                            Copy invite link
+                          </MemberActionButton>
+                          <MemberActionButton onClick={() => void handleResendInvitation(member._id)} disabled={saving}>
+                            Resend
+                          </MemberActionButton>
+                        </>
+                      ) : null}
+                      {member.status === "active" ? (
+                        <MemberActionButton onClick={() => void handleMemberStatusChange(member._id, "suspended")} disabled={saving}>
+                          Suspend
+                        </MemberActionButton>
+                      ) : null}
+                      {member.status === "suspended" ? (
+                        <MemberActionButton onClick={() => void handleMemberStatusChange(member._id, "active")} disabled={saving}>
+                          Reactivate
+                        </MemberActionButton>
+                      ) : null}
+                      <MemberActionButton onClick={() => void handleMemberStatusChange(member._id, "removed")} disabled={saving} tone="danger">
+                        Remove
+                      </MemberActionButton>
+                    </div>
                   </td>
                 </tr>
               );
@@ -278,7 +341,7 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
 
       {modalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm">
-          <form onSubmit={handleCreateClientLogin} className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+          <form ref={modalRef} role="dialog" aria-modal="true" aria-label="Create client login" tabIndex={-1} onSubmit={handleCreateClientLogin} className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl outline-none">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold tracking-tight text-[#0D1282]">Create Client Login</h3>
@@ -357,6 +420,33 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
         </div>
       ) : null}
     </section>
+  );
+}
+
+function MemberActionButton({
+  onClick,
+  disabled,
+  tone = "primary",
+  children
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: "primary" | "danger";
+  children: ReactNode;
+}) {
+  const toneClasses = tone === "danger"
+    ? "text-rose-600 hover:bg-rose-50 disabled:text-slate-300"
+    : "text-[#0D1282] hover:bg-[#0D1282]/5 disabled:text-slate-300";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold transition ${toneClasses}`}
+    >
+      {children}
+    </button>
   );
 }
 

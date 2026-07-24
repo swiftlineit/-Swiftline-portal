@@ -2,8 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import BranchesShell, { BranchesLoading } from "@/components/branches/BranchesShell";
-import { Branch, formatBranchLabel, listBranches } from "@/lib/branches";
+import { useRouter } from "next/navigation";
+import { FiChevronDown } from "react-icons/fi";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import {
+  Branch,
+  BranchStatus,
+  branchStatusTransitions,
+  formatBranchLabel,
+  listBranches,
+  updateBranchStatus
+} from "@/lib/branches";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 function formatListValue(values: string[]) {
@@ -13,13 +22,44 @@ function formatListValue(values: string[]) {
   return `${values.slice(0, 2).map(formatBranchLabel).join(", ")} +${values.length - 2}`;
 }
 
+// Status badge colours using the portal palette.
+function getStatusBadgeClasses(status: BranchStatus) {
+  switch (status) {
+    case "ACTIVE":
+      return "bg-[#0D1282] text-white";
+    case "DRAFT":
+      return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
+    case "INACTIVE":
+      return "bg-[#F0DE36]/25 text-[#8a7a00] ring-1 ring-[#F0DE36]/50";
+    case "SUSPENDED":
+    case "CLOSED":
+      return "bg-[#D71313]/10 text-[#D71313] ring-1 ring-[#D71313]/20";
+    default:
+      return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
+  }
+}
+
+// Human labels for the lifecycle actions offered per status.
+const statusActionLabels: Record<BranchStatus, string> = {
+  DRAFT: "Move to Draft",
+  ACTIVE: "Activate",
+  INACTIVE: "Deactivate",
+  SUSPENDED: "Suspend",
+  CLOSED: "Close"
+};
+
 export default function BranchesPage() {
+  const router = useRouter();
   const { user, loading } = useAdminUser();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [branchesLoading, setBranchesLoading] = useState(true);
+  const [updatingBranchId, setUpdatingBranchId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 10;
 
   useEffect(() => {
     if (!user) return;
@@ -29,8 +69,9 @@ export default function BranchesPage() {
       setError("");
 
       try {
-        const data = await listBranches(search, status);
+        const data = await listBranches(search, status, page, pageSize);
         setBranches(data.branches);
+        setTotal(data.total ?? data.branches.length);
       } catch (caughtError) {
         setError(caughtError instanceof Error ? caughtError.message : "Unable to load branches.");
       } finally {
@@ -43,93 +84,206 @@ export default function BranchesPage() {
     }, 250);
 
     return () => window.clearTimeout(timeout);
-  }, [search, status, user]);
+  }, [search, status, user, page]);
 
-  if (loading || !user) return <BranchesLoading />;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+
+  async function handleStatusChange(branch: Branch, nextStatus: BranchStatus) {
+    setUpdatingBranchId(branch._id);
+    setError("");
+
+    try {
+      const data = await updateBranchStatus(branch._id, nextStatus);
+      setBranches((current) => current.map((item) => item._id === branch._id ? data.branch : item));
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to update branch status.");
+    } finally {
+      setUpdatingBranchId(null);
+    }
+  }
+
+  async function handleBranchMenuChange(branch: Branch, value: string) {
+    if (!value || value.startsWith("current:")) return;
+
+    if (value === "view") {
+      router.push(`/dashboard/branches/${branch._id}`);
+      return;
+    }
+
+    if (value === "edit") {
+      router.push(`/dashboard/branches/${branch._id}/edit`);
+      return;
+    }
+
+    if (value.startsWith("status:")) {
+      await handleStatusChange(branch, value.replace("status:", "") as BranchStatus);
+    }
+  }
+
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BranchesShell user={user}>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-950">Branches</h1>
-          <p className="mt-1 text-sm text-slate-500">Create and manage operating branches.</p>
-        </div>
-        <Link href="/dashboard/branches/create" className="bg-blue-900 px-4 py-2 text-sm font-semibold text-white">
-          Create Branch
-        </Link>
-      </div>
-
-      <div className="mb-4 grid gap-4 border border-slate-200 bg-white p-4 md:grid-cols-[1fr_220px]">
-       
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder=" Search By Branch Name, Code, City, Email"
-            className="mt-2 block h-10 w-full border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-          />
-        
-     
-          <select
-            value={status}  
-            onChange={(event) => setStatus(event.target.value)}
-            className="mt-2 block h-10 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-
+    <DashboardShell user={user}>
+      <div className="min-h-full bg-[#EEEDED]/60 -m-6 p-6 lg:-m-8 lg:p-8">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-[#0D1282]">Branches</h1>
+            <p className="mt-1 text-sm text-slate-500">Create, activate, and manage operating branches.</p>
+          </div>
+          <Link
+            href="/dashboard/branches/create"
+            className="inline-flex items-center gap-2 rounded-lg bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/40 focus:ring-offset-2"
           >
-            <option value="">All statuses</option>
-            <option value="DRAFT">Draft</option>
-            <option value="ACTIVE">Active</option>
-            <option value="INACTIVE">Inactive</option>
-            <option value="SUSPENDED">Suspended</option>
-            <option value="CLOSED">Closed</option>
-          </select>
-       
-      </div>
+            <span className="text-base leading-none">+</span> Create Branch
+          </Link>
+        </div>
 
-      {error ? <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+        <div className="mb-4 grid gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_240px]">
+          <label className="block text-sm font-semibold text-slate-700">
+            Search
+            <input
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Branch name, code, city, or email"
+              className="mt-2 block h-10 w-full rounded-lg border border-slate-200 bg-[#EEEDED]/50 px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#0D1282] focus:bg-white focus:ring-2 focus:ring-[#0D1282]/15"
+            />
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">
+            Status
+            <div className="relative mt-2">
+              <select
+                value={status}
+                onChange={(event) => {
+                  setStatus(event.target.value);
+                  setPage(1);
+                }}
+                className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-10 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
+              >
+                <option value="">All statuses</option>
+                <option value="DRAFT">Draft</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+                <option value="SUSPENDED">Suspended</option>
+                <option value="CLOSED">Closed</option>
+              </select>
+              <FiChevronDown
+                aria-hidden="true"
+                className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#0D1282]"
+              />
+            </div>
+          </label>
+        </div>
 
-      <div className="overflow-x-auto border border-slate-200 bg-white">
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-4 py-3">Branch</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Location</th>
-              <th className="px-4 py-3">Currency</th>
-              <th className="px-4 py-3">Services</th>
-              <th className="px-4 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {branchesLoading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">Loading branches...</td></tr>
-            ) : branches.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">No branches found.</td></tr>
-            ) : branches.map((branch) => (
-              <tr key={branch._id} className="border-b border-slate-100 last:border-b-0">
-                <td className="px-4 py-3">
-                  <p className="font-semibold text-slate-950">{branch.name}</p>
-                  <p className="mt-1 text-xs font-semibold text-blue-900">{branch.code}</p>
-                </td>
-                <td className="px-4 py-3">{formatBranchLabel(branch.status)}</td>
-                <td className="px-4 py-3">
-                  <p className="text-slate-700">{branch.address.city || "Not set"}</p>
-                  <p className="mt-1 text-xs text-slate-500">{branch.address.countryName || branch.address.countryCode || "Not set"}</p>
-                </td>
-                <td className="px-4 py-3">{branch.baseCurrency || "Not set"}</td>
-                <td className="px-4 py-3 text-slate-600">{formatListValue(branch.operations.supportedServices)}</td>
-                <td className="px-4 py-3">
-                  <Link href={`/dashboard/branches/${branch._id}`} className="font-semibold text-blue-900 hover:text-blue-700">
-                    View
-                  </Link>
-                  <Link href={`/dashboard/branches/${branch._id}/edit`} className="ml-4 font-semibold text-blue-900 hover:text-blue-700">
-                    Edit
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {error ? (
+          <div className="mb-4 rounded-xl border border-[#D71313]/25 bg-[#D71313]/5 px-4 py-3 text-sm font-medium text-[#D71313]">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-[#0D1282] text-xs uppercase tracking-wide text-white">
+                <tr>
+                  <th className="px-4 py-3.5 font-semibold">Branch</th>
+                  <th className="px-4 py-3.5 font-semibold">Status</th>
+                  <th className="px-4 py-3.5 font-semibold">Location</th>
+                  <th className="px-4 py-3.5 font-semibold">Currency</th>
+                  <th className="px-4 py-3.5 font-semibold">Services</th>
+                  <th className="px-4 py-3.5 font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {branchesLoading ? (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">Loading branches...</td></tr>
+                ) : branches.length === 0 ? (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No branches found.</td></tr>
+                ) : branches.map((branch) => (
+                  <tr key={branch._id} className="transition-colors hover:bg-[#EEEDED]/40">
+                    <td className="px-4 py-3.5">
+                      <p className="font-semibold text-slate-900">{branch.name}</p>
+                      <p className="mt-1 text-xs font-semibold text-[#0D1282]">{branch.code}</p>
+                      {branch.labelCode ? (
+                        <p className="mt-1 text-xs text-slate-500">Station {branch.labelCode}</p>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getStatusBadgeClasses(branch.status)}`}>
+                        {formatBranchLabel(branch.status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <p className="text-slate-700">{branch.address.city || "Not set"}</p>
+                      <p className="mt-1 text-xs text-slate-500">{branch.address.countryName || branch.address.countryCode || "Not set"}</p>
+                    </td>
+                    <td className="px-4 py-3.5 text-slate-700">{branch.baseCurrency || "Not set"}</td>
+                    <td className="px-4 py-3.5 text-slate-600">{formatListValue(branch.operations.supportedServices)}</td>
+                    <td className="px-4 py-3.5">
+                      <div className="relative w-44">
+                        <select
+                          value={`current:${branch.status}`}
+                          onChange={(event) => void handleBranchMenuChange(branch, event.target.value)}
+                          disabled={updatingBranchId === branch._id}
+                          aria-label={`Actions for ${branch.name}`}
+                          className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-10 text-sm font-semibold capitalize text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15 disabled:opacity-60"
+                        >
+                          <option value={`current:${branch.status}`}>
+                            {updatingBranchId === branch._id ? "Updating..." : formatBranchLabel(branch.status)}
+                          </option>
+                          <option value="view">View</option>
+                          <option value="edit">Edit</option>
+                          {branchStatusTransitions[branch.status].map((nextStatus) => (
+                            <option key={nextStatus} value={`status:${nextStatus}`}>
+                              {statusActionLabels[nextStatus]}
+                            </option>
+                          ))}
+                        </select>
+                        <FiChevronDown
+                          aria-hidden="true"
+                          className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#0D1282]"
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {total > pageSize ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-600 shadow-sm">
+            <p>
+              Showing <span className="font-semibold text-slate-800">{startIndex + 1}-{Math.min(startIndex + pageSize, total)}</span> of{" "}
+              <span className="font-semibold text-slate-800">{total}</span> branches
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={safePage === 1}
+                className="rounded-lg border border-slate-200 px-3.5 py-2 font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:text-slate-700"
+              >
+                Previous
+              </button>
+              <span className="rounded-lg bg-[#0D1282]/10 px-3 py-2 font-semibold text-[#0D1282]">Page {safePage} of {totalPages}</span>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={safePage === totalPages}
+                className="rounded-lg border border-slate-200 px-3.5 py-2 font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:text-slate-700"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
-    </BranchesShell>
+    </DashboardShell>
   );
 }

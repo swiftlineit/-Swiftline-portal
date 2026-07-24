@@ -2,7 +2,6 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { parsePhoneNumberFromString } from "libphonenumber-js";
 import {
   BusinessAccount,
   BusinessAccountFiles,
@@ -29,6 +28,13 @@ import {
   getPostalCodeValidationMessage,
   isValidPostalCodeForCountry
 } from "@/lib/businessAccountPostalCodes";
+import {
+  BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX,
+  emailValidationMessage,
+  getPhoneValidationError,
+  isHttpOrHttpsUrl,
+  isValidBusinessContactEmail
+} from "@/lib/businessAccountContactRules";
 
 const defaultFormData: BusinessAccountFormData = {
   contact: {
@@ -77,11 +83,6 @@ const duplicateMessages: Record<UniqueField, string> = {
 const maxDocumentSizeBytes = 5 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const allowedDocumentExtensions = new Set(["pdf", "jpg", "jpeg", "png"]);
-const allowedPersonalEmailDomains = new Set(["gmail.com", "yahoo.com", "outlook.com"]);
-const reservedPersonalEmailNames = new Set(["gmail", "yahoo", "outlook", "hotmail"]);
-const blockedEmailTlds = new Set(["con", "comm", "cpm", "coom", "om"]);
-const emailValidationMessage = "Use gmail.com, yahoo.com, outlook.com, or a valid company email domain.";
-const phoneValidationMessage = "Enter a valid phone number for the selected country code.";
 type CompanyBlurValidationField = "registrationId" | "secondaryRegistrationId" | "postalCode" | "requestedCreditLimit";
 
 const stepValidationKeys = [
@@ -149,56 +150,12 @@ function fromAccount(account?: BusinessAccount): BusinessAccountFormData {
   };
 }
 
-function isValidEmail(value: string) {
-  const email = value.trim().toLowerCase();
-  const basicEmailPattern = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
-
-  if (!basicEmailPattern.test(email)) return false;
-
-  const domain = email.split("@")[1] ?? "";
-  const parts = domain.split(".");
-  const domainName = parts[0];
-  const tld = parts.at(-1) ?? "";
-
-  if (!domainName) return false;
-  if (blockedEmailTlds.has(tld)) return false;
-
-  if (reservedPersonalEmailNames.has(domainName)) {
-    return allowedPersonalEmailDomains.has(domain);
-  }
-
-  return /^[a-z]{2,24}$/.test(tld);
-}
-
-function isValidUrl(value: string) {
-  if (!value) return true;
-
-  try {
-    new URL(value);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function countryRequiresRegistrationId(country: string) {
   return !["United States", "Kuwait"].includes(country);
 }
 
 function countryRequiresSecondaryRegistrationId(country: string) {
   return ["France", "Netherlands"].includes(country);
-}
-
-function getPhoneValidationError(countryCode: string, mobileNumber: string) {
-  const normalizedCountryCode = countryCode.trim();
-  const normalizedMobileNumber = mobileNumber.trim();
-
-  if (!normalizedCountryCode) return "Country code is required.";
-  if (!/^\d{6,15}$/.test(normalizedMobileNumber)) return "Mobile number must contain 6 to 15 digits.";
-
-  const phoneNumber = parsePhoneNumberFromString(`${normalizedCountryCode}${normalizedMobileNumber}`);
-
-  return phoneNumber?.isValid() ? "" : phoneValidationMessage;
 }
 
 function getDocumentFileError(file: File) {
@@ -312,7 +269,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
       return true;
     }
 
-    if (field === "email" && !isValidEmail(value)) {
+    if (field === "email" && !isValidBusinessContactEmail(value)) {
       setFieldErrors((current) => ({ ...current, email: emailValidationMessage }));
       return false;
     }
@@ -331,6 +288,8 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
     try {
       const result = await validateBusinessAccountUnique({
         [field]: value,
+        // The mobile-number check is scoped by country code, matching the server.
+        ...(field === "mobileNumber" ? { countryCode: formData.contact.countryCode.trim() } : {}),
         excludeAccountId: account?.accountId
       });
 
@@ -433,8 +392,8 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
       return "Requested credit limit must be a valid positive amount.";
     }
 
-    if (Number(requestedCreditLimit) > 100000) {
-      return "Requested credit limit cannot exceed 100000.";
+    if (Number(requestedCreditLimit) > BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX) {
+      return `Requested credit limit cannot exceed ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}.`;
     }
 
     return "";
@@ -461,7 +420,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
       if (!formData.contact.lastName.trim()) nextErrors.lastName = "Last name is required.";
       else if (formData.contact.lastName.trim().length > 22) nextErrors.lastName = "Last name must be 22 characters or less.";
       if (!formData.contact.email.trim()) nextErrors.email = "Email address is required.";
-      else if (!isValidEmail(formData.contact.email.trim())) nextErrors.email = emailValidationMessage;
+      else if (!isValidBusinessContactEmail(formData.contact.email.trim())) nextErrors.email = emailValidationMessage;
       if (!formData.contact.mobileType.trim()) nextErrors.mobileType = "Phone type is required.";
       const phoneError = getPhoneValidationError(formData.contact.countryCode, formData.contact.mobileNumber);
       if (phoneError === "Country code is required.") nextErrors.countryCode = phoneError;
@@ -513,13 +472,13 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
       if (!noCompany && !formData.company.industry.trim()) nextErrors.industry = "Company industry is required.";
       if (!noCompany && !formData.company.monthlyShipmentVolume.trim()) nextErrors.monthlyShipmentVolume = "Monthly shipment volume is required.";
       if (!formData.company.requestedCreditCurrency.trim()) nextErrors.requestedCreditCurrency = "Currency is required.";
-      if (!noCompany && formData.company.website && !isValidUrl(formData.company.website)) nextErrors.website = "Enter a valid website URL.";
+      if (!noCompany && formData.company.website && !isHttpOrHttpsUrl(formData.company.website)) nextErrors.website = "Website must start with http:// or https://";
 
       const requestedCreditLimit = formData.company.requestedCreditLimit.trim();
       if (!noCompany && requestedCreditLimit && (!Number.isFinite(Number(requestedCreditLimit)) || Number(requestedCreditLimit) < 0)) {
         nextErrors.requestedCreditLimit = "Requested credit limit must be a valid positive amount.";
-      } else if (!noCompany && requestedCreditLimit && Number(requestedCreditLimit) > 100000) {
-        nextErrors.requestedCreditLimit = "Requested credit limit cannot exceed 100000.";
+      } else if (!noCompany && requestedCreditLimit && Number(requestedCreditLimit) > BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX) {
+        nextErrors.requestedCreditLimit = `Requested credit limit cannot exceed ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}.`;
       }
     }
 
@@ -586,7 +545,15 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
         : await createBusinessAccount(formData, files);
 
       if (!isEdit || isDraftEdit) {
-        await submitBusinessAccount(result.account.accountId);
+        try {
+          await submitBusinessAccount(result.account.accountId);
+        } catch (submitError) {
+          // The account (or draft) was already saved. Navigate to it so the record
+          // is not stranded — a retry from the form would hit a duplicate conflict
+          // and the user could never move past it.
+          router.push(`/dashboard/business-accounts/${result.account.accountId}`);
+          throw submitError;
+        }
       }
 
       router.push(`/dashboard/business-accounts/${result.account.accountId}`);

@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
+import fs from "fs";
 import path from "path";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { parsePhoneNumberFromString } from "libphonenumber-js";
 import {
   BusinessAccount,
   businessAccountStatuses,
@@ -13,10 +13,24 @@ import {
   BusinessAccountStatus,
   DocumentType,
   IBusinessDocument,
-  IBusinessKycReview,
-  ShipmentType
+  IBusinessKycReview
 } from "../models/businessAccount.model.js";
 import { Branch } from "../models/branch.model.js";
+import {
+  BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX,
+  compactRegistrationId,
+  countriesWithoutRegistrationId,
+  countriesWithSecondaryRegistrationId,
+  emailValidationMessage,
+  getPostalCodeValidationMessage,
+  getPrimaryRegistrationError,
+  getSecondaryRegistrationError,
+  isHttpOrHttpsUrl,
+  isValidBusinessContactEmail,
+  isValidPhoneForCountryCode,
+  isValidPostalCodeForCountry,
+  phoneValidationMessage
+} from "../services/businessAccountRules.js";
 
 const shipmentTypeSchema = z.enum(["international_cargo", "international_courier"]);
 const companyTypeSchema = z.enum(["pvt_ltd", "llp", "enterprise"]).or(z.literal(""));
@@ -63,189 +77,10 @@ const businessKycCheckStatusSchema = z.enum(businessKycCheckStatuses);
 const assignBranchBodySchema = z.object({
   branchId: z.string().trim().refine((value) => mongoose.Types.ObjectId.isValid(value), "Invalid branch ID")
 });
-const allowedPersonalEmailDomains = new Set(["gmail.com", "yahoo.com", "outlook.com"]);
-const reservedPersonalEmailNames = new Set(["gmail", "yahoo", "outlook", "hotmail"]);
-const blockedEmailTlds = new Set(["con", "comm", "cpm", "coom", "om"]);
-const emailValidationMessage = "Use gmail.com, yahoo.com, outlook.com, or a valid company email domain.";
-const phoneValidationMessage = "Enter a valid phone number for the selected country code.";
-const countriesWithoutRegistrationId = new Set(["United States", "Kuwait"]);
-const countriesWithSecondaryRegistrationId = new Set(["France", "Netherlands"]);
 const nullableCreditLimitSchema = z.preprocess(
   (value) => typeof value === "string" && value.trim() === "" ? null : value,
-  z.coerce.number().nonnegative().max(100000, "Requested credit limit cannot exceed 100000.").nullable().optional()
+  z.coerce.number().nonnegative().max(BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX, `Requested credit limit cannot exceed ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}.`).nullable().optional()
 );
-const fiveDigitPostalCodeCountries = new Set([
-  "Saudi Arabia",
-  "Germany",
-  "France",
-  "Italy",
-  "Spain",
-  "South Korea",
-  "Indonesia",
-  "Malaysia",
-  "Thailand",
-  "Vietnam",
-  "Nepal",
-  "Sri Lanka",
-  "Mexico",
-  "Kuwait"
-]);
-const fourDigitPostalCodeCountries = new Set([
-  "Australia",
-  "Belgium",
-  "Switzerland",
-  "Bangladesh",
-  "South Africa",
-  "New Zealand"
-]);
-const sixDigitPostalCodeCountries = new Set(["India", "Singapore", "China"]);
-const postalCodeFormats: Record<string, string> = {
-  India: "######",
-  "United States": "##### or #####-####",
-  "United Kingdom": "A9 9AA / A99 9AA / A9A 9AA / AA9 9AA / AA99 9AA / AA9A 9AA",
-  Canada: "A1A 1A1",
-  Australia: "####",
-  "United Arab Emirates": "No standard postal code",
-  "Saudi Arabia": "#####",
-  Singapore: "######",
-  China: "######",
-  Japan: "###-####",
-  Germany: "#####",
-  France: "#####",
-  Italy: "#####",
-  Netherlands: "#### AA",
-  Belgium: "####",
-  Spain: "#####",
-  Switzerland: "####",
-  "South Korea": "#####",
-  Indonesia: "#####",
-  Malaysia: "#####",
-  Thailand: "#####",
-  Vietnam: "#####",
-  Bangladesh: "####",
-  Nepal: "#####",
-  "Sri Lanka": "#####",
-  "South Africa": "####",
-  Brazil: "#####-###",
-  Mexico: "#####",
-  "New Zealand": "####",
-  Qatar: "No standard postal code",
-  Oman: "###",
-  Kuwait: "#####",
-  Bahrain: "### or ####",
-  Other: "Country-specific"
-};
-
-function isValidBusinessContactEmail(value: string) {
-  const email = value.trim().toLowerCase();
-  const basicEmailPattern = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
-
-  if (!basicEmailPattern.test(email)) return false;
-
-  const domain = email.split("@")[1] ?? "";
-  const parts = domain.split(".");
-  const domainName = parts[0];
-  const tld = parts.at(-1) ?? "";
-
-  if (!domainName) return false;
-  if (blockedEmailTlds.has(tld)) return false;
-  if (reservedPersonalEmailNames.has(domainName)) return allowedPersonalEmailDomains.has(domain);
-
-  // Custom company domains are allowed, while common typo TLDs such as ".con" are rejected.
-  return /^[a-z]{2,24}$/.test(tld);
-}
-
-function isValidPhoneForCountryCode(countryCode: string, mobileNumber: string) {
-  const phoneNumber = parsePhoneNumberFromString(`${countryCode.trim()}${mobileNumber.trim()}`);
-
-  return Boolean(phoneNumber?.isValid());
-}
-
-function compactRegistrationId(value: string) {
-  return value.replace(/\s+/g, "").toUpperCase();
-}
-
-function getPrimaryRegistrationError(country: string, registrationId: string, registrationIdType?: string) {
-  const value = compactRegistrationId(registrationId);
-
-  if (!value) return "";
-
-  if (country === "United Kingdom" && !/^(\d{8}|[A-Z]{2}\d{6})$/.test(value)) {
-    return "Enter a valid CRID: 8 digits or 2 letters followed by 6 digits.";
-  }
-
-  if (country === "India" && !/^[A-Z]{5}\d{4}[A-Z]$/.test(value)) {
-    return "Enter a valid PAN, for example ABCDE1234F.";
-  }
-
-  if (country === "France" && !/^FR\d{11}$/.test(value)) {
-    return "Enter a valid French VAT number, for example FR12123456789.";
-  }
-
-  if (country === "Netherlands" && !/^(NL)?\d{9}B\d{2}$/.test(value)) {
-    return "Enter a valid Dutch VAT number, for example NL123456789B01.";
-  }
-
-  if (country === "Canada") {
-    const requiredLength = registrationIdType === "business_number" ? 9 : 10;
-    if (!new RegExp(`^\\d{${requiredLength}}$`).test(value)) {
-      return registrationIdType === "business_number"
-        ? "Enter a valid CRA Business Number: exactly 9 digits."
-        : "Enter a valid Canadian registration number: exactly 10 digits.";
-    }
-  }
-
-  if (country === "Switzerland" && !/^CHE-\d{3}\.\d{3}\.\d{3}$/.test(value)) {
-    return "Enter a valid Swiss UID, for example CHE-123.456.789.";
-  }
-
-  if (country === "Poland" && !/^(PL)?\d{10}$/.test(value)) {
-    return "Enter a valid Polish VAT/NIP, for example PL1234567890 or 1234567890.";
-  }
-
-  return "";
-}
-
-function getSecondaryRegistrationError(country: string, registrationId: string) {
-  const value = compactRegistrationId(registrationId);
-
-  if (!value) return "";
-
-  if (country === "France" && !/^\d{9}$/.test(value)) {
-    return "Enter a valid SIREN: exactly 9 digits.";
-  }
-
-  if (country === "Netherlands" && !/^\d{8}$/.test(value)) {
-    return "Enter a valid KVK number: exactly 8 digits.";
-  }
-
-  return "";
-}
-
-function isValidPostalCodeForCountry(country: string, postalCode: string) {
-  const value = postalCode.trim().toUpperCase();
-
-  if (!value) return false;
-  if (country === "United Arab Emirates" || country === "Qatar" || country === "Other") return true;
-  if (sixDigitPostalCodeCountries.has(country)) return /^\d{6}$/.test(value);
-  if (fiveDigitPostalCodeCountries.has(country)) return /^\d{5}$/.test(value);
-  if (fourDigitPostalCodeCountries.has(country)) return /^\d{4}$/.test(value);
-
-  if (country === "United States") return /^\d{5}(-\d{4})?$/.test(value);
-  if (country === "United Kingdom") return /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/.test(value);
-  if (country === "Canada") return /^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/.test(value);
-  if (country === "Japan") return /^\d{3}-\d{4}$/.test(value);
-  if (country === "Netherlands") return /^\d{4}\s?[A-Z]{2}$/.test(value);
-  if (country === "Brazil") return /^\d{5}-\d{3}$/.test(value);
-  if (country === "Oman") return /^\d{3}$/.test(value);
-  if (country === "Bahrain") return /^\d{3,4}$/.test(value);
-
-  return true;
-}
-
-function getPostalCodeValidationMessage(country: string) {
-  return `Enter a valid postal code for ${country}.`;
-}
 
 const businessAccountBodySchema = z.object({
   contact: z.object({
@@ -277,7 +112,7 @@ const businessAccountBodySchema = z.object({
     addressCountry: z.string().trim().max(80).optional().default(""),
     useCompanyAddressAsBillingAddress: z.coerce.boolean().optional().default(true),
     operatingCountries: z.array(z.string().trim().min(1).max(80)).default([]),
-    website: z.string().trim().url().optional().or(z.literal("")).or(z.null()),
+    website: z.string().trim().url().refine(isHttpOrHttpsUrl, "Website must start with http:// or https://").optional().or(z.literal("")).or(z.null()),
     industry: z.string().trim().max(100).optional().default(""),
     monthlyShipmentVolume: z.string().trim().max(80).optional().default(""),
     requestedCreditCurrency: z.string().trim().min(3).max(3).default("INR"),
@@ -426,6 +261,82 @@ const operationalActionMessages: Record<z.infer<typeof businessAccountOperationa
   ledger_viewed: "Ledger review marked."
 };
 
+// Allowed lifecycle transitions. Re-applying the current status is treated as a
+// no-op; every other transition not listed here is rejected with a 409.
+export const businessAccountStatusTransitions: Record<BusinessAccountStatus, BusinessAccountStatus[]> = {
+  draft: ["pending_review"],
+  pending_review: ["approved", "rejected"],
+  approved: ["active", "rejected"],
+  active: ["suspended"],
+  suspended: ["active"],
+  rejected: []
+};
+
+// Statuses that may only be reached once the KYC review is fully verified.
+export const kycGatedStatuses: BusinessAccountStatus[] = ["approved", "active"];
+
+function formatStatusLabel(status: string) {
+  return status.replaceAll("_", " ");
+}
+
+// Escape user-supplied search text so it is matched literally instead of being
+// interpreted as a regular expression (prevents regex injection and ReDoS).
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return Boolean(error) && (error as { code?: number }).code === 11000;
+}
+
+// Must match the destination used by the business-document upload middleware.
+const businessDocumentRoot = path.resolve(process.cwd(), "private_uploads", "business-accounts");
+
+// File-signature checks for the accepted document formats. The client-supplied
+// MIME type is not trusted; the first bytes on disk are inspected instead.
+const documentSignatureTests: ((header: Buffer) => boolean)[] = [
+  (header) => header.subarray(0, 4).toString("latin1") === "%PDF",
+  (header) => header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff,
+  (header) => header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+];
+
+// Return the first uploaded document whose content is not a valid PDF/JPEG/PNG,
+// or null when every uploaded file passes the signature check.
+async function findInvalidDocumentSignature(
+  files: Partial<Record<DocumentType, Express.Multer.File>>
+): Promise<DocumentType | null> {
+  for (const [type, file] of Object.entries(files) as [DocumentType, Express.Multer.File | undefined][]) {
+    if (!file) continue;
+
+    const header = Buffer.alloc(8);
+    let handle: fs.promises.FileHandle | undefined;
+    try {
+      handle = await fs.promises.open(file.path, "r");
+      await handle.read(header, 0, 8, 0);
+    } finally {
+      await handle?.close();
+    }
+
+    if (!documentSignatureTests.some((test) => test(header))) return type;
+  }
+
+  return null;
+}
+
+async function unlinkFiles(paths: string[]) {
+  await Promise.all(paths.map((filePath) => fs.promises.unlink(filePath).catch(() => undefined)));
+}
+
+// Remove the files multer persisted for a request that ultimately failed, so a
+// rejected create/update never leaves orphaned documents on disk.
+async function cleanupUploadedFiles(files: Partial<Record<DocumentType, Express.Multer.File>>) {
+  const paths = Object.values(files)
+    .filter((file): file is Express.Multer.File => Boolean(file))
+    .map((file) => file.path);
+
+  await unlinkFiles(paths);
+}
+
 function getAuthenticatedUserId(request: Request): mongoose.Types.ObjectId | null {
   const user = (request as Request & { user?: { _id?: unknown } }).user;
   const id = user?._id;
@@ -489,7 +400,9 @@ function buildAccountPayload(data: BusinessAccountBody) {
     company: {
       registrationCountry: data.company.registrationCountry,
       registrationIdType: data.company.registrationIdType,
-      registrationId: data.company.registrationId,
+      // Store the normalized registration ID so lookups and duplicate checks
+      // stay consistent regardless of spacing or letter case on input.
+      registrationId: compactRegistrationId(data.company.registrationId),
       gstin: data.company.gstin,
       secondaryRegistrationId: data.company.secondaryRegistrationId,
       noCompanyRegistration: data.company.noCompanyRegistration,
@@ -514,15 +427,25 @@ function buildAccountPayload(data: BusinessAccountBody) {
   };
 }
 
-async function generateAccountId(): Promise<string> {
+function generateAccountId(): string {
   const year = new Date().getFullYear();
+  const sequence = Math.floor(100000 + Math.random() * 900000);
+  return `BA-${year}-${sequence}`;
+}
 
+// Insert the account with a freshly generated ID, retrying only when the random
+// suffix collides with an existing accountId. The retry is on the insert itself,
+// so a concurrent create racing on the same suffix no longer surfaces as a 500.
+async function createBusinessAccountRecord(basePayload: Record<string, unknown>) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const sequence = Math.floor(100000 + Math.random() * 900000);
-    const accountId = `BA-${year}-${sequence}`;
-    const existing = await BusinessAccount.exists({ accountId });
-
-    if (!existing) return accountId;
+    try {
+      return await BusinessAccount.create({ accountId: generateAccountId(), ...basePayload });
+    } catch (error) {
+      const collidedOnAccountId = isDuplicateKeyError(error)
+        && Boolean((error as { keyPattern?: Record<string, unknown> }).keyPattern?.accountId);
+      if (collidedOnAccountId) continue;
+      throw error;
+    }
   }
 
   throw new Error("Unable to generate a unique business account ID");
@@ -532,36 +455,46 @@ async function hasDuplicateBusinessIdentity(
   data: BusinessAccountBody,
   accountIdToExclude?: string
 ): Promise<string | null> {
+  const normalizedRegistrationId = compactRegistrationId(data.company.registrationId);
   const identityChecks: Record<string, string>[] = [
     { "contact.email": data.contact.email },
-    { "contact.mobileNumber": data.contact.mobileNumber }
+    // The same local number under a different country code is a different phone,
+    // so both fields must match for a mobile-number conflict.
+    { "contact.countryCode": data.contact.countryCode, "contact.mobileNumber": data.contact.mobileNumber }
   ];
 
-  if (data.company.registrationId.trim()) {
-    identityChecks.push({ "company.registrationId": data.company.registrationId });
+  if (normalizedRegistrationId) {
+    identityChecks.push({ "company.registrationId": normalizedRegistrationId });
   }
 
   const duplicate = await BusinessAccount.findOne({
     _id: accountIdToExclude ? { $ne: accountIdToExclude } : { $exists: true },
     $or: identityChecks
   })
-    .select("contact.email contact.mobileNumber company.registrationId")
+    .select("contact.email contact.countryCode contact.mobileNumber company.registrationId")
     .lean()
     .exec();
 
   if (!duplicate) return null;
 
   if (duplicate.contact.email === data.contact.email) return "Email address already exists";
-  if (duplicate.contact.mobileNumber === data.contact.mobileNumber) return "Mobile number already exists";
-  if (data.company.registrationId.trim() && duplicate.company.registrationId === data.company.registrationId) {
+  if (
+    duplicate.contact.countryCode === data.contact.countryCode
+    && duplicate.contact.mobileNumber === data.contact.mobileNumber
+  ) {
+    return "Mobile number already exists";
+  }
+  if (normalizedRegistrationId && duplicate.company.registrationId === normalizedRegistrationId) {
     return "Company registration ID already exists";
   }
 
   return null;
 }
 
-function getDocumentRequirementError(
-  shipmentTypes: ShipmentType[],
+// Document requirements are the same for every shipment type today. The
+// signatures intentionally omit shipmentTypes; reintroduce it here (and in the
+// two helpers below) if per-type document rules are ever added.
+export function getDocumentRequirementError(
   documents: Partial<Record<DocumentType, IBusinessDocument>>
 ): string | null {
   if (!documents.aadhaarCard) return "Aadhaar Card is required";
@@ -570,8 +503,7 @@ function getDocumentRequirementError(
   return null;
 }
 
-function getRequiredKycCheckKeys(
-  shipmentTypes: ShipmentType[],
+export function getRequiredKycCheckKeys(
   documents: Partial<Record<DocumentType, IBusinessDocument>>
 ): BusinessKycCheckKey[] {
   const keys: BusinessKycCheckKey[] = ["contactDetails", "companyDetails", "aadhaarCard", "panCard"];
@@ -583,8 +515,7 @@ function getRequiredKycCheckKeys(
   return keys;
 }
 
-function getMissingRequiredDocuments(
-  shipmentTypes: ShipmentType[],
+export function getMissingRequiredDocuments(
   documents: Partial<Record<DocumentType, IBusinessDocument>>
 ) {
   const missing: DocumentType[] = [];
@@ -606,16 +537,15 @@ function getDefaultKycReview(): IBusinessKycReview {
   };
 }
 
-function deriveKycOverallStatus(
-  shipmentTypes: ShipmentType[],
+export function deriveKycOverallStatus(
   documents: Partial<Record<DocumentType, IBusinessDocument>>,
   review: IBusinessKycReview
 ): BusinessKycOverallStatus {
-  const missingDocuments = getMissingRequiredDocuments(shipmentTypes, documents);
+  const missingDocuments = getMissingRequiredDocuments(documents);
   if (missingDocuments.length) return "documents_pending";
   if (review.finalDecision === "rejected") return "rejected";
 
-  const requiredKeys = getRequiredKycCheckKeys(shipmentTypes, documents);
+  const requiredKeys = getRequiredKycCheckKeys(documents);
   const statuses = requiredKeys.map((key) => review.checks?.[key]?.status ?? "not_started");
   const infoRequiredStatuses: BusinessKycCheckStatus[] = ["information_required"];
 
@@ -714,13 +644,43 @@ function applyKycReviewUpdate(
   return nextReview;
 }
 
-function applyDerivedKycStatus(account: { contact: { shipmentTypes: ShipmentType[] }; documents?: Partial<Record<DocumentType, IBusinessDocument>>; kycReview?: IBusinessKycReview }) {
+// Decide the review completion timestamp. It is stamped only when the review
+// first enters a terminal state (verified/rejected); an unchanged terminal state
+// keeps its original timestamp, so unrelated saves no longer bump it.
+function resolveKycReviewedAt(
+  previousStatus: BusinessKycOverallStatus | undefined,
+  previousReviewedAt: Date | null | undefined,
+  nextStatus: BusinessKycOverallStatus
+): Date | null {
+  if (nextStatus !== "verified" && nextStatus !== "rejected") return null;
+  if (previousStatus === nextStatus) return previousReviewedAt ?? new Date();
+  return new Date();
+}
+
+function applyDerivedKycStatus(account: { documents?: Partial<Record<DocumentType, IBusinessDocument>>; kycReview?: IBusinessKycReview }) {
+  const previousStatus = account.kycReview?.overallStatus;
+  const previousReviewedAt = account.kycReview?.reviewedAt ?? null;
   const review = getSanitizedKycReview(account.kycReview);
 
-  review.overallStatus = deriveKycOverallStatus(account.contact.shipmentTypes, account.documents ?? {}, review);
-  review.reviewedAt = ["verified", "rejected"].includes(review.overallStatus) ? new Date() : null;
+  review.overallStatus = deriveKycOverallStatus(account.documents ?? {}, review);
+  review.reviewedAt = resolveKycReviewedAt(previousStatus, previousReviewedAt, review.overallStatus);
 
   return review;
+}
+
+// Reset the given KYC checks to not_started. Used when the underlying document or
+// field group changes, so a prior verification cannot silently carry over.
+function resetKycChecks(kycReview: IBusinessKycReview | undefined, keys: BusinessKycCheckKey[]) {
+  if (!kycReview?.checks) return;
+
+  for (const key of keys) {
+    const check = kycReview.checks[key];
+    if (check && check.status !== "not_started") {
+      check.status = "not_started";
+      check.note = null;
+      check.reviewedAt = null;
+    }
+  }
 }
 
 function normalizeBusinessAccountSnapshot<T extends { status?: string; creditLimitStatus?: string; depositStatus?: string; agreementStatus?: string; ledgerViewedAt?: Date | string | null; updatedAt?: Date | string }>(account: T): T {
@@ -768,20 +728,32 @@ async function getPopulatedBusinessAccount(accountId: string) {
   return account ? normalizeBusinessAccountSnapshot(account) : null;
 }
 
+// Attach newly uploaded documents and return the on-disk paths of any documents
+// they replaced. Superseded files are unlinked by the caller only after the save
+// succeeds, so a failed save never deletes a document still referenced in the DB.
 function attachUploadedDocuments(
   documents: Partial<Record<DocumentType, IBusinessDocument>>,
   files: Partial<Record<DocumentType, Express.Multer.File>>
-) {
+): string[] {
+  const supersededPaths: string[] = [];
+
   for (const type of ["aadhaarCard", "panCard", "adCertificate", "msmeCertificate", "tanCertificate", "otherCertificate", "gstCertificate", "iecCertificate"] as DocumentType[]) {
     const file = files[type];
-    if (file) documents[type] = toBusinessDocument(type, file);
+    if (!file) continue;
+
+    const previous = documents[type];
+    if (previous?.path) supersededPaths.push(previous.path);
+    documents[type] = toBusinessDocument(type, file);
   }
+
+  return supersededPaths;
 }
 
 export async function validateBusinessAccountUniqueness(request: Request, response: Response): Promise<Response> {
   const email = typeof request.query.email === "string" ? request.query.email.trim().toLowerCase() : "";
   const mobileNumber = typeof request.query.mobileNumber === "string" ? request.query.mobileNumber.trim() : "";
-  const registrationId = typeof request.query.registrationId === "string" ? request.query.registrationId.trim() : "";
+  const countryCode = typeof request.query.countryCode === "string" ? request.query.countryCode.trim() : "";
+  const registrationId = typeof request.query.registrationId === "string" ? compactRegistrationId(request.query.registrationId) : "";
   const excludeAccountId = typeof request.query.excludeAccountId === "string" ? request.query.excludeAccountId.trim() : "";
 
   const checks: Record<string, boolean> = {
@@ -791,10 +763,15 @@ export async function validateBusinessAccountUniqueness(request: Request, respon
   };
 
   const baseFilter = excludeAccountId ? { accountId: { $ne: excludeAccountId } } : {};
+  // Match the country code alongside the number when it is supplied, mirroring the
+  // duplicate rule so the same local number under different codes stays distinct.
+  const mobileFilter = countryCode
+    ? { ...baseFilter, "contact.countryCode": countryCode, "contact.mobileNumber": mobileNumber }
+    : { ...baseFilter, "contact.mobileNumber": mobileNumber };
 
   const [emailMatch, mobileMatch, registrationMatch] = await Promise.all([
     email ? BusinessAccount.exists({ ...baseFilter, "contact.email": email }) : null,
-    mobileNumber ? BusinessAccount.exists({ ...baseFilter, "contact.mobileNumber": mobileNumber }) : null,
+    mobileNumber ? BusinessAccount.exists(mobileFilter) : null,
     registrationId ? BusinessAccount.exists({ ...baseFilter, "company.registrationId": registrationId }) : null
   ]);
 
@@ -818,7 +795,7 @@ export async function listBusinessAccounts(request: Request, response: Response)
   }
 
   if (typeof search === "string" && search.trim()) {
-    const pattern = new RegExp(search.trim(), "i");
+    const pattern = new RegExp(escapeRegExp(search.trim()), "i");
     filters.$or = [
       { accountId: pattern },
       { "company.companyName": pattern },
@@ -830,42 +807,80 @@ export async function listBusinessAccounts(request: Request, response: Response)
     ];
   }
 
-  const accounts = await BusinessAccount.find(filters)
+  const query = BusinessAccount.find(filters)
     .populate("createdBy", "email name")
     .populate("assignedBranch", "name code status")
-    .sort({ createdAt: -1 })
-    .lean()
-    .exec();
+    .sort({ createdAt: -1 });
 
+  // Pagination is opt-in. When a valid page is supplied we return a bounded window
+  // plus the total count; without it the full list is returned (branch detail
+  // relies on this to list every account for a single, already-scoped branch).
+  const requestedPage = typeof request.query.page === "string" ? Number.parseInt(request.query.page, 10) : NaN;
+
+  if (Number.isInteger(requestedPage) && requestedPage >= 1) {
+    const requestedSize = typeof request.query.pageSize === "string" ? Number.parseInt(request.query.pageSize, 10) : NaN;
+    const pageSize = Number.isInteger(requestedSize) ? Math.min(Math.max(requestedSize, 1), 100) : 10;
+    const total = await BusinessAccount.countDocuments(filters);
+    const accounts = await query.skip((requestedPage - 1) * pageSize).limit(pageSize).lean().exec();
+
+    return response.status(200).json({
+      success: true,
+      accounts: accounts.map(normalizeBusinessAccountSnapshot),
+      total,
+      page: requestedPage,
+      pageSize
+    });
+  }
+
+  const accounts = await query.lean().exec();
   return response.status(200).json({ success: true, accounts: accounts.map(normalizeBusinessAccountSnapshot) });
 }
 
 export async function createBusinessAccount(request: Request, response: Response): Promise<Response> {
+  // Files are read first so they can be cleaned up on any early rejection below.
+  const files = getUploadedFiles(request);
   const userId = getAuthenticatedUserId(request);
-  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+  if (!userId) {
+    await cleanupUploadedFiles(files);
+    return response.status(401).json({ success: false, message: "Unauthorized" });
+  }
 
   const parsed = parseBusinessAccountBody(request);
   if (!parsed.success) {
+    await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, errors: parsed.error.format() });
   }
 
   const duplicateMessage = await hasDuplicateBusinessIdentity(parsed.data);
-  if (duplicateMessage) return response.status(409).json({ success: false, message: duplicateMessage });
+  if (duplicateMessage) {
+    await cleanupUploadedFiles(files);
+    return response.status(409).json({ success: false, message: duplicateMessage });
+  }
 
-  const files = getUploadedFiles(request);
+  const invalidDocument = await findInvalidDocumentSignature(files);
+  if (invalidDocument) {
+    await cleanupUploadedFiles(files);
+    return response.status(400).json({ success: false, message: "One or more documents are not a valid PDF, JPG, or PNG file." });
+  }
+
   const documents: Partial<Record<DocumentType, IBusinessDocument>> = {};
   attachUploadedDocuments(documents, files);
 
-  const account = await BusinessAccount.create({
-    accountId: await generateAccountId(),
-    status: "draft",
-    ...buildAccountPayload(parsed.data),
-    documents,
-    createdBy: userId,
-    updatedBy: userId
-  });
+  try {
+    const account = await createBusinessAccountRecord({
+      status: "draft",
+      ...buildAccountPayload(parsed.data),
+      documents,
+      createdBy: userId,
+      updatedBy: userId
+    });
 
-  return response.status(201).json({ success: true, account });
+    const populatedAccount = await getPopulatedBusinessAccount(account.accountId);
+    return response.status(201).json({ success: true, account: populatedAccount ?? account });
+  } catch (error) {
+    await cleanupUploadedFiles(files);
+    throw error;
+  }
 }
 
 export async function getBusinessAccount(request: Request, response: Response): Promise<Response> {
@@ -881,34 +896,80 @@ export async function getBusinessAccount(request: Request, response: Response): 
 }
 
 export async function updateBusinessAccount(request: Request, response: Response): Promise<Response> {
+  // Files are read first so they can be cleaned up on any early rejection below.
+  const files = getUploadedFiles(request);
   const userId = getAuthenticatedUserId(request);
-  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+  if (!userId) {
+    await cleanupUploadedFiles(files);
+    return response.status(401).json({ success: false, message: "Unauthorized" });
+  }
 
   const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
-  if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
+  if (!account) {
+    await cleanupUploadedFiles(files);
+    return response.status(404).json({ success: false, message: "Business account not found" });
+  }
 
   const parsed = parseBusinessAccountBody(request);
   if (!parsed.success) {
+    await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, errors: parsed.error.format() });
   }
 
   const duplicateMessage = await hasDuplicateBusinessIdentity(parsed.data, String(account._id));
-  if (duplicateMessage) return response.status(409).json({ success: false, message: duplicateMessage });
+  if (duplicateMessage) {
+    await cleanupUploadedFiles(files);
+    return response.status(409).json({ success: false, message: duplicateMessage });
+  }
 
-  const files = getUploadedFiles(request);
+  const invalidDocument = await findInvalidDocumentSignature(files);
+  if (invalidDocument) {
+    await cleanupUploadedFiles(files);
+    return response.status(400).json({ success: false, message: "One or more documents are not a valid PDF, JPG, or PNG file." });
+  }
+
+  // Snapshot the field groups before applying the update so we can tell which
+  // previously reviewed checks are now invalidated by the change.
+  const previousContact = JSON.stringify(account.contact);
+  const previousCompany = JSON.stringify(account.company);
+  const replacedDocumentTypes = (Object.keys(files) as DocumentType[]).filter((type) => files[type]);
+
   const documents = account.documents ?? {};
-  attachUploadedDocuments(documents, files);
+  const supersededPaths = attachUploadedDocuments(documents, files);
 
   account.set({
     ...buildAccountPayload(parsed.data),
     documents,
     updatedBy: userId
   });
+
+  // A replaced document or an edited contact/company field group must not keep a
+  // prior "verified" outcome, so reset those checks for re-review before deriving
+  // the overall KYC status.
+  const invalidatedChecks: BusinessKycCheckKey[] = [...replacedDocumentTypes];
+  if (JSON.stringify(account.contact) !== previousContact) invalidatedChecks.push("contactDetails");
+  if (JSON.stringify(account.company) !== previousCompany) invalidatedChecks.push("companyDetails");
+  resetKycChecks(account.kycReview, invalidatedChecks);
+
   account.kycReview = applyDerivedKycStatus(account);
 
-  await account.save();
+  try {
+    await account.save();
+  } catch (error) {
+    // The save failed, so the newly uploaded files are unreferenced. Remove them
+    // and leave the previously stored documents untouched.
+    await cleanupUploadedFiles(files);
+    if (isDuplicateKeyError(error)) {
+      return response.status(409).json({ success: false, message: "A business account with these details already exists." });
+    }
+    throw error;
+  }
 
-  return response.status(200).json({ success: true, account });
+  // Save succeeded: the replaced documents are no longer referenced, so remove them.
+  await unlinkFiles(supersededPaths);
+
+  const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
+  return response.status(200).json({ success: true, account: updatedAccount ?? account });
 }
 
 export async function submitBusinessAccount(request: Request, response: Response): Promise<Response> {
@@ -921,7 +982,7 @@ export async function submitBusinessAccount(request: Request, response: Response
     return response.status(409).json({ success: false, message: "Only draft accounts can be submitted" });
   }
 
-  const requirementError = getDocumentRequirementError(account.contact.shipmentTypes, account.documents ?? {});
+  const requirementError = getDocumentRequirementError(account.documents ?? {});
   if (requirementError) {
     return response.status(400).json({ success: false, message: requirementError });
   }
@@ -953,8 +1014,32 @@ export async function updateBusinessAccountStatus(request: Request, response: Re
   const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
   if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
 
-  if (parsed.data === "pending_review" && !account.submittedAt) {
-    const requirementError = getDocumentRequirementError(account.contact.shipmentTypes, account.documents ?? {});
+  const currentStatus = account.status;
+  const targetStatus = parsed.data;
+
+  // Enforce the lifecycle state machine. Re-applying the current status is a
+  // harmless no-op; any transition not defined in the map is rejected.
+  if (targetStatus !== currentStatus && !businessAccountStatusTransitions[currentStatus].includes(targetStatus)) {
+    return response.status(409).json({
+      success: false,
+      message: `Cannot change status from ${formatStatusLabel(currentStatus)} to ${formatStatusLabel(targetStatus)}.`
+    });
+  }
+
+  // Approval and activation require a fully verified KYC review.
+  if (
+    targetStatus !== currentStatus
+    && kycGatedStatuses.includes(targetStatus)
+    && account.kycReview?.overallStatus !== "verified"
+  ) {
+    return response.status(409).json({
+      success: false,
+      message: "KYC must be verified before the account can be approved or activated."
+    });
+  }
+
+  if (targetStatus === "pending_review" && !account.submittedAt) {
+    const requirementError = getDocumentRequirementError(account.documents ?? {});
     if (requirementError) {
       return response.status(400).json({ success: false, message: requirementError });
     }
@@ -962,7 +1047,7 @@ export async function updateBusinessAccountStatus(request: Request, response: Re
     account.submittedAt = new Date();
   }
 
-  account.status = parsed.data;
+  account.status = targetStatus;
   account.updatedBy = userId;
   account.kycReview = applyDerivedKycStatus(account);
   await account.save();
@@ -1051,7 +1136,21 @@ export async function viewBusinessAccountDocument(request: Request, response: Re
   const document = account.documents?.[parsed.data];
   if (!document) return response.status(404).json({ success: false, message: "Document not found" });
 
+  // Guard against a stored path escaping the private upload directory before the
+  // file is served (defense against path traversal in legacy/tampered records).
   const absolutePath = path.resolve(document.path);
+  if (absolutePath !== businessDocumentRoot && !absolutePath.startsWith(businessDocumentRoot + path.sep)) {
+    return response.status(404).json({ success: false, message: "Document not found" });
+  }
+
+  // Confirm the file still exists before sending, so a missing file returns a
+  // clean 404 instead of sendFile erroring after headers are already committed.
+  try {
+    await fs.promises.access(absolutePath, fs.constants.R_OK);
+  } catch {
+    return response.status(404).json({ success: false, message: "Document file is no longer available" });
+  }
+
   response.setHeader("Content-Type", document.mimeType);
   response.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.originalName)}"`);
 
@@ -1072,12 +1171,25 @@ export async function updateBusinessAccountKycReview(request: Request, response:
 
   try {
     const nextReview = applyKycReviewUpdate(account.kycReview, parsed.data, userId);
-    nextReview.overallStatus = deriveKycOverallStatus(account.contact.shipmentTypes, account.documents ?? {}, nextReview);
-    nextReview.reviewedAt = ["verified", "rejected"].includes(nextReview.overallStatus) ? new Date() : null;
+    nextReview.overallStatus = deriveKycOverallStatus(account.documents ?? {}, nextReview);
+    nextReview.reviewedAt = resolveKycReviewedAt(account.kycReview?.overallStatus, account.kycReview?.reviewedAt, nextReview.overallStatus);
 
-    account.kycReview = nextReview;
-    account.updatedBy = userId;
-    await account.save();
+    // Optimistic concurrency: apply only if the document is unchanged since it was
+    // read, so two reviewers editing the same account cannot silently overwrite
+    // one another. A version mismatch means someone else saved first.
+    const expectedVersion = account.get("__v") as number;
+    const updated = await BusinessAccount.findOneAndUpdate(
+      { _id: account._id, __v: expectedVersion },
+      { $set: { kycReview: nextReview, updatedBy: userId }, $inc: { __v: 1 } },
+      { new: true }
+    ).exec();
+
+    if (!updated) {
+      return response.status(409).json({
+        success: false,
+        message: "This KYC review was just updated by someone else. Reload and try again."
+      });
+    }
   } catch (error) {
     console.error("KYC review update failed:", error);
     return response.status(400).json({
@@ -1086,9 +1198,13 @@ export async function updateBusinessAccountKycReview(request: Request, response:
     });
   }
 
+  // Return the populated snapshot (matching the other endpoints) so the client
+  // keeps a fully-shaped account — notably a populated assignedBranch, which the
+  // Users & Access panel depends on to unlock client-login creation.
+  const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
   return response.status(200).json({
     success: true,
-    account,
-    kycReview: account.kycReview
+    account: updatedAccount ?? account,
+    kycReview: (updatedAccount ?? account).kycReview
   });
 }

@@ -104,8 +104,6 @@ export function buildShipmentBookingSnapshot(input: {
   creditAmountMinor?: number;
 }): ShipmentBookingSnapshot {
   const consignee = input.draft.consigneeValidatedAddress ?? input.draft.consigneeEnteredAddress;
-  const parcelCount = input.draft.parcelList.length;
-
   return plain({
     version: 1,
     bookedAt: input.bookedAt.toISOString(),
@@ -150,7 +148,7 @@ export function buildShipmentBookingSnapshot(input: {
       contentsDescription: parcel.contentsDescription,
       reference: parcel.shipmentReference1 ?? "",
       carrierParcelNumber: input.carrierParcelNumbers[index] ?? "",
-      swiftlineParcelNumber: formatSwiftlineParcelNumber(input.swiftlineTrackingNumber, index, parcelCount)
+      swiftlineParcelNumber: formatSwiftlineParcelNumber(input.swiftlineTrackingNumber, index)
     })),
     pricing: input.pricing,
     payment: {
@@ -174,8 +172,6 @@ export function buildRevisedShipmentSnapshot(input: {
   }
 
   const consignee = input.draft.consigneeValidatedAddress ?? input.draft.consigneeEnteredAddress;
-  const parcelCount = input.draft.parcelList.length;
-
   return plain({
     ...input.previousSnapshot,
     consignee,
@@ -195,8 +191,7 @@ export function buildRevisedShipmentSnapshot(input: {
       carrierParcelNumber: input.previousSnapshot.parcels[index]?.carrierParcelNumber ?? "",
       swiftlineParcelNumber: formatSwiftlineParcelNumber(
         input.previousSnapshot.tracking.swiftlineTrackingNumber,
-        index,
-        parcelCount
+        index
       )
     })),
     pricing: input.pricing,

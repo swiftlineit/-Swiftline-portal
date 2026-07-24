@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { FiChevronDown } from "react-icons/fi";
 import { toast } from "react-toastify";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import CountryFlag from "@/components/CountryFlag";
 import { countryOptions } from "@/lib/branches";
 import { createOperationsManifest, listManifestBranches, type ManifestHeader } from "@/lib/operationsManifests";
@@ -146,7 +146,7 @@ export default function NewOperationsManifestPage() {
     if (user) void listManifestBranches().then((data) => setBranches(data.branches)).catch((error) => toast.error(error.message));
   }, [user]);
 
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   const field = (key: keyof ManifestHeader, value: string) => setHeader((current) => ({ ...current, [key]: value }));
 
@@ -166,7 +166,7 @@ export default function NewOperationsManifestPage() {
   }
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <form onSubmit={submit} className="mx-auto max-w-5xl">
         <div className="mb-6 rounded-lg border border-[#EEEDED] bg-white p-5 shadow-sm">
           <Link href="/dashboard/operations-manifests" className="text-sm font-semibold text-[#0D1282]">Back to manifests</Link>
@@ -251,6 +251,6 @@ export default function NewOperationsManifestPage() {
           <button disabled={saving} className="h-11 rounded-md bg-[#0D1282] px-6 text-sm font-semibold text-white hover:bg-[#0D1282]/90 disabled:opacity-60">{saving ? "Creating..." : "Create Manifest"}</button>
         </div>
       </form>
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }

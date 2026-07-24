@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FiArrowLeft, FiChevronDown, FiEdit2, FiFile, FiFileText } from "react-icons/fi";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import { BusinessAccountAccessPanel } from "@/components/business-accounts/BusinessAccountAccessPanel";
 import {
   canadaRegistrationTypeOptions,
@@ -21,6 +21,7 @@ import {
   updateBusinessAccountKycReview
 } from "@/lib/businessAccounts";
 import { useAdminUser } from "@/lib/useAdminUser";
+import { useDialog } from "@/lib/useDialog";
 
 function formatStatus(status: string) {
   return status.replaceAll("_", " ");
@@ -86,15 +87,6 @@ const kycStatusStyles: Record<BusinessKycOverallStatus, string> = {
   rejected: "bg-[#D71313]/10 text-[#D71313] ring-1 ring-[#D71313]/20"
 };
 
-const kycStatusDotStyles: Record<BusinessKycOverallStatus, string> = {
-  documents_pending: "bg-[#F0DE36]",
-  submitted: "bg-[#0D1282]/60",
-  under_review: "bg-[#0D1282]/60",
-  additional_information_required: "bg-[#F0DE36]",
-  verified: "bg-[#0D1282]",
-  rejected: "bg-[#D71313]"
-};
-
 function normalizeKycCheckStatus(status?: string): BusinessKycCheckStatus {
   if (status === "failed") return "reject";
   if (status === "replacement_required" || status === "mismatched" || status === "unclear") return "information_required";
@@ -139,12 +131,24 @@ export default function BusinessAccountDetailsPage() {
     setDocumentOpening(documentType);
     setError("");
 
+    // Open the tab synchronously within the click gesture so browsers don't block
+    // it as a popup; its location is set once the document blob has loaded.
+    const documentWindow = window.open("", "_blank", "noopener,noreferrer");
+
     try {
       const blob = await getBusinessAccountDocument(account.accountId, documentType);
       const url = URL.createObjectURL(blob);
-      window.open(url, "_blank", "noopener,noreferrer");
+
+      if (documentWindow) {
+        documentWindow.location.href = url;
+      } else {
+        // Popup was blocked despite the synchronous open; fall back to same tab.
+        window.location.assign(url);
+      }
+
       window.setTimeout(() => URL.revokeObjectURL(url), 30000);
     } catch (caughtError) {
+      documentWindow?.close();
       setError(caughtError instanceof Error ? caughtError.message : "Unable to open document.");
     } finally {
       setDocumentOpening(null);
@@ -204,23 +208,22 @@ export default function BusinessAccountDetailsPage() {
     await updateKycReview({ checks, finalDecision: "rejected", startReview: true });
   }
 
-  if (loading || !user || accountLoading) return <BusinessAccountsLoading />;
+  if (loading || !user || accountLoading) return <DashboardLoading />;
 
   if (!account) {
     return (
-      <BusinessAccountsShell user={user}>
+      <DashboardShell user={user}>
         <div className="rounded-xl border border-[#D71313]/25 bg-[#D71313]/5 p-5">
           <p className="text-sm font-semibold text-[#D71313]">{error || "Business account not found."}</p>
           <Link href="/dashboard/business-accounts" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#0D1282] hover:underline">
             <FiArrowLeft aria-hidden="true" className="h-4 w-4" /> Back to Business Accounts
           </Link>
         </div>
-      </BusinessAccountsShell>
+      </DashboardShell>
     );
   }
 
   const missingDocuments = getRequiredDocumentLabels(account);
-  const overallKycStatus = account.kycReview?.overallStatus ?? "documents_pending";
 
   const tabs: { key: DetailTab; label: string }[] = [
     { key: "overview", label: "Overview" },
@@ -230,7 +233,7 @@ export default function BusinessAccountDetailsPage() {
   ];
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       {/* Account header and navigation actions */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -273,9 +276,6 @@ export default function BusinessAccountDetailsPage() {
                 {tab.key === "documents" && missingDocuments.length ? (
                   <span className={`h-2 w-2 rounded-full ${isActive ? "bg-white" : "bg-[#D71313]"}`} />
                 ) : null}
-                {/* {tab.key === "kyc" ? (
-                  <span className={`h-2 w-2 rounded-full ${isActive ? "bg-white" : kycStatusDotStyles[overallKycStatus]}`} />
-                ) : null} */}
               </button>
             );
           })}
@@ -354,7 +354,7 @@ export default function BusinessAccountDetailsPage() {
           </div>
         ) : null}
       </div>
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }
 
@@ -412,6 +412,14 @@ function KycReviewPanel({
   const [infoRequest, setInfoRequest] = useState<{ key: BusinessKycCheckKey; label: string } | null>(null);
   const [infoReason, setInfoReason] = useState("");
   const [infoReasonError, setInfoReasonError] = useState("");
+
+  function closeInfoRequest() {
+    setInfoRequest(null);
+    setInfoReason("");
+    setInfoReasonError("");
+  }
+
+  const infoDialogRef = useDialog<HTMLDivElement>(Boolean(infoRequest), closeInfoRequest);
 
   function handleSelectChange(row: { key: BusinessKycCheckKey; label: string }, status: BusinessKycCheckStatus) {
     if (status === "information_required") {
@@ -540,7 +548,7 @@ function KycReviewPanel({
 
       {infoRequest ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0D1282]/30 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+          <div ref={infoDialogRef} role="dialog" aria-modal="true" aria-label="Information required" tabIndex={-1} className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl outline-none">
             <h3 className="text-base font-bold text-[#0D1282]">Information Required</h3>
             <p className="mt-1 text-sm text-slate-500">{infoRequest.label}</p>
             <label className="mt-4 block text-sm font-semibold text-slate-700">
@@ -562,11 +570,7 @@ function KycReviewPanel({
             <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  setInfoRequest(null);
-                  setInfoReason("");
-                  setInfoReasonError("");
-                }}
+                onClick={closeInfoRequest}
                 className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282]"
               >
                 Cancel

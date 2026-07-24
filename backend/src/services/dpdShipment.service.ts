@@ -36,7 +36,7 @@ import {
 import { ensureShipmentInvoiceForDraft } from "./shipmentInvoice.service.js";
 import {
   allocateSwiftlineTrackingNumber,
-  resolveBranchLabelCode
+  resolveStationCode
 } from "./swiftlineTracking.service.js";
 import {
   bookingSnapshotToLabelData,
@@ -313,12 +313,12 @@ export async function createLabelForShipmentDraft(
     }
   }
 
-  let branchLabelCode: string;
+  let stationCode: string;
   try {
-    branchLabelCode = resolveBranchLabelCode(branch.labelCode, branch.code);
+    stationCode = resolveStationCode(branch.labelCode, branch.code);
   } catch {
     throw new DpdShipmentServiceError(
-      "The assigned branch needs a 2 to 4 character label code before shipments can be booked.",
+      "The assigned branch needs a valid three-letter station code before shipments can be booked.",
       409
     );
   }
@@ -452,8 +452,7 @@ export async function createLabelForShipmentDraft(
 
     const generatedAt = new Date();
     const trackingNumber = dpdShipment.swiftlineTrackingNumber || await allocateSwiftlineTrackingNumber({
-      branchId: branch._id as mongoose.Types.ObjectId,
-      branchLabelCode,
+      stationCode,
       date: generatedAt
     });
     dpdShipment.swiftlineTrackingNumber = trackingNumber;

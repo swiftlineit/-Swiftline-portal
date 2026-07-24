@@ -1,3 +1,6 @@
+// KEEP IN SYNC with the backend registration rules (separate package, cannot
+// share a module): portal/backend/src/services/businessAccountRules.ts
+
 export type RegistrationRule = {
   info: string;
   maxLength: number;

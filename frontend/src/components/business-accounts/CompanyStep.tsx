@@ -23,6 +23,7 @@ import {
   getPrimaryRegistrationRule,
   getSecondaryRegistrationRule
 } from "@/lib/businessAccountRegistrationRules";
+import { BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX } from "@/lib/businessAccountContactRules";
 
 // Company step UI for registration, address, and credit details.
 export function CompanyStep({
@@ -328,14 +329,14 @@ export function CompanyStep({
             />
             <Field
               label="Requested Credit Limit"
-              placeholder="Requested Credit (max 100000)"
+              placeholder={`Requested Credit (max ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX})`}
               type="number"
               value={formData.company.requestedCreditLimit}
               onChange={(value) => onCompanyChange("requestedCreditLimit", value)}
               onBlur={() => onValidateCompanyField("requestedCreditLimit")}
               error={validationErrors.requestedCreditLimit}
               disabled={noCompanyChecked}
-              max={100000}
+              max={BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}
             />
           </div>
         </div>

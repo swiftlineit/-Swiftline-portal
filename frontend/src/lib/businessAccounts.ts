@@ -11,6 +11,18 @@ export const businessAccountStatuses = [
   "suspended"
 ] as const;
 export type BusinessAccountStatus = (typeof businessAccountStatuses)[number];
+
+// Allowed lifecycle transitions, mirroring the backend state machine so the UI
+// only ever offers actions the API will accept.
+export const businessAccountStatusTransitions: Record<BusinessAccountStatus, BusinessAccountStatus[]> = {
+  draft: ["pending_review"],
+  pending_review: ["approved", "rejected"],
+  approved: ["active", "rejected"],
+  active: ["suspended"],
+  suspended: ["active"],
+  rejected: []
+};
+
 export type BusinessAccountOperationalAction =
   | "deposit_required"
   | "deposit_received"
@@ -136,6 +148,7 @@ export type BusinessAccountFiles = Partial<Record<DocumentType, File | null>>;
 export type BusinessAccountUniqueCheck = {
   email?: string;
   mobileNumber?: string;
+  countryCode?: string;
   registrationId?: string;
   excludeAccountId?: string;
 };
@@ -267,14 +280,24 @@ function findFirstApiError(value: unknown): string {
   return "";
 }
 
-export async function listBusinessAccounts(search = "", branchId = "") {
+// Pagination is opt-in: pass a page to receive a bounded window plus the total
+// count; omit it (e.g. branch detail) to receive every matching account.
+export async function listBusinessAccounts(search = "", branchId = "", page?: number, pageSize?: number) {
   const url = new URL(apiUrl("/api/v1/business-accounts"));
   if (search) url.searchParams.set("search", search);
   if (branchId) url.searchParams.set("branchId", branchId);
+  if (page) url.searchParams.set("page", String(page));
+  if (pageSize) url.searchParams.set("pageSize", String(pageSize));
 
   const response = await fetchWithAuth(url.toString());
 
-  return parseApiResponse<{ success: true; accounts: BusinessAccount[] }>(response);
+  return parseApiResponse<{
+    success: true;
+    accounts: BusinessAccount[];
+    total?: number;
+    page?: number;
+    pageSize?: number;
+  }>(response);
 }
 
 export async function getBusinessAccount(accountId: string) {
@@ -404,10 +427,10 @@ export async function createBusinessAccountClientAccess(accountId: string, input
   return parseApiResponse<{
     success: true;
     member: BusinessAccountMember;
-    activationUrl: string;
     emailQueued: boolean;
     emailSent: boolean;
     emailSkipped: boolean;
+    emailError?: string;
   }>(response);
 }
 
@@ -416,5 +439,29 @@ export async function resendBusinessAccountInvitation(accountId: string, memberI
     method: "POST"
   });
 
-  return parseApiResponse<{ success: true; activationUrl: string; emailSent: boolean; emailSkipped: boolean }>(response);
+  return parseApiResponse<{ success: true; emailSent: boolean; emailSkipped: boolean; emailError?: string }>(response);
+}
+
+// Regenerate and fetch the activation link on demand (for manual delivery). The
+// raw token is only requested when the admin explicitly asks to copy the link.
+export async function getBusinessAccountInvitationLink(accountId: string, memberId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/members/${memberId}/invitation-link`), {
+    method: "POST"
+  });
+
+  return parseApiResponse<{ success: true; activationUrl: string }>(response);
+}
+
+export async function updateBusinessAccountMemberStatus(
+  accountId: string,
+  memberId: string,
+  status: Exclude<BusinessAccountMemberStatus, "invited">
+) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/members/${memberId}/status`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+
+  return parseApiResponse<{ success: true; member: BusinessAccountMember }>(response);
 }

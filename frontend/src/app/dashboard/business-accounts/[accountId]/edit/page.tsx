@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import BusinessAccountForm from "@/components/business-accounts/BusinessAccountForm";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import { BusinessAccount, getBusinessAccount } from "@/lib/businessAccounts";
 import { useAdminUser } from "@/lib/useAdminUser";
 
@@ -35,10 +35,10 @@ export default function EditBusinessAccountPage() {
     void loadAccount();
   }, [params.accountId, user]);
 
-  if (loading || !user || accountLoading) return <BusinessAccountsLoading />;
+  if (loading || !user || accountLoading) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       {error || !account ? (
         <div className="border border-red-200 bg-red-50 p-5">
           <p className="text-sm font-semibold text-red-700">{error || "Business account not found."}</p>
@@ -49,6 +49,6 @@ export default function EditBusinessAccountPage() {
       ) : (
         <BusinessAccountForm account={account} />
       )}
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }

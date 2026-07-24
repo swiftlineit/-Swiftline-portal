@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { FiRefreshCw, FiX } from "react-icons/fi";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import CancellationReview from "@/components/shipments/CancellationReview";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import {
@@ -45,10 +45,10 @@ export default function CancellationsPage() {
     return () => { active = false; };
   }, [load, user]);
 
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">Shipment Cancellations</h1>
@@ -108,7 +108,7 @@ export default function CancellationsPage() {
       </div>
 
       {selected ? <CancellationModal cancellation={selected} onClose={() => setSelected(null)} onChanged={async () => { setSelected(null); await load(); }} /> : null}
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }
 

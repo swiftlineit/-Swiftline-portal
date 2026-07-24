@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiClock, FiFileText, FiMapPin, FiPackage, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import ShipmentAmendmentPanel from "@/components/shipments/ShipmentAmendmentPanel";
 import ShipmentCancellationPanel from "@/components/shipments/ShipmentCancellationPanel";
 import ShipmentChargeVerificationPanel from "@/components/shipments/ShipmentChargeVerificationPanel";
@@ -329,10 +329,10 @@ export default function AdminShipmentDetailsPage() {
     }
   }
 
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -663,7 +663,7 @@ export default function AdminShipmentDetailsPage() {
           </>
         )}
       </div>
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }
 

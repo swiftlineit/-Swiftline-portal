@@ -50,6 +50,9 @@ export interface IBranch extends mongoose.Document {
   gstin?: string;
   invoiceSacCode?: string;
   status: BranchStatus;
+  // Set the first time a branch goes ACTIVE. Once set, code and labelCode are
+  // frozen because they are baked into already-issued tracking numbers.
+  activatedAt?: Date | null;
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId | null;
   createdAt: Date;
@@ -98,6 +101,7 @@ const branchSchema = new mongoose.Schema<IBranch>(
     gstin: { type: String, uppercase: true, trim: true, default: "", maxlength: 15 },
     invoiceSacCode: { type: String, trim: true, default: "", maxlength: 12 },
     status: { type: String, enum: branchStatusValues, default: "DRAFT", index: true },
+    activatedAt: { type: Date, default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
   },
@@ -106,5 +110,11 @@ const branchSchema = new mongoose.Schema<IBranch>(
 
 branchSchema.index({ "address.countryCode": 1 });
 branchSchema.index({ "address.city": 1 });
+// Label codes prefix customer-facing tracking numbers, so they must be unique
+// across branches. Empty codes (incomplete drafts) are excluded from the rule.
+branchSchema.index(
+  { labelCode: 1 },
+  { unique: true, partialFilterExpression: { labelCode: { $gt: "" } } }
+);
 
 export const Branch = mongoose.model<IBranch>("Branch", branchSchema);

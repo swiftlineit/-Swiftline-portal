@@ -167,191 +167,52 @@ export async function renderSwiftlineLabelPdf(data: ShipmentLabelData) {
       .lineWidth(1.5)
       .stroke("#0b1f46");
 
-    const swiftlineHeader = "SWIFTLINE CARGO AND EXPRESS";
-
+    // Keep the internal label limited to the identifiers needed for scanning.
     document
-      .fillColor("#0b1f46")
+      .fillColor("#44546f")
       .font("Helvetica-Bold")
-      .fontSize(fittedFontSize(swiftlineHeader, 16, 14, 12))
-      .text(swiftlineHeader, 16, 25, {
-        width: width - 12,
-        align: "center"
-      });
+      .fontSize(8)
+      .text("PARCEL BARCODE", 16, 32, { width: width - 12, align: "center" });
 
-    // Moved down to add a small bottom margin below the heading
-    document
-      .moveTo(PAGE_MARGIN, 64)
-      .lineTo(A6_WIDTH - PAGE_MARGIN, 64)
-      .lineWidth(2)
-      .stroke("#0b1f46");
-
-    // Barcode section
-    document.image(barcodeImage, 18, 78, {
-      fit: [width - 16, 68],
+    document.image(barcodeImage, 18, 58, {
+      fit: [width - 16, 100],
       align: "center"
     });
 
-    // Tracking number shown only below the barcode
     document
       .fillColor("#000000")
+      .font("Helvetica-Bold")
+      .fontSize(13)
+      .text(data.parcelNumber, 16, 173, { width: width - 12, align: "center" });
+
+    document
+      .moveTo(PAGE_MARGIN, 210)
+      .lineTo(A6_WIDTH - PAGE_MARGIN, 210)
+      .stroke("#0b1f46");
+
+    document
+      .fillColor("#44546f")
       .font("Helvetica-Bold")
       .fontSize(8)
-      .text(data.parcelNumber, 16, 157, {
-        width: width - 12,
-        align: "center"
-      });
-
-    document
-      .moveTo(PAGE_MARGIN, 180)
-      .lineTo(A6_WIDTH - PAGE_MARGIN, 180)
-      .lineWidth(1)
-      .stroke("#0b1f46");
-
-    document
-      .fillColor("#44546f")
-      .font("Helvetica-Bold")
-      .fontSize(7)
-      .text("SERVICE", 16, 189);
+      .text("SHIPMENT REFERENCE", 16, 232, { width: width - 12, align: "center" });
 
     document
       .fillColor("#000000")
       .font("Helvetica-Bold")
-      .fontSize(12)
-      .text("SWIFTLINE", 16, 200);
+      .fontSize(fittedFontSize(data.swiftlineTrackingNumber, 18, 15, 12))
+      .text(data.swiftlineTrackingNumber, 16, 248, { width: width - 12, align: "center" });
 
     document
       .fillColor("#44546f")
       .font("Helvetica-Bold")
-      .fontSize(7)
-      .text("ORIGIN", 155, 189);
+      .fontSize(8)
+      .text("PIECE", 16, 300, { width: width - 12, align: "center" });
 
     document
       .fillColor("#000000")
       .font("Helvetica-Bold")
-      .fontSize(12)
-      .text(text(data.sender.branchCode), 155, 200);
-
-    document
-      .moveTo(PAGE_MARGIN, 222)
-      .lineTo(A6_WIDTH - PAGE_MARGIN, 222)
-      .stroke("#0b1f46");
-
-    const consigneeName = text(data.consignee.name);
-
-    document
-      .fillColor("#44546f")
-      .font("Helvetica-Bold")
-      .fontSize(7)
-      .text("SHIP TO", 16, 231);
-
-    document
-      .fillColor("#000000")
-      .font("Helvetica-Bold")
-      .fontSize(fittedFontSize(consigneeName, 12, 10, 8.5))
-      .text(consigneeName, 16, 242, {
-        width: width - 12,
-        height: 21,
-        ellipsis: true,
-        lineGap: 1
-      });
-
-    const consigneeContact = data.consignee.contactName?.trim();
-
-    if (consigneeContact) {
-      document
-        .font("Helvetica-Bold")
-        .fontSize(8.5)
-        .text(`Contact: ${consigneeContact}`, 16, 266, {
-          width: width - 12,
-          height: 11,
-          ellipsis: true
-        });
-    }
-
-    document
-      .font("Helvetica")
-      .fontSize(9)
-      .text(
-        [
-          ...data.consignee.addressLines,
-          data.consignee.postcode,
-          data.consignee.countryName
-        ]
-          .filter(Boolean)
-          .join(", "),
-        16,
-        consigneeContact ? 281 : 267,
-        {
-          width: width - 12,
-          height: consigneeContact ? 23 : 37,
-          ellipsis: true,
-          lineGap: 1
-        }
-      );
-
-    document
-      .moveTo(PAGE_MARGIN, 310)
-      .lineTo(A6_WIDTH - PAGE_MARGIN, 310)
-      .stroke("#0b1f46");
-
-    const columnWidth = width / 3;
-
-    for (let index = 1; index < 3; index += 1) {
-      document
-        .moveTo(PAGE_MARGIN + columnWidth * index, 310)
-        .lineTo(PAGE_MARGIN + columnWidth * index, 374)
-        .stroke("#0b1f46");
-    }
-
-    const cells = [
-      ["PARCEL", `${data.parcelIndex + 1} OF ${data.parcelCount}`],
-      ["WEIGHT", `${data.weightKg.toFixed(2)} KG`],
-      [
-        "REFERENCE",
-        text(data.customerReference || data.shipmentReference)
-      ]
-    ];
-
-    cells.forEach(([label, value], index) => {
-      const x = PAGE_MARGIN + columnWidth * index;
-
-      document
-        .fillColor("#44546f")
-        .font("Helvetica-Bold")
-        .fontSize(7)
-        .text(label ?? "", x + 5, 320, {
-          width: columnWidth - 10,
-          align: "center"
-        });
-
-      document
-        .fillColor("#000000")
-        .font("Helvetica-Bold")
-        .fontSize(index === 2 ? 8 : 11)
-        .text(value ?? "", x + 5, 342, {
-          width: columnWidth - 10,
-          align: "center"
-        });
-    });
-
-    document
-      .moveTo(PAGE_MARGIN, 374)
-      .lineTo(A6_WIDTH - PAGE_MARGIN, 374)
-      .stroke("#0b1f46");
-
-    document
-      .fillColor("#44546f")
-      .font("Helvetica")
-      .fontSize(7)
-      .text(
-        `Internal label | ${dateTime(data.generatedAt)} | Generated by Swiftline Portal`,
-        16,
-        389,
-        {
-          width: width - 12,
-          align: "center"
-        }
-      );
+      .fontSize(18)
+      .text(`${data.parcelIndex + 1} OF ${data.parcelCount}`, 16, 316, { width: width - 12, align: "center" });
   });
 }
 

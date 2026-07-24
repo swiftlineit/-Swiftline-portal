@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import {
   formatSwiftlineParcelNumber,
   formatSwiftlineTrackingNumber,
-  resolveBranchLabelCode
+  resolveStationCode
 } from "../services/swiftlineTracking.service.js";
 import {
   renderSimulatedDpdLabelPdf,
@@ -19,7 +19,7 @@ import {
 
 function labelData(parcelNumber: string): ShipmentLabelData {
   return {
-    swiftlineTrackingNumber: "SLDL20072026000001",
+    swiftlineTrackingNumber: "SLCDEL200726001",
     parcelNumber,
     parcelIndex: 0,
     parcelCount: 1,
@@ -47,26 +47,30 @@ function labelData(parcelNumber: string): ShipmentLabelData {
 describe("shipment label numbering", () => {
   test("formats the approved Swiftline tracking number in India time", () => {
     const trackingNumber = formatSwiftlineTrackingNumber({
-      branchLabelCode: "DL",
+      stationCode: "DEL",
       date: new Date("2026-07-20T06:30:00.000Z"),
       sequence: 1
     });
 
-    assert.equal(trackingNumber, "SLDL20072026000001");
-    assert.equal(resolveBranchLabelCode(undefined, "DEL-001"), "DL");
+    assert.equal(trackingNumber, "SLCDEL200726001");
+    assert.equal(resolveStationCode(undefined, "DEL-001"), "DEL");
+    assert.equal(formatSwiftlineTrackingNumber({
+      stationCode: "DEL",
+      date: new Date("2026-07-20T06:30:00.000Z"),
+      sequence: 1000
+    }), "SLCDEL2007261000");
   });
 
-  test("uses the master number for one parcel and stable suffixes for multiple parcels", () => {
-    const trackingNumber = "SLDL20072026000001";
-    assert.equal(formatSwiftlineParcelNumber(trackingNumber, 0, 1), trackingNumber);
-    assert.equal(formatSwiftlineParcelNumber(trackingNumber, 0, 2), `${trackingNumber}P01`);
-    assert.equal(formatSwiftlineParcelNumber(trackingNumber, 1, 2), `${trackingNumber}P02`);
+  test("uses stable piece suffixes for one or multiple parcels", () => {
+    const trackingNumber = "SLCDEL200726001";
+    assert.equal(formatSwiftlineParcelNumber(trackingNumber, 0), `${trackingNumber}-01`);
+    assert.equal(formatSwiftlineParcelNumber(trackingNumber, 1), `${trackingNumber}-02`);
   });
 });
 
 describe("shipment label PDFs", () => {
   test("renders a non-empty A6 Swiftline internal PDF", async () => {
-    const pdf = await renderSwiftlineLabelPdf(labelData("SLDL20072026000001"));
+    const pdf = await renderSwiftlineLabelPdf(labelData("SLCDEL200726001-01"));
     assert.equal(pdf.subarray(0, 4).toString(), "%PDF");
     assert.ok(pdf.length > 2_000);
   });
@@ -125,9 +129,9 @@ describe("immutable multi-parcel booking snapshot", () => {
       },
       serviceCode: "DPD_CLASSIC",
       bookedAt: new Date("2026-07-20T06:30:00.000Z"),
-      swiftlineTrackingNumber: "SLDL20072026000001",
-      carrierShipmentId: "TEST-SLDL20072026000001",
-      carrierTransactionId: "SIM-SLDL20072026000001",
+       swiftlineTrackingNumber: "SLCDEL200726001",
+       carrierShipmentId: "TEST-SLCDEL200726001",
+       carrierTransactionId: "SIM-SLCDEL200726001",
       carrierParcelNumbers: ["DPD-BOX-1", "DPD-BOX-2"],
       providerMode: "SIMULATED",
       advanceAmountMinor: 100000,
@@ -139,8 +143,8 @@ describe("immutable multi-parcel booking snapshot", () => {
     mutableFirstParcel.weightKg = 99;
     assert.equal(snapshot.parcels[0]?.actualWeightKg, 7);
     assert.deepEqual(snapshot.parcels.map((parcel) => parcel.swiftlineParcelNumber), [
-      "SLDL20072026000001P01",
-      "SLDL20072026000001P02"
+      "SLCDEL200726001-01",
+      "SLCDEL200726001-02"
     ]);
 
     const firstDpdLabel = bookingSnapshotToLabelData(snapshot, 0, "DPD");
@@ -149,13 +153,13 @@ describe("immutable multi-parcel booking snapshot", () => {
     assert.equal(firstDpdLabel.consignee.contactName, "Asha Patel");
     assert.equal(firstDpdLabel.customerReference, "BOX-A");
     assert.equal(firstDpdLabel.weightKg, 7);
-    assert.equal(secondSwiftlineLabel.parcelNumber, "SLDL20072026000001P02");
+    assert.equal(secondSwiftlineLabel.parcelNumber, "SLCDEL200726001-02");
     assert.equal(secondSwiftlineLabel.customerReference, "BOX-B");
     assert.equal(secondSwiftlineLabel.weightKg, 11);
 
     assert.deepEqual(serializeShipmentBookingConfirmation(snapshot), {
-      swiftlineTrackingNumber: "SLDL20072026000001",
-      carrierShipmentId: "TEST-SLDL20072026000001",
+      swiftlineTrackingNumber: "SLCDEL200726001",
+      carrierShipmentId: "TEST-SLCDEL200726001",
       providerMode: "SIMULATED",
       shipmentReference: "SHIP-1001",
       customerReference: "BOX-A",

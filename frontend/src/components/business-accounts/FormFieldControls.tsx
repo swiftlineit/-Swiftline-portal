@@ -386,7 +386,9 @@ export function CountryRegistrationSelect({
   const listRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const selectedOption = registrationCountryOptions.find((option) => option.value === value) ?? registrationCountryOptions[2];
+  // No fallback to a default country: if the stored value is not a listed option,
+  // show it as-is rather than misrepresenting it as another country.
+  const selectedOption = registrationCountryOptions.find((option) => option.value === value) ?? null;
 
   useEffect(() => {
     if (!open) return;
@@ -455,13 +457,13 @@ export function CountryRegistrationSelect({
         }`}
       >
         <span className="flex h-8 w-10 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
-          <FlagImage iso2={selectedOption.iso2} size="32px" />
+          {selectedOption ? <FlagImage iso2={selectedOption.iso2} size="32px" /> : null}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[10px] font-medium uppercase text-slate-500">
             {label}{required ? " *" : ""}
           </span>
-          <span className="block truncate text-sm font-medium text-slate-950">{selectedOption.label}</span>
+          <span className="block truncate text-sm font-medium text-slate-950">{selectedOption?.label ?? (value || "Select a country")}</span>
         </span>
         <DropdownChevron open={open} className="mr-1" />
       </button>

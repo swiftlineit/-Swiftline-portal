@@ -1,8 +1,10 @@
 import { Router } from "express";
 import {
   createBusinessAccountClientAccess,
+  createBusinessAccountInvitationLink,
   listBusinessAccountMembers,
-  resendBusinessAccountInvitation
+  resendBusinessAccountInvitation,
+  updateBusinessAccountMemberStatus
 } from "../controllers/businessAccountAccess.controller.js";
 import {
   assignBusinessAccountBranch,
@@ -32,6 +34,8 @@ businessAccountRouter.get("/:accountId", getBusinessAccount);
 businessAccountRouter.get("/:accountId/members", listBusinessAccountMembers);
 businessAccountRouter.post("/:accountId/client-access", createBusinessAccountClientAccess);
 businessAccountRouter.post("/:accountId/members/:memberId/resend-invitation", resendBusinessAccountInvitation);
+businessAccountRouter.post("/:accountId/members/:memberId/invitation-link", createBusinessAccountInvitationLink);
+businessAccountRouter.patch("/:accountId/members/:memberId/status", updateBusinessAccountMemberStatus);
 businessAccountRouter.get("/:accountId/documents/:documentType", viewBusinessAccountDocument);
 businessAccountRouter.patch("/:accountId", businessDocumentUpload, updateBusinessAccount);
 businessAccountRouter.patch("/:accountId/assign-branch", assignBusinessAccountBranch);

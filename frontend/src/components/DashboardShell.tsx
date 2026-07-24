@@ -8,7 +8,9 @@ import { AuthenticatedUser } from "@/lib/useAdminUser";
 import { logout } from "@/lib/auth";
 import NotificationBell from "@/components/NotificationBell";
 
-export default function BusinessAccountsShell({
+// Shared chrome for every authenticated dashboard page: sidebar, header, and
+// scrollable content area.
+export default function DashboardShell({
   user,
   children
 }: {
@@ -51,10 +53,10 @@ export default function BusinessAccountsShell({
   );
 }
 
-export function BusinessAccountsLoading() {
+export function DashboardLoading({ message = "Loading..." }: { message?: string }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#EEEDED]/60">
-      <p className="text-sm font-semibold text-[#0D1282]">Loading business accounts...</p>
+      <p className="text-sm font-semibold text-[#0D1282]">{message}</p>
     </div>
   );
 }

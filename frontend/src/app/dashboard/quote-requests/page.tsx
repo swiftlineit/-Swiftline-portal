@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { FiPlus, FiRefreshCw } from "react-icons/fi";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import QuoteList from "@/components/quotes/QuoteList";
 import { listShipmentQuotes, type QuoteStatus, type ShipmentQuote } from "@/lib/shipmentQuotes";
 import { useAdminUser } from "@/lib/useAdminUser";
@@ -28,10 +28,10 @@ export default function AdminQuoteRequestsPage() {
     void Promise.resolve().then(() => { if (active) return load(); });
     return () => { active = false; };
   }, [load, user]);
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div><h1 className="text-2xl font-semibold text-slate-950">Quote Requests</h1><p className="mt-1 text-sm text-slate-500">Review customer requests and publish valid Swiftline pricing.</p></div>
@@ -47,6 +47,6 @@ export default function AdminQuoteRequestsPage() {
         {error ? <div className="mb-5 border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
         <QuoteList quotes={quotes} audience="admin" loading={dataLoading} />
       </div>
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }

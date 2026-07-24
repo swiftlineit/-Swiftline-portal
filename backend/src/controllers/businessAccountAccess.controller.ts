@@ -228,6 +228,16 @@ export async function createBusinessAccountClientAccess(request: Request, respon
   }
 
   const existingUser = await User.findOne({ email: parsed.data.email }).exec();
+
+  // A staff login (admin, operations, etc.) must never be silently converted to a
+  // client account, as that would revoke the person's portal access.
+  if (existingUser && existingUser.role !== "client") {
+    return response.status(409).json({
+      success: false,
+      message: "This email belongs to a staff account and cannot be used for client access."
+    });
+  }
+
   const user = existingUser ?? await User.create({
     firstName: parsed.data.firstName,
     lastName: parsed.data.lastName,
@@ -245,7 +255,6 @@ export async function createBusinessAccountClientAccess(request: Request, respon
     user.lastName = user.lastName || parsed.data.lastName;
     user.name = user.name || formatUserName(parsed.data.firstName, parsed.data.lastName);
     user.phone = user.phone || parsed.data.phone;
-    if (user.role !== "client") user.role = "client";
     if ((user.userStatus ?? "invited") === "disabled") {
       return response.status(409).json({ success: false, message: "This user login is disabled." });
     }
@@ -274,6 +283,7 @@ export async function createBusinessAccountClientAccess(request: Request, respon
 
   const { invitation, activationUrl } = await createInvitation(member, adminId);
   let emailDelivery = { sent: false, skipped: !parsed.data.sendInvitationEmail };
+  let emailError = "";
 
   if (parsed.data.sendInvitationEmail) {
     try {
@@ -284,11 +294,10 @@ export async function createBusinessAccountClientAccess(request: Request, respon
         expiresAt: invitation.expiresAt
       });
     } catch (error) {
-      return response.status(502).json({
-        success: false,
-        message: error instanceof Error ? error.message : "Invitation email could not be sent.",
-        activationUrl
-      });
+      // The member and invitation already exist. A failed email must not fail the
+      // whole request, or the admin is stranded (a retry hits "already has access").
+      // The link can still be delivered manually via the copy-link action.
+      emailError = error instanceof Error ? error.message : "Invitation email could not be sent.";
     }
   }
 
@@ -297,13 +306,15 @@ export async function createBusinessAccountClientAccess(request: Request, respon
     .populate("assignedBranches", "name code")
     .exec();
 
+  // The activation URL (which carries the raw token) is intentionally not returned
+  // here; it is only exposed through the explicit copy-link endpoint.
   return response.status(201).json({
     success: true,
     member: populatedMember ? await serializeMember(populatedMember) : null,
-    activationUrl,
     emailQueued: parsed.data.sendInvitationEmail,
     emailSent: emailDelivery.sent,
-    emailSkipped: emailDelivery.skipped
+    emailSkipped: emailDelivery.skipped,
+    emailError: emailError || undefined
   });
 }
 
@@ -334,7 +345,8 @@ export async function resendBusinessAccountInvitation(request: Request, response
 
   const { invitation, activationUrl } = await createInvitation(member, adminId);
   const invitedUser = member.user as unknown as Pick<IUser, "email" | "firstName" | "lastName" | "name">;
-  let emailDelivery;
+  let emailDelivery = { sent: false, skipped: false };
+  let emailError = "";
 
   try {
     emailDelivery = await deliverInvitationEmail({
@@ -344,17 +356,101 @@ export async function resendBusinessAccountInvitation(request: Request, response
       expiresAt: invitation.expiresAt
     });
   } catch (error) {
-    return response.status(502).json({
-      success: false,
-      message: error instanceof Error ? error.message : "Invitation email could not be sent.",
-      activationUrl
-    });
+    // A fresh invitation was already issued; report the delivery failure without
+    // failing the request so the admin can fall back to the copy-link action.
+    emailError = error instanceof Error ? error.message : "Invitation email could not be sent.";
   }
 
   return response.status(200).json({
     success: true,
-    activationUrl,
     emailSent: emailDelivery.sent,
-    emailSkipped: emailDelivery.skipped
+    emailSkipped: emailDelivery.skipped,
+    emailError: emailError || undefined
+  });
+}
+
+// Regenerate an invitation and return its activation URL for manual delivery.
+// The raw token is only exposed here, in response to an explicit admin action,
+// rather than being included in every create/resend response.
+export async function createBusinessAccountInvitationLink(request: Request, response: Response): Promise<Response> {
+  const adminId = getAuthenticatedUserId(request);
+  if (!adminId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).select("_id").exec();
+  if (!account) {
+    return response.status(404).json({ success: false, message: "Business account not found." });
+  }
+
+  const member = await BusinessAccountMember.findById(request.params.memberId).exec();
+  if (!member || member.status === "removed" || String(member.businessAccount) !== String(account._id)) {
+    return response.status(404).json({ success: false, message: "Account member not found." });
+  }
+
+  if (member.status !== "invited") {
+    return response.status(409).json({ success: false, message: "An invitation link is only available for members awaiting activation." });
+  }
+
+  const { activationUrl } = await createInvitation(member, adminId);
+  return response.status(200).json({ success: true, activationUrl });
+}
+
+// Suspend, reactivate, or remove a member. Removing or suspending also revokes
+// any pending invitation so its token can no longer be used.
+const memberStatusUpdateSchema = z.object({
+  status: z.enum(["active", "suspended", "removed"])
+});
+
+const memberStatusTransitions: Record<string, string[]> = {
+  invited: ["removed"],
+  active: ["suspended", "removed"],
+  suspended: ["active", "removed"],
+  removed: []
+};
+
+export async function updateBusinessAccountMemberStatus(request: Request, response: Response): Promise<Response> {
+  const adminId = getAuthenticatedUserId(request);
+  if (!adminId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = memberStatusUpdateSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({ success: false, errors: parsed.error.format() });
+  }
+
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).select("_id").exec();
+  if (!account) {
+    return response.status(404).json({ success: false, message: "Business account not found." });
+  }
+
+  const member = await BusinessAccountMember.findById(request.params.memberId).exec();
+  if (!member || member.status === "removed" || String(member.businessAccount) !== String(account._id)) {
+    return response.status(404).json({ success: false, message: "Account member not found." });
+  }
+
+  const targetStatus = parsed.data.status;
+  if (targetStatus !== member.status && !(memberStatusTransitions[member.status] ?? []).includes(targetStatus)) {
+    return response.status(409).json({
+      success: false,
+      message: `Cannot change member access from ${member.status} to ${targetStatus}.`
+    });
+  }
+
+  if (targetStatus === "removed" || targetStatus === "suspended") {
+    await BusinessAccountInvitation.updateMany(
+      { member: member._id, acceptedAt: null, revokedAt: null },
+      { $set: { revokedAt: new Date() } }
+    ).exec();
+  }
+
+  member.status = targetStatus;
+  await member.save();
+
+  const populatedMember = await BusinessAccountMember.findById(member._id)
+    .populate("user", "firstName lastName name email phone userStatus lastLogin")
+    .populate("assignedBranches", "name code")
+    .exec();
+
+  return response.status(200).json({
+    success: true,
+    member: populatedMember ? await serializeMember(populatedMember) : null
   });
 }

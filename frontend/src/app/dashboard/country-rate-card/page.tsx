@@ -3,7 +3,7 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { FiDownload, FiEdit2, FiTrash2 } from "react-icons/fi";
 import { FlagImage, type CountryIso2 } from "react-international-phone";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import { countryOptions } from "@/lib/branches";
 import {
   buildCountryRateCardCsv,
@@ -167,10 +167,10 @@ export default function CountryRateCardPage() {
     window.URL.revokeObjectURL(url);
   }
 
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">Country Rate Card</h1>
@@ -301,7 +301,7 @@ export default function CountryRateCardPage() {
           </tbody>
         </table>
       </div>
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }
 

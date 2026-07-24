@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { FiCheckCircle, FiExternalLink, FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import {
   ShipmentFieldLabel,
   ShipmentPhoneCodeField,
@@ -669,10 +669,10 @@ export default function DpdLabelDraftPage() {
     }
   }
 
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">Review Shipment</h1>
@@ -1044,7 +1044,7 @@ export default function DpdLabelDraftPage() {
           </aside>
         </div>
       )}
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }
 

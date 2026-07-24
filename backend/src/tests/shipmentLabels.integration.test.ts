@@ -9,7 +9,7 @@ import { CountryRateCard } from "../models/countryRateCard.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { LabelDocument } from "../models/labelDocument.model.js";
-import { SwiftlineTrackingCounter } from "../models/swiftlineTrackingCounter.model.js";
+import { SwiftlineStationCounter } from "../models/swiftlineStationCounter.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
@@ -32,7 +32,7 @@ const generatedFiles = new Set<string>();
 before(async () => {
   await mongoose.connect(env.MONGODB_URI, { dbName: databaseName, family: 4, retryWrites: false });
   assert.equal(mongoose.connection.name, databaseName);
-  await SwiftlineTrackingCounter.init();
+  await SwiftlineStationCounter.init();
 });
 
 after(async () => {
@@ -48,15 +48,14 @@ after(async () => {
 
 describe("Swiftline tracking sequence", () => {
   test("allocates unique daily numbers during concurrent bookings", async () => {
-    const branchId = new mongoose.Types.ObjectId();
     const date = new Date("2026-07-20T06:30:00.000Z");
     const numbers = await Promise.all(Array.from({ length: 12 }, () => (
-      allocateSwiftlineTrackingNumber({ branchId, branchLabelCode: "DL", date })
+      allocateSwiftlineTrackingNumber({ stationCode: "DEL", date })
     )));
 
     assert.equal(new Set(numbers).size, 12);
     assert.deepEqual(
-      numbers.map((value) => Number(value.slice(-6))).sort((left, right) => left - right),
+      numbers.map((value) => Number(value.slice(-3))).sort((left, right) => left - right),
       Array.from({ length: 12 }, (_, index) => index + 1)
     );
   });

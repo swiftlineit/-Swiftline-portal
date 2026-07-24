@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import {
   approveShipmentAmendment,
   listShipmentAmendments,
@@ -357,10 +357,10 @@ export default function AmendmentsPage() {
     }
   }
 
-  if (loading || !user) return <BusinessAccountsLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">Amendments</h1>
@@ -492,6 +492,6 @@ export default function AmendmentsPage() {
           onReview={(action, note) => reviewAmendment(selectedAmendment.id, action, note)}
         />
       ) : null}
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }

@@ -235,7 +235,11 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
         type: [String],
         required: true,
         validate: {
-          validator: (value: string[]) => value.length > 0,
+          // Accounts flagged as having no company skip operating-country capture;
+          // every other account must list at least one operating country.
+          validator: function (this: IBusinessAccount, value: string[]) {
+            return this?.company?.noCompany ? true : value.length > 0;
+          },
           message: "At least one operating country is required"
         }
       },

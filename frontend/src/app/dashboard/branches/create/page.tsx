@@ -2,27 +2,32 @@
 
 import Link from "next/link";
 import BranchForm from "@/components/branches/BranchForm";
-import BranchesShell, { BranchesLoading } from "@/components/branches/BranchesShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 export default function CreateBranchPage() {
   const { user, loading } = useAdminUser();
 
-  if (loading || !user) return <BranchesLoading />;
+  if (loading || !user) return <DashboardLoading />;
 
   return (
-    <BranchesShell user={user}>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-950">Create Branch</h1>
-          <p className="mt-1 text-sm text-slate-500">Create an active branch or save an incomplete draft.</p>
+    <DashboardShell user={user}>
+      <div className="min-h-full bg-[#EEEDED]/60 -m-6 p-6 lg:-m-8 lg:p-8">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="border-l-4 border-[#F0DE36] pl-4">
+            <h1 className="text-2xl font-bold tracking-tight text-[#0D1282]">Create Branch</h1>
+            <p className="mt-1 text-sm text-slate-500">Create an active branch, or save an incomplete draft to finish later.</p>
+          </div>
+          <Link
+            href="/dashboard/branches"
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#0D1282] hover:text-[#0D1282]"
+          >
+            Back to Branches
+          </Link>
         </div>
-        <Link href="/dashboard/branches" className="border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
-          Back to Branches
-        </Link>
-      </div>
 
-      <BranchForm />
-    </BranchesShell>
+        <BranchForm />
+      </div>
+    </DashboardShell>
   );
 }

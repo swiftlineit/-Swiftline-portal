@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FiDownload, FiRefreshCw } from "react-icons/fi";
-import BusinessAccountsShell, { BusinessAccountsLoading } from "@/components/business-accounts/BusinessAccountsShell";
+import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import CreditSummaryCards from "@/components/credit/CreditSummaryCards";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
 import {
@@ -140,10 +140,10 @@ export default function AdminCreditAccountDetailPage() {
     }
   }
 
-  if (userLoading || !user) return <BusinessAccountsLoading />;
+  if (userLoading || !user) return <DashboardLoading />;
 
   return (
-    <BusinessAccountsShell user={user}>
+    <DashboardShell user={user}>
       <div className="mx-auto max-w-[1500px] space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -203,6 +203,6 @@ export default function AdminCreditAccountDetailPage() {
           </table>
         </section>
       </div>
-    </BusinessAccountsShell>
+    </DashboardShell>
   );
 }

@@ -612,11 +612,18 @@ export async function listDpdShipments(request: Request, response: Response): Pr
   if (status) filters.status = status;
   if (trackingNumber) {
     const exact = new RegExp(`^${trackingNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
-    filters.$or = [
+    const trackingFilters: Record<string, unknown>[] = [
       { dpdShipmentId: exact },
       { swiftlineTrackingNumber: exact },
       { parcelNumbers: exact }
     ];
+    const matchingSwiftlineShipmentIds = await LabelDocument.find({
+      parcelNumber: exact,
+      labelType: "SWIFTLINE",
+      voidedAt: null
+    }).distinct("dpdShipmentId").exec();
+    if (matchingSwiftlineShipmentIds.length) trackingFilters.push({ _id: { $in: matchingSwiftlineShipmentIds } });
+    filters.$or = trackingFilters;
   }
 
   const shipments = await DpdShipment.find(filters).sort({ createdAt: -1 }).limit(limit).lean().exec();

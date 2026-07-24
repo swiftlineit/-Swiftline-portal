@@ -1,3 +1,6 @@
+// KEEP IN SYNC with the backend postal rules (separate package, cannot share a
+// module): portal/backend/src/services/businessAccountRules.ts
+
 export type PostalCodeRule = {
   format: string;
   validate: (value: string) => boolean;

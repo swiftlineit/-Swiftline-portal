@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { FiX } from "react-icons/fi";
+import { FiChevronDown, FiX } from "react-icons/fi";
 import { approveCreditAccount, CreditAccount, CreditApprovalInput, MAX_CREDIT_LIMIT_RUPEES } from "@/lib/creditAccounts";
 
 type FormState = {
@@ -12,7 +12,9 @@ type FormState = {
   internalRemarks: string; reason: string;
 };
 
-const inputClass = "h-10 w-full border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-900/10";
+const inputClass = "h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10";
+const selectClass = "h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white py-1.5 pl-2.5 pr-7 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10";
+const textareaClass = "min-h-[52px] w-full resize-none rounded-lg border border-slate-200 p-2.5 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10";
 const allowedPaymentTerms = [0, 7, 15, 30, 45] as const;
 
 function normalizePaymentTerms(value: number): CreditApprovalInput["paymentTermsDays"] {
@@ -67,35 +69,133 @@ export default function CreditApprovalDialog({ account, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="credit-approval-title">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto bg-white shadow-xl">
-        <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-200 bg-white px-5 py-4">
-          <div><p className="text-xs font-semibold uppercase text-slate-500">Credit Facility</p><h2 id="credit-approval-title" className="mt-1 text-xl font-semibold text-slate-950">{company}</h2><p className="mt-1 text-sm text-slate-500">{account.businessAccount?.accountId}</p></div>
-          <button type="button" onClick={onClose} disabled={busy} title="Close" aria-label="Close" className="flex h-9 w-9 items-center justify-center border border-slate-200 text-slate-600 hover:border-slate-500"><FiX aria-hidden="true" /></button>
-        </div>
-        <form onSubmit={submit} className="space-y-5 p-5">
-          {account.requestReason ? <div className="border border-amber-200 bg-amber-50 p-4"><p className="text-xs font-semibold uppercase text-amber-700">Customer Request</p><p className="mt-2 text-sm text-amber-900">{account.requestReason}</p></div> : null}
-          {error ? <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="Approved Limit (INR)"><input type="number" min="1" max={MAX_CREDIT_LIMIT_RUPEES} step="0.01" value={form.limitRupees} onChange={(event) => setForm({ ...form, limitRupees: event.target.value })} className={inputClass} /></Field>
-            <Field label="Payment Terms"><select value={form.paymentTermsDays} onChange={(event) => setForm({ ...form, paymentTermsDays: normalizePaymentTerms(Number(event.target.value)) })} className={inputClass}>{allowedPaymentTerms.map((days) => <option key={days} value={days}>{days ? `${days} days` : "Due immediately"}</option>)}</select></Field>
-            <Field label="Billing Cycle"><select value={form.billingCycle} onChange={(event) => setForm({ ...form, billingCycle: event.target.value as FormState["billingCycle"] })} className={inputClass}><option value="WEEKLY">Weekly</option><option value="MONTHLY">Monthly</option></select></Field>
-            <Field label="Valid From"><input type="date" value={form.validFrom} onChange={(event) => setForm({ ...form, validFrom: event.target.value })} className={inputClass} /></Field>
-            <Field label="Valid Until"><input type="date" value={form.validUntil} onChange={(event) => setForm({ ...form, validUntil: event.target.value })} className={inputClass} /></Field>
-            <Field label="Risk Category"><select value={form.riskCategory} onChange={(event) => setForm({ ...form, riskCategory: event.target.value as FormState["riskCategory"] })} className={inputClass}><option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option></select></Field>
-            <Field label="Grace Period (Days)"><input type="number" min="0" max="90" value={form.gracePeriodDays} onChange={(event) => setForm({ ...form, gracePeriodDays: event.target.value })} className={inputClass} /></Field>
-            <Field label="Maximum Overdue Days"><input type="number" min="0" max="365" value={form.maxOverdueDays} onChange={(event) => setForm({ ...form, maxOverdueDays: event.target.value })} className={inputClass} /></Field>
-            <Field label="Warning Threshold (%)"><input type="number" min="1" max="100" value={form.warningPercent} onChange={(event) => setForm({ ...form, warningPercent: event.target.value })} className={inputClass} /></Field>
-            <Field label="Required Deposit (INR)"><input type="number" min="0" step="0.01" value={form.depositRupees} onChange={(event) => setForm({ ...form, depositRupees: event.target.value })} className={inputClass} /></Field>
+      <div className="flex max-h-[95vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-3">
+          <div className="flex items-center gap-3">
+            <div
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white"
+              style={{ backgroundColor: "#0D1282" }}
+            >
+              {company.slice(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <h2 id="credit-approval-title" className="text-base font-bold leading-tight text-slate-900">{company}</h2>
+              <p className="text-xs text-slate-500">{account.businessAccount?.accountId} · Credit facility</p>
+            </div>
           </div>
-          <Field label="Internal Remarks"><textarea rows={3} value={form.internalRemarks} onChange={(event) => setForm({ ...form, internalRemarks: event.target.value })} className="min-h-24 w-full border border-slate-300 p-3 text-sm outline-none focus:border-blue-900" /></Field>
-          <Field label="Decision Reason"><textarea required rows={3} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} className="min-h-24 w-full border border-slate-300 p-3 text-sm outline-none focus:border-blue-900" /></Field>
-          <div className="flex justify-end gap-2 border-t border-slate-200 pt-4"><button type="button" onClick={onClose} disabled={busy} className="h-10 border border-slate-300 px-4 text-sm font-semibold text-slate-700">Cancel</button><button type="submit" disabled={busy} className="h-10 bg-blue-900 px-5 text-sm font-semibold text-white disabled:bg-slate-400">{busy ? "Saving..." : "Approve Credit"}</button></div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            title="Close"
+            aria-label="Close"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+          >
+            <FiX aria-hidden="true" />
+          </button>
+        </div>
+
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+            {account.requestReason ? (
+              <div className="rounded-lg border-l-4 px-3 py-2" style={{ borderColor: "#F0DE36", backgroundColor: "#FDF8DC" }}>
+                <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#7A6A00" }}>Customer Request</p>
+                <p className="mt-0.5 text-sm text-slate-800">{account.requestReason}</p>
+              </div>
+            ) : null}
+            {error ? (
+              <div className="flex items-center gap-2 rounded-lg border-l-4 bg-white px-3 py-2 text-sm font-semibold shadow-sm" style={{ borderColor: "#D71313", color: "#D71313" }}>
+                <FiX className="shrink-0" size={14} />
+                {error}
+              </div>
+            ) : null}
+
+            <Section title="Facility terms">
+              <Field label="Approved Limit (INR)"><input type="number" min="1" max={MAX_CREDIT_LIMIT_RUPEES} step="0.01" value={form.limitRupees} onChange={(event) => setForm({ ...form, limitRupees: event.target.value })} className={inputClass} /></Field>
+              <Field label="Payment Terms">
+                <SelectWrap>
+                  <select value={form.paymentTermsDays} onChange={(event) => setForm({ ...form, paymentTermsDays: normalizePaymentTerms(Number(event.target.value)) })} className={selectClass}>
+                    {allowedPaymentTerms.map((days) => <option key={days} value={days}>{days ? `${days} days` : "Due immediately"}</option>)}
+                  </select>
+                </SelectWrap>
+              </Field>
+              <Field label="Billing Cycle">
+                <SelectWrap>
+                  <select value={form.billingCycle} onChange={(event) => setForm({ ...form, billingCycle: event.target.value as FormState["billingCycle"] })} className={selectClass}>
+                    <option value="WEEKLY">Weekly</option>
+                    <option value="MONTHLY">Monthly</option>
+                  </select>
+                </SelectWrap>
+              </Field>
+              <Field label="Valid From"><input type="date" value={form.validFrom} onChange={(event) => setForm({ ...form, validFrom: event.target.value })} className={inputClass} /></Field>
+              <Field label="Valid Until"><input type="date" value={form.validUntil} onChange={(event) => setForm({ ...form, validUntil: event.target.value })} className={inputClass} /></Field>
+            </Section>
+
+            <Section title="Risk & controls">
+              <Field label="Risk Category">
+                <SelectWrap>
+                  <select value={form.riskCategory} onChange={(event) => setForm({ ...form, riskCategory: event.target.value as FormState["riskCategory"] })} className={selectClass}>
+                    <option value="LOW">Low</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="HIGH">High</option>
+                  </select>
+                </SelectWrap>
+              </Field>
+              <Field label="Grace Period (Days)"><input type="number" min="0" max="90" value={form.gracePeriodDays} onChange={(event) => setForm({ ...form, gracePeriodDays: event.target.value })} className={inputClass} /></Field>
+              <Field label="Max Overdue Days"><input type="number" min="0" max="365" value={form.maxOverdueDays} onChange={(event) => setForm({ ...form, maxOverdueDays: event.target.value })} className={inputClass} /></Field>
+              <Field label="Warning Threshold (%)"><input type="number" min="1" max="100" value={form.warningPercent} onChange={(event) => setForm({ ...form, warningPercent: event.target.value })} className={inputClass} /></Field>
+              <Field label="Required Deposit (INR)"><input type="number" min="0" step="0.01" value={form.depositRupees} onChange={(event) => setForm({ ...form, depositRupees: event.target.value })} className={inputClass} /></Field>
+            </Section>
+
+            <Section title="Notes">
+              <Field label="Internal Remarks" span2><textarea rows={2} value={form.internalRemarks} onChange={(event) => setForm({ ...form, internalRemarks: event.target.value })} className={textareaClass} /></Field>
+              <Field label="Decision Reason" span2><textarea required rows={2} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} className={textareaClass} /></Field>
+            </Section>
+          </div>
+
+          <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-3">
+            <button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="h-9 rounded-lg px-5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: "#0D1282" }}
+            >
+              {busy ? "Saving..." : "Approve Credit"}
+            </button>
+          </div>
         </form>
       </div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-semibold uppercase text-slate-500">{label}</span>{children}</label>;
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+      <div className="mb-2.5 flex items-center gap-2">
+        {/* <span className="h-3 w-1 rounded-full" style={{ backgroundColor: "#0D1282" }} /> */}
+        {/* <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{title}</h3> */}
+      </div>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">{children}</div>
+    </div>
+  );
+}
+
+function SelectWrap({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative">
+      {children}
+      <FiChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+    </div>
+  );
+}
+
+function Field({ label, children, span2 }: { label: string; children: React.ReactNode; span2?: boolean }) {
+  return (
+    <label className={`block ${span2 ? "col-span-2 sm:col-span-3 lg:col-span-5" : ""}`}>
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+      {children}
+    </label>
+  );
 }
