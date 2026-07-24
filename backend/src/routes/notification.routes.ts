@@ -9,7 +9,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const notificationRouter = Router();
 
 notificationRouter.use(attachUser);
-notificationRouter.use(requireRole("admin", "client"));
+notificationRouter.use(requireRole("admin", "operations", "accounts", "delivery", "hr", "client"));
 notificationRouter.get("/", getNotifications);
 notificationRouter.patch("/read-all", readAllNotifications);
 notificationRouter.patch("/:notificationId/read", readNotification);

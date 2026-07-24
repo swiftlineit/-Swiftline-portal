@@ -12,7 +12,8 @@ export interface IOperationsManifestConsignment extends mongoose.Document {
   consignmentNumber: string;
   expectedParcelNumbers: string[];
   scannedParcelNumbers: string[];
-  parcelWeightSnapshots: Array<{ parcelNumber: string; weightKg: number }>;
+  // Per-parcel facts captured at scan time. Each one prints as its own manifest row.
+  parcelWeightSnapshots: Array<{ parcelNumber: string; weightKg: number; contentsDescription?: string }>;
   manifestPieces: 1;
   weightKg: number;
   status: OperationsConsignmentStatus;
@@ -39,7 +40,8 @@ const operationsManifestConsignmentSchema = new mongoose.Schema<IOperationsManif
   parcelWeightSnapshots: [{
     _id: false,
     parcelNumber: { type: String, required: true, trim: true, uppercase: true, maxlength: 80 },
-    weightKg: { type: Number, required: true, min: 0.001 }
+    weightKg: { type: Number, required: true, min: 0.001 },
+    contentsDescription: { type: String, trim: true, maxlength: 1000, default: "" }
   }],
   manifestPieces: { type: Number, required: true, enum: [1], default: 1 },
   weightKg: { type: Number, required: true, min: 0 },

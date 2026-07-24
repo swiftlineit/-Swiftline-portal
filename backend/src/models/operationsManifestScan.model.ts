@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 
 export const operationsScanStatusValues = ["ACCEPTED", "REJECTED", "REMOVED"] as const;
 export type OperationsScanStatus = (typeof operationsScanStatusValues)[number];
+export const operationsScanSourceValues = ["MANUAL", "CAMERA", "HARDWARE"] as const;
+export type OperationsScanSource = (typeof operationsScanSourceValues)[number];
 
 export interface IOperationsManifestScan extends mongoose.Document {
   manifestId: mongoose.Types.ObjectId;
@@ -10,6 +12,8 @@ export interface IOperationsManifestScan extends mongoose.Document {
   parcelNumber: string;
   scanRequestId: string;
   status: OperationsScanStatus;
+  scanSource: OperationsScanSource;
+  scanSessionId?: mongoose.Types.ObjectId | null;
   message: string;
   scannedBy: mongoose.Types.ObjectId;
   scannedAt: Date;
@@ -27,6 +31,8 @@ const operationsManifestScanSchema = new mongoose.Schema<IOperationsManifestScan
   parcelNumber: { type: String, required: true, trim: true, uppercase: true, maxlength: 80 },
   scanRequestId: { type: String, required: true, unique: true, trim: true, maxlength: 120 },
   status: { type: String, enum: operationsScanStatusValues, required: true, index: true },
+  scanSource: { type: String, enum: operationsScanSourceValues, required: true, default: "MANUAL", index: true },
+  scanSessionId: { type: mongoose.Schema.Types.ObjectId, ref: "OperationsManifestScanSession", default: null, index: true },
   message: { type: String, required: true, trim: true, maxlength: 500 },
   scannedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
   scannedAt: { type: Date, required: true, default: Date.now, index: true },

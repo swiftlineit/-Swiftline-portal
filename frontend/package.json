@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@zxing/browser": "^0.2.1",
     "libphonenumber-js": "^1.13.8",
     "next": "16.2.10",
     "react": "19.2.4",

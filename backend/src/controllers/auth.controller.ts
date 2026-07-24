@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { BusinessAccountInvitation } from "../models/businessAccountInvitation.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { sendPasswordResetEmail } from "../services/mail.service.js";
+import { normalizePortalRole } from "../utils/portalRole.js";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -129,8 +130,13 @@ export async function login(req: Request, res: Response): Promise<Response> {
   user.lastLogin = new Date();
   await user.save();
 
-  const accessToken = createAccessToken({ id: String(user._id), role: user.role, email: user.email });
-  const refreshToken = createRefreshToken({ id: String(user._id), role: user.role, email: user.email });
+  const role = normalizePortalRole(user.role);
+  if (user.role !== role) {
+    user.role = role;
+    await user.save();
+  }
+  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email });
+  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email });
 
   // set httpOnly secure cookie for refresh token
   res.cookie("refreshToken", refreshToken, {
@@ -146,7 +152,7 @@ export async function login(req: Request, res: Response): Promise<Response> {
     user: {
       id: user._id,
       email: user.email,
-      role: user.role,
+      role,
       name: user.name,
       userStatus,
       hasSeenWelcome: user.hasSeenWelcome
@@ -195,8 +201,13 @@ export async function refresh(req: Request, res: Response): Promise<Response> {
 
     if (!user) return res.status(401).json({ success: false });
 
-    const accessToken = createAccessToken({ id: String(user._id), role: user.role, email: user.email });
-    const refreshToken = createRefreshToken({ id: String(user._id), role: user.role, email: user.email });
+    const role = normalizePortalRole(user.role);
+    if (user.role !== role) {
+      user.role = role;
+      await user.save();
+    }
+    const accessToken = createAccessToken({ id: String(user._id), role, email: user.email });
+    const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email });
 
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,

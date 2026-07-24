@@ -1,16 +1,29 @@
 import { Router } from "express";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import * as controller from "../controllers/operationsManifest.controller.js";
+import * as scanSessionController from "../controllers/operationsScanSession.controller.js";
+import {
+  requireOperationsManifestBranch,
+  requireRequestedOperationsBranch
+} from "../middleware/operationsBranchAccess.middleware.js";
+import { scannerFeedLimiter, scannerPairingLimiter, scannerScanLimiter } from "../middleware/rateLimit.middleware.js";
 
 export const operationsManifestRouter = Router();
-operationsManifestRouter.use(attachUser, requireRole("admin", "staff"));
+operationsManifestRouter.use(attachUser, requireRole("admin", "operations"));
+operationsManifestRouter.post("/scan-sessions/pair", scannerPairingLimiter, scanSessionController.pairSession);
+operationsManifestRouter.get("/scan-sessions/:sessionId/status", scannerFeedLimiter, scanSessionController.getSessionStatus);
 operationsManifestRouter.get("/branches/options", controller.listBranchOptions);
 operationsManifestRouter.get("/", controller.listManifests);
-operationsManifestRouter.post("/", controller.createManifest);
+operationsManifestRouter.post("/", requireRequestedOperationsBranch, controller.createManifest);
+operationsManifestRouter.use("/:manifestId", requireOperationsManifestBranch);
+operationsManifestRouter.get("/:manifestId/scan-sessions/active", scannerFeedLimiter, scanSessionController.getActiveSession);
+operationsManifestRouter.post("/:manifestId/scan-sessions", scannerPairingLimiter, scanSessionController.createSession);
+operationsManifestRouter.patch("/:manifestId/scan-sessions/:sessionId/bag", scannerPairingLimiter, scanSessionController.changeSessionBag);
+operationsManifestRouter.delete("/:manifestId/scan-sessions/:sessionId", scannerPairingLimiter, scanSessionController.disconnectSession);
 operationsManifestRouter.get("/:manifestId", controller.getManifest);
 operationsManifestRouter.patch("/:manifestId", controller.updateManifest);
 operationsManifestRouter.post("/:manifestId/bags", controller.createBag);
-operationsManifestRouter.post("/:manifestId/scan", controller.scanParcel);
+operationsManifestRouter.post("/:manifestId/scan", scannerScanLimiter, controller.scanParcel);
 operationsManifestRouter.patch("/:manifestId/consignments/:consignmentId/value", controller.setGoodsValue);
 operationsManifestRouter.post("/:manifestId/consignments/:consignmentId/move", controller.moveConsignment);
 operationsManifestRouter.post("/:manifestId/scans/:scanId/remove", controller.removeScan);

@@ -7,26 +7,26 @@ import { usePathname } from "next/navigation";
 import { FiBriefcase, FiChevronLeft,FiArchive, FiChevronRight, FiClipboard, FiCreditCard, FiDollarSign, FiEdit3, FiFileText, FiGrid, FiHelpCircle, FiMapPin, FiUsers, FiPackage, FiTruck, FiXCircle } from "react-icons/fi";
 
 const navigationItems = [
-  { label: "Dashboard", href: "/dashboard", icon: FiGrid, adminOnly: false },
-  { label: "Business Accounts", href: "/dashboard/business-accounts", icon: FiBriefcase, adminOnly: true },
-  { label: "Credit Accounts", href: "/dashboard/credit-accounts", icon: FiCreditCard, adminOnly: true },
-  { label: "Branches", href: "/dashboard/branches", icon: FiMapPin, adminOnly: true },
-  { label: "Shipments", href: "/dashboard/dpd-labels", icon: FiPackage  , adminOnly: true },
-  { label: "Tracking", href: "/dashboard/tracking", icon: FiTruck, adminOnly: true },
-  { label: "Manifests", href: "/dashboard/operations-manifests", icon: FiArchive, adminOnly: false, internalOnly: true },
-  { label: "Amendments", href: "/dashboard/amendments", icon: FiEdit3, adminOnly: true },
-  { label: "Cancellations", href: "/dashboard/cancellations", icon: FiXCircle, adminOnly: true },
-  { label: "Quote Requests", href: "/dashboard/quote-requests", icon: FiClipboard, adminOnly: true },
-  { label: "Support Tickets", href: "/dashboard/tickets", icon: FiHelpCircle, adminOnly: true },
-  { label: "Country Rate Card", href: "/dashboard/country-rate-card", icon: FiDollarSign, adminOnly: true },
-  { label: "Tax Invoices", href: "/dashboard/tax-invoices", icon: FiFileText, adminOnly: true },
-  { label: "Users", href: "/dashboard/users", icon: FiUsers, adminOnly: true },
+  { label: "Dashboard", href: "/dashboard", icon: FiGrid, roles: ["admin", "operations", "accounts", "delivery", "hr"] },
+  { label: "Business Accounts", href: "/dashboard/business-accounts", icon: FiBriefcase, roles: ["admin"] },
+  { label: "Credit Accounts", href: "/dashboard/credit-accounts", icon: FiCreditCard, roles: ["admin"] },
+  { label: "Branches", href: "/dashboard/branches", icon: FiMapPin, roles: ["admin"] },
+  { label: "Shipments", href: "/dashboard/dpd-labels", icon: FiPackage, roles: ["admin"] },
+  { label: "Tracking", href: "/dashboard/tracking", icon: FiTruck, roles: ["admin"] },
+  { label: "Manifests", href: "/dashboard/operations-manifests", icon: FiArchive, roles: ["admin", "operations"] },
+  { label: "Amendments", href: "/dashboard/amendments", icon: FiEdit3, roles: ["admin"] },
+  { label: "Cancellations", href: "/dashboard/cancellations", icon: FiXCircle, roles: ["admin"] },
+  { label: "Quote Requests", href: "/dashboard/quote-requests", icon: FiClipboard, roles: ["admin"] },
+  { label: "Support Tickets", href: "/dashboard/tickets", icon: FiHelpCircle, roles: ["admin"] },
+  { label: "Country Rate Card", href: "/dashboard/country-rate-card", icon: FiDollarSign, roles: ["admin"] },
+  { label: "Tax Invoices", href: "/dashboard/tax-invoices", icon: FiFileText, roles: ["admin"] },
+  { label: "Users", href: "/dashboard/users", icon: FiUsers, roles: ["admin"] },
 ];
 
 export default function Sidebar({ userRole }: { userRole?: string }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const visibleNavigationItems = navigationItems.filter((item) => !item.adminOnly || userRole === "admin");
+  const visibleNavigationItems = navigationItems.filter((item) => item.roles.includes(userRole ?? ""));
 
 return (
   <aside

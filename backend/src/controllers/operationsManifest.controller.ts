@@ -23,6 +23,11 @@ import {
   updateDeclaredValue,
   updateOperationsManifest
 } from "../services/operationsManifest.service.js";
+import { operationsBranchIds, operationsUser } from "../middleware/operationsBranchAccess.middleware.js";
+import {
+  assertCameraScanSession,
+  OperationsScanSessionError
+} from "../services/operationsScanSession.service.js";
 
 const headerSchema = z.object({
   destinationAgent: z.string().trim().max(1000).default(""),
@@ -37,6 +42,7 @@ const headerSchema = z.object({
 });
 
 const reasonSchema = z.object({ reason: z.string().trim().min(5, "Enter a clear reason of at least 5 characters.").max(500) });
+const optionalReasonSchema = z.object({ reason: z.string().trim().max(500).optional().default("") });
 
 function userId(request: Request) {
   const id = String((request as Request & { user?: { _id?: unknown } }).user?._id ?? "");
@@ -51,6 +57,9 @@ function parsedBody<T>(response: Response, schema: z.ZodType<T>, body: unknown):
 }
 
 function sendError(response: Response, error: unknown) {
+  if (error instanceof OperationsScanSessionError) {
+    return response.status(error.statusCode).json({ success: false, message: error.message });
+  }
   if (error instanceof OperationsManifestServiceError) {
     return response.status(error.statusCode).json({ success: false, message: error.message });
   }
@@ -60,15 +69,26 @@ function sendError(response: Response, error: unknown) {
   throw error;
 }
 
-export async function listBranchOptions(_request: Request, response: Response) {
-  const branches = await Branch.find({ status: "ACTIVE" }).select("name code address").sort({ name: 1 }).lean().exec();
+export async function listBranchOptions(request: Request, response: Response) {
+  const allowedBranches = operationsBranchIds(request);
+  const branches = await Branch.find({
+    status: "ACTIVE",
+    ...(allowedBranches === null ? {} : { _id: { $in: allowedBranches } })
+  }).select("name code address").sort({ name: 1 }).lean().exec();
   return response.json({ success: true, branches: branches.map((branch) => ({ id: String(branch._id), name: branch.name, code: branch.code, address: branch.address })) });
 }
 
 export async function listManifests(request: Request, response: Response) {
   const query = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(50).default(15), status: z.string().optional(), branchId: z.string().optional() }).safeParse(request.query);
   if (!query.success) return response.status(400).json({ success: false, message: "Manifest filters are invalid." });
-  return response.json({ success: true, ...(await listOperationsManifests(query.data)) });
+  const allowedBranches = operationsBranchIds(request);
+  if (query.data.branchId && allowedBranches !== null && !allowedBranches.includes(query.data.branchId)) {
+    return response.status(403).json({ success: false, message: "You do not have access to this branch." });
+  }
+  return response.json({
+    success: true,
+    ...(await listOperationsManifests({ ...query.data, allowedBranchIds: allowedBranches }))
+  });
 }
 
 export async function createManifest(request: Request, response: Response) {
@@ -102,9 +122,41 @@ export async function createBag(request: Request, response: Response) {
 
 export async function scanParcel(request: Request, response: Response) {
   try {
-    const actorId = userId(request); const input = parsedBody(response, z.object({ bagId: z.string(), parcelNumber: z.string().trim().min(1, "Scan or enter a Swiftline parcel barcode."), scanRequestId: z.string().uuid().optional() }), request.body);
+    const actorId = userId(request);
+    const input = parsedBody(response, z.object({
+      bagId: z.string(),
+      parcelNumber: z.string().trim().min(1, "Scan or enter a Swiftline parcel barcode."),
+      scanRequestId: z.string().uuid().optional(),
+      scanSource: z.enum(["MANUAL", "CAMERA", "HARDWARE"]).optional().default("MANUAL"),
+      sessionId: z.string().optional()
+    }).superRefine((data, context) => {
+      if (data.scanSource === "CAMERA" && !data.sessionId) {
+        context.addIssue({ code: "custom", path: ["sessionId"], message: "Connect this phone to the manifest before scanning." });
+      }
+    }), request.body);
     if (!actorId || !input) return;
-    return response.json({ success: true, ...(await scanOperationsParcel({ manifestId: String(request.params.manifestId), ...input, userId: actorId })) });
+    const currentUser = operationsUser(request);
+    if (input.sessionId && currentUser) {
+      await assertCameraScanSession({
+        sessionId: input.sessionId,
+        manifestId: String(request.params.manifestId),
+        bagId: input.bagId,
+        actor: {
+          userId: actorId,
+          role: currentUser.role,
+          assignedBranchIds: (currentUser.assignedBranches ?? []).map(String)
+        }
+      });
+    }
+    return response.json({
+      success: true,
+      ...(await scanOperationsParcel({
+        manifestId: String(request.params.manifestId),
+        ...input,
+        scanSessionId: input.sessionId,
+        userId: actorId
+      }))
+    });
   } catch (error) { return sendError(response, error); }
 }
 
@@ -117,11 +169,18 @@ export async function setGoodsValue(request: Request, response: Response) {
   } catch (error) { return sendError(response, error); }
 }
 
+// Bag handling is a physical workflow, so open, close, reopen, and cancel all run
+// without a mandatory explanation. A note is kept when the operator supplies one.
 async function bagAction(request: Request, response: Response, action: "close" | "reopen" | "cancel") {
   try {
     const actorId = userId(request); if (!actorId) return response.status(401).json({ success: false, message: "Unauthorized" });
-    if (action === "close") await closeOperationsBag(String(request.params.manifestId), String(request.params.bagId), actorId);
-    else { const input = parsedBody(response, reasonSchema, request.body); if (!input) return; if (action === "reopen") await reopenOperationsBag(String(request.params.manifestId), String(request.params.bagId), input.reason, actorId); else await cancelOperationsBag(String(request.params.manifestId), String(request.params.bagId), input.reason, actorId); }
+    const manifestId = String(request.params.manifestId);
+    const bagId = String(request.params.bagId);
+    const note = parsedBody(response, optionalReasonSchema, request.body ?? {});
+    if (!note) return;
+    if (action === "close") await closeOperationsBag(manifestId, bagId, actorId);
+    else if (action === "reopen") await reopenOperationsBag(manifestId, bagId, note.reason, actorId);
+    else await cancelOperationsBag(manifestId, bagId, note.reason, actorId);
     return response.json({ success: true, message: `Bag ${action}d successfully.` });
   } catch (error) { return sendError(response, error); }
 }

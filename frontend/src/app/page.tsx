@@ -7,6 +7,17 @@ import { apiUrl } from "@/lib/api";
 import { setAccessToken } from "@/lib/auth";
 import Link from "next/link";
 
+function getSafeInternalDestination(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "";
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin !== window.location.origin) return "";
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return "";
+  }
+}
+
 export default function Home() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -41,7 +52,11 @@ export default function Home() {
       }
 
       setAccessToken(data.accessToken);
-      router.push(data.user?.role === "client" ? "/client/dashboard" : "/dashboard");
+      const requestedDestination = getSafeInternalDestination(new URLSearchParams(window.location.search).get("next"));
+      const destination = data.user?.role === "client"
+        ? "/client/dashboard"
+        : requestedDestination || "/dashboard";
+      router.push(destination);
     } catch {
       setError("Unable to sign in. Please try again.");
       setLoading(false);
@@ -77,7 +92,7 @@ export default function Home() {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="mt-2 block w-full  border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 dark:border-neutral-800 dark:bg-neutral-900 dark:text-white dark:focus:border-sky-400 dark:focus:ring-sky-500"
+              className="mt-2 block w-full  border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 "
             />
           </div>
 
@@ -98,7 +113,7 @@ export default function Home() {
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="mt-2 block w-full border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 dark:border-neutral-800 dark:bg-neutral-900 dark:text-white dark:focus:border-sky-400 dark:focus:ring-sky-500"
+              className="mt-2 block w-full border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 "
             />
           </div>
 

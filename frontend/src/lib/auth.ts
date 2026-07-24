@@ -1,6 +1,7 @@
 import { apiUrl } from "@/lib/api";
 
 let accessToken: string | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
 
 export function getAccessToken() {
   return accessToken;
@@ -10,25 +11,43 @@ export function setAccessToken(token: string | null) {
   accessToken = token;
 }
 
-export async function refreshAccessToken() {
+export async function readJsonSafely(response: Response): Promise<Record<string, unknown>> {
+  // Rate limiters and proxies answer with plain text or HTML. Callers must never
+  // let that parse failure look like a rejected session.
+  try {
+    return await response.json() as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+async function requestRefreshedAccessToken() {
   try {
     const response = await fetch(apiUrl("/api/v1/auth/refresh"), {
       method: "POST",
       credentials: "include"
     });
 
-    const data = await response.json();
-    if (data.success && data.accessToken) {
+    const data = await readJsonSafely(response);
+    if (response.ok && data.success && typeof data.accessToken === "string") {
       setAccessToken(data.accessToken);
       return data.accessToken;
     }
 
-    setAccessToken(null);
+    // Only a rejected refresh cookie means the session is gone. Throttling,
+    // server faults, and offline devices must keep the current token usable.
+    if (response.status === 401 || response.status === 403) setAccessToken(null);
     return null;
   } catch {
-    setAccessToken(null);
     return null;
   }
+}
+
+export async function refreshAccessToken() {
+  // A dashboard page mount can trigger several parallel refreshes. Sharing one
+  // request stops them rotating the cookie against each other.
+  refreshInFlight ??= requestRefreshedAccessToken().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
 }
 
 export async function logout() {
@@ -45,7 +64,7 @@ export async function logout() {
 }
 
 async function parseAuthResponse<T>(response: Response): Promise<T> {
-  const data = await response.json();
+  const data = await readJsonSafely(response) as { success?: boolean; message?: string; errors?: unknown };
 
   if (!response.ok || !data.success) {
     const formattedError = findFirstApiError(data.errors);

@@ -2,11 +2,15 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 
 export type UserStatus = "invited" | "active" | "suspended" | "disabled";
+export const portalRoles = ["admin", "operations", "accounts", "delivery", "hr", "client"] as const;
+export type PortalRole = (typeof portalRoles)[number];
+export type UserBranch = { _id?: string; id?: string; name: string; code: string; status?: string };
 
 export type User = {
   _id: string;
   email: string;
-  role: "admin" | "staff" | "client";
+  role: PortalRole;
+  assignedBranches: UserBranch[];
   name?: string;
   isVerified: boolean;
   userStatus?: UserStatus;
@@ -63,6 +67,11 @@ export async function listUsers() {
   return parseApiResponse<{ success: true; users: User[] }>(response);
 }
 
+export async function listUserBranchOptions() {
+  const response = await fetchWithAuth(apiUrl("/api/v1/users/branches/options"));
+  return parseApiResponse<{ success: true; branches: Array<{ id: string; name: string; code: string }> }>(response);
+}
+
 export async function updateUserStatus(userId: string, status: User["userStatus"]) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/users/${encodeURIComponent(userId)}/status`), {
     method: "PATCH",
@@ -70,5 +79,14 @@ export async function updateUserStatus(userId: string, status: User["userStatus"
     body: JSON.stringify({ status })
   });
 
+  return parseApiResponse<{ success: true; user: User }>(response);
+}
+
+export async function updateUserAccess(userId: string, role: PortalRole, assignedBranches: string[]) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/users/${encodeURIComponent(userId)}/access`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, assignedBranches })
+  });
   return parseApiResponse<{ success: true; user: User }>(response);
 }

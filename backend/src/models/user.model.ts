@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 
-export type Role = "admin" | "staff" | "client";
+export const roleValues = ["admin", "operations", "accounts", "delivery", "hr", "client"] as const;
+export const assignableRoleValues = ["operations", "accounts", "delivery", "hr", "client"] as const;
+export type Role = (typeof roleValues)[number];
 export type UserStatus = "invited" | "active" | "suspended" | "disabled";
 
 export interface IUser extends mongoose.Document {
@@ -11,6 +13,7 @@ export interface IUser extends mongoose.Document {
   passwordHash?: string;
   name?: string;
   role: Role;
+  assignedBranches: mongoose.Types.ObjectId[];
   userStatus: UserStatus;
   isVerified: boolean;
   emailVerifiedAt?: Date | null;
@@ -31,7 +34,13 @@ const userSchema = new mongoose.Schema<IUser>(
     phone: { type: String, trim: true, default: "" },
     passwordHash: { type: String, default: "" },
     name: { type: String, trim: true, default: "" },
-    role: { type: String, enum: ["admin", "staff", "client"], default: "client" },
+    role: {
+      type: String,
+      enum: [...roleValues, "staff"],
+      default: "client",
+      set: (value: string) => value === "staff" ? "operations" : value
+    },
+    assignedBranches: [{ type: mongoose.Schema.Types.ObjectId, ref: "Branch" }],
     userStatus: { type: String, enum: ["invited", "active", "suspended", "disabled"], default: "active", index: true },
     isVerified: { type: Boolean, default: false },
     emailVerifiedAt: { type: Date, default: null },

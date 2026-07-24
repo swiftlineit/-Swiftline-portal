@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../services/auth.service.js";
 import { User } from "../models/user.model.js";
+import { normalizePortalRole } from "../utils/portalRole.js";
 
 export async function attachUser(req: Request, res: Response, next: NextFunction) {
   try {
@@ -12,10 +13,15 @@ export async function attachUser(req: Request, res: Response, next: NextFunction
 
     const payload = verifyAccessToken(token);
 
-    const user = await User.findById(payload.sub).select("email role name hasSeenWelcome").lean().exec();
+    const user = await User.findById(payload.sub)
+      .select("email role name hasSeenWelcome assignedBranches")
+      .lean()
+      .exec();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req as any).user = user;
+    if (user) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (req as any).user = { ...user, role: normalizePortalRole(user.role) };
+    }
   } catch (error) {
     // ignore invalid token
   }

@@ -9,7 +9,11 @@ import { OperationsManifest, type IOperationsManifest } from "../models/operatio
 import { OperationsManifestBag } from "../models/operationsManifestBag.model.js";
 import { OperationsManifestConsignment } from "../models/operationsManifestConsignment.model.js";
 import { OperationsManifestCounter } from "../models/operationsManifestCounter.model.js";
-import { OperationsManifestScan } from "../models/operationsManifestScan.model.js";
+import {
+  OperationsManifestScan,
+  type OperationsScanSource
+} from "../models/operationsManifestScan.model.js";
+import { OperationsManifestScanSession } from "../models/operationsManifestScanSession.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ShipmentManifest } from "../models/shipmentManifest.model.js";
 import {
@@ -104,18 +108,62 @@ export function isOperationsBagWeightAllowed(weightKg: number) {
   return roundWeight(weightKg) <= 31;
 }
 
+type ScannedParcelRef = { bagId?: unknown; parcelNumber: string; consignmentId?: unknown };
+
+/**
+ * A consignment's parcels may be packed across several bags, so a bag's contents
+ * are derived from its accepted parcel scans rather than from the consignment's
+ * primary bag. `consignment.bagId` only records where its first parcel landed.
+ */
+export function summarizeBagComposition(
+  scans: ScannedParcelRef[],
+  consignments: Array<{ parcelWeightSnapshots?: Array<{ parcelNumber: string; weightKg: number }> }>
+) {
+  const weightByParcel = new Map<string, number>();
+  for (const consignment of consignments) {
+    for (const parcel of consignment.parcelWeightSnapshots ?? []) weightByParcel.set(parcel.parcelNumber, parcel.weightKg);
+  }
+
+  const byBag = new Map<string, { parcelCount: number; weightKg: number; consignmentIds: Set<string> }>();
+  for (const scan of scans) {
+    if (!scan.bagId) continue;
+    const key = String(scan.bagId);
+    const entry = byBag.get(key) ?? { parcelCount: 0, weightKg: 0, consignmentIds: new Set<string>() };
+    entry.parcelCount += 1;
+    entry.weightKg = roundWeight(entry.weightKg + (weightByParcel.get(scan.parcelNumber) ?? 0));
+    if (scan.consignmentId) entry.consignmentIds.add(String(scan.consignmentId));
+    byBag.set(key, entry);
+  }
+  return byBag;
+}
+
+function bagIdsForConsignment(scans: ScannedParcelRef[], consignmentId: unknown) {
+  const seen: string[] = [];
+  for (const scan of scans) {
+    if (String(scan.consignmentId ?? "") !== String(consignmentId) || !scan.bagId) continue;
+    const bagId = String(scan.bagId);
+    if (!seen.includes(bagId)) seen.push(bagId);
+  }
+  return seen;
+}
+
 async function recalculateTotals(manifestId: mongoose.Types.ObjectId, session?: mongoose.ClientSession) {
-  const [bags, consignments, scanCount] = await Promise.all([
+  const [bags, consignments, acceptedScans] = await Promise.all([
     OperationsManifestBag.find({ manifestId, status: { $ne: "CANCELLED" } }).session(session ?? null).exec(),
     OperationsManifestConsignment.find({ manifestId, status: { $ne: "REMOVED" } }).session(session ?? null).exec(),
-    OperationsManifestScan.countDocuments({ manifestId, status: "ACCEPTED" }).session(session ?? null).exec()
+    OperationsManifestScan.find({ manifestId, status: "ACCEPTED" })
+      .select("bagId parcelNumber consignmentId")
+      .session(session ?? null)
+      .lean()
+      .exec()
   ]);
 
+  const composition = summarizeBagComposition(acceptedScans, consignments);
   for (const bag of bags) {
-    const bagConsignments = consignments.filter((item) => String(item.bagId) === String(bag._id));
-    bag.totalConsignments = bagConsignments.length;
-    bag.totalPhysicalParcels = bagConsignments.reduce((sum, item) => sum + item.scannedParcelNumbers.length, 0);
-    bag.totalWeightKg = roundWeight(bagConsignments.reduce((sum, item) => sum + item.weightKg, 0));
+    const entry = composition.get(String(bag._id));
+    bag.totalConsignments = entry?.consignmentIds.size ?? 0;
+    bag.totalPhysicalParcels = entry?.parcelCount ?? 0;
+    bag.totalWeightKg = roundWeight(entry?.weightKg ?? 0);
     await bag.save({ session });
   }
 
@@ -123,15 +171,16 @@ async function recalculateTotals(manifestId: mongoose.Types.ObjectId, session?: 
   if (!manifest) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
   manifest.totalBags = bags.length;
   manifest.totalConsignments = consignments.length;
-  manifest.totalPhysicalParcels = scanCount;
+  manifest.totalPhysicalParcels = acceptedScans.length;
   manifest.totalWeightKg = roundWeight(consignments.reduce((sum, item) => sum + item.weightKg, 0));
 
   if (isEditable(manifest)) {
-    if (!scanCount) manifest.status = "DRAFT";
+    if (!acceptedScans.length) manifest.status = "DRAFT";
     else {
+      // Closed bags mean packing is finished. Part-scanned consignments do not hold
+      // the manifest back, because a held-back box is a normal operational outcome.
       const allBagsClosed = bags.length > 0 && bags.every((bag) => bag.status === "CLOSED");
-      const allConsignmentsComplete = consignments.length > 0 && consignments.every((item) => item.status === "COMPLETE");
-      manifest.status = allBagsClosed && allConsignmentsComplete ? "READY_TO_SEAL" : "PACKING";
+      manifest.status = allBagsClosed ? "READY_TO_SEAL" : "PACKING";
     }
   }
   await manifest.save({ session });
@@ -156,10 +205,20 @@ function serializeManifest(manifest: IOperationsManifest) {
   };
 }
 
-export async function listOperationsManifests(input: { page: number; limit: number; status?: string; branchId?: string }) {
+export async function listOperationsManifests(input: {
+  page: number;
+  limit: number;
+  status?: string;
+  branchId?: string;
+  allowedBranchIds?: string[] | null;
+}) {
   const filter: Record<string, unknown> = {};
   if (input.status) filter.status = input.status;
-  if (input.branchId && mongoose.Types.ObjectId.isValid(input.branchId)) filter.branchId = input.branchId;
+  if (input.branchId && mongoose.Types.ObjectId.isValid(input.branchId)) {
+    filter.branchId = input.branchId;
+  } else if (input.allowedBranchIds !== null && input.allowedBranchIds !== undefined) {
+    filter.branchId = { $in: input.allowedBranchIds };
+  }
   const skip = (input.page - 1) * input.limit;
   const [items, total] = await Promise.all([
     OperationsManifest.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(input.limit).lean().exec(),
@@ -191,6 +250,9 @@ export async function createOperationsManifest(input: {
     createdBy: input.userId
   });
   await audit("OPERATIONS_MANIFEST_CREATED", manifest._id as mongoose.Types.ObjectId, input.userId, { manifestNumber, branchId });
+  // Packing always starts with an open bag, so the operator can scan immediately.
+  await openNextBag(manifest, input.userId);
+  await recalculateTotals(manifest._id as mongoose.Types.ObjectId);
   return manifest;
 }
 
@@ -208,6 +270,30 @@ export async function updateOperationsManifest(input: {
   return manifest;
 }
 
+/** Opens the next sequential bag. Shared by manual creation, manifest setup, and packing overflow. */
+async function openNextBag(
+  manifest: IOperationsManifest,
+  userId: mongoose.Types.ObjectId,
+  session?: mongoose.ClientSession
+) {
+  const manifestId = manifest._id as mongoose.Types.ObjectId;
+  const latest = await OperationsManifestBag.findOne({ manifestId }).sort({ sequence: -1 }).session(session ?? null).exec();
+  const sequence = (latest?.sequence ?? 0) + 1;
+  const bagNumber = formatOperationsBagNumber(manifest.manifestNumber, sequence);
+  const created = await OperationsManifestBag.create([{
+    manifestId,
+    sequence,
+    bagNumber,
+    barcode: bagNumber,
+    status: "OPEN",
+    createdBy: userId
+  }], { session });
+  const bag = created[0];
+  if (!bag) throw new OperationsManifestServiceError("Bag could not be created.", 500);
+  await audit("OPERATIONS_BAG_CREATED", manifestId, userId, { bagId: bag._id, bagNumber }, session);
+  return bag;
+}
+
 export async function createOperationsBag(manifestIdValue: string, userId: mongoose.Types.ObjectId) {
   const manifestId = asObjectId(manifestIdValue, "Operations manifest");
   const session = await mongoose.startSession();
@@ -217,20 +303,8 @@ export async function createOperationsBag(manifestIdValue: string, userId: mongo
       const manifest = await OperationsManifest.findById(manifestId).session(session).exec();
       if (!manifest) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
       if (!isEditable(manifest)) throw new OperationsManifestServiceError("Bags cannot be added to this manifest.", 409);
-      const latest = await OperationsManifestBag.findOne({ manifestId }).sort({ sequence: -1 }).session(session).exec();
-      const sequence = (latest?.sequence ?? 0) + 1;
-      const bagNumber = formatOperationsBagNumber(manifest.manifestNumber, sequence);
-      const created = await OperationsManifestBag.create([{
-        manifestId,
-        sequence,
-        bagNumber,
-        barcode: bagNumber,
-        status: "OPEN",
-        createdBy: userId
-      }], { session });
-      createdBag = created[0] ?? null;
+      createdBag = await openNextBag(manifest, userId, session);
       await recalculateTotals(manifestId, session);
-      await audit("OPERATIONS_BAG_CREATED", manifestId, userId, { bagId: createdBag?._id, bagNumber }, session);
     });
     if (!createdBag) throw new OperationsManifestServiceError("Bag could not be created.", 500);
     return createdBag;
@@ -246,6 +320,8 @@ async function recordRejectedScan(input: {
   scanRequestId: string;
   userId: mongoose.Types.ObjectId;
   message: string;
+  scanSource?: OperationsScanSource;
+  scanSessionId?: string;
 }) {
   await OperationsManifestScan.create({
     manifestId: input.manifestId,
@@ -253,6 +329,8 @@ async function recordRejectedScan(input: {
     parcelNumber: input.parcelNumber || "UNKNOWN",
     scanRequestId: input.scanRequestId,
     status: "REJECTED",
+    scanSource: input.scanSource ?? "MANUAL",
+    scanSessionId: input.scanSessionId || null,
     message: input.message,
     scannedBy: input.userId,
     scannedAt: new Date()
@@ -275,12 +353,15 @@ export async function scanOperationsParcel(input: {
   bagId: string;
   parcelNumber: string;
   scanRequestId?: string;
+  scanSource?: OperationsScanSource;
+  scanSessionId?: string;
   userId: mongoose.Types.ObjectId;
 }) {
   const manifestId = asObjectId(input.manifestId, "Operations manifest");
   const bagId = asObjectId(input.bagId, "Bag");
   const parcelNumber = input.parcelNumber.trim().toUpperCase();
   const scanRequestId = input.scanRequestId?.trim() || crypto.randomUUID();
+  const scanMetadata = { scanSource: input.scanSource ?? "MANUAL", scanSessionId: input.scanSessionId };
   if (!parcelNumber) throw new OperationsManifestServiceError("Scan or enter a Swiftline parcel barcode.");
 
   const existingRequest = await OperationsManifestScan.findOne({ scanRequestId }).lean().exec();
@@ -293,40 +374,40 @@ export async function scanOperationsParcel(input: {
     OperationsManifest.findById(manifestId).exec(),
     OperationsManifestBag.findOne({ _id: bagId, manifestId }).exec()
   ]);
-  if (!manifest) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: "Operations manifest was not found." });
-  if (!isEditable(manifest)) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: "This manifest is locked and cannot accept parcel scans." });
-  if (!bag) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: "Select a bag that belongs to this manifest." });
+  if (!manifest) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "Operations manifest was not found." });
+  if (!isEditable(manifest)) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "This manifest is locked and cannot accept parcel scans." });
+  if (!bag) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "Select a bag that belongs to this manifest." });
   if (!(["OPEN", "REOPENED"] as string[]).includes(bag.status)) {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: `${bag.bagNumber} is closed. Reopen it before scanning parcels.` });
+    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: `${bag.bagNumber} is closed. Reopen it before scanning parcels.` });
   }
 
   const label = await LabelDocument.findOne({ parcelNumber, labelType: "SWIFTLINE", voidedAt: null }).exec();
-  if (!label) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: "No Swiftline parcel was found for this barcode." });
+  if (!label) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "No Swiftline parcel was found for this barcode." });
   const shipment = await DpdShipment.findOne({ _id: label.dpdShipmentId, status: "LABEL_RECEIVED" }).exec();
   const snapshot = shipment
     ? readShipmentBookingSnapshot(shipment.currentShipmentSnapshot) ?? readShipmentBookingSnapshot(shipment.bookingSnapshot)
     : null;
   if (!shipment || !snapshot) {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: "Shipment information is incomplete. Contact Swiftline support before packing it." });
+    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "Shipment information is incomplete. Contact Swiftline support before packing it." });
   }
   const expectedParcelNumbers = snapshot.parcels.map((parcel) => parcel.swiftlineParcelNumber.toUpperCase());
   const parcelWeightSnapshots = snapshot.parcels.map((parcel) => ({
     parcelNumber: parcel.swiftlineParcelNumber.toUpperCase(),
-    weightKg: roundWeight(parcel.actualWeightKg)
+    weightKg: roundWeight(parcel.actualWeightKg),
+    contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : ""
   }));
   const incomingWeightKg = parcelWeightSnapshots.find((parcel) => parcel.parcelNumber === parcelNumber)?.weightKg ?? 0;
-  const expectedShipmentWeightKg = roundWeight(parcelWeightSnapshots.reduce((total, parcel) => total + parcel.weightKg, 0));
   if (!expectedParcelNumbers.includes(parcelNumber)) {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: "This barcode does not match the shipment's current parcel labels." });
+    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "This barcode does not match the shipment's current parcel labels." });
   }
   const destinationCode = String(snapshot.consignee.countryCode ?? "").toUpperCase();
   if (manifest.header.destinationCountryCode && destinationCode !== manifest.header.destinationCountryCode) {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: `This shipment is for ${destinationCode || "another destination"}, not ${manifest.header.destinationCountryCode}.` });
+    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: `This shipment is for ${destinationCode || "another destination"}, not ${manifest.header.destinationCountryCode}.` });
   }
   const latestEvent = await ShipmentEvent.findOne({ shipmentDraftId: shipment.shipmentDraftId }).sort({ eventAt: -1, createdAt: -1 }).lean().exec();
   const cancelled = await ShipmentEvent.exists({ shipmentDraftId: shipment.shipmentDraftId, status: "SHIPMENT_CANCELLED" });
   if (cancelled || latestEvent?.status === "ON_HOLD") {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: cancelled ? "Cancelled shipments cannot be packed." : "This shipment is on hold and cannot be packed." });
+    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: cancelled ? "Cancelled shipments cannot be packed." : "This shipment is on hold and cannot be packed." });
   }
 
   const priorConsignment = await OperationsManifestConsignment.findOne({
@@ -336,37 +417,29 @@ export async function scanOperationsParcel(input: {
   if (priorConsignment && String(priorConsignment.manifestId) !== String(manifestId)) {
     const priorManifest = await OperationsManifest.findById(priorConsignment.manifestId).lean().exec();
     if (priorManifest?.status !== "CANCELLED") {
-      return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: `This shipment already belongs to ${priorManifest?.manifestNumber ?? "another operations manifest"}.` });
+      return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: `This shipment already belongs to ${priorManifest?.manifestNumber ?? "another operations manifest"}.` });
     }
   }
-  if (priorConsignment && String(priorConsignment.bagId) !== String(bagId)) {
-    const assignedBag = await OperationsManifestBag.findById(priorConsignment.bagId).lean().exec();
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: `This consignment is assigned to ${assignedBag?.bagNumber ?? "another bag"}. Select that bag to continue.` });
-  }
-
   const duplicate = await OperationsManifestScan.findOne({ parcelNumber, status: "ACCEPTED" }).lean().exec();
   if (duplicate) {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, message: "This parcel has already been scanned." });
+    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "This parcel has already been scanned." });
   }
 
-  const bagConsignments = await OperationsManifestConsignment.find({ manifestId, bagId, status: { $ne: "REMOVED" } }).lean().exec();
-  const committedBagWeightKg = roundWeight(bagConsignments.reduce((total, item) => {
-    const snapshots = item.parcelWeightSnapshots ?? [];
-    return total + (snapshots.length ? snapshots.reduce((sum, parcel) => sum + parcel.weightKg, 0) : item.weightKg);
-  }, 0));
-  const projectedBagWeightKg = priorConsignment
-    ? roundWeight(bag.totalWeightKg + incomingWeightKg)
-    : roundWeight(committedBagWeightKg + expectedShipmentWeightKg);
-  if (!isOperationsBagWeightAllowed(projectedBagWeightKg)) {
+  // A parcel heavier than a whole bag cannot be packed anywhere, so that is the only
+  // weight a scan still refuses.
+  if (!isOperationsBagWeightAllowed(incomingWeightKg)) {
     return recordRejectedScan({
       manifestId,
       bagId,
       parcelNumber,
       scanRequestId,
       userId: input.userId,
-      message: `${bag.bagNumber} has insufficient capacity. A bag cannot exceed 31 kg.`
+      ...scanMetadata,
+      message: `This parcel weighs ${incomingWeightKg.toFixed(3)} kg and cannot fit inside a 31 kg bag.`
     });
   }
+  // Otherwise the selected bag simply fills up and packing rolls onto a fresh bag.
+  const overflowsSelectedBag = !isOperationsBagWeightAllowed(roundWeight(bag.totalWeightKg + incomingWeightKg));
 
   const [dpdLabelCount, declaredValueMinor] = await Promise.all([
     LabelDocument.countDocuments({ dpdShipmentId: shipment._id, labelType: "DPD", voidedAt: null }).exec(),
@@ -382,15 +455,18 @@ export async function scanOperationsParcel(input: {
   const businessAccountId = asObjectId(String(snapshot.account.id ?? ""), "Business account");
 
   const session = await mongoose.startSession();
+  let packedBag = bag;
   try {
     await session.withTransaction(async () => {
+      packedBag = overflowsSelectedBag ? await openNextBag(manifest, input.userId, session) : bag;
+      const packedBagId = packedBag._id as mongoose.Types.ObjectId;
       let consignment = await OperationsManifestConsignment.findOne({ manifestId, shipmentDraftId: shipment.shipmentDraftId })
         .session(session)
         .exec();
       if (!consignment) {
         const created = await OperationsManifestConsignment.create([{
           manifestId,
-          bagId,
+          bagId: packedBagId,
           shipmentDraftId: shipment.shipmentDraftId,
           dpdShipmentId: shipment._id,
           businessAccountId,
@@ -413,7 +489,7 @@ export async function scanOperationsParcel(input: {
       }
       if (!consignment) throw new OperationsManifestServiceError("Manifest row could not be created.", 500);
       if (consignment.status === "REMOVED") {
-        consignment.bagId = bagId;
+        consignment.bagId = packedBagId;
         consignment.scannedParcelNumbers = [];
       }
       if (!consignment.parcelWeightSnapshots.length) consignment.parcelWeightSnapshots = parcelWeightSnapshots;
@@ -423,22 +499,28 @@ export async function scanOperationsParcel(input: {
       await consignment.save({ session });
       await OperationsManifestScan.create([{
         manifestId,
-        bagId,
+        bagId: packedBagId,
         consignmentId: consignment._id,
         parcelNumber,
         scanRequestId,
         status: "ACCEPTED",
-        message: consignment.dpdLabelGenerated
-          ? "Parcel added to the manifest."
-          : "Parcel added. DPD label has not been generated; this shipment uses Swiftline internal labels only.",
+        scanSource: scanMetadata.scanSource,
+        scanSessionId: scanMetadata.scanSessionId || null,
+        message: [
+          overflowsSelectedBag ? `${bag.bagNumber} was full, so ${packedBag.bagNumber} was opened for this parcel.` : "Parcel added to the manifest.",
+          consignment.dpdLabelGenerated ? "" : "DPD label has not been generated; this shipment uses Swiftline internal labels only."
+        ].filter(Boolean).join(" "),
         scannedBy: input.userId,
         scannedAt: new Date()
       }], { session });
       await recalculateTotals(manifestId, session);
       await audit("OPERATIONS_PARCEL_SCANNED", manifestId, input.userId, {
-        bagId,
+        bagId: packedBagId,
+        overflowedFromBagId: overflowsSelectedBag ? bagId : undefined,
         consignmentId: consignment._id,
         parcelNumber,
+        scanSource: scanMetadata.scanSource,
+        scanSessionId: scanMetadata.scanSessionId,
         dpdLabelGenerated: consignment.dpdLabelGenerated
       }, session);
     });
@@ -449,6 +531,13 @@ export async function scanOperationsParcel(input: {
     throw error;
   } finally {
     await session.endSession();
+  }
+  if (overflowsSelectedBag) {
+    // Point any paired phone at the bag packing actually continued in.
+    await OperationsManifestScanSession.updateMany(
+      { manifestId, activeBagId: bagId, status: "ACTIVE" },
+      { $set: { activeBagId: packedBag._id, lastSeenAt: new Date() } }
+    ).exec();
   }
   const accepted = await OperationsManifestScan.findOne({ scanRequestId }).lean().exec();
   return getOperationsManifestDetail(input.manifestId, { latestScanId: accepted ? String(accepted._id) : undefined });
@@ -477,14 +566,16 @@ export async function closeOperationsBag(manifestIdValue: string, bagIdValue: st
   const bag = await OperationsManifestBag.findOne({ _id: asObjectId(bagIdValue, "Bag"), manifestId }).exec();
   if (!bag) throw new OperationsManifestServiceError("Bag was not found.", 404);
   if (!(["OPEN", "REOPENED"] as string[]).includes(bag.status)) throw new OperationsManifestServiceError("Only an open bag can be closed.", 409);
-  const consignments = await OperationsManifestConsignment.find({ manifestId, bagId: bag._id, status: { $ne: "REMOVED" } }).exec();
-  if (!consignments.length) throw new OperationsManifestServiceError("An empty bag cannot be closed.", 409);
-  if (consignments.some((item) => item.status !== "COMPLETE")) throw new OperationsManifestServiceError("Scan every parcel for each consignment before closing this bag.", 409);
-  if (!isOperationsBagWeightAllowed(bag.totalWeightKg)) throw new OperationsManifestServiceError("This bag exceeds the 31 kg maximum. Remove or move a consignment before closing it.", 409);
+  // Closing is a physical act the operator decides on. Empty bags and part-packed
+  // consignments are both fine here; sealing is where completeness is enforced.
   bag.status = "CLOSED";
   bag.closedBy = userId;
   bag.closedAt = new Date();
   await bag.save();
+  await OperationsManifestScanSession.updateMany(
+    { manifestId, activeBagId: bag._id, status: "ACTIVE" },
+    { $set: { activeBagId: null, lastSeenAt: new Date() } }
+  ).exec();
   await recalculateTotals(manifestId);
   await audit("OPERATIONS_BAG_UPDATED", manifestId, userId, { bagId: bag._id, status: "CLOSED" });
   return bag;
@@ -494,8 +585,8 @@ export async function reopenOperationsBag(manifestIdValue: string, bagIdValue: s
   const manifestId = asObjectId(manifestIdValue, "Operations manifest");
   const manifest = await OperationsManifest.findById(manifestId).exec();
   if (!manifest || !isEditable(manifest)) throw new OperationsManifestServiceError("This manifest cannot be reopened.", 409);
-  const bag = await OperationsManifestBag.findOne({ _id: asObjectId(bagIdValue, "Bag"), manifestId }).exec();
-  if (!bag || bag.status !== "CLOSED") throw new OperationsManifestServiceError("Only a closed bag can be reopened.", 409);
+  const bag = await OperationsManifestBag.findOne({ _id: asObjectId(bagIdValue, "Bag"), manifestId, status: { $ne: "CANCELLED" } }).exec();
+  if (!bag) throw new OperationsManifestServiceError("Bag was not found.", 404);
   bag.status = "REOPENED";
   bag.reopenedBy = userId;
   bag.reopenedAt = new Date();
@@ -557,24 +648,29 @@ export async function moveOperationsConsignment(input: {
   const consignment = await OperationsManifestConsignment.findOne({ _id: asObjectId(input.consignmentId, "Consignment"), manifestId, status: { $ne: "REMOVED" } }).exec();
   const target = await OperationsManifestBag.findOne({ _id: asObjectId(input.targetBagId, "Bag"), manifestId, status: { $in: ["OPEN", "REOPENED"] } }).exec();
   if (!consignment || !target) throw new OperationsManifestServiceError("Select an active consignment and an open destination bag.", 409);
-  if (String(consignment.bagId) === String(target._id)) throw new OperationsManifestServiceError("This consignment is already assigned to the selected bag.", 409);
-  const source = await OperationsManifestBag.findById(consignment.bagId).exec();
-  if (source?.status === "CLOSED") throw new OperationsManifestServiceError("Reopen the current bag before moving this consignment.", 409);
-  const targetConsignments = await OperationsManifestConsignment.find({ manifestId, bagId: target._id, status: { $ne: "REMOVED" } }).lean().exec();
-  const targetCommittedWeight = targetConsignments.reduce((total, item) => total + (item.parcelWeightSnapshots?.length
-    ? item.parcelWeightSnapshots.reduce((sum, parcel) => sum + parcel.weightKg, 0)
-    : item.weightKg), 0);
-  const movedCommittedWeight = consignment.parcelWeightSnapshots.length
-    ? consignment.parcelWeightSnapshots.reduce((sum, parcel) => sum + parcel.weightKg, 0)
-    : consignment.weightKg;
-  if (!isOperationsBagWeightAllowed(targetCommittedWeight + movedCommittedWeight)) {
-    throw new OperationsManifestServiceError(`${target.bagNumber} has insufficient capacity. A bag cannot exceed 31 kg.`, 409);
+  // Moving gathers every scanned parcel of the consignment into one bag, so the
+  // source can be several bags once a shipment has been split across them.
+  const consignmentScans = await OperationsManifestScan.find({ consignmentId: consignment._id, status: "ACCEPTED" }).lean().exec();
+  const sourceBagIds = [...new Set(consignmentScans.map((scan) => String(scan.bagId ?? "")).filter(Boolean))];
+  const relocatingScans = consignmentScans.filter((scan) => String(scan.bagId ?? "") !== String(target._id));
+  if (!relocatingScans.length) throw new OperationsManifestServiceError("This consignment is already packed in the selected bag.", 409);
+
+  const sourceBags = await OperationsManifestBag.find({ _id: { $in: sourceBagIds } }).exec();
+  if (sourceBags.some((bag) => bag.status === "CLOSED")) {
+    throw new OperationsManifestServiceError("Reopen every bag holding this consignment before moving it.", 409);
   }
+
+  const weightByParcel = new Map(consignment.parcelWeightSnapshots.map((parcel) => [parcel.parcelNumber, parcel.weightKg]));
+  const relocatingWeightKg = roundWeight(relocatingScans.reduce((sum, scan) => sum + (weightByParcel.get(scan.parcelNumber) ?? 0), 0));
+  if (!isOperationsBagWeightAllowed(roundWeight(target.totalWeightKg + relocatingWeightKg))) {
+    throw new OperationsManifestServiceError(`${target.bagNumber} cannot take another ${relocatingWeightKg.toFixed(3)} kg without passing the 31 kg limit.`, 409);
+  }
+
   consignment.bagId = target._id as mongoose.Types.ObjectId;
   await consignment.save();
   await OperationsManifestScan.updateMany({ consignmentId: consignment._id, status: "ACCEPTED" }, { $set: { bagId: target._id } }).exec();
   await recalculateTotals(manifestId);
-  await audit("OPERATIONS_BAG_UPDATED", manifestId, input.userId, { consignmentId: consignment._id, sourceBagId: source?._id, targetBagId: target._id, reason: input.reason });
+  await audit("OPERATIONS_BAG_UPDATED", manifestId, input.userId, { consignmentId: consignment._id, sourceBagIds, targetBagId: target._id, reason: input.reason });
 }
 
 export async function cancelOperationsBag(manifestIdValue: string, bagIdValue: string, reason: string, userId: mongoose.Types.ObjectId) {
@@ -583,15 +679,47 @@ export async function cancelOperationsBag(manifestIdValue: string, bagIdValue: s
   if (!manifest || !isEditable(manifest)) throw new OperationsManifestServiceError("This bag cannot be cancelled.", 409);
   const bag = await OperationsManifestBag.findOne({ _id: asObjectId(bagIdValue, "Bag"), manifestId, status: { $ne: "CANCELLED" } }).exec();
   if (!bag) throw new OperationsManifestServiceError("Bag was not found.", 404);
-  const activeScans = await OperationsManifestScan.countDocuments({ manifestId, bagId: bag._id, status: "ACCEPTED" }).exec();
-  if (activeScans) throw new OperationsManifestServiceError("Remove or move every parcel before cancelling this bag.", 409);
-  bag.status = "CANCELLED";
-  bag.cancelledBy = userId;
-  bag.cancelledAt = new Date();
-  bag.correctionReason = reason;
-  await bag.save();
-  await recalculateTotals(manifestId);
-  await audit("OPERATIONS_BAG_UPDATED", manifestId, userId, { bagId: bag._id, status: "CANCELLED", reason });
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      // Cancelling releases whatever was in the bag instead of refusing, so those
+      // parcels become scannable again rather than being stranded on a dead bag.
+      const packedScans = await OperationsManifestScan.find({ manifestId, bagId: bag._id, status: "ACCEPTED" }).session(session).exec();
+      for (const scan of packedScans) {
+        scan.status = "REMOVED";
+        scan.removedBy = userId;
+        scan.removedAt = new Date();
+        scan.removalReason = reason || "Bag cancelled.";
+        await scan.save({ session });
+
+        if (!scan.consignmentId) continue;
+        const consignment = await OperationsManifestConsignment.findById(scan.consignmentId).session(session).exec();
+        if (!consignment) continue;
+        consignment.scannedParcelNumbers = consignment.scannedParcelNumbers.filter((item) => item !== scan.parcelNumber);
+        consignment.weightKg = calculateScannedParcelWeight(consignment);
+        consignment.status = consignment.scannedParcelNumbers.length
+          ? consignment.scannedParcelNumbers.length === consignment.expectedParcelNumbers.length ? "COMPLETE" : "PARTIAL"
+          : "REMOVED";
+        await consignment.save({ session });
+      }
+
+      bag.status = "CANCELLED";
+      bag.cancelledBy = userId;
+      bag.cancelledAt = new Date();
+      bag.correctionReason = reason;
+      await bag.save({ session });
+      await OperationsManifestScanSession.updateMany(
+        { manifestId, activeBagId: bag._id, status: "ACTIVE" },
+        { $set: { activeBagId: null, lastSeenAt: new Date() } },
+        { session }
+      ).exec();
+      await recalculateTotals(manifestId, session);
+      await audit("OPERATIONS_BAG_UPDATED", manifestId, userId, { bagId: bag._id, status: "CANCELLED", releasedParcels: packedScans.length, reason }, session);
+    });
+  } finally {
+    await session.endSession();
+  }
 }
 
 function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: string; totalWeightKg?: number }>, consignments: Array<{ status: string; declaredValueMinor?: number | null }>) {
@@ -609,7 +737,9 @@ function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: stri
   if (bags.some((bag) => bag.status !== "CLOSED")) issues.push("Every active bag must be closed.");
   if (bags.some((bag) => !isOperationsBagWeightAllowed(bag.totalWeightKg ?? 0))) issues.push("Every bag must remain within the 31 kg maximum weight.");
   if (!consignments.length) issues.push("Scan at least one consignment.");
-  if (consignments.some((item) => item.status !== "COMPLETE")) issues.push("Every consignment must be completely scanned.");
+  // A part-scanned consignment is a real outcome: a box can be held back or returned
+  // before the flight. The manifest records what was actually packed, so the scanned
+  // parcel count on each row is the record rather than a blocker.
   if (consignments.some((item) => !item.declaredValueMinor)) issues.push("Enter the goods value for every consignment.");
   return issues;
 }
@@ -629,6 +759,33 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
       ]);
       const issues = sealingIssues(manifest, bags, consignments);
       if (issues.length) throw new OperationsManifestServiceError(issues.join(" "), 409);
+      // A consignment can span several bags, so the printed manifest records every
+      // bag its parcels were packed into rather than just the first one.
+      const acceptedScans = await OperationsManifestScan.find({ manifestId, status: "ACCEPTED" })
+        .select("bagId parcelNumber consignmentId")
+        .sort({ scannedAt: 1 })
+        .lean()
+        .session(session)
+        .exec();
+      const sealedBagNumberById = new Map(bags.map((bag) => [String(bag._id), bag.bagNumber]));
+      const sealedConsignments = consignments.map((item) => {
+        const snapshotByParcel = new Map((item.parcelWeightSnapshots ?? []).map((parcel) => [parcel.parcelNumber, parcel]));
+        // Each packed parcel becomes its own manifest row, carrying the weight,
+        // contents, and bag it was actually scanned into.
+        const parcels = acceptedScans
+          .filter((scan) => String(scan.consignmentId ?? "") === String(item._id))
+          .map((scan) => ({
+            parcelNumber: scan.parcelNumber,
+            weightKg: roundWeight(snapshotByParcel.get(scan.parcelNumber)?.weightKg ?? 0),
+            description: snapshotByParcel.get(scan.parcelNumber)?.contentsDescription ?? "",
+            bagNumber: sealedBagNumberById.get(String(scan.bagId ?? "")) ?? ""
+          }));
+        return {
+          ...item,
+          parcels,
+          bagNumbers: [...new Set(parcels.map((parcel) => parcel.bagNumber))].filter(Boolean)
+        };
+      });
       manifest.sealedSnapshot = JSON.parse(JSON.stringify({
         version: 1,
         manifestNumber: manifest.manifestNumber,
@@ -641,7 +798,7 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
           totalWeightKg: manifest.totalWeightKg
         },
         bags,
-        consignments,
+        consignments: sealedConsignments,
         sealedAt: new Date().toISOString(),
         sealedBy: userId
       }));
@@ -649,6 +806,11 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
       manifest.sealedAt = new Date();
       manifest.sealedBy = userId;
       await manifest.save({ session });
+      await OperationsManifestScanSession.updateMany(
+        { manifestId, status: { $ne: "ENDED" } },
+        { $set: { status: "ENDED", activeBagId: null, endedAt: new Date(), endedReason: "Manifest sealed." } },
+        { session }
+      ).exec();
       await audit("OPERATIONS_MANIFEST_SEALED", manifestId, userId, { totals: manifest.sealedSnapshot.totals }, session);
       sealed = manifest;
     });
@@ -666,6 +828,10 @@ export async function dispatchOperationsManifest(manifestIdValue: string, userId
   manifest.dispatchedAt = new Date();
   manifest.dispatchedBy = userId;
   await manifest.save();
+  await OperationsManifestScanSession.updateMany(
+    { manifestId: manifest._id, status: { $ne: "ENDED" } },
+    { $set: { status: "ENDED", activeBagId: null, endedAt: new Date(), endedReason: "Manifest dispatched." } }
+  ).exec();
   await audit("OPERATIONS_MANIFEST_DISPATCHED", manifest._id as mongoose.Types.ObjectId, userId, { dispatchedAt: manifest.dispatchedAt });
   return manifest;
 }
@@ -681,6 +847,11 @@ export async function cancelOperationsManifest(manifestIdValue: string, reason: 
       manifest.cancelledBy = userId;
       manifest.cancellationReason = reason;
       await manifest.save({ session });
+      await OperationsManifestScanSession.updateMany(
+        { manifestId: manifest._id, status: { $ne: "ENDED" } },
+        { $set: { status: "ENDED", activeBagId: null, endedAt: new Date(), endedReason: "Manifest cancelled." } },
+        { session }
+      ).exec();
       await OperationsManifestScan.updateMany({ manifestId: manifest._id, status: "ACCEPTED" }, {
         $set: { status: "REMOVED", removedBy: userId, removedAt: new Date(), removalReason: `Manifest cancelled: ${reason}` }
       }, { session }).exec();
@@ -724,7 +895,8 @@ async function normalizeEditableManifestData(manifest: IOperationsManifest) {
       if (!snapshot) continue;
       consignment.parcelWeightSnapshots = snapshot.parcels.map((parcel) => ({
         parcelNumber: parcel.swiftlineParcelNumber.toUpperCase(),
-        weightKg: roundWeight(parcel.actualWeightKg)
+        weightKg: roundWeight(parcel.actualWeightKg),
+        contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : ""
       }));
       consignment.weightKg = calculateScannedParcelWeight(consignment);
       await consignment.save();
@@ -740,34 +912,48 @@ export async function getOperationsManifestDetail(manifestIdValue: string, optio
   const manifestDocument = await OperationsManifest.findById(manifestId).exec();
   if (!manifestDocument) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
   await normalizeEditableManifestData(manifestDocument);
-  const [manifest, bags, consignments, scans] = await Promise.all([
+  const [manifest, bags, consignments, scans, acceptedScans] = await Promise.all([
     OperationsManifest.findById(manifestId).lean().exec(),
     OperationsManifestBag.find({ manifestId }).sort({ sequence: 1 }).lean().exec(),
     OperationsManifestConsignment.find({ manifestId, status: { $ne: "REMOVED" } }).sort({ createdAt: 1 }).lean().exec(),
-    OperationsManifestScan.find({ manifestId }).sort({ scannedAt: -1 }).limit(50).lean().exec()
+    OperationsManifestScan.find({ manifestId }).sort({ scannedAt: -1 }).limit(50).lean().exec(),
+    OperationsManifestScan.find({ manifestId, status: "ACCEPTED" })
+      .select("bagId parcelNumber consignmentId")
+      .sort({ scannedAt: 1 })
+      .lean()
+      .exec()
   ]);
   if (!manifest) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
   const branch = await Branch.findById(manifest.branchId).select("name code address contact").lean().exec();
+  const bagNumberById = new Map(bags.map((bag) => [String(bag._id), bag.bagNumber]));
   const latestScan = options?.latestScanId
     ? scans.find((scan) => String(scan._id) === options.latestScanId)
     : scans[0];
   return {
     manifest: { ...serializeManifest(manifest as unknown as IOperationsManifest), branch },
     bags: bags.map((bag) => ({ ...bag, id: String(bag._id), manifestId: String(bag.manifestId) })),
-    consignments: consignments.map((item) => ({
-      ...item,
-      id: String(item._id),
-      manifestId: String(item.manifestId),
-      bagId: String(item.bagId),
-      shipmentDraftId: String(item.shipmentDraftId),
-      dpdShipmentId: String(item.dpdShipmentId),
-      businessAccountId: String(item.businessAccountId),
-      displayConsignmentNumber: formatManifestConsignmentNumber(item.consignmentNumber),
-      goodsValueRequired: !item.declaredValueMinor,
-      dpdWarning: item.dpdLabelGenerated ? "" : "DPD label has not been generated. This shipment uses Swiftline internal labels only."
-    })),
+    consignments: consignments.map((item) => {
+      const packedIn = bagIdsForConsignment(acceptedScans, item._id);
+      return {
+        ...item,
+        id: String(item._id),
+        manifestId: String(item.manifestId),
+        bagId: String(item.bagId),
+        // Every bag holding a parcel of this consignment, in packing order.
+        bagIds: packedIn,
+        bagNumbers: packedIn.map((id) => bagNumberById.get(id) ?? "").filter(Boolean),
+        shipmentDraftId: String(item.shipmentDraftId),
+        dpdShipmentId: String(item.dpdShipmentId),
+        businessAccountId: String(item.businessAccountId),
+        displayConsignmentNumber: formatManifestConsignmentNumber(item.consignmentNumber),
+        goodsValueRequired: !item.declaredValueMinor,
+        dpdWarning: item.dpdLabelGenerated ? "" : "DPD label has not been generated. This shipment uses Swiftline internal labels only."
+      };
+    }),
     scans: scans.map((scan) => ({ ...scan, id: String(scan._id), manifestId: String(scan.manifestId), bagId: scan.bagId ? String(scan.bagId) : null })),
-    latestScan: latestScan ? { ...latestScan, id: String(latestScan._id) } : null,
+    latestScan: latestScan
+      ? { ...latestScan, id: String(latestScan._id), bagId: latestScan.bagId ? String(latestScan.bagId) : null }
+      : null,
     sealingIssues: sealingIssues(
       manifest as unknown as IOperationsManifest,
       bags.filter((bag) => bag.status !== "CANCELLED"),
@@ -795,9 +981,33 @@ type SealedSnapshot = {
     declaredValueMinor: number;
     currency: "INR";
     serviceInfo: string;
+    // Both absent on manifests sealed before parcels became individual rows.
+    bagNumbers?: string[];
+    parcels?: Array<{ parcelNumber: string; weightKg: number; description?: string; bagNumber: string }>;
   }>;
   sealedAt: string;
 };
+
+type SealedConsignment = SealedSnapshot["consignments"][number];
+
+/**
+ * One row per packed parcel, each describing only its own contents. Manifests sealed
+ * before this format keep their single summary row so historical exports stay stable.
+ */
+function sealedParcelRows(item: SealedConsignment, bagById: Map<string, string>) {
+  if (item.parcels?.length) {
+    return item.parcels.map((parcel) => ({
+      ...parcel,
+      description: parcel.description || item.description
+    }));
+  }
+  return [{
+    parcelNumber: "",
+    weightKg: item.weightKg,
+    description: item.description,
+    bagNumber: item.bagNumbers?.join(", ") || bagById.get(String(item.bagId)) || ""
+  }];
+}
 
 function readSealedSnapshot(manifest: IOperationsManifest) {
   const snapshot = manifest.sealedSnapshot as Partial<SealedSnapshot>;
@@ -846,21 +1056,24 @@ export async function buildOperationsManifestExcel(manifest: IOperationsManifest
       destinationIataCode: snapshot.header.destinationIataCode,
       valueType: snapshot.header.valueType
     },
-    lineSnapshots: snapshot.consignments.map((item) => ({
+    lineSnapshots: snapshot.consignments.flatMap((item) => sealedParcelRows(item, bagById).map((parcel, parcelIndex) => ({
       shipmentDraftId: item.shipmentDraftId,
       dpdShipmentId: item.dpdShipmentId,
       consignmentNumber: item.consignmentNumber,
       pieces: 1,
-      weightKg: item.weightKg,
+      weightKg: parcel.weightKg,
       consignor: { formatted: normalizedManifestAddress(item.consignorSnapshot.formatted) },
       consignee: { formatted: normalizedManifestAddress(item.consigneeSnapshot.formatted) },
-      description: item.description,
-      declaredValueMinor: item.declaredValueMinor,
+      // Each row describes only the box on that row, not the whole shipment.
+      description: parcel.description,
+      // The goods value belongs to the consignment, so it is stated once on its
+      // first parcel row rather than repeated and double counted.
+      declaredValueMinor: parcelIndex === 0 ? item.declaredValueMinor : null,
       currency: item.currency,
-      bagNumber: bagById.get(String(item.bagId)) ?? "",
+      bagNumber: parcel.bagNumber,
       serviceInfo: item.serviceInfo
-    })),
-    totalPieces: snapshot.totals.totalConsignments,
+    }))),
+    totalPieces: snapshot.totals.totalPhysicalParcels,
     totalWeightKg: snapshot.totals.totalWeightKg,
     totalBags: snapshot.totals.totalBags,
     actorRole: "admin",
@@ -912,18 +1125,44 @@ export async function buildOperationsManifestPdf(manifest: IOperationsManifest) 
     headers.forEach((header, index) => drawCell(index, y, 30, header, { bold: true }));
     y += 30;
     const bagById = new Map(snapshot.bags.map((bag) => [String(bag._id), bag.bagNumber]));
-    snapshot.consignments.forEach((item, index) => {
-      const blockHeight = 112;
-      if (y + blockHeight > document.page.height - 28) { document.addPage(); y = document.page.margins.top; headers.forEach((header, column) => drawCell(column, y, 30, header, { bold: true })); y += 30; }
+    const rowHeight = 11.2;
+    let serial = 0;
+    snapshot.consignments.forEach((item) => {
       const consignorLines = spacedPdfAddress(item.consignorSnapshot.formatted);
       const consigneeLines = spacedPdfAddress(item.consigneeSnapshot.formatted);
-      for (let row = 0; row < 10; row += 1) {
-        const values = row === 0
-          ? [index + 1, formatManifestConsignmentNumber(item.consignmentNumber), 1, item.weightKg.toFixed(3), consignorLines[0] ?? "", consigneeLines[0] ?? "", item.description, (item.declaredValueMinor / 100).toFixed(2), item.currency, bagById.get(String(item.bagId)) ?? "", item.serviceInfo]
-          : ["", "", "", "", consignorLines[row] ?? "", consigneeLines[row] ?? "", "", "", "", "", ""];
-        values.forEach((value, column) => drawCell(column, y, 11.2, value, { align: column === 4 || column === 5 || column === 6 ? "center" : "center", size: 6.5 }));
-        y += 11.2;
-      }
+      // The block ends on a blank line of its own rather than a separate divider row.
+      const blockSize = Math.max(1, consignorLines.length, consigneeLines.length) + 1;
+
+      sealedParcelRows(item, bagById).forEach((parcel, parcelIndex) => {
+        serial += 1;
+        const blockHeight = blockSize * rowHeight;
+        if (y + blockHeight > document.page.height - 28) {
+          document.addPage();
+          y = document.page.margins.top;
+          headers.forEach((header, column) => drawCell(column, y, 30, header, { bold: true }));
+          y += 30;
+        }
+
+        for (let row = 0; row < blockSize; row += 1) {
+          const values = row === 0
+            ? [
+              serial,
+              formatManifestConsignmentNumber(item.consignmentNumber),
+              1,
+              parcel.weightKg.toFixed(3),
+              consignorLines[0] ?? "",
+              consigneeLines[0] ?? "",
+              parcel.description,
+              parcelIndex === 0 ? (item.declaredValueMinor / 100).toFixed(2) : "",
+              item.currency,
+              parcel.bagNumber,
+              item.serviceInfo
+            ]
+            : ["", "", "", "", consignorLines[row] ?? "", consigneeLines[row] ?? "", "", "", "", "", ""];
+          values.forEach((value, column) => drawCell(column, y, rowHeight, value, { align: "center", size: 6.5 }));
+          y += rowHeight;
+        }
+      });
     });
     document.font("Helvetica").fontSize(7).text("Swiftline Portal | Computer Generated Operations Manifest", left, document.page.height - 18, { width: totalWidth, align: "center" });
     document.end();

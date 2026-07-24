@@ -16,6 +16,7 @@ const environmentSchema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
 
   CLIENT_URL: z.string().url(),
+  CORS_ORIGINS: z.string().optional(),
 
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
   REDIS_URL: z.string().url().optional(),

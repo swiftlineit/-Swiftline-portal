@@ -6,7 +6,7 @@ import { FiLogOut } from "react-icons/fi";
 import Sidebar from "@/components/Sidebar";
 import WelcomeModal from "@/components/WelcomeModal";
 import { apiUrl } from "@/lib/api";
-import { getAccessToken, refreshAccessToken, logout } from "@/lib/auth";
+import { getAccessToken, readJsonSafely, refreshAccessToken, logout } from "@/lib/auth";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -26,49 +26,41 @@ export default function DashboardPage() {
         return;
       }
 
-      try {
+      async function applyProfile(bearer: string) {
         const response = await fetch(apiUrl("/api/v1/auth/me"), {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${bearer}` }
         });
-        const data = await response.json();
-        if (!data.success) {
-          throw new Error("Unauthorized");
-        }
+        const data = await readJsonSafely(response) as {
+          success?: boolean;
+          user?: { name?: string; email: string; role: string; hasSeenWelcome?: boolean };
+        };
+
+        // Throttling and server faults must not read as a rejected session.
+        if (response.status === 401 || response.status === 403) return "signed-out" as const;
+        if (!response.ok || !data.success || !data.user) return "retry" as const;
 
         if (data.user.role === "client") {
           router.replace("/client/dashboard");
-          return;
+          return "done" as const;
         }
 
         setUser(data.user);
-        if (!data.user.hasSeenWelcome) {
-          setShowModal(true);
-        }
-      } catch {
-        const refreshed = await refreshAccessToken();
-        if (refreshed) {
-          const response = await fetch(apiUrl("/api/v1/auth/me"), {
-            headers: { Authorization: `Bearer ${refreshed}` }
-          });
-          const data = await response.json();
-          if (data.success) {
-            if (data.user.role === "client") {
-              router.replace("/client/dashboard");
-              return;
-            }
+        if (!data.user.hasSeenWelcome) setShowModal(true);
+        return "done" as const;
+      }
 
-            setUser(data.user);
-            if (!data.user.hasSeenWelcome) {
-              setShowModal(true);
-            }
-          } else {
-            await logout();
-            router.replace("/");
-          }
-        } else {
+      try {
+        let outcome = await applyProfile(token);
+        if (outcome !== "done") {
+          const refreshed = await refreshAccessToken();
+          outcome = refreshed ? await applyProfile(refreshed) : "signed-out";
+        }
+        if (outcome === "signed-out") {
           await logout();
           router.replace("/");
         }
+      } catch {
+        // Leave the session intact; the operator can reload once the network settles.
       } finally {
         setLoading(false);
       }

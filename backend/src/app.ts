@@ -41,9 +41,23 @@ app.disable("x-powered-by");
 
 app.use(helmet());
 
+const allowedCorsOrigins = new Set(
+  [env.CLIENT_URL, ...(env.CORS_ORIGINS?.split(",") ?? [])]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => new URL(value).origin)
+);
+
 app.use(
   cors({
-    origin: env.CLIENT_URL,
+    origin(origin, callback) {
+      if (!origin || allowedCorsOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
   })

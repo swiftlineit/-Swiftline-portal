@@ -454,8 +454,11 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
   manifest.lineSnapshots.forEach((line, index) => {
     const consignorLines = spreadManifestAddress(line.consignor.formatted);
     const consigneeLines = spreadManifestAddress(line.consignee.formatted);
-    const blockSize = Math.max(10, consignorLines.length, consigneeLines.length);
+    // The block ends on a blank line of its own rather than a separate divider row.
+    const blockSize = Math.max(1, consignorLines.length, consigneeLines.length) + 1;
     const firstRowNumber = worksheet.rowCount + 1;
+    // A parcel row carries its own value only when it opens a consignment.
+    const declaredValue = typeof line.declaredValueMinor === "number" ? line.declaredValueMinor / 100 : "";
 
     for (let offset = 0; offset < blockSize; offset += 1) {
       const row = worksheet.addRow([]);
@@ -469,7 +472,7 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
           consignorLines[0] ?? "",
           consigneeLines[0] ?? "",
           line.description,
-          line.declaredValueMinor / 100,
+          declaredValue,
           line.currency,
           line.bagNumber,
           line.serviceInfo
@@ -495,7 +498,7 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
 
     worksheet.getCell(firstRowNumber, 2).font = { bold: true, size: 10, color: { argb: manifestColours.text } };
     worksheet.getCell(firstRowNumber, 4).numFmt = "0.000";
-    worksheet.getCell(firstRowNumber, 8).numFmt = "#,##0.00";
+    if (typeof declaredValue === "number") worksheet.getCell(firstRowNumber, 8).numFmt = "#,##0.00";
   });
 
   const lastRow = Math.max(14, worksheet.rowCount);
