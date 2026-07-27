@@ -4,6 +4,7 @@ import { CreditLedgerEntry, type CreditLedgerEntryType } from "../models/creditL
 import { maxCreditLimitMinor } from "../models/financialTypes.js";
 import type { BusinessAccountMemberRole, CreditPermission } from "../models/businessAccountMember.model.js";
 import { PaymentTermsDocument } from "../models/paymentTerms.model.js";
+import { notifyBusinessFinancialMembers } from "./portalNotification.service.js";
 
 const roleCreditPermissions: Record<BusinessAccountMemberRole, CreditPermission[]> = {
   account_owner: ["requestCredit", "useCreditPayment", "viewCreditBalance", "viewCreditDetails", "makeCreditPayment"],
@@ -61,12 +62,29 @@ export function getCreditActivationBlockers(input: {
   ].filter((blocker): blocker is string => Boolean(blocker));
 }
 
-export function getCreditBalances(account: Pick<IBusinessCreditAccount,
-  "approvedCreditLimitMinor" | "reservedCreditMinor" | "unbilledCreditMinor" |
-  "invoicedOutstandingMinor" | "customerAdvanceBalanceMinor" | "reservedAdvanceMinor" | "status"
->) {
+// Approved credit is only spendable while the facility is ACTIVE and inside its
+// validity window. Keeping this in one place ensures every API response, admin
+// view, and the booking guard agree on what is actually available.
+export function isCreditWindowOpen(
+  account: Pick<IBusinessCreditAccount, "status" | "validFrom" | "validUntil">,
+  now: Date = new Date()
+) {
+  if (account.status !== "ACTIVE") return false;
+  if (account.validFrom && account.validFrom > now) return false;
+  if (account.validUntil && account.validUntil <= now) return false;
+  return true;
+}
+
+export function getCreditBalances(
+  account: Pick<IBusinessCreditAccount,
+    "approvedCreditLimitMinor" | "reservedCreditMinor" | "unbilledCreditMinor" |
+    "invoicedOutstandingMinor" | "customerAdvanceBalanceMinor" | "reservedAdvanceMinor" |
+    "status" | "validFrom" | "validUntil"
+  >,
+  now: Date = new Date()
+) {
   const usedCreditMinor = account.reservedCreditMinor + account.unbilledCreditMinor + account.invoicedOutstandingMinor;
-  const availableCreditMinor = account.status === "ACTIVE"
+  const availableCreditMinor = isCreditWindowOpen(account, now)
     ? Math.max(account.approvedCreditLimitMinor - usedCreditMinor, 0)
     : 0;
   const availableAdvanceMinor = Math.max(account.customerAdvanceBalanceMinor - account.reservedAdvanceMinor, 0);
@@ -79,11 +97,30 @@ export function getCreditBalances(account: Pick<IBusinessCreditAccount,
   };
 }
 
+// Share of the approved limit that is committed (reserved + unbilled + invoiced),
+// and whether that share has crossed the configured warning threshold.
+export function getCreditUtilization(account: Pick<IBusinessCreditAccount,
+  "approvedCreditLimitMinor" | "reservedCreditMinor" | "unbilledCreditMinor" |
+  "invoicedOutstandingMinor" | "customerAdvanceBalanceMinor" | "reservedAdvanceMinor" |
+  "status" | "validFrom" | "validUntil" | "creditWarningThresholdPercent"
+>, now: Date = new Date()) {
+  const { usedCreditMinor } = getCreditBalances(account, now);
+  const utilizationPercent = account.approvedCreditLimitMinor > 0
+    ? Math.round((usedCreditMinor / account.approvedCreditLimitMinor) * 100)
+    : 0;
+  const warningActive = isCreditWindowOpen(account, now)
+    && account.approvedCreditLimitMinor > 0
+    && utilizationPercent >= account.creditWarningThresholdPercent;
+
+  return { utilizationPercent, warningActive };
+}
+
 export function serializeCreditAccount(account: IBusinessCreditAccount) {
   return {
     id: String(account._id),
     businessAccountId: String(account.businessAccountId),
     status: account.status,
+    ...getCreditUtilization(account),
     currency: account.currency,
     requestedCreditLimitMinor: account.requestedCreditLimitMinor,
     requestReason: account.requestReason,
@@ -129,7 +166,7 @@ export async function appendCreditLedgerEntry(input: {
   description: string;
   amountMinor?: number;
   idempotencyKey: string;
-  createdBy: mongoose.Types.ObjectId;
+  createdBy: mongoose.Types.ObjectId | null;
   metadata?: Record<string, unknown>;
   session?: mongoose.ClientSession;
 }) {
@@ -149,6 +186,48 @@ export async function appendCreditLedgerEntry(input: {
     metadata: input.metadata ?? {}
   }], { session: input.session });
   return documents[0];
+}
+
+// Mark every active facility whose validity window has closed as EXPIRED. The
+// available-credit math already treats a lapsed window as zero (isCreditWindowOpen);
+// this makes the status explicit and blocks new bookings via the status guard.
+export async function expireLapsedCreditAccounts(now = new Date()) {
+  const result = await BusinessCreditAccount.updateMany(
+    { status: "ACTIVE", validUntil: { $ne: null, $lt: now } },
+    { $set: { status: "EXPIRED" }, $inc: { version: 1 } }
+  ).exec();
+
+  return { expired: result.modifiedCount };
+}
+
+// Notify finance members whose credit utilization has crossed the warning
+// threshold. Keyed per day so an over-threshold account is nudged once daily
+// rather than on every job run.
+export async function notifyCreditUtilizationWarnings(now = new Date()) {
+  const accounts = await BusinessCreditAccount.find({ status: "ACTIVE", approvedCreditLimitMinor: { $gt: 0 } }).exec();
+  const dayKey = now.toISOString().slice(0, 10);
+  let notified = 0;
+
+  for (const account of accounts) {
+    const { utilizationPercent, warningActive } = getCreditUtilization(account, now);
+    if (!warningActive) continue;
+
+    try {
+      await notifyBusinessFinancialMembers(account.businessAccountId, {
+        type: "CREDIT_UTILIZATION_WARNING",
+        title: "Credit utilization is high",
+        message: `Your credit facility is ${utilizationPercent}% used, at or above the ${account.creditWarningThresholdPercent}% warning level.`,
+        href: "/client/credit",
+        idempotencyKey: `CREDIT_WARNING:${String(account._id)}:${dayKey}`,
+        metadata: { utilizationPercent, thresholdPercent: account.creditWarningThresholdPercent }
+      });
+      notified += 1;
+    } catch (error) {
+      console.error("Failed to send credit utilization warning", String(account._id), error);
+    }
+  }
+
+  return { notified };
 }
 
 export async function getCurrentPaymentTerms() {

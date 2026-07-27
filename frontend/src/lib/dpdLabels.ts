@@ -32,6 +32,37 @@ export type ShipmentAddress = {
   deliveryInstructions?: string;
 };
 
+export type ShipmentConsignorAddress = {
+  companyName?: string;
+  contactName?: string;
+  email?: string;
+  mobileCountryCode?: string;
+  mobileNumber?: string;
+  aadhaarNumber?: string;
+  countryCode: string;
+  countryName?: string;
+  postcode: string;
+  addressLine1: string;
+  addressLine2?: string;
+  townOrCity: string;
+  county?: string;
+  pickupInstructions?: string;
+};
+
+export const shipmentKycDocumentTypes = ["aadhaar", "pan", "other"] as const;
+export type ShipmentKycDocumentType = (typeof shipmentKycDocumentTypes)[number];
+
+export type ShipmentKycDocument = {
+  type: ShipmentKycDocumentType;
+  documentLabel: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+};
+
+export type ShipmentKycDocuments = Partial<Record<ShipmentKycDocumentType, ShipmentKycDocument | null>>;
+
 export const shipmentContentTypeOptions = [
   { value: "DOCUMENTS", label: "Documents" },
   { value: "PARCEL", label: "Parcel" },
@@ -50,6 +81,10 @@ export type ShipmentDraft = {
   invoiceUploadId: string;
   businessAccountId: string;
   branchId: string;
+  consignorAddress?: ShipmentConsignorAddress;
+  consignorPlaceId?: string;
+  kycUseForAllParcels?: boolean;
+  kycDocuments?: ShipmentKycDocuments;
   consigneeEnteredAddress: ShipmentAddress;
   consigneeSelectedAddress?: ShipmentAddress | null;
   consigneeValidatedAddress?: ShipmentAddress | null;
@@ -66,6 +101,8 @@ export type ShipmentDraft = {
     contentsDescription: string;
     shipmentReference1?: string;
     shipmentReference2?: string;
+    aadhaarNumber?: string;
+    kycDocuments?: ShipmentKycDocuments;
   }>;
   serviceType?: ShipmentServiceType;
   serviceCode: string;
@@ -79,8 +116,21 @@ export type ShipmentDraft = {
 };
 
 export type ShipmentDraftPatch = {
+  consignorAddress?: Partial<ShipmentConsignorAddress>;
   consigneeEnteredAddress?: Partial<ShipmentAddress>;
-  parcelList?: ShipmentDraft["parcelList"];
+  kycUseForAllParcels?: boolean;
+  parcelList?: Array<{
+    sequence: number;
+    weightKg: number;
+    lengthCm?: number;
+    widthCm?: number;
+    heightCm?: number;
+    shipmentContentType: ShipmentContentType;
+    contentsDescription: string;
+    shipmentReference1?: string;
+    shipmentReference2?: string;
+    aadhaarNumber?: string;
+  }>;
   serviceType?: ShipmentServiceType;
   serviceCode?: string;
 };
@@ -870,6 +920,129 @@ export async function getPlaceAddress(placeId: string, shipmentDraftId: string) 
       address: PortalAddress;
     };
   }>(response);
+}
+
+// Consignor pickup addresses are Indian, so they search Google Places while the
+// consignee delivery address stays on the Ideal Postcodes UK lookup above.
+export async function autocompleteConsignorAddress(input: string) {
+  const response = await fetchWithAuth(apiUrl("/api/v1/addresses/consignor/autocomplete"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input })
+  });
+
+  return parseApiResponse<{
+    success: true;
+    predictions: AddressPrediction[];
+  }>(response);
+}
+
+export async function getConsignorPlaceAddress(placeId: string, shipmentDraftId: string) {
+  const url = new URL(apiUrl(`/api/v1/addresses/consignor/places/${encodeURIComponent(placeId)}`));
+  url.searchParams.set("shipmentDraftId", shipmentDraftId);
+  const response = await fetchWithAuth(url.toString());
+
+  return parseApiResponse<{
+    success: true;
+    place: {
+      placeId: string;
+      formattedAddress: string;
+      address: PortalAddress;
+    };
+  }>(response);
+}
+
+export async function uploadShipmentKycDocument(input: {
+  shipmentDraftId: string;
+  type: ShipmentKycDocumentType;
+  file: File;
+  documentLabel?: string;
+}) {
+  const formData = new FormData();
+  formData.append("document", input.file);
+  if (input.documentLabel) formData.append("documentLabel", input.documentLabel);
+
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/shipment-drafts/${input.shipmentDraftId}/kyc-documents/${input.type}`),
+    { method: "POST", body: formData }
+  );
+
+  return parseApiResponse<{
+    success: true;
+    kycDocuments: ShipmentKycDocuments;
+    validationIssues: string[];
+  }>(response);
+}
+
+export async function deleteShipmentKycDocument(shipmentDraftId: string, type: ShipmentKycDocumentType) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/kyc-documents/${type}`),
+    { method: "DELETE" }
+  );
+
+  return parseApiResponse<{
+    success: true;
+    kycDocuments: ShipmentKycDocuments;
+    validationIssues: string[];
+  }>(response);
+}
+
+export async function openShipmentKycDocument(shipmentDraftId: string, type: ShipmentKycDocumentType) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/kyc-documents/${type}`)
+  );
+
+  if (!response.ok) throw new Error("Unable to open this KYC document.");
+
+  return response.blob();
+}
+
+export async function uploadShipmentParcelKycDocument(input: {
+  shipmentDraftId: string;
+  sequence: number;
+  type: ShipmentKycDocumentType;
+  file: File;
+  documentLabel?: string;
+}) {
+  const formData = new FormData();
+  formData.append("document", input.file);
+  if (input.documentLabel) formData.append("documentLabel", input.documentLabel);
+
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/shipment-drafts/${input.shipmentDraftId}/parcels/${input.sequence}/kyc-documents/${input.type}`),
+    { method: "POST", body: formData }
+  );
+
+  return parseApiResponse<{
+    success: true;
+    parcelSequence: number;
+    kycDocuments: ShipmentKycDocuments;
+    validationIssues: string[];
+  }>(response);
+}
+
+export async function deleteShipmentParcelKycDocument(shipmentDraftId: string, sequence: number, type: ShipmentKycDocumentType) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/parcels/${sequence}/kyc-documents/${type}`),
+    { method: "DELETE" }
+  );
+
+  return parseApiResponse<{
+    success: true;
+    parcelSequence: number;
+    kycDocuments: ShipmentKycDocuments;
+    validationIssues: string[];
+  }>(response);
+}
+
+export async function openShipmentParcelKycDocument(shipmentDraftId: string, sequence: number, type: ShipmentKycDocumentType) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/parcels/${sequence}/kyc-documents/${type}`)
+  );
+
+  if (!response.ok) throw new Error("Unable to open this KYC document.");
+
+  return response.blob();
 }
 
 export async function validateAddress(input: {

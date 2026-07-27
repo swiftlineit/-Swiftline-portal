@@ -48,6 +48,22 @@ export function calculateCreditRestriction(input: {
   };
 }
 
+// Eagerly flag every statement whose due date has passed as OVERDUE. Runs from a
+// scheduled job so an account becomes restricted on time instead of only when a
+// page happens to load and lazily triggers the same update.
+export async function markOverdueCreditStatements(now = new Date()) {
+  const result = await CreditBillingStatement.updateMany(
+    {
+      outstandingAmountMinor: { $gt: 0 },
+      dueAt: { $lt: now },
+      status: { $in: ["ISSUED", "PARTIALLY_PAID"] }
+    },
+    { $set: { status: "OVERDUE" } }
+  ).exec();
+
+  return { markedOverdue: result.modifiedCount };
+}
+
 export async function getCreditRestrictionState(input: {
   businessAccountId: mongoose.Types.ObjectId;
   gracePeriodDays: number;
@@ -56,22 +72,16 @@ export async function getCreditRestrictionState(input: {
   session?: mongoose.ClientSession;
 }) {
   const now = input.now ?? new Date();
-  await CreditBillingStatement.updateMany(
-    {
-      businessAccountId: input.businessAccountId,
-      outstandingAmountMinor: { $gt: 0 },
-      dueAt: { $lt: now },
-      status: { $in: ["ISSUED", "PARTIALLY_PAID"] }
-    },
-    { $set: { status: "OVERDUE" } },
-    { session: input.session }
-  ).exec();
 
+  // Read-only. The oldest past-due unpaid statement determines the restriction
+  // straight from its due date, so this is correct in real time even before the
+  // scheduled job has persisted the OVERDUE status. Keeping it side-effect free
+  // removes writes and write-amplification from the booking hot path.
   const oldest = await CreditBillingStatement.findOne({
     businessAccountId: input.businessAccountId,
     outstandingAmountMinor: { $gt: 0 },
     dueAt: { $lt: now },
-    status: "OVERDUE"
+    status: { $in: ["ISSUED", "PARTIALLY_PAID", "OVERDUE"] }
   }).sort({ dueAt: 1 }).select("dueAt").session(input.session ?? null).lean().exec();
 
   return calculateCreditRestriction({

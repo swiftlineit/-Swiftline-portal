@@ -340,7 +340,7 @@ export default function ClientShipmentDetailsPage() {
             </section>
 
             {shipment.bookingConfirmation ? (
-              <section className="border border-slate-200 bg-white">
+              <section className="border border-slate-200 bg-white rounded-2xl ">
                 <div className="border-b border-slate-200 px-5 py-4">
                   <h2 className="text-base font-semibold text-slate-950">Booking Confirmation</h2>
                   <p className="mt-1 text-sm text-slate-600">Locked shipment, pricing, and account allocation recorded at booking.</p>
@@ -432,7 +432,7 @@ export default function ClientShipmentDetailsPage() {
                 </div>
               </div>
 
-              <div className="border border-slate-200 bg-white p-5">
+              <div className="border border-slate-200 bg-white p-5 rounded-2xl">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Timeline</h2>
                 <div className="mt-5 space-y-4">
                   {getTrackingEvents(shipment).map((event) => (

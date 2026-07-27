@@ -315,7 +315,9 @@ function applyRequestedChanges(draft: IShipmentDraft, appliedChanges: AppliedCha
     draft.consigneeValidatedAddress = null;
   }
 
-  draft.validationIssues = validateShipmentDraftFields(draft);
+  // Amendments only touch consignee, parcel, and service fields. Shipments booked
+  // before consignor capture existed must not be failed for missing consignor KYC.
+  draft.validationIssues = validateShipmentDraftFields(draft, { requireConsignorDetails: false });
   draft.status = draft.validationIssues.length ? "VALIDATION_FAILED" : "READY_FOR_DPD";
 
   return requestedSnapshot;

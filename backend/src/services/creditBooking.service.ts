@@ -75,7 +75,7 @@ async function appendBookingLedgerEntry(input: {
   creditAmountMinor: number;
   idempotencyKey: string;
   description: string;
-  createdBy: mongoose.Types.ObjectId;
+  createdBy: mongoose.Types.ObjectId | null;
   session: mongoose.ClientSession;
 }) {
   const balances = getCreditBalances(input.account);
@@ -110,6 +110,12 @@ function availableCreditExpression(now: Date, allowCredit = true) {
       {
         $and: [
           { $eq: ["$status", "ACTIVE"] },
+          {
+            $or: [
+              { $eq: ["$validFrom", null] },
+              { $lte: ["$validFrom", now] }
+            ]
+          },
           {
             $or: [
               { $eq: ["$validUntil", null] },
@@ -159,7 +165,10 @@ export async function reserveBookingCapacity(input: ReserveBookingCapacityInput)
 
   return runTransactionWithRetry(async (session) => {
     const concurrentReservation = await BalanceReservation.findOne({ idempotencyKey: input.idempotencyKey }).session(session).exec();
-    if (concurrentReservation) return { reserved: false as const, reservation: concurrentReservation };
+    if (concurrentReservation) {
+      const concurrentCharge = await ShipmentCharge.findOne({ shipmentDraftId: input.shipmentDraftId }).session(session).exec();
+      return { reserved: false as const, reservation: concurrentReservation, charge: concurrentCharge };
+    }
 
     const advanceAvailable = availableAdvanceExpression();
     const creditAvailable = availableCreditExpression(new Date(), allowCredit);
@@ -181,6 +190,7 @@ export async function reserveBookingCapacity(input: ReserveBookingCapacityInput)
           version: { $add: ["$version", 1] }
         }
       }],
+      // This Mongoose version requires updatePipeline to accept the pipeline-array update.
       { returnDocument: "before", session, updatePipeline: true }
     ).exec();
 
@@ -283,7 +293,13 @@ export async function convertBookingReservation(input: ReservationTransitionInpu
 
   return runTransactionWithRetry(async (session) => {
     const reservation = await findTransitionReservation(input, ["ACTIVE", "CONSUMING", "REVIEW_REQUIRED"], "CONVERTED", "convertedAt", session);
-    if (!reservation) throw new Error("BOOKING_RESERVATION_TRANSITION_INVALID");
+    if (!reservation) {
+      // A concurrent call may have already converted it; treat that as idempotent
+      // success rather than a transition error.
+      const priorLedger = await CreditLedgerEntry.findOne({ idempotencyKey: input.idempotencyKey }).session(session).exec();
+      if (priorLedger) return { converted: false as const, ledgerEntry: priorLedger };
+      throw new Error("BOOKING_RESERVATION_TRANSITION_INVALID");
+    }
 
     const account = await BusinessCreditAccount.findOneAndUpdate(
       {
@@ -332,7 +348,13 @@ export async function releaseBookingReservation(input: ReservationTransitionInpu
 
   return runTransactionWithRetry(async (session) => {
     const reservation = await findTransitionReservation(input, ["ACTIVE", "CONSUMING", "REVIEW_REQUIRED"], "RELEASED", "releasedAt", session);
-    if (!reservation) throw new Error("BOOKING_RESERVATION_TRANSITION_INVALID");
+    if (!reservation) {
+      // A concurrent call may have already released it; treat that as idempotent
+      // success rather than a transition error.
+      const priorLedger = await CreditLedgerEntry.findOne({ idempotencyKey: input.idempotencyKey }).session(session).exec();
+      if (priorLedger) return { released: false as const, ledgerEntry: priorLedger };
+      throw new Error("BOOKING_RESERVATION_TRANSITION_INVALID");
+    }
 
     const account = await BusinessCreditAccount.findOneAndUpdate(
       {
@@ -370,6 +392,83 @@ export async function releaseBookingReservation(input: ReservationTransitionInpu
     ).exec();
     return { released: true as const, reservation };
   });
+}
+
+// Release a single reservation that has passed its TTL without progressing to a
+// booking attempt. Only ACTIVE reservations are eligible — a CONSUMING one is a
+// live booking in flight and must never be swept.
+export async function expireStaleReservation(reservationId: mongoose.Types.ObjectId) {
+  const idempotencyKey = `BOOKING:EXPIRE:${reservationId.toString()}`;
+  const existingLedger = await CreditLedgerEntry.findOne({ idempotencyKey }).exec();
+  if (existingLedger) return { expired: false as const };
+
+  return runTransactionWithRetry(async (session) => {
+    const reservation = await BalanceReservation.findOneAndUpdate(
+      { _id: reservationId, status: "ACTIVE", expiresAt: { $lt: new Date() } },
+      { $set: { status: "EXPIRED", releasedAt: new Date() } },
+      { returnDocument: "after", runValidators: true, session }
+    ).exec();
+    if (!reservation) return { expired: false as const };
+
+    const account = await BusinessCreditAccount.findOneAndUpdate(
+      {
+        businessAccountId: reservation.businessAccountId,
+        reservedAdvanceMinor: { $gte: reservation.advanceAmountMinor },
+        reservedCreditMinor: { $gte: reservation.creditAmountMinor }
+      },
+      {
+        $inc: {
+          reservedAdvanceMinor: -reservation.advanceAmountMinor,
+          reservedCreditMinor: -reservation.creditAmountMinor,
+          version: 1
+        }
+      },
+      { returnDocument: "after", runValidators: true, session }
+    ).exec();
+    if (!account) throw new Error("BOOKING_RESERVATION_RELEASE_FAILED");
+
+    await appendBookingLedgerEntry({
+      account,
+      type: "BOOKING_RELEASED",
+      reservationId: reservation._id as mongoose.Types.ObjectId,
+      amountMinor: reservation.amountMinor,
+      advanceAmountMinor: reservation.advanceAmountMinor,
+      creditAmountMinor: reservation.creditAmountMinor,
+      idempotencyKey,
+      description: "Expired shipment booking reservation released.",
+      createdBy: null,
+      session
+    });
+    await ShipmentCharge.updateOne(
+      { balanceReservationId: reservation._id, customerChargeStatus: "RESERVED" },
+      { $set: { customerChargeStatus: "REVERSED" } },
+      { runValidators: true, session }
+    ).exec();
+
+    return { expired: true as const };
+  });
+}
+
+// Sweep all reservations that have passed their TTL. Safe to run repeatedly.
+export async function expireStaleReservations(input: { now?: Date; limit?: number } = {}) {
+  const now = input.now ?? new Date();
+  const stale = await BalanceReservation.find({ status: "ACTIVE", expiresAt: { $lt: now } })
+    .limit(input.limit ?? 500)
+    .select("_id")
+    .lean()
+    .exec();
+
+  let released = 0;
+  for (const reservation of stale) {
+    try {
+      const result = await expireStaleReservation(reservation._id as mongoose.Types.ObjectId);
+      if (result.expired) released += 1;
+    } catch (error) {
+      console.error("Failed to expire booking reservation", String(reservation._id), error);
+    }
+  }
+
+  return { scanned: stale.length, released };
 }
 
 export async function markBookingReservationReviewRequired(input: ReservationTransitionInput) {

@@ -194,6 +194,25 @@ async function main() {
           countryCode: account.contact.countryCode,
           mobileNumber: account.contact.mobileNumber
         },
+        consignorAddress: {
+          companyName: account.company.companyName,
+          contactName: `${account.contact.firstName} ${account.contact.lastName}`.trim() || "Demo Consignor",
+          email: `consignor.${account.contact.email}`,
+          mobileCountryCode: "+91",
+          mobileNumber: "9876543210",
+          // Valid Verhoeff check digit for the demo sender.
+          aadhaarNumber: "234567890124",
+          countryCode: "IN",
+          countryName: "India",
+          postcode: "110001",
+          addressLine1: "12 Connaught Place",
+          townOrCity: "New Delhi",
+          county: "Delhi"
+        },
+        kycDocuments: {
+          aadhaar: { type: "aadhaar", documentLabel: "Aadhaar Card", originalName: "aadhaar.pdf", storedName: "demo-aadhaar.pdf", mimeType: "application/pdf", size: 1024, path: "demo://kyc/aadhaar.pdf", uploadedAt: new Date() },
+          pan: { type: "pan", documentLabel: "PAN Card", originalName: "pan.pdf", storedName: "demo-pan.pdf", mimeType: "application/pdf", size: 1024, path: "demo://kyc/pan.pdf", uploadedAt: new Date() }
+        },
         consigneeEnteredAddress: destinationAddress,
         consigneeSelectedAddress: destinationAddress,
         consigneeValidatedAddress: destinationAddress,

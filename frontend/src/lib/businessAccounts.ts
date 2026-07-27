@@ -282,12 +282,15 @@ function findFirstApiError(value: unknown): string {
 
 // Pagination is opt-in: pass a page to receive a bounded window plus the total
 // count; omit it (e.g. branch detail) to receive every matching account.
-export async function listBusinessAccounts(search = "", branchId = "", page?: number, pageSize?: number) {
+// `status` narrows the count the API reports, so a caller that only needs a
+// tally (the dashboard KPIs) can ask for page 1 of 1 and read `total`.
+export async function listBusinessAccounts(search = "", branchId = "", page?: number, pageSize?: number, status?: BusinessAccountStatus) {
   const url = new URL(apiUrl("/api/v1/business-accounts"));
   if (search) url.searchParams.set("search", search);
   if (branchId) url.searchParams.set("branchId", branchId);
   if (page) url.searchParams.set("page", String(page));
   if (pageSize) url.searchParams.set("pageSize", String(pageSize));
+  if (status) url.searchParams.set("status", status);
 
   const response = await fetchWithAuth(url.toString());
 

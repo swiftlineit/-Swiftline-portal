@@ -77,7 +77,7 @@ export default function ShipmentInvoiceHistory({
   }
 
   return (
-    <section className="border border-slate-200 bg-white">
+    <section className="border border-slate-200 bg-white rounded-2xl">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div>
           <div className="flex items-center gap-2 text-slate-500">
@@ -116,7 +116,7 @@ export default function ShipmentInvoiceHistory({
                   <td className="px-5 py-4 text-slate-700">{date(version.issuedAt)}</td>
                   <td className="px-5 py-4 font-semibold text-slate-950">{money(version.totalAmountMinor, invoice.currency)}</td>
                   <td className="px-5 py-4">
-                    <span className={`inline-flex border px-2.5 py-1 text-xs font-semibold uppercase ${version.isLatest ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                    <span className={`inline-flex border px-2.5 py-1 rounded-2xl text-xs font-semibold uppercase ${version.isLatest ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
                       {version.isLatest ? "Current" : "Previous"}
                     </span>
                   </td>
@@ -127,7 +127,7 @@ export default function ShipmentInvoiceHistory({
                         target="_blank"
                         rel="noreferrer"
                         title={`View Invoice ${version.revision}`}
-                        className="inline-flex h-9 items-center gap-2 border border-slate-300 px-3 font-semibold text-blue-900 hover:border-blue-900"
+                        className="inline-flex  rounded-xl h-9 items-center gap-2 border border-slate-300 px-3 font-semibold text-blue-900 hover:border-blue-900"
                       >
                         <FiEye aria-hidden="true" />
                         View
@@ -137,7 +137,7 @@ export default function ShipmentInvoiceHistory({
                         target="_blank"
                         rel="noreferrer"
                         title={`Print Invoice ${version.revision}`}
-                        className="inline-flex h-9 w-9 items-center justify-center border border-slate-300 text-slate-700 hover:border-blue-900 hover:text-blue-900"
+                        className="inline-flex h-9 w-9 rounded items-center justify-center border border-slate-300 text-slate-700 hover:border-blue-900 hover:text-blue-900"
                       >
                         <FiPrinter aria-hidden="true" />
                       </Link>
@@ -146,7 +146,7 @@ export default function ShipmentInvoiceHistory({
                         onClick={() => void download(version.revision)}
                         disabled={downloadingRevision !== null}
                         title={`Download Invoice ${version.revision}`}
-                        className="inline-flex h-9 w-9 items-center justify-center border border-slate-300 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-300"
+                        className="inline-flex h-9 w-9 rounded items-center justify-center border border-slate-300 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-300"
                       >
                         <FiDownload aria-hidden="true" />
                       </button>

@@ -61,21 +61,21 @@ export default function CancellationsPage() {
             <option value="COMPLETED">Completed</option>
             <option value="REJECTED">Rejected</option>
           </select>
-          <button type="button" onClick={() => void load()} disabled={dataLoading} aria-label="Refresh cancellations" title="Refresh cancellations" className="flex h-10 w-10 items-center justify-center border border-slate-300 bg-white text-blue-900 disabled:opacity-50">
+          {/* <button type="button" onClick={() => void load()} disabled={dataLoading} aria-label="Refresh cancellations" title="Refresh cancellations" className="flex h-10 w-10 items-center justify-center border border-slate-300 bg-white text-blue-900 disabled:opacity-50">
             <FiRefreshCw className={dataLoading ? "animate-spin" : ""} aria-hidden="true" />
-          </button>
+          </button> */}
         </div>
       </div>
 
       {error ? <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
-      <div className="overflow-x-auto border border-slate-200 bg-white">
+      <div className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Shipment</th><th className="px-4 py-3">Consignee</th>
               <th className="px-4 py-3">Account / Branch</th><th className="px-4 py-3">Requested</th>
-              <th className="px-4 py-3 text-right">Invoice Amount</th><th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+              <th className="px-4 py-3">Invoice Amount</th><th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3 ">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -98,9 +98,9 @@ export default function CancellationsPage() {
                   <p className="text-slate-700">{formatDashboardDateTime(item.requestedAt)}</p>
                   <p className="mt-1 max-w-xs truncate text-xs text-slate-500">{item.reason}</p>
                 </td>
-                <td className="px-4 py-4 text-right font-semibold text-slate-950">{money.format(item.originalAmountMinor / 100)}</td>
-                <td className="px-4 py-4"><Status value={item.status} /></td>
-                <td className="px-4 py-4 text-right"><button type="button" onClick={() => setSelected(item)} className="font-semibold text-blue-900 hover:text-blue-700">{item.status === "REQUESTED" ? "Review" : "View"}</button></td>
+                <td className="px-4 py-4  font-semibold text-slate-950">{money.format(item.originalAmountMinor / 100)}</td>
+                <td className="px-4 py-4 "><Status value={item.status} /></td>
+                <td className="px-4 py-4 "><button type="button" onClick={() => setSelected(item)} className="font-semibold text-blue-900 hover:text-blue-700">{item.status === "REQUESTED" ? "Review" : "View"}</button></td>
               </tr>
             ))}
           </tbody>
@@ -114,7 +114,7 @@ export default function CancellationsPage() {
 
 function Status({ value }: { value: ShipmentCancellation["status"] }) {
   const classes = value === "COMPLETED" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : value === "REJECTED" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-800";
-  return <span className={"border px-2 py-1 text-xs font-semibold uppercase " + classes}>{value}</span>;
+  return <span className={"border px-2 py-1 rounded-2xl text-xs font-semibold uppercase " + classes}>{value}</span>;
 }
 
 function CancellationModal({ cancellation, onClose, onChanged }: {

@@ -134,6 +134,13 @@ export async function closeAdminCycle(businessAccountId: string) {
   ));
 }
 
+export async function writeOffAdminStatement(businessAccountId: string, statementId: string, input: { amountMinor: number; reason: string }) {
+  return parse<{ success: true; message: string; statement: CreditStatement }>(await fetchWithAuth(
+    apiUrl(`/api/v1/credit-accounts/${businessAccountId}/statements/${statementId}/write-off`),
+    json("POST", input)
+  ));
+}
+
 export async function listClientCreditPayments(businessAccountId: string) {
   return parse<{ success: true; payments: CreditPayment[] }>(await fetchWithAuth(
     apiUrl(`/api/v1/client/credit/payments?businessAccountId=${encodeURIComponent(businessAccountId)}`)

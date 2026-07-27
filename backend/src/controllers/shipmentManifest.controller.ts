@@ -14,6 +14,7 @@ import {
   buildManifestLine,
   buildShipmentManifestWorkbook,
   formatManifestOrigin,
+  manifestBusinessAccountName,
   serializeShipmentManifest,
   ShipmentManifestServiceError
 } from "../services/shipmentManifest.service.js";
@@ -215,6 +216,9 @@ async function createManifest(request: Request, response: Response, actorRole: "
 
     const bookingByDraft = new Map(bookings.map((booking) => [String(booking.shipmentDraftId), booking]));
     const inputByDraft = new Map(manifestInput.lines.map((line) => [line.shipmentDraftId, line]));
+    // All lines share one business account (enforced above), so the header name
+    // is taken from the first shipment's immutable snapshot.
+    let businessAccountName = "";
     const lineSnapshots = selectedIds.map((draftId) => {
       const booking = bookingByDraft.get(draftId);
       const lineInput = inputByDraft.get(draftId);
@@ -224,6 +228,7 @@ async function createManifest(request: Request, response: Response, actorRole: "
       if (!booking || !lineInput || !snapshot) {
         throw new ShipmentManifestServiceError("Shipment booking information is incomplete.", 409);
       }
+      if (!businessAccountName) businessAccountName = manifestBusinessAccountName(snapshot);
       return buildManifestLine({
         shipmentDraftId: new mongoose.Types.ObjectId(draftId),
         dpdShipmentId: booking._id,
@@ -239,6 +244,7 @@ async function createManifest(request: Request, response: Response, actorRole: "
       branchId: currentDraft.branchId,
       shipmentDraftIds: selectedObjectIds,
       headerSnapshot: {
+        businessAccountName,
         originBranch: [assignedBranch.name, assignedBranch.code].filter(Boolean).join(" - "),
         originAddress: formatManifestOrigin(assignedBranch),
         destinationAgent: manifestInput.destinationAgent,

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { FiArrowLeft, FiCheckCircle, FiClock, FiFileText, FiMapPin, FiPackage, FiTruck } from "react-icons/fi";
+import { FiArrowLeft, FiCheckCircle, FiClock, FiFileText, FiMapPin, FiPackage, FiTruck, FiChevronDown  } from "react-icons/fi";
 import { toast } from "react-toastify";
 import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import ShipmentAmendmentPanel from "@/components/shipments/ShipmentAmendmentPanel";
@@ -354,7 +354,7 @@ export default function AdminShipmentDetailsPage() {
                       setActionMode("status");
                       setActionNote("");
                     }}
-                    className="h-10 border border-blue-900 px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50"
+                    className="h-10 border border-blue-900 px-4 rounded-xl text-sm font-semibold text-blue-900 hover:bg-blue-50"
                   >
                     Update Status
                   </button>
@@ -366,7 +366,7 @@ export default function AdminShipmentDetailsPage() {
                       setActionMode("release");
                       setActionNote("");
                     }}
-                    className="h-10 border border-emerald-700 px-4 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+                    className="h-10 border border-emerald-700 px-4 rounded-xl text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
                   >
                     Release Hold
                   </button>
@@ -377,7 +377,7 @@ export default function AdminShipmentDetailsPage() {
                       setActionMode("hold");
                       setActionNote("");
                     }}
-                    className="h-10 border border-amber-700 px-4 text-sm font-semibold text-amber-700 hover:bg-amber-50"
+                    className="h-10 border border-amber-700 px-4 rounded-xl text-sm font-semibold text-amber-700 hover:bg-amber-50"
                   >
                     Put On Hold
                   </button>
@@ -406,33 +406,39 @@ export default function AdminShipmentDetailsPage() {
               </section>
             ) : null}
             {actionMode ? (
-              <section className="border border-slate-200 bg-white p-5">
+             <section className="border  bg-white p-5 rounded-2xl border-amber-300">
                 <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_auto] lg:items-end">
                   {actionMode === "hold" ? (
                     <label>
                       <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hold Reason</span>
-                      <select
-                        value={holdReason}
-                        onChange={(event) => setHoldReason(event.target.value as ShipmentHoldReason)}
-                        className="mt-2 h-10 w-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
-                      >
-                        {shipmentHoldReasonOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                      <div className="relative mt-2">
+                        <select
+                          value={holdReason}
+                          onChange={(event) => setHoldReason(event.target.value as ShipmentHoldReason)}
+                          className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
+                        >
+                          {shipmentHoldReasonOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      </div>
                     </label>
                   ) : actionMode === "status" ? (
                     <label>
                       <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shipment Status</span>
-                      <select
-                        value={nextStatus}
-                        onChange={(event) => setNextStatus(event.target.value as ShipmentOperationalStatus)}
-                        className="mt-2 h-10 w-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
-                      >
-                        {shipmentOperationalStatusOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
+                      <div className="relative mt-2">
+                        <select
+                          value={nextStatus}
+                          onChange={(event) => setNextStatus(event.target.value as ShipmentOperationalStatus)}
+                          className="h-10 w-full appearance-none border rounded-xl border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
+                        >
+                          {shipmentOperationalStatusOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      </div>
                     </label>
                   ) : (
                     <div>
@@ -448,7 +454,7 @@ export default function AdminShipmentDetailsPage() {
                       value={actionNote}
                       onChange={(event) => setActionNote(event.target.value)}
                       placeholder={actionMode === "hold" ? "Explain why this shipment is on hold" : actionMode === "release" ? "Explain why this shipment can continue" : "Optional status note"}
-                      className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
+                      className="mt-2 h-10 w-full border border-slate-300 px-3  rounded-xl text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
                     />
                   </label>
                   <div className="flex gap-2">
@@ -456,7 +462,7 @@ export default function AdminShipmentDetailsPage() {
                       type="button"
                       onClick={handleShipmentAction}
                       disabled={actionBusy || ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3)}
-                      className="h-10 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                      className="h-10 bg-blue-900 px-4  rounded-2xl text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                     >
                       {actionBusy ? "Saving..." : actionMode === "hold" ? "Hold" : actionMode === "release" ? "Release" : "Update"}
                     </button>
@@ -466,7 +472,7 @@ export default function AdminShipmentDetailsPage() {
                         setActionMode(null);
                         setActionNote("");
                       }}
-                      className="h-10 border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
+                      className="h-10 border     border-slate-300 px-4  rounded-2xl text-sm font-semibold text-slate-700 hover:border-slate-500"
                     >
                       Cancel
                     </button>
@@ -476,7 +482,7 @@ export default function AdminShipmentDetailsPage() {
         ) : null}
 
         {history?.dpdShipment.status === "DPD_CREATED" ? (
-          <section className="flex flex-wrap items-center justify-between gap-4 border border-amber-300 bg-amber-50 px-5 py-4">
+          <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4">
             <div>
               <h2 className="font-semibold text-amber-950">Carrier booking accepted, documents need review</h2>
               <p className="mt-1 text-sm text-amber-800">Finalize the saved booking without submitting another request to DPD.</p>
@@ -485,7 +491,7 @@ export default function AdminShipmentDetailsPage() {
               type="button"
               onClick={handleDocumentReconciliation}
               disabled={actionBusy}
-              className="h-10 border border-amber-700 bg-white px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60"
+              className="h-10 border border-amber-700 bg-white rounded-xl px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60"
             >
               {actionBusy ? "Finalizing..." : "Finalize Documents"}
             </button>
@@ -493,13 +499,13 @@ export default function AdminShipmentDetailsPage() {
         ) : null}
 
         {history?.dpdShipment.status === "DPD_STATUS_UNKNOWN" ? (
-          <section className="border border-red-300 bg-red-50 px-5 py-4">
+          <section className="border border-red-300 bg-red-50 rounded-2xl px-5 py-4">
             <h2 className="font-semibold text-red-950">Carrier outcome requires confirmation</h2>
             <p className="mt-1 text-sm text-red-800">Do not submit this shipment again. Confirm the booking directly with DPD before releasing or completing it.</p>
           </section>
         ) : null}
 
-            <section className="border border-slate-200 bg-white">
+            <section className="border border-slate-200 bg-white rounded-2xl">
               <div className="grid gap-0 lg:grid-cols-3">
                 <DetailPanel title="Shipment" icon={<FiTruck aria-hidden="true" className="h-4 w-4" />}>
                   <DetailRow label="Shipment Reference" value={history?.invoiceUpload?.shipmentReference} />
@@ -525,7 +531,7 @@ export default function AdminShipmentDetailsPage() {
             </section>
 
             {history?.bookingConfirmation && (history.shipmentInvoice?.revision ?? 1) === 1 ? (
-              <section className="border border-slate-200 bg-white">
+              <section className="border border-slate-200 bg-white rounded-xl">
                 <div className="border-b border-slate-200 px-5 py-4">
                   <h2 className="text-base font-semibold text-slate-950">Booking Confirmation</h2>
                   <p className="mt-1 text-sm text-slate-600">Locked shipment, pricing, and account allocation recorded at booking.</p>
@@ -598,30 +604,50 @@ export default function AdminShipmentDetailsPage() {
               onSubmit={handleAmendment}
             />
 
-            <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="border border-slate-200 bg-white p-5">
-                <div className="flex items-center gap-2 text-slate-500">
-                  <FiMapPin aria-hidden="true" className="h-4 w-4" />
-                  <h2 className="text-sm font-semibold uppercase tracking-wide">Destination</h2>
+          <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+              {/* Destination card */}
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-4">
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: "#E8E9F6" }}
+                  >
+                    <FiMapPin aria-hidden="true" className="h-4 w-4" style={{ color: "#0D1282" }} />
+                  </span>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Destination</h2>
                 </div>
-                <p className="mt-4 text-lg font-semibold text-slate-950">
-                  {draft.consigneeEnteredAddress.companyName || draft.consigneeEnteredAddress.contactName || "Consignee"}
-                </p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{getDestination(draft) || "Not available"}</p>
-                <div className="mt-5 grid gap-4 md:grid-cols-2">
-                  <DetailRow label="Contact" value={draft.consigneeEnteredAddress.contactName} />
-                  <DetailRow label="Email" value={draft.consigneeEnteredAddress.email} />
-                  <DetailRow
-                    label="Mobile"
-                    value={`${draft.consigneeEnteredAddress.mobileCountryCode ?? ""} ${draft.consigneeEnteredAddress.mobileNumber ?? ""}`.trim()}
-                  />
-                  <DetailRow label="Instructions" value={draft.consigneeEnteredAddress.deliveryInstructions} />
+
+                <div className="p-5">
+                  <p className="text-lg font-bold text-slate-900">
+                    {draft.consigneeEnteredAddress.companyName || draft.consigneeEnteredAddress.contactName || "Consignee"}
+                  </p>
+                  <p className="mt-1.5 text-sm leading-6 text-slate-600">{getDestination(draft) || "Not available"}</p>
+
+                  <div className="mt-5 grid gap-x-6 gap-y-4 border-t border-slate-100 pt-5 sm:grid-cols-2">
+                    <DetailRow label="Contact" value={draft.consigneeEnteredAddress.contactName} />
+                    <DetailRow label="Email" value={draft.consigneeEnteredAddress.email} />
+                    <DetailRow
+                      label="Mobile"
+                      value={`${draft.consigneeEnteredAddress.mobileCountryCode ?? ""} ${draft.consigneeEnteredAddress.mobileNumber ?? ""}`.trim()}
+                    />
+                    <DetailRow label="Instructions" value={draft.consigneeEnteredAddress.deliveryInstructions} />
+                  </div>
                 </div>
               </div>
 
-              <div className="border border-slate-200 bg-white p-5">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Timeline</h2>
-                <div className="mt-5 space-y-4">
+              {/* Shipment timeline card */}
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-4">
+                  <span
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                    style={{ backgroundColor: "#E8E9F6" }}
+                  >
+                    <FiClock aria-hidden="true" className="h-4 w-4" style={{ color: "#0D1282" }} />
+                  </span>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Timeline</h2>
+                </div>
+
+                <div className="space-y-4 p-5">
                   {getTrackingEvents(draft, history).map((event) => (
                     <TimelineItem key={event.label} done={event.done} label={event.label} value={event.value} />
                   ))}
@@ -629,7 +655,7 @@ export default function AdminShipmentDetailsPage() {
               </div>
             </section>
 
-            <section className="border border-slate-200 bg-white">
+            <section className="border border-slate-200 bg-white rounded-2xl">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Parcel Details</h2>
               </div>
@@ -669,8 +695,8 @@ export default function AdminShipmentDetailsPage() {
 
 function ConfirmationValue({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <div className={`min-w-0 border-b border-slate-200 px-5 py-4 sm:border-r xl:border-b-0 ${emphasis ? "bg-blue-950 text-white" : ""}`}>
-      <dt className={`text-xs font-semibold uppercase ${emphasis ? "text-blue-100" : "text-slate-500"}`}>{label}</dt>
+    <div className={`min-w-0 border-b border-slate-200 px-5 py-4 sm:border-r xl:border-b-0 `}>
+      <dt className={`text-xs font-semibold uppercase `}>{label}</dt>
       <dd className="mt-2 break-words font-semibold">{value}</dd>
     </div>
   );
@@ -683,13 +709,13 @@ function StatusPill({ label, tone }: { label: string; tone: "success" | "neutral
       ? "border-amber-200 bg-amber-50 text-amber-700"
       : "border-slate-200 bg-slate-50 text-slate-700";
 
-  return <span className={`border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${classes}`}>{label}</span>;
+  return <span className={`border px-3 py-3 rounded-xl text-xs font-semibold uppercase tracking-wide ${classes}`}>{label}</span>;
 }
 
 function DetailPanel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
   return (
     <div className="border-b border-slate-200 p-5 lg:border-b-0 lg:border-r lg:last:border-r-0">
-      <div className="flex items-center gap-2 text-slate-500">
+      <div className="flex items-center gap-2 text-blue-900">
         {icon}
         <h2 className="text-sm font-semibold uppercase tracking-wide">{title}</h2>
       </div>
@@ -710,7 +736,7 @@ function DetailRow({ label, value }: { label: string; value?: string | number | 
 function TimelineItem({ done, label, value }: { done: boolean; label: string; value: string }) {
   return (
     <div className="flex gap-3">
-      <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center border ${done ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-400"}`}>
+      <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center rounded justify-center border ${done ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-400"}`}>
         {done ? <FiCheckCircle aria-hidden="true" className="h-4 w-4" /> : <FiClock aria-hidden="true" className="h-4 w-4" />}
       </div>
       <div>

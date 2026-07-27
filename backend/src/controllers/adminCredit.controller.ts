@@ -1,9 +1,10 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { AuditLog } from "../models/auditLog.model.js";
+import { AuditLog, type AuditAction } from "../models/auditLog.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
-import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js";
+import { BusinessCreditAccount, type CreditAccountStatus, type IBusinessCreditAccount } from "../models/businessCreditAccount.model.js";
+import { type CreditLedgerEntryType } from "../models/creditLedgerEntry.model.js";
 import { CreditLimitHistory } from "../models/creditLimitHistory.model.js";
 import { maxCreditLimitMinor } from "../models/financialTypes.js";
 import { appendCreditLedgerEntry, ensureCreditAccount, getCreditActivationBlockers, serializeCreditAccount } from "../services/creditAccount.service.js";
@@ -126,13 +127,24 @@ export async function approveAdminCreditAccount(request: Request, response: Resp
 
   const session = await mongoose.startSession();
   try {
-    let result;
+    let result: { account: ReturnType<typeof serializeCreditAccount>; wasActive: boolean } | undefined;
     await session.withTransaction(async () => {
       const business = await BusinessAccount.findById(businessAccountId).session(session).exec();
       if (!business) throw new Error("BUSINESS_NOT_FOUND");
       const account = await ensureCreditAccount(businessAccountId, session);
+
+      // A live facility must stay live after an edit — resetting it to APPROVED
+      // would zero its available credit and break in-flight bookings.
+      if (account.status === "CLOSED") throw new Error("CREDIT_CLOSED_IMMUTABLE");
+      if (account.status === "SUSPENDED") throw new Error("CREDIT_SUSPENDED_EDIT");
+      const wasActive = account.status === "ACTIVE";
+
+      // Never let the approved limit drop below what is already committed.
+      const usedCreditMinor = account.reservedCreditMinor + account.unbilledCreditMinor + account.invoicedOutstandingMinor;
+      if (parsed.data.approvedCreditLimitMinor < usedCreditMinor) throw new Error("CREDIT_LIMIT_BELOW_USED");
+
       const previousLimitMinor = account.approvedCreditLimitMinor;
-      account.status = "APPROVED";
+      account.status = wasActive ? "ACTIVE" : "APPROVED";
       account.approvedCreditLimitMinor = parsed.data.approvedCreditLimitMinor;
       account.paymentTermsDays = parsed.data.paymentTermsDays;
       account.billingCycle = parsed.data.billingCycle;
@@ -166,11 +178,23 @@ export async function approveAdminCreditAccount(request: Request, response: Resp
         idempotencyKey: `CREDIT_APPROVAL:${String(account._id)}:${account.version}`,
         createdBy: currentUserId, metadata: { previousLimitMinor, reason: parsed.data.reason }, session
       });
-      result = serializeCreditAccount(account);
+      result = { account: serializeCreditAccount(account), wasActive };
     });
-    return response.status(200).json({ success: true, message: "Credit facility approved. Activate it after all requirements are complete.", creditAccount: result });
+    const stayedActive = result?.wasActive ?? false;
+    return response.status(200).json({
+      success: true,
+      message: stayedActive
+        ? "Credit facility updated. It remains active with the new terms."
+        : "Credit facility approved. Activate it after all requirements are complete.",
+      creditAccount: result?.account
+    });
   } catch (error) {
-    if (error instanceof Error && error.message === "BUSINESS_NOT_FOUND") return response.status(404).json({ success: false, message: "Business account not found." });
+    if (error instanceof Error) {
+      if (error.message === "BUSINESS_NOT_FOUND") return response.status(404).json({ success: false, message: "Business account not found." });
+      if (error.message === "CREDIT_CLOSED_IMMUTABLE") return response.status(409).json({ success: false, message: "A closed credit facility cannot be modified." });
+      if (error.message === "CREDIT_SUSPENDED_EDIT") return response.status(409).json({ success: false, message: "Reactivate the credit facility before changing its terms." });
+      if (error.message === "CREDIT_LIMIT_BELOW_USED") return response.status(409).json({ success: false, message: "Approved limit cannot be lower than the credit already in use. Collect payments first." });
+    }
     throw error;
   } finally { await session.endSession(); }
 }
@@ -195,21 +219,167 @@ export async function activateAdminCreditAccount(request: Request, response: Res
   });
   if (blockers.length) return response.status(409).json({ success: false, message: blockers[0], blockers });
 
-  account.status = "ACTIVE";
-  account.activatedBy = currentUserId;
-  account.activatedAt = new Date();
-  account.version += 1;
-  await account.save();
+  // Version-guarded so two concurrent admin actions cannot clobber each other.
+  const updated = await BusinessCreditAccount.findOneAndUpdate(
+    { _id: account._id, version: account.version, status: "APPROVED" },
+    { $set: { status: "ACTIVE", activatedBy: currentUserId, activatedAt: new Date() }, $inc: { version: 1 } },
+    { returnDocument: "after", runValidators: true }
+  ).exec();
+  if (!updated) return response.status(409).json({ success: false, message: "The credit account changed while activating. Reload and try again." });
+
   await appendCreditLedgerEntry({
-    account, type: "CREDIT_ACTIVATED", reference: `CREDIT-ACTIVATION-${account.version}`,
-    description: "Business credit facility activated.", idempotencyKey: `CREDIT_ACTIVATION:${String(account._id)}:${account.version}`,
+    account: updated, type: "CREDIT_ACTIVATED", reference: `CREDIT-ACTIVATION-${updated.version}`,
+    description: "Business credit facility activated.", idempotencyKey: `CREDIT_ACTIVATION:${String(updated._id)}:${updated.version}`,
     createdBy: currentUserId
   });
   await AuditLog.create({
-    action: "CREDIT_ACCOUNT_ACTIVATED", entityType: "BUSINESS_CREDIT_ACCOUNT", entityId: account._id,
+    action: "CREDIT_ACCOUNT_ACTIVATED", entityType: "BUSINESS_CREDIT_ACCOUNT", entityId: updated._id,
     performedBy: currentUserId, performedAt: new Date(), metadata: { businessAccountId }
   });
-  return response.status(200).json({ success: true, message: "Credit facility activated.", creditAccount: serializeCreditAccount(account) });
+  return response.status(200).json({ success: true, message: "Credit facility activated.", creditAccount: serializeCreditAccount(updated) });
+}
+
+class CreditLifecycleError extends Error {
+  constructor(public readonly statusCode: number, message: string) {
+    super(message);
+  }
+}
+
+function humanStatus(status: string) {
+  return status.toLowerCase().replace(/_/g, " ");
+}
+
+// Shared, version-guarded status transition. The account update and its ledger +
+// audit entries all commit together, and the version guard prevents two admins
+// from clobbering each other.
+async function runCreditStatusTransition(input: {
+  businessAccountId: mongoose.Types.ObjectId;
+  currentUserId: mongoose.Types.ObjectId;
+  allowedFrom: CreditAccountStatus[];
+  toStatus: CreditAccountStatus;
+  reason: string;
+  holdReason: string;
+  ledgerType: CreditLedgerEntryType;
+  auditAction: AuditAction;
+  description: string;
+  guard?: (account: IBusinessCreditAccount) => string | null;
+}) {
+  const session = await mongoose.startSession();
+  try {
+    let serialized: ReturnType<typeof serializeCreditAccount> | undefined;
+    await session.withTransaction(async () => {
+      const account = await BusinessCreditAccount.findOne({ businessAccountId: input.businessAccountId }).session(session).exec();
+      if (!account) throw new CreditLifecycleError(404, "Credit account not found.");
+      if (!input.allowedFrom.includes(account.status)) {
+        throw new CreditLifecycleError(409, `A ${humanStatus(account.status)} credit facility cannot be moved to ${humanStatus(input.toStatus)}.`);
+      }
+      const guardMessage = input.guard?.(account);
+      if (guardMessage) throw new CreditLifecycleError(409, guardMessage);
+
+      const updated = await BusinessCreditAccount.findOneAndUpdate(
+        { _id: account._id, version: account.version },
+        { $set: { status: input.toStatus, holdReason: input.holdReason }, $inc: { version: 1 } },
+        { returnDocument: "after", runValidators: true, session }
+      ).exec();
+      if (!updated) throw new CreditLifecycleError(409, "The credit account changed while updating. Try again.");
+
+      await appendCreditLedgerEntry({
+        account: updated,
+        type: input.ledgerType,
+        reference: `CREDIT-${input.toStatus}-${updated.version}`,
+        description: input.description,
+        idempotencyKey: `CREDIT_STATUS:${String(updated._id)}:${input.toStatus}:${updated.version}`,
+        createdBy: input.currentUserId,
+        metadata: { reason: input.reason, fromStatus: account.status, toStatus: input.toStatus },
+        session
+      });
+      await AuditLog.create([{
+        action: input.auditAction,
+        entityType: "BUSINESS_CREDIT_ACCOUNT",
+        entityId: updated._id,
+        performedBy: input.currentUserId,
+        performedAt: new Date(),
+        metadata: { businessAccountId: input.businessAccountId, reason: input.reason, fromStatus: account.status, toStatus: input.toStatus }
+      }], { session });
+
+      serialized = serializeCreditAccount(updated);
+    });
+    return { ok: true as const, account: serialized };
+  } catch (error) {
+    if (error instanceof CreditLifecycleError) return { ok: false as const, statusCode: error.statusCode, message: error.message };
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+}
+
+export async function suspendAdminCreditAccount(request: Request, response: Response): Promise<Response> {
+  const currentUserId = userId(request);
+  const businessAccountId = accountId(request);
+  if (!currentUserId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  if (!businessAccountId) return response.status(404).json({ success: false, message: "Business account not found." });
+  const parsed = reasonSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, message: "Provide a reason for suspension." });
+
+  const result = await runCreditStatusTransition({
+    businessAccountId, currentUserId,
+    allowedFrom: ["ACTIVE"], toStatus: "SUSPENDED",
+    reason: parsed.data.reason, holdReason: parsed.data.reason,
+    ledgerType: "CREDIT_SUSPENDED", auditAction: "CREDIT_ACCOUNT_SUSPENDED",
+    description: "Business credit facility suspended."
+  });
+  if (!result.ok) return response.status(result.statusCode).json({ success: false, message: result.message });
+  return response.status(200).json({ success: true, message: "Credit facility suspended.", creditAccount: result.account });
+}
+
+export async function reactivateAdminCreditAccount(request: Request, response: Response): Promise<Response> {
+  const currentUserId = userId(request);
+  const businessAccountId = accountId(request);
+  if (!currentUserId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  if (!businessAccountId) return response.status(404).json({ success: false, message: "Business account not found." });
+  const parsed = reasonSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, message: "Provide a reason for reactivation." });
+
+  const result = await runCreditStatusTransition({
+    businessAccountId, currentUserId,
+    allowedFrom: ["SUSPENDED"], toStatus: "ACTIVE",
+    reason: parsed.data.reason, holdReason: "",
+    ledgerType: "CREDIT_REACTIVATED", auditAction: "CREDIT_ACCOUNT_REACTIVATED",
+    description: "Business credit facility reactivated.",
+    guard: (account) => {
+      if (account.approvedCreditLimitMinor <= 0) return "Approve a credit limit before reactivating.";
+      if (account.validUntil && account.validUntil <= new Date()) {
+        return "Credit validity has expired. Re-approve with a new validity period before reactivating.";
+      }
+      return null;
+    }
+  });
+  if (!result.ok) return response.status(result.statusCode).json({ success: false, message: result.message });
+  return response.status(200).json({ success: true, message: "Credit facility reactivated.", creditAccount: result.account });
+}
+
+export async function closeAdminCreditAccount(request: Request, response: Response): Promise<Response> {
+  const currentUserId = userId(request);
+  const businessAccountId = accountId(request);
+  if (!currentUserId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  if (!businessAccountId) return response.status(404).json({ success: false, message: "Business account not found." });
+  const parsed = reasonSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, message: "Provide a reason for closing the facility." });
+
+  const result = await runCreditStatusTransition({
+    businessAccountId, currentUserId,
+    allowedFrom: ["APPROVED", "ACTIVE", "SUSPENDED", "EXPIRED", "REJECTED"], toStatus: "CLOSED",
+    reason: parsed.data.reason, holdReason: parsed.data.reason,
+    ledgerType: "CREDIT_CLOSED", auditAction: "CREDIT_ACCOUNT_CLOSED",
+    description: "Business credit facility closed.",
+    // Closing stops new usage but does not forgive outstanding statements; it must
+    // not strand funds reserved for a booking still in flight.
+    guard: (account) => (account.reservedCreditMinor > 0 || account.reservedAdvanceMinor > 0)
+      ? "Resolve in-flight bookings before closing this facility."
+      : null
+  });
+  if (!result.ok) return response.status(result.statusCode).json({ success: false, message: result.message });
+  return response.status(200).json({ success: true, message: "Credit facility closed.", creditAccount: result.account });
 }
 
 export async function rejectAdminCreditAccount(request: Request, response: Response): Promise<Response> {
@@ -223,17 +393,20 @@ export async function rejectAdminCreditAccount(request: Request, response: Respo
   if (!["NOT_REQUESTED", "PENDING_REVIEW", "APPROVED", "REJECTED"].includes(account.status)) {
     return response.status(409).json({ success: false, message: "This credit facility cannot be rejected in its current status." });
   }
-  account.status = "REJECTED";
-  account.internalRemarks = parsed.data.reason;
-  account.reviewedBy = currentUserId;
-  account.reviewedAt = new Date();
-  account.version += 1;
-  await account.save();
+
+  // Version-guarded so concurrent admin actions cannot clobber each other.
+  const updated = await BusinessCreditAccount.findOneAndUpdate(
+    { _id: account._id, version: account.version },
+    { $set: { status: "REJECTED", internalRemarks: parsed.data.reason, reviewedBy: currentUserId, reviewedAt: new Date() }, $inc: { version: 1 } },
+    { returnDocument: "after", runValidators: true }
+  ).exec();
+  if (!updated) return response.status(409).json({ success: false, message: "The credit account changed while rejecting. Reload and try again." });
+
   await BusinessAccount.findByIdAndUpdate(businessAccountId, { creditLimitStatus: "not_approved", updatedBy: currentUserId }).exec();
   await appendCreditLedgerEntry({
-    account, type: "CREDIT_REJECTED", reference: `CREDIT-REJECTION-${account.version}`,
-    description: "Business credit request rejected.", idempotencyKey: `CREDIT_REJECTION:${String(account._id)}:${account.version}`,
+    account: updated, type: "CREDIT_REJECTED", reference: `CREDIT-REJECTION-${updated.version}`,
+    description: "Business credit request rejected.", idempotencyKey: `CREDIT_REJECTION:${String(updated._id)}:${updated.version}`,
     createdBy: currentUserId, metadata: { reason: parsed.data.reason }
   });
-  return response.status(200).json({ success: true, message: "Credit request rejected.", creditAccount: serializeCreditAccount(account) });
+  return response.status(200).json({ success: true, message: "Credit request rejected.", creditAccount: serializeCreditAccount(updated) });
 }

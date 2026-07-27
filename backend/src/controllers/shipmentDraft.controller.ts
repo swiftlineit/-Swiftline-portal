@@ -12,6 +12,7 @@ import {
   getDpdProviderConfiguration
 } from "../services/dpdProviderConfiguration.service.js";
 import { parseDpdInvoiceWorkbook } from "../services/invoiceParser.service.js";
+import { maskAadhaarNumber, normalizeAadhaarNumber } from "../services/aadhaarValidation.service.js";
 import { validateShipmentDraftFields } from "../services/shipmentValidation.service.js";
 import {
   assertShipmentDraftMutationAllowed,
@@ -44,6 +45,22 @@ const addressPatchSchema = z.object({
   deliveryInstructions: z.string().trim().max(500).optional()
 });
 
+// Country, country name, and dialling code are pinned by the model, so they are
+// intentionally absent here and cannot be overridden by a client.
+const consignorPatchSchema = z.object({
+  companyName: z.string().trim().max(120).optional(),
+  contactName: z.string().trim().max(120).optional(),
+  email: z.string().trim().max(160).optional(),
+  mobileNumber: z.string().trim().max(30).optional(),
+  aadhaarNumber: z.string().trim().max(20).transform((value) => normalizeAadhaarNumber(value)).optional(),
+  postcode: z.string().trim().toUpperCase().max(20).optional(),
+  addressLine1: z.string().trim().max(120).optional(),
+  addressLine2: z.string().trim().max(120).optional(),
+  townOrCity: z.string().trim().max(80).optional(),
+  county: z.string().trim().max(80).optional(),
+  pickupInstructions: z.string().trim().max(500).optional()
+});
+
 const parcelPatchSchema = z.object({
   sequence: z.coerce.number().int().positive(),
   weightKg: z.coerce.number().nonnegative(),
@@ -53,11 +70,16 @@ const parcelPatchSchema = z.object({
   shipmentContentType: z.enum(shipmentContentTypeValues).default("PARCEL"),
   contentsDescription: z.string().trim().max(120),
   shipmentReference1: z.string().trim().max(120).optional(),
-  shipmentReference2: z.string().trim().max(120).optional()
+  shipmentReference2: z.string().trim().max(120).optional(),
+  // Per-parcel Aadhaar for shipments not sharing one KYC set. Uploaded files are
+  // server-managed and preserved separately, never sent by the client.
+  aadhaarNumber: z.string().trim().max(20).transform((value) => normalizeAadhaarNumber(value)).optional()
 });
 
 const draftPatchSchema = z.object({
+  consignorAddress: consignorPatchSchema.optional(),
   consigneeEnteredAddress: addressPatchSchema.optional(),
+  kycUseForAllParcels: z.boolean().optional(),
   parcelList: z.array(parcelPatchSchema).min(1).max(10).optional(),
   serviceType: z.enum(shipmentServiceTypeValues).optional(),
   serviceCode: z.string().trim().max(40).optional()
@@ -147,6 +169,13 @@ function getDraftPatchValidationIssues(error: z.ZodError) {
     if (path.endsWith(".contentsDescription")) return "Parcel contents description is required";
     if (path === "serviceType") return "Service type must be Courier or Cargo";
     if (path === "serviceCode") return "DPD service code must be 40 characters or fewer";
+    if (path === "consignorAddress.contactName") return "Consignor contact name must be 120 characters or fewer";
+    if (path === "consignorAddress.email") return "Consignor email must be 160 characters or fewer";
+    if (path === "consignorAddress.mobileNumber") return "Consignor mobile number must be 30 characters or fewer";
+    if (path === "consignorAddress.aadhaarNumber") return "Aadhaar number must be 12 digits";
+    if (path === "consignorAddress.addressLine1") return "Consignor address line 1 must be 120 characters or fewer";
+    if (path === "consignorAddress.townOrCity") return "Consignor town or city must be 80 characters or fewer";
+    if (path === "consignorAddress.postcode") return "Consignor PIN code must be 20 characters or fewer";
     if (path === "consigneeEnteredAddress.contactName") return "Contact name must be 120 characters or fewer";
     if (path === "consigneeEnteredAddress.mobileCountryCode") return "Mobile country code must be 8 characters or fewer";
     if (path === "consigneeEnteredAddress.mobileNumber") return "Mobile number must be 30 characters or fewer";
@@ -270,6 +299,28 @@ export async function updateShipmentDraft(request: Request, response: Response):
   const changedAt = new Date().toISOString();
   const changedFields: FieldChange[] = [];
 
+  if (parsed.data.consignorAddress) {
+    const originalConsignor = { ...(shipmentDraft.consignorAddress ?? {}) } as Record<string, unknown>;
+
+    for (const [fieldName, newValue] of Object.entries(parsed.data.consignorAddress)) {
+      // Aadhaar numbers never reach the audit trail in full.
+      const isAadhaar = fieldName === "aadhaarNumber";
+      recordFieldChange(
+        changedFields,
+        `consignorAddress.${fieldName}`,
+        isAadhaar ? maskAadhaarNumber(originalConsignor[fieldName]) : originalConsignor[fieldName],
+        isAadhaar ? maskAadhaarNumber(newValue) : newValue,
+        userId,
+        changedAt
+      );
+    }
+
+    shipmentDraft.consignorAddress = {
+      ...(shipmentDraft.consignorAddress ?? {}),
+      ...parsed.data.consignorAddress
+    } as typeof shipmentDraft.consignorAddress;
+  }
+
   if (parsed.data.consigneeEnteredAddress) {
     const originalAddress = { ...shipmentDraft.consigneeEnteredAddress } as Record<string, unknown>;
 
@@ -289,7 +340,25 @@ export async function updateShipmentDraft(request: Request, response: Response):
       ...parsed.data.consigneeEnteredAddress
     };
 
-    if (changedFields.some((field) => field.fieldName.startsWith("consigneeEnteredAddress."))) {
+    // Only a change to the postal address itself invalidates a prior address
+    // validation. Editing contact fields (name, email, phone, delivery notes) must
+    // NOT reset it, otherwise a manual "use address as entered" confirmation is lost
+    // every time an unrelated field is corrected, forcing the user to re-confirm.
+    const addressRelevantFields = new Set([
+      "countryCode",
+      "countryName",
+      "addressLine1",
+      "addressLine2",
+      "townOrCity",
+      "county",
+      "postcode"
+    ]);
+    const postalAddressChanged = changedFields.some((field) =>
+      field.fieldName.startsWith("consigneeEnteredAddress.")
+      && addressRelevantFields.has(field.fieldName.slice("consigneeEnteredAddress.".length))
+    );
+
+    if (postalAddressChanged) {
       shipmentDraft.addressValidationStatus = "NOT_VALIDATED";
       shipmentDraft.consigneeValidatedAddress = null;
     }
@@ -300,29 +369,60 @@ export async function updateShipmentDraft(request: Request, response: Response):
       const originalParcel = { ...(shipmentDraft.parcelList[index] ?? {}) } as Record<string, unknown>;
 
       for (const [fieldName, newValue] of Object.entries(nextParcel)) {
+        // Parcel Aadhaar numbers, like the consignor's, are masked in the audit log.
+        const isAadhaar = fieldName === "aadhaarNumber";
         recordFieldChange(
           changedFields,
           `parcelList.${index}.${fieldName}`,
-          originalParcel[fieldName],
-          newValue ?? "",
+          isAadhaar ? maskAadhaarNumber(originalParcel[fieldName]) : originalParcel[fieldName],
+          isAadhaar ? maskAadhaarNumber(newValue) : (newValue ?? ""),
           userId,
           changedAt
         );
       }
     });
 
-    shipmentDraft.parcelList = parsed.data.parcelList.map((parcel) => ({
-      sequence: parcel.sequence,
-      weightKg: parcel.weightKg,
-      lengthCm: parcel.lengthCm ?? undefined,
-      widthCm: parcel.widthCm ?? undefined,
-      heightCm: parcel.heightCm ?? undefined,
-      shipmentContentType: parcel.shipmentContentType,
-      contentsDescription: parcel.contentsDescription,
-      shipmentReference1: parcel.shipmentReference1 ?? "",
-      shipmentReference2: parcel.shipmentReference2 ?? ""
-    }));
+    // KYC uploads are server-managed and are preserved by sequence across a parcel
+    // edit. Files belonging to parcels that no longer exist are cleaned up.
+    const existingBySequence = new Map(shipmentDraft.parcelList.map((parcel) => [parcel.sequence, parcel]));
+    const nextSequences = new Set(parsed.data.parcelList.map((parcel) => parcel.sequence));
+    const removedKycPaths = shipmentDraft.parcelList
+      .filter((parcel) => !nextSequences.has(parcel.sequence))
+      .flatMap((parcel) => Object.values(parcel.kycDocuments ?? {}))
+      .map((document) => document?.path)
+      .filter((filePath): filePath is string => Boolean(filePath));
+
+    shipmentDraft.parcelList = parsed.data.parcelList.map((parcel) => {
+      const existing = existingBySequence.get(parcel.sequence);
+      return {
+        sequence: parcel.sequence,
+        weightKg: parcel.weightKg,
+        lengthCm: parcel.lengthCm ?? undefined,
+        widthCm: parcel.widthCm ?? undefined,
+        heightCm: parcel.heightCm ?? undefined,
+        shipmentContentType: parcel.shipmentContentType,
+        contentsDescription: parcel.contentsDescription,
+        shipmentReference1: parcel.shipmentReference1 ?? "",
+        shipmentReference2: parcel.shipmentReference2 ?? "",
+        aadhaarNumber: parcel.aadhaarNumber ?? existing?.aadhaarNumber ?? "",
+        kycDocuments: existing?.kycDocuments ?? {}
+      };
+    });
     shipmentDraft.parcelCount = shipmentDraft.parcelList.length;
+
+    await Promise.all(removedKycPaths.map((filePath) => fs.promises.unlink(filePath).catch(() => undefined)));
+  }
+
+  if (typeof parsed.data.kycUseForAllParcels === "boolean") {
+    recordFieldChange(
+      changedFields,
+      "kycUseForAllParcels",
+      shipmentDraft.kycUseForAllParcels,
+      parsed.data.kycUseForAllParcels,
+      userId,
+      changedAt
+    );
+    shipmentDraft.kycUseForAllParcels = parsed.data.kycUseForAllParcels;
   }
 
   if (typeof parsed.data.serviceCode === "string") {

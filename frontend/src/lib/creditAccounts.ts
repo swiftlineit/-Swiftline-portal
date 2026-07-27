@@ -145,6 +145,21 @@ export async function rejectCreditAccount(businessAccountId: string, reason: str
   return parse<{ success: true; message: string; creditAccount: CreditAccount }>(response);
 }
 
+export async function suspendCreditAccount(businessAccountId: string, reason: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/credit-accounts/${businessAccountId}/suspend`), json("POST", { reason }));
+  return parse<{ success: true; message: string; creditAccount: CreditAccount }>(response);
+}
+
+export async function reactivateCreditAccount(businessAccountId: string, reason: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/credit-accounts/${businessAccountId}/reactivate`), json("POST", { reason }));
+  return parse<{ success: true; message: string; creditAccount: CreditAccount }>(response);
+}
+
+export async function closeCreditAccount(businessAccountId: string, reason: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/credit-accounts/${businessAccountId}/close`), json("POST", { reason }));
+  return parse<{ success: true; message: string; creditAccount: CreditAccount }>(response);
+}
+
 export function formatCreditMoney(valueMinor?: number, currency = "INR") {
   if (valueMinor === undefined) return "Restricted";
   return new Intl.NumberFormat("en-IN", { style: "currency", currency, minimumFractionDigits: 2 }).format(valueMinor / 100);

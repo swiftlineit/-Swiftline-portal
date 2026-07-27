@@ -18,10 +18,10 @@ export default function CreditSummaryCards({ account }: { account: CreditAccount
   return (
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {metrics.map((metric, index) => (
-        <div key={metric.key} className={`border p-4 ${index === metrics.length - 1 ? "border-blue-900 bg-blue-900 text-white" : "border-slate-200 bg-white"}`}>
-          <p className={`text-xs font-semibold uppercase ${index === metrics.length - 1 ? "text-blue-100" : "text-slate-500"}`}>{metric.label}</p>
+        <div key={metric.key} className={`border p-4 rounded-xl  border-amber-300 bg-blue-500 text-white`}>
+          <p className={`text-xs font-semibold uppercase `}>{metric.label}</p>
           <p className="mt-3 text-xl font-semibold">{formatCreditMoney(account[metric.key] as number | undefined, account.currency)}</p>
-          <p className={`mt-1 text-xs ${index === metrics.length - 1 ? "text-blue-100" : "text-slate-500"}`}>
+          <p className={`mt-1 text-xs`}>
             {metric.key === "availableBookingCapacityMinor" ? bookingCapacityDetail : metric.detail}
           </p>
         </div>

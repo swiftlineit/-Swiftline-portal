@@ -10,6 +10,7 @@ import {
   findCreditPaymentByRazorpayOrderId,
   markCreditPaymentFailed
 } from "../services/creditPayment.service.js";
+import { SYSTEM_ACTOR_ID } from "../utils/systemActor.js";
 
 function getHeaderValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
@@ -153,7 +154,9 @@ export async function handleRazorpayWebhook(request: Request, response: Response
 
       await applyVerifiedCreditPayment({
         paymentId: creditPayment._id as mongoose.Types.ObjectId,
-        verifiedBy: creditPayment.submittedBy,
+        // Automated gateway confirmation is a system action, not something the
+        // client who paid "verified" themselves.
+        verifiedBy: SYSTEM_ACTOR_ID,
         razorpayPaymentId: payment.id,
       });
       await markWebhookProcessed(providerEventId, "PROCESSED");

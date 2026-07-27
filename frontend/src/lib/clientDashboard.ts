@@ -11,6 +11,8 @@ import {
   ShipmentBookingConfirmation,
   ShipmentDraft,
   ShipmentDraftPatch,
+  ShipmentKycDocumentType,
+  ShipmentKycDocuments,
   formatShipmentValidationIssues
 } from "@/lib/dpdLabels";
 
@@ -609,6 +611,127 @@ export async function getClientPlaceAddress(placeId: string, shipmentDraftId?: s
       address: PortalAddress;
     };
   }>(response);
+}
+
+export async function autocompleteClientConsignorAddress(input: string) {
+  const response = await fetchWithAuth(apiUrl("/api/v1/client/dpd-labels/addresses/consignor/autocomplete"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input })
+  });
+
+  return parseApiResponse<{
+    success: true;
+    predictions: AddressPrediction[];
+  }>(response);
+}
+
+export async function getClientConsignorPlaceAddress(placeId: string, shipmentDraftId: string) {
+  const url = new URL(apiUrl(`/api/v1/client/dpd-labels/addresses/consignor/places/${encodeURIComponent(placeId)}`));
+  url.searchParams.set("shipmentDraftId", shipmentDraftId);
+  const response = await fetchWithAuth(url.toString());
+
+  return parseApiResponse<{
+    success: true;
+    place: {
+      placeId: string;
+      formattedAddress: string;
+      address: PortalAddress;
+    };
+  }>(response);
+}
+
+export async function uploadClientShipmentKycDocument(input: {
+  shipmentDraftId: string;
+  type: ShipmentKycDocumentType;
+  file: File;
+  documentLabel?: string;
+}) {
+  const formData = new FormData();
+  formData.append("document", input.file);
+  if (input.documentLabel) formData.append("documentLabel", input.documentLabel);
+
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/client/dpd-labels/drafts/${input.shipmentDraftId}/kyc-documents/${input.type}`),
+    { method: "POST", body: formData }
+  );
+
+  return parseApiResponse<{
+    success: true;
+    kycDocuments: ShipmentKycDocuments;
+    validationIssues: string[];
+  }>(response);
+}
+
+export async function deleteClientShipmentKycDocument(shipmentDraftId: string, type: ShipmentKycDocumentType) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/kyc-documents/${type}`),
+    { method: "DELETE" }
+  );
+
+  return parseApiResponse<{
+    success: true;
+    kycDocuments: ShipmentKycDocuments;
+    validationIssues: string[];
+  }>(response);
+}
+
+export async function openClientShipmentKycDocument(shipmentDraftId: string, type: ShipmentKycDocumentType) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/kyc-documents/${type}`)
+  );
+
+  if (!response.ok) throw new Error("Unable to open this KYC document.");
+
+  return response.blob();
+}
+
+export async function uploadClientShipmentParcelKycDocument(input: {
+  shipmentDraftId: string;
+  sequence: number;
+  type: ShipmentKycDocumentType;
+  file: File;
+  documentLabel?: string;
+}) {
+  const formData = new FormData();
+  formData.append("document", input.file);
+  if (input.documentLabel) formData.append("documentLabel", input.documentLabel);
+
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/client/dpd-labels/drafts/${input.shipmentDraftId}/parcels/${input.sequence}/kyc-documents/${input.type}`),
+    { method: "POST", body: formData }
+  );
+
+  return parseApiResponse<{
+    success: true;
+    parcelSequence: number;
+    kycDocuments: ShipmentKycDocuments;
+    validationIssues: string[];
+  }>(response);
+}
+
+export async function deleteClientShipmentParcelKycDocument(shipmentDraftId: string, sequence: number, type: ShipmentKycDocumentType) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/parcels/${sequence}/kyc-documents/${type}`),
+    { method: "DELETE" }
+  );
+
+  return parseApiResponse<{
+    success: true;
+    parcelSequence: number;
+    kycDocuments: ShipmentKycDocuments;
+    validationIssues: string[];
+  }>(response);
+}
+
+export async function openClientShipmentParcelKycDocument(shipmentDraftId: string, sequence: number, type: ShipmentKycDocumentType) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/parcels/${sequence}/kyc-documents/${type}`)
+  );
+
+  if (!response.ok) throw new Error("Unable to open this KYC document.");
+
+  return response.blob();
 }
 
 export async function validateClientAddress(input: {

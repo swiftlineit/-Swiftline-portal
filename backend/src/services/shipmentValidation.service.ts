@@ -1,10 +1,128 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js";
-import { shipmentContentTypeValues, type IShipmentDraft, type ShipmentParcel } from "../models/shipmentDraft.model.js";
+import {
+  consignorCountryCode,
+  shipmentContentTypeValues,
+  type IShipmentDraft,
+  type ShipmentParcel
+} from "../models/shipmentDraft.model.js";
+import { isValidAadhaarNumber } from "./aadhaarValidation.service.js";
+import { findRestrictedCategories } from "./restrictedGoods.service.js";
 
 const ukPostcodePattern = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/;
+const indianPostcodePattern = /^[1-9]\d{5}$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function hasText(value: unknown): boolean {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function comparableText(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase().replace(/\s+/g, " ") : "";
+}
+
+function comparablePhone(countryCode: unknown, number: unknown): string {
+  const digits = `${typeof countryCode === "string" ? countryCode : ""}${typeof number === "string" ? number : ""}`
+    .replace(/\D/g, "");
+  // Compare the subscriber part so "+91 98…" and "098…" are still seen as equal.
+  return digits.replace(/^0+/, "").slice(-10);
+}
+
+function validateConsignor(draft: IShipmentDraft): string[] {
+  const consignor = draft.consignorAddress;
+  const issues: string[] = [];
+
+  if (!consignor) return ["Consignor details are required"];
+
+  if (!hasText(consignor.contactName)) issues.push("Consignor contact name is required");
+  if (!hasText(consignor.mobileNumber)) issues.push("Consignor mobile number is required");
+  if (!hasText(consignor.email)) issues.push("Consignor email is required");
+  if (hasText(consignor.email) && !emailPattern.test(consignor.email!.trim())) {
+    issues.push("Enter a valid consignor email address");
+  }
+
+  const consignorPhone = parsePhoneNumberFromString(`${consignor.mobileCountryCode ?? ""}${consignor.mobileNumber ?? ""}`);
+  if (hasText(consignor.mobileNumber) && !consignorPhone?.isValid()) {
+    issues.push("Enter a valid Indian consignor mobile number");
+  }
+
+  // Aadhaar now lives in the KYC section (shared or per parcel), validated separately.
+
+  if (consignor.countryCode?.trim().toUpperCase() !== consignorCountryCode) {
+    issues.push("Consignor country must be India");
+  }
+  if (!hasText(consignor.addressLine1)) issues.push("Consignor address line 1 is required");
+  if (!hasText(consignor.townOrCity)) issues.push("Consignor town or city is required");
+  if (!hasText(consignor.postcode)) {
+    issues.push("Consignor PIN code is required");
+  } else if (!indianPostcodePattern.test(consignor.postcode.trim())) {
+    issues.push("Enter a valid 6 digit consignor PIN code");
+  }
+
+  return issues;
+}
+
+function validateConsignorConsigneeAreDistinct(draft: IShipmentDraft): string[] {
+  const consignor = draft.consignorAddress;
+  const consignee = draft.consigneeEnteredAddress;
+  const issues: string[] = [];
+
+  if (!consignor) return issues;
+
+  const consignorName = comparableText(consignor.contactName);
+  const consigneeName = comparableText(consignee.contactName);
+  if (consignorName && consignorName === consigneeName) {
+    issues.push("Consignor and consignee contact names must be different");
+  }
+
+  const consignorPhone = comparablePhone(consignor.mobileCountryCode, consignor.mobileNumber);
+  const consigneePhone = comparablePhone(consignee.mobileCountryCode, consignee.mobileNumber);
+  if (consignorPhone && consignorPhone === consigneePhone) {
+    issues.push("Consignor and consignee mobile numbers must be different");
+  }
+
+  const consignorEmail = comparableText(consignor.email);
+  const consigneeEmail = comparableText(consignee.email);
+  if (consignorEmail && consignorEmail === consigneeEmail) {
+    issues.push("Consignor and consignee email addresses must be different");
+  }
+
+  return issues;
+}
+
+// Only the Aadhaar number and Aadhaar card are mandatory; PAN and Other are
+// optional. When kycUseForAllParcels is false, every parcel must carry its own.
+function validateKycDocuments(draft: IShipmentDraft): string[] {
+  const issues: string[] = [];
+
+  if (draft.kycUseForAllParcels !== false) {
+    const documents = draft.kycDocuments ?? {};
+    if (!hasText(draft.consignorAddress?.aadhaarNumber)) {
+      issues.push("Aadhaar number is required");
+    } else if (!isValidAadhaarNumber(draft.consignorAddress.aadhaarNumber)) {
+      issues.push("Enter a valid 12 digit Aadhaar number");
+    }
+    if (!documents.aadhaar?.storedName) issues.push("Upload the Aadhaar card");
+    if (documents.other?.storedName && !hasText(documents.other.documentLabel)) {
+      issues.push("Name the other KYC document before booking");
+    }
+    return issues;
+  }
+
+  draft.parcelList.forEach((parcel, index) => {
+    const label = `Parcel ${index + 1}`;
+    const documents = parcel.kycDocuments ?? {};
+    if (!hasText(parcel.aadhaarNumber)) {
+      issues.push(`${label}: Aadhaar number is required`);
+    } else if (!isValidAadhaarNumber(parcel.aadhaarNumber)) {
+      issues.push(`${label}: enter a valid 12 digit Aadhaar number`);
+    }
+    if (!documents.aadhaar?.storedName) issues.push(`${label}: upload the Aadhaar card`);
+    if (documents.other?.storedName && !hasText(documents.other.documentLabel)) {
+      issues.push(`${label}: name the other KYC document before booking`);
+    }
+  });
+
+  return issues;
 }
 
 function validateParcel(parcel: ShipmentParcel, index: number): string[] {
@@ -31,6 +149,11 @@ function validateParcel(parcel: ShipmentParcel, index: number): string[] {
 
   if (!hasText(parcel.contentsDescription)) {
     issues.push(`${label}: contents description is required`);
+  } else {
+    const restricted = findRestrictedCategories(parcel.contentsDescription);
+    if (restricted.length) {
+      issues.push(`${label}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
+    }
   }
 
   if (!shipmentContentTypeValues.includes(parcel.shipmentContentType)) {
@@ -42,10 +165,18 @@ function validateParcel(parcel: ShipmentParcel, index: number): string[] {
 
 export function validateShipmentDraftFields(
   draft: IShipmentDraft,
-  options: { requireValidatedAddress?: boolean } = {}
+  options: { requireValidatedAddress?: boolean; requireConsignorDetails?: boolean } = {}
 ): string[] {
   const issues: string[] = [];
   const address = draft.consigneeEnteredAddress;
+
+  // Amendments run against shipments booked before consignor capture existed, so
+  // the caller opts out rather than blocking those with retroactive issues.
+  if (options.requireConsignorDetails !== false) {
+    issues.push(...validateConsignor(draft));
+    issues.push(...validateConsignorConsigneeAreDistinct(draft));
+    issues.push(...validateKycDocuments(draft));
+  }
 
   if (!hasText(address.contactName)) issues.push("Contact name is required");
   if (!hasText(address.mobileCountryCode)) issues.push("Mobile country code is required");
@@ -71,7 +202,9 @@ export function validateShipmentDraftFields(
   }
 
   const email = address.email ?? "";
-  if (hasText(email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+  if (!hasText(email)) {
+    issues.push("Email is required");
+  } else if (!emailPattern.test(email.trim())) {
     issues.push("Enter a valid email address");
   }
 

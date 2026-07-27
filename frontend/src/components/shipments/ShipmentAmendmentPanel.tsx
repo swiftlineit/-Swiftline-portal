@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "react-toastify";
 import {
   ShipmentAddress,
   ShipmentAmendmentInput,
@@ -9,6 +10,7 @@ import {
   ShipmentServiceType,
   shipmentContentTypeOptions
 } from "@/lib/dpdLabels";
+import { findRestrictedCategories, isRestrictedDescription } from "@/lib/restrictedGoods";
 
 type Props = {
   address: ShipmentAddress;
@@ -121,6 +123,13 @@ export default function ShipmentAmendmentPanel({
   }
 
   function buildInput(): ShipmentAmendmentInput | null {
+    const restrictedParcel = parcels.findIndex((parcel) => isRestrictedDescription(parcel.contentsDescription));
+    if (restrictedParcel >= 0) {
+      const categories = findRestrictedCategories(parcels[restrictedParcel]!.contentsDescription).join(", ");
+      setFormError(`Parcel ${restrictedParcel + 1}: ${categories} is a restricted item and cannot be shipped.`);
+      return null;
+    }
+
     const changedAddress = buildChangedAddress();
     const changes: ShipmentAmendmentInput["changes"] = {};
 
@@ -181,7 +190,7 @@ export default function ShipmentAmendmentPanel({
   }
 
   return (
-    <section className="border border-slate-200 bg-white">
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Amendment</h2>
@@ -193,7 +202,7 @@ export default function ShipmentAmendmentPanel({
           type="button"
           onClick={() => setOpen((current) => !current)}
           disabled={!canAmend || busy}
-          className="h-10 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="h-10 rounded-lg bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
         >
           {open ? "Close" : "Request Amendment"}
         </button>
@@ -211,7 +220,7 @@ export default function ShipmentAmendmentPanel({
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               placeholder="Optional amendment reason"
-              className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm text-slate-900 outline-none focus:border-blue-900"
+              className="mt-2 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 outline-none focus:border-blue-900"
             />
           </label>
 
@@ -234,7 +243,7 @@ export default function ShipmentAmendmentPanel({
                   value={text(addressForm.deliveryInstructions)}
                   onChange={(event) => updateAddress("deliveryInstructions", event.target.value)}
                   rows={3}
-                  className="mt-2 w-full border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-900"
+                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-900"
                 />
               </label>
             </div>
@@ -250,7 +259,7 @@ export default function ShipmentAmendmentPanel({
                   setSelectedServiceType(event.target.value as ShipmentServiceType);
                   clearPreview();
                 }}
-                className="mt-2 h-10 w-full border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-900"
+                className="mt-2 h-10 w-full rounded-lg border border-slate-300 bg-white pl-3 pr-8 text-sm text-slate-900 outline-none focus:border-blue-900"
               >
                 <option value="COURIER">Courier</option>
                 <option value="CARGO">Cargo</option>
@@ -258,7 +267,7 @@ export default function ShipmentAmendmentPanel({
             </label>
             <div className="mt-3 space-y-3">
               {parcels.map((parcel, index) => (
-                <div key={parcel.sequence} className="grid gap-3 border border-slate-200 p-3 md:grid-cols-5">
+                <div key={parcel.sequence} className="grid gap-3 rounded-xl border border-slate-200 p-3 md:grid-cols-5">
                   <AmendmentInput label="Actual Weight KG" type="number" value={String(parcel.weightKg)} onChange={(value) => updateParcel(index, "weightKg", value)} />
                   <AmendmentInput label="Length CM" type="number" value={String(parcel.lengthCm ?? "")} onChange={(value) => updateParcel(index, "lengthCm", value)} />
                   <AmendmentInput label="Width CM" type="number" value={String(parcel.widthCm ?? "")} onChange={(value) => updateParcel(index, "widthCm", value)} />
@@ -268,7 +277,7 @@ export default function ShipmentAmendmentPanel({
                     <select
                       value={parcel.shipmentContentType}
                       onChange={(event) => updateParcel(index, "shipmentContentType", event.target.value)}
-                      className="mt-2 h-10 w-full border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-900"
+                      className="mt-2 h-10 w-full rounded-lg border border-slate-300 bg-white pl-3 pr-8 text-sm text-slate-900 outline-none focus:border-blue-900"
                     >
                       {shipmentContentTypeOptions.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -276,7 +285,7 @@ export default function ShipmentAmendmentPanel({
                     </select>
                   </label>
                   <div className="md:col-span-5">
-                    <AmendmentInput label="Contents Description" value={parcel.contentsDescription} onChange={(value) => updateParcel(index, "contentsDescription", value)} />
+                    <AmendmentInput label="Contents Description" value={parcel.contentsDescription} onChange={(value) => updateParcel(index, "contentsDescription", value)} onBlur={() => { if (isRestrictedDescription(parcel.contentsDescription)) toast.error("This item is restricted."); }} />
                   </div>
                 </div>
               ))}
@@ -284,8 +293,8 @@ export default function ShipmentAmendmentPanel({
           </div>
 
           {preview ? (
-            <div className="border border-slate-200">
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4">
+            <div className="overflow-hidden rounded-xl border border-slate-200">
+              <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
                 <ChargeMetric label="Current Charge" value={formatMinorAmount(preview.fundingPreview.previousAmountMinor)} />
                 <ChargeMetric label="New Charge" value={formatMinorAmount(preview.fundingPreview.amendedAmountMinor)} />
                 <ChargeMetric
@@ -329,14 +338,14 @@ export default function ShipmentAmendmentPanel({
             </div>
           ) : null}
 
-          {formError ? <div className="border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{formError}</div> : null}
+          {formError ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{formError}</div> : null}
 
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => void checkCharges()}
               disabled={busy || previewBusy}
-              className="h-10 border border-blue-900 px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+              className="h-10 rounded-lg border border-blue-900 px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
             >
               {previewBusy ? "Calculating..." : "Check Charges"}
             </button>
@@ -344,14 +353,14 @@ export default function ShipmentAmendmentPanel({
               type="button"
               onClick={() => void submitAmendment()}
               disabled={busy || previewBusy || !preview || !preview.fundingPreview.canFund}
-              className="h-10 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="h-10 rounded-lg bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               {busy ? "Saving..." : "Submit Request"}
             </button>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="h-10 border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
+              className="h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
             >
               Cancel
             </button>
@@ -364,7 +373,7 @@ export default function ShipmentAmendmentPanel({
 
 function ChargeMetric({ label, value, tone = "text-slate-950" }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="border-b border-slate-200 px-4 py-3 last:border-b-0 sm:border-r sm:last:border-r-0 lg:border-b-0">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
       <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
       <p className={`mt-1 text-base font-semibold ${tone}`}>{value}</p>
     </div>
@@ -384,12 +393,14 @@ function AmendmentInput({
   label,
   value,
   onChange,
-  type = "text"
+  type = "text",
+  onBlur
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: "text" | "number";
+  onBlur?: () => void;
 }) {
   return (
     <label>
@@ -398,7 +409,8 @@ function AmendmentInput({
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm text-slate-900 outline-none focus:border-blue-900"
+        onBlur={onBlur}
+        className="mt-2 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 outline-none focus:border-blue-900"
       />
     </label>
   );

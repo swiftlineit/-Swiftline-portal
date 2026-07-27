@@ -12,25 +12,53 @@ import {
   ShipmentSelectField,
   ShipmentTextField
 } from "@/components/shipments/ShipmentFormControls";
+import { ConsignorKycSection } from "@/components/shipments/ConsignorKycSection";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
+import {
+  ConsignorForm,
+  ParcelKycState,
+  consigneeContactFrom,
+  consignorFormFromDraft,
+  consignorFormToPatch,
+  consignorFormsMatch,
+  createEmptyConsignorForm,
+  getConsignorFormIssues,
+  getKycIssues
+} from "@/lib/shipmentConsignor";
 import { CountryRateCard, formatCountryRateService, listCountryRateCards } from "@/lib/countryRateCards";
+import { findRestrictedCategories } from "@/lib/restrictedGoods";
+import {
+  getPostcodeError,
+  getShipmentEmailError,
+  getShipmentMobileError,
+  isPostcodeValidForCountry
+} from "@/lib/shipmentContactValidation";
 import {
   AddressPrediction,
   DpdShipmentHistoryItem,
   ShipmentDraft,
   ShipmentContentType,
+  ShipmentKycDocuments,
   ShipmentServiceType,
   autocompleteAddress,
+  autocompleteConsignorAddress,
   confirmAddress,
   createDpdLabel,
   createSwiftlineShipment,
+  deleteShipmentKycDocument,
+  deleteShipmentParcelKycDocument,
   formatShipmentValidationIssues,
+  getConsignorPlaceAddress,
   getDpdLabelAccessUrl,
   getPlaceAddress,
   getShipmentDraft,
   listDpdShipments,
+  openShipmentKycDocument,
+  openShipmentParcelKycDocument,
   shipmentContentTypeOptions,
   updateShipmentDraft,
+  uploadShipmentKycDocument,
+  uploadShipmentParcelKycDocument,
   validateAddress,
   validateShipmentDraft
 } from "@/lib/dpdLabels";
@@ -67,6 +95,7 @@ type ParcelForm = {
   contentsDescription: string;
   shipmentReference1: string;
   shipmentReference2: string;
+  aadhaarNumber: string;
 };
 
 const maxParcelCount = 10;
@@ -106,13 +135,14 @@ function createEmptyParcelForm(sequence: number): ParcelForm {
     shipmentContentType: "PARCEL",
     contentsDescription: "",
     shipmentReference1: "",
-    shipmentReference2: ""
+    shipmentReference2: "",
+    aadhaarNumber: ""
   };
 }
 
 function SourceBadge({ children }: { children: string }) {
   return (
-    <span className="inline-flex bg-slate-100 px-2 py-1 text-xs font-semibold uppercase text-slate-500">
+    <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
       {children}
     </span>
   );
@@ -127,14 +157,27 @@ function getReviewFormIssues(addressForm: AddressForm, draftCorrectionForm: Draf
 
   if (!draftCorrectionForm.contactName.trim()) issues.push("Contact name is required");
   if (!draftCorrectionForm.mobileCountryCode.trim()) issues.push("Mobile country code is required");
-  if (!draftCorrectionForm.mobileNumber.trim()) issues.push("Mobile number is required");
-  if (draftCorrectionForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draftCorrectionForm.email.trim())) {
-    issues.push("Enter a valid email address");
+  if (!draftCorrectionForm.mobileNumber.trim()) {
+    issues.push("Mobile number is required");
+  } else {
+    const mobileError = getShipmentMobileError(draftCorrectionForm.mobileCountryCode, draftCorrectionForm.mobileNumber);
+    if (mobileError) issues.push(mobileError);
+  }
+  if (!draftCorrectionForm.email.trim()) {
+    issues.push("Email is required");
+  } else {
+    const emailError = getShipmentEmailError(draftCorrectionForm.email);
+    if (emailError) issues.push(emailError);
   }
   if (!addressForm.countryCode.trim()) issues.push("Country is required");
   if (!addressForm.addressLine1.trim()) issues.push("Address line 1 is required");
   if (!addressForm.townOrCity.trim()) issues.push("Town or city is required");
-  if (!addressForm.postcode.trim()) issues.push("Postcode is required");
+  if (!addressForm.postcode.trim()) {
+    issues.push("Postcode is required");
+  } else {
+    const postcodeError = getPostcodeError(addressForm.countryCode, addressForm.postcode);
+    if (postcodeError) issues.push(postcodeError);
+  }
   if (!parcelForms.length) issues.push("At least one parcel is required");
   if (parcelForms.length > maxParcelCount) issues.push(`Number of Parcels (PCS) must be ${maxParcelCount} or fewer`);
   parcelForms.forEach((parcel, index) => {
@@ -150,7 +193,17 @@ function getReviewFormIssues(addressForm: AddressForm, draftCorrectionForm: Draf
       }
     }
     if (!parcel.shipmentContentType) issues.push(`${label}: shipment content type is required`);
-    if (!parcel.contentsDescription.trim()) issues.push(`${label}: contents description is required`);
+   if (!parcel.contentsDescription.trim()) {
+  issues.push(`${label}: contents description is required`);
+} else {
+  const restricted = findRestrictedCategories(parcel.contentsDescription);
+
+  if (restricted.length) {
+    issues.push(
+      `${label}: contents description - ${restricted.join(", ")} is a restricted item and cannot be shipped`
+    );
+  }
+}
   });
   return issues;
 }
@@ -169,14 +222,16 @@ function normalizeParcelForms(parcels: ShipmentDraft["parcelList"]): ParcelForm[
     shipmentContentType: parcel.shipmentContentType ?? "PARCEL",
     contentsDescription: parcel.contentsDescription ?? "",
     shipmentReference1: parcel.shipmentReference1 ?? "",
-    shipmentReference2: parcel.shipmentReference2 ?? ""
+    shipmentReference2: parcel.shipmentReference2 ?? "",
+    aadhaarNumber: parcel.aadhaarNumber ?? ""
   }));
 }
 
 function isParcelFormEmpty(parcel: ParcelForm) {
   return !parcel.weightKg && !parcel.lengthCm && !parcel.widthCm && !parcel.heightCm
     && parcel.shipmentContentType === "PARCEL"
-    && !parcel.contentsDescription && !parcel.shipmentReference1 && !parcel.shipmentReference2;
+    && !parcel.contentsDescription && !parcel.shipmentReference1 && !parcel.shipmentReference2
+    && !parcel.aadhaarNumber;
 }
 
 function shipmentHistoryToResult(item: DpdShipmentHistoryItem): DpdShipmentResult {
@@ -238,12 +293,17 @@ export default function DpdLabelDraftPage() {
     companyName: "",
     contactName: "",
     email: "",
-    mobileCountryCode: "",
+    // The consignee delivers to the UK by default, so the UK dial code is pre-selected.
+    mobileCountryCode: "+44",
     mobileNumber: "",
     deliveryInstructions: "",
     serviceType: "COURIER",
     serviceCode: ""
   });
+  const [consignorForm, setConsignorForm] = useState<ConsignorForm>(createEmptyConsignorForm());
+  const [kycUseForAll, setKycUseForAll] = useState(true);
+  const [kycDocuments, setKycDocuments] = useState<ShipmentKycDocuments>({});
+  const [parcelKyc, setParcelKyc] = useState<Record<number, ShipmentKycDocuments>>({});
   const [parcelForms, setParcelForms] = useState<ParcelForm[]>([createEmptyParcelForm(1)]);
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
@@ -261,7 +321,7 @@ export default function DpdLabelDraftPage() {
       draftCorrectionForm.companyName !== (draft.consigneeEnteredAddress.companyName ?? "") ||
       draftCorrectionForm.contactName !== (draft.consigneeEnteredAddress.contactName ?? "") ||
       draftCorrectionForm.email !== (draft.consigneeEnteredAddress.email ?? "") ||
-      draftCorrectionForm.mobileCountryCode !== (draft.consigneeEnteredAddress.mobileCountryCode ?? "") ||
+      draftCorrectionForm.mobileCountryCode !== (draft.consigneeEnteredAddress.mobileCountryCode || "+44") ||
       draftCorrectionForm.mobileNumber !== (draft.consigneeEnteredAddress.mobileNumber ?? "") ||
       draftCorrectionForm.deliveryInstructions !== (draft.consigneeEnteredAddress.deliveryInstructions ?? "") ||
       JSON.stringify(parcelForms) !== JSON.stringify(normalizeParcelForms(draft.parcelList)) ||
@@ -292,12 +352,61 @@ export default function DpdLabelDraftPage() {
     serviceType: draftCorrectionForm.serviceType
   }), [addressForm.countryCode, draftCorrectionForm.serviceType, parcelForms, rates]);
 
-  const draftChanged = correctionChanged || addressChanged;
+  const consignorChanged = useMemo(
+    () => (draft
+      ? !consignorFormsMatch(consignorForm, draft.consignorAddress)
+        || kycUseForAll !== (draft.kycUseForAllParcels ?? true)
+      : false),
+    [consignorForm, draft, kycUseForAll]
+  );
+
+  const consignorKycApi = useMemo(() => ({
+    autocompleteConsignorAddress,
+    getConsignorPlaceAddress,
+    uploadKycDocument: uploadShipmentKycDocument,
+    deleteKycDocument: deleteShipmentKycDocument,
+    openKycDocument: openShipmentKycDocument,
+    uploadParcelKycDocument: uploadShipmentParcelKycDocument,
+    deleteParcelKycDocument: deleteShipmentParcelKycDocument,
+    openParcelKycDocument: openShipmentParcelKycDocument
+  }), []);
+
+  const parcelKycStates = useMemo<ParcelKycState[]>(
+    () => parcelForms.map((parcel) => ({
+      sequence: parcel.sequence,
+      aadhaarNumber: parcel.aadhaarNumber,
+      kycDocuments: parcelKyc[parcel.sequence]
+    })),
+    [parcelForms, parcelKyc]
+  );
+
+  const draftChanged = correctionChanged || addressChanged || consignorChanged;
 
   const currentReviewIssues = useMemo(
     () => getReviewFormIssues(addressForm, draftCorrectionForm, parcelForms),
     [addressForm, draftCorrectionForm, parcelForms]
   );
+
+  const consigneeContact = useMemo(
+    () => consigneeContactFrom(draftCorrectionForm),
+    [draftCorrectionForm]
+  );
+  const consignorReviewIssues = useMemo(
+    () => getConsignorFormIssues(consignorForm, consigneeContact),
+    [consignorForm, consigneeContact]
+  );
+  const consignorFieldIssues = useMemo(() => ({
+    contactName: getFieldIssue(consignorReviewIssues, ["consignor contact name"])
+      ?? getFieldIssue(consignorReviewIssues, ["contact names must"]),
+    email: getFieldIssue(consignorReviewIssues, ["consignor email"])
+      ?? getFieldIssue(consignorReviewIssues, ["email addresses must"]),
+    mobileNumber: getFieldIssue(consignorReviewIssues, ["consignor mobile"])
+      ?? getFieldIssue(consignorReviewIssues, ["mobile numbers must"]),
+    aadhaarNumber: getFieldIssue(consignorReviewIssues, ["aadhaar"]),
+    addressLine1: getFieldIssue(consignorReviewIssues, ["consignor address line 1"]),
+    townOrCity: getFieldIssue(consignorReviewIssues, ["consignor town"]),
+    postcode: getFieldIssue(consignorReviewIssues, ["pin code"])
+  }), [consignorReviewIssues]);
   const destinationCountries = useMemo(() => {
     const countries = new Map<string, string>();
     rates.forEach((rate) => countries.set(rate.countryCode, rate.countryName));
@@ -313,8 +422,8 @@ export default function DpdLabelDraftPage() {
     return {
       contactName: getFieldIssue(issues, ["contact name"]),
       mobileCountryCode: getFieldIssue(issues, ["mobile country code"]),
-      mobileNumber: getFieldIssue(issues, ["mobile number", "valid uk mobile"]),
-      email: getFieldIssue(issues, ["valid email"]),
+      mobileNumber: getFieldIssue(issues, ["mobile number"]),
+      email: getFieldIssue(issues, ["email is required"]) ?? getFieldIssue(issues, ["valid email"]),
       addressLine1: getFieldIssue(issues, ["address line 1"]),
       townOrCity: getFieldIssue(issues, ["town or city"]),
       postcode: getFieldIssue(issues, ["postcode"]),
@@ -335,13 +444,24 @@ export default function DpdLabelDraftPage() {
       companyName: nextDraft.consigneeEnteredAddress.companyName ?? "",
       contactName: nextDraft.consigneeEnteredAddress.contactName ?? "",
       email: nextDraft.consigneeEnteredAddress.email ?? "",
-      mobileCountryCode: nextDraft.consigneeEnteredAddress.mobileCountryCode ?? "",
+      mobileCountryCode: nextDraft.consigneeEnteredAddress.mobileCountryCode || "+44",
       mobileNumber: nextDraft.consigneeEnteredAddress.mobileNumber ?? "",
       deliveryInstructions: nextDraft.consigneeEnteredAddress.deliveryInstructions ?? "",
       serviceType: nextDraft.serviceType ?? "COURIER",
       serviceCode: nextDraft.serviceCode ?? ""
     });
     setParcelForms(normalizeParcelForms(nextDraft.parcelList));
+  }
+
+  function syncConsignorForm(nextDraft: ShipmentDraft) {
+    setConsignorForm(consignorFormFromDraft(nextDraft.consignorAddress));
+    setKycUseForAll(nextDraft.kycUseForAllParcels ?? true);
+    setKycDocuments(nextDraft.kycDocuments ?? {});
+    const parcelKycBySequence: Record<number, ShipmentKycDocuments> = {};
+    nextDraft.parcelList.forEach((parcel) => {
+      if (parcel.kycDocuments) parcelKycBySequence[parcel.sequence] = parcel.kycDocuments;
+    });
+    setParcelKyc(parcelKycBySequence);
   }
 
   function syncAddressForm(nextDraft: ShipmentDraft) {
@@ -377,6 +497,7 @@ export default function DpdLabelDraftPage() {
         setRates(rateData.rates);
         setDraft(data.shipmentDraft);
         syncDraftCorrectionForm(data.shipmentDraft);
+        syncConsignorForm(data.shipmentDraft);
         syncAddressForm(data.shipmentDraft);
 
         const shipmentData = await listDpdShipments(100);
@@ -463,6 +584,8 @@ export default function DpdLabelDraftPage() {
     if (!draftChanged) return draft;
 
     const data = await updateShipmentDraft(draft._id, {
+      consignorAddress: consignorFormToPatch(consignorForm),
+      kycUseForAllParcels: kycUseForAll,
       consigneeEnteredAddress: {
         companyName: draftCorrectionForm.companyName,
         contactName: draftCorrectionForm.contactName,
@@ -488,7 +611,8 @@ export default function DpdLabelDraftPage() {
         shipmentContentType: parcel.shipmentContentType,
         contentsDescription: parcel.contentsDescription,
         shipmentReference1: parcel.shipmentReference1,
-        shipmentReference2: parcel.shipmentReference2
+        shipmentReference2: parcel.shipmentReference2,
+        aadhaarNumber: parcel.aadhaarNumber
       })),
       serviceType: draftCorrectionForm.serviceType,
       serviceCode: draftCorrectionForm.serviceCode
@@ -496,6 +620,7 @@ export default function DpdLabelDraftPage() {
 
     setDraft(data.shipmentDraft);
     syncDraftCorrectionForm(data.shipmentDraft);
+    syncConsignorForm(data.shipmentDraft);
     syncAddressForm(data.shipmentDraft);
 
     return data.shipmentDraft;
@@ -509,11 +634,14 @@ export default function DpdLabelDraftPage() {
     setReviewIssues([]);
 
     try {
-      const preflightIssues = getReviewFormIssues(addressForm, draftCorrectionForm, parcelForms);
+      const preflightIssues = [
+        ...getReviewFormIssues(addressForm, draftCorrectionForm, parcelForms),
+        ...getConsignorFormIssues(consignorForm, consigneeContactFrom(draftCorrectionForm))
+      ];
       if (preflightIssues.length) {
         setSubmitAttempted(true);
         setReviewIssues(preflightIssues);
-        setError("Correct the highlighted details before saving.");
+        toast.error(preflightIssues[0]);
         return;
       }
 
@@ -577,76 +705,125 @@ export default function DpdLabelDraftPage() {
     }
   }
 
-  async function handleCreateLabel(bookingProvider: "DPD" | "SWIFTLINE" = "DPD") {
-    if (!draft) return;
+ async function handleCreateLabel(bookingProvider: "DPD" | "SWIFTLINE" = "DPD") {
+  if (!draft) return;
 
-    setBusy(true);
-    setError("");
-    setReviewIssues([]);
+  setBusy(true);
+  setError("");
+  setReviewIssues([]);
 
-    try {
-      const preflightIssues = getReviewFormIssues(addressForm, draftCorrectionForm, parcelForms);
-      if (preflightIssues.length) {
-        setSubmitAttempted(true);
-        setReviewIssues(preflightIssues);
-        setError("Correct the highlighted details before creating the shipment.");
+  try {
+    const preflightIssues = [
+      ...getReviewFormIssues(addressForm, draftCorrectionForm, parcelForms),
+      ...getConsignorFormIssues(
+        consignorForm,
+        consigneeContactFrom(draftCorrectionForm)
+      ),
+      ...getKycIssues({
+        useForAll: kycUseForAll,
+        sharedAadhaar: consignorForm.aadhaarNumber,
+        sharedDocuments: kycDocuments,
+        parcels: parcelKycStates
+      })
+    ];
+
+    if (preflightIssues.length) {
+      setSubmitAttempted(true);
+      setReviewIssues(preflightIssues);
+      toast.error(preflightIssues[0]);
+      return;
+    }
+
+    if (chargeEstimate.missingRate) {
+      const message = `Rates are not available for ${
+        addressForm.countryName || addressForm.countryCode
+      } with ${
+        draftCorrectionForm.serviceType === "CARGO" ? "Cargo" : "Courier"
+      } service. Please contact the assigned branch to arrange this shipment.`;
+
+      setError(message);
+      toast.error(message);
+      return;
+    }
+
+    const savedDraft = await saveDraftCorrectionsIfNeeded();
+    let draftForValidation = savedDraft;
+
+    // Once an address is validated (including a manual "use as entered" confirmation)
+    // the backend keeps that status unless a real address field changes, so editing
+    // contact or parcel details no longer forces the manual approval to reappear.
+    if (draftForValidation.addressValidationStatus !== "VALIDATED") {
+      // Re-check is only warranted when the postcode does not fit the country.
+      if (!isPostcodeValidForCountry(addressForm.countryCode, addressForm.postcode)) {
+        setManualAddressConfirmationRequired(false);
+        toast.error(
+          addressForm.countryCode === "GB"
+            ? "Enter a valid UK postcode (e.g. AB10 6DN) before creating the shipment."
+            : `Enter a valid postcode for ${addressForm.countryName || addressForm.countryCode} before creating the shipment.`
+        );
         return;
       }
-      if (chargeEstimate.missingRate) {
-        const message = `Rates are not available for ${addressForm.countryName || addressForm.countryCode} with ${draftCorrectionForm.serviceType === "CARGO" ? "Cargo" : "Courier"} service. Please contact the assigned branch to arrange this shipment.`;
-        setError(message);
-        toast.error(message);
-        return;
-      }
 
-      const savedDraft = await saveDraftCorrectionsIfNeeded();
-      let draftForValidation = savedDraft;
-
-      // Address validation is automatic here because the standalone button was removed from the review flow.
-      if (draftForValidation.addressValidationStatus !== "VALIDATED") {
-        const addressValidation = await validateAddress({
-          shipmentDraftId: draftForValidation._id,
-          address: {
-            ...addressForm,
-            countryCode: addressForm.countryCode,
-            countryName: addressForm.countryName
-          }
-        });
-        if (addressValidation.validation.outcome !== "VALID") {
-          setManualAddressConfirmationRequired(true);
-          toast.info("No automatic address match was found. Review the address and confirm it as entered.");
-          return;
+      const addressValidation = await validateAddress({
+        shipmentDraftId: draftForValidation._id,
+        address: {
+          ...addressForm,
+          countryCode: addressForm.countryCode,
+          countryName: addressForm.countryName
         }
-        const refreshed = await getShipmentDraft(draftForValidation._id);
-        draftForValidation = refreshed.shipmentDraft;
-        setDraft(draftForValidation);
-        syncDraftCorrectionForm(draftForValidation);
-        syncAddressForm(draftForValidation);
-      }
+      });
 
-      const validation = await validateShipmentDraft(draftForValidation._id);
-      setDraft(validation.shipmentDraft);
-      syncDraftCorrectionForm(validation.shipmentDraft);
-
-      if (!validation.readyForDpd) {
-        const message = formatShipmentValidationIssues(validation.validationIssues)
-          || "Correct the highlighted details before creating the shipment.";
-        toast.error(message);
+      if (addressValidation.validation.outcome !== "VALID") {
+        setManualAddressConfirmationRequired(true);
+        toast.info(
+          "No automatic address match was found. Review the address and confirm it as entered."
+        );
         return;
       }
 
-      const data = bookingProvider === "DPD"
+      const refreshed = await getShipmentDraft(draftForValidation._id);
+      draftForValidation = refreshed.shipmentDraft;
+      setDraft(draftForValidation);
+      syncDraftCorrectionForm(draftForValidation);
+      syncAddressForm(draftForValidation);
+    }
+
+    const validation = await validateShipmentDraft(draftForValidation._id);
+
+    setDraft(validation.shipmentDraft);
+    syncDraftCorrectionForm(validation.shipmentDraft);
+
+    if (!validation.readyForDpd) {
+      const message =
+        formatShipmentValidationIssues(validation.validationIssues) ||
+        "Correct the highlighted details before creating the shipment.";
+
+      toast.error(message);
+      return;
+    }
+
+    const data =
+      bookingProvider === "DPD"
         ? await createDpdLabel(draftForValidation._id)
         : await createSwiftlineShipment(draftForValidation._id);
-      setResult(data);
-      toast.success(data.reused ? "Existing booked shipment opened." : "Shipment booked successfully.");
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "Shipment could not be created.";
-      toast.error(message);
-    } finally {
-      setBusy(false);
-    }
+
+    setResult(data);
+    toast.success(
+      data.reused
+        ? "Existing booked shipment opened."
+        : "Shipment booked successfully."
+    );
+  } catch (caughtError) {
+    const message =
+      caughtError instanceof Error
+        ? caughtError.message
+        : "Shipment could not be created.";
+
+    toast.error(message);
+  } finally {
+    setBusy(false);
   }
+}
 
   async function handleConfirmEnteredAddress() {
     if (!draft) return;
@@ -675,29 +852,54 @@ export default function DpdLabelDraftPage() {
     <DashboardShell user={user}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-950">Review Shipment</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Review Shipment</h1>
           <p className="mt-1 text-sm text-slate-500">Confirm consignee, destination, parcel, and charge details before booking.</p>
         </div>
-        <Link href="/dashboard/dpd-labels" className="text-sm font-semibold text-blue-900 hover:text-blue-700">
+        <Link href="/dashboard/dpd-labels" className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-blue-900 hover:text-blue-900">
           Back to Upload
         </Link>
       </div>
 
       {error ? (
-        <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
           {error}
         </div>
       ) : null}
 
       {!draft ? (
-        <div className="border border-slate-200 bg-white p-8 text-sm text-slate-500">Loading draft...</div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">Loading draft...</div>
       ) : (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-6">
-            <section className="border border-slate-200 bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <ConsignorKycSection
+              shipmentDraftId={draft._id}
+              form={consignorForm}
+              onFormChange={(next) => { setConsignorForm(next); setReviewIssues([]); }}
+              fieldIssues={consignorFieldIssues}
+              submitAttempted={submitAttempted}
+              changed={consignorChanged}
+              onSave={handleSaveCorrections}
+              busy={busy}
+              kycUseForAll={kycUseForAll}
+              onKycUseForAllChange={(next) => { setKycUseForAll(next); setReviewIssues([]); }}
+              sharedKycDocuments={kycDocuments}
+              onSharedKycChange={setKycDocuments}
+              parcels={parcelKycStates}
+              savedParcelCount={draft.parcelList.length}
+              onParcelAadhaarChange={(sequence, value) => {
+                setParcelForms((current) => current.map((parcel) => (
+                  parcel.sequence === sequence ? { ...parcel, aadhaarNumber: value } : parcel
+                )));
+                setReviewIssues([]);
+              }}
+              onParcelKycChange={(sequence, documents) => setParcelKyc((current) => ({ ...current, [sequence]: documents }))}
+              api={consignorKycApi}
+            />
+
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
                 <div>
-                  <h2 className="text-sm font-semibold uppercase text-slate-500">Consignee Details</h2>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Consignee Details</h2>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <SourceBadge>From invoice</SourceBadge>
                     {draftChanged ? <SourceBadge>Manually changed</SourceBadge> : null}
@@ -707,7 +909,7 @@ export default function DpdLabelDraftPage() {
                   type="button"
                   onClick={handleSaveCorrections}
                   disabled={busy || !draftChanged}
-                  className="inline-flex h-9 items-center justify-center gap-2 bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   <FiSave aria-hidden="true" className="h-4 w-4" />
                   Save
@@ -716,7 +918,7 @@ export default function DpdLabelDraftPage() {
               <div className="grid gap-4 p-4 md:grid-cols-2">
                 <ShipmentTextField label="Consignee Company" value={draftCorrectionForm.companyName} onChange={handleCorrectionFieldChange("companyName")} />
                 <ShipmentTextField label="Consignee Contact Name" required value={draftCorrectionForm.contactName} onChange={handleCorrectionFieldChange("contactName")} error={fieldIssues.contactName} revealError={submitAttempted} />
-                <ShipmentTextField label="Consignee Email" type="email" value={draftCorrectionForm.email} onChange={handleCorrectionFieldChange("email")} error={fieldIssues.email} revealError={submitAttempted} />
+                <ShipmentTextField label="Consignee Email" required type="email" value={draftCorrectionForm.email} onChange={handleCorrectionFieldChange("email")} error={fieldIssues.email} revealError={submitAttempted} />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <ShipmentPhoneCodeField
                     value={draftCorrectionForm.mobileCountryCode}
@@ -726,6 +928,7 @@ export default function DpdLabelDraftPage() {
                     }}
                     error={fieldIssues.mobileCountryCode}
                     revealError={submitAttempted}
+                    defaultDialCode="+44"
                   />
                   <ShipmentTextField label="Mobile Number" required type="tel" inputMode="tel" value={draftCorrectionForm.mobileNumber} onChange={handleCorrectionFieldChange("mobileNumber")} error={fieldIssues.mobileNumber} revealError={submitAttempted} />
                 </div>
@@ -735,15 +938,15 @@ export default function DpdLabelDraftPage() {
                     value={draftCorrectionForm.deliveryInstructions}
                     onChange={handleCorrectionFieldChange("deliveryInstructions")}
                     rows={3}
-                    className="mt-2 w-full border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                   />
                 </label>
               </div>
             </section>
 
-            <section className="border border-slate-200 bg-white">
-              <div className="border-b border-slate-200 px-4 py-3">
-                <h2 className="text-sm font-semibold uppercase text-slate-500">Address Search</h2>
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Address Search</h2>
               </div>
               <div className="space-y-4 p-4">
                 {addressForm.countryCode === "GB" ? <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
@@ -752,15 +955,15 @@ export default function DpdLabelDraftPage() {
                     <input
                       value={addressQuery}
                       onChange={(event) => setAddressQuery(event.target.value.toUpperCase())}
-                      placeholder=" POST CODE AB10 6DN"
-                      className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                      placeholder="POST CODE AB10 6DN"
+                      className="mt-2 h-11 w-full rounded-xl border border-slate-300 px-3.5 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                     />
                   </label>
                   <button
                     type="button"
                     onClick={handleAddressSearch}
                     disabled={addressBusy}
-                    className="mt-2 inline-flex h-10 items-center justify-center gap-2 bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                    className="mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                   >
                     <FiSearch aria-hidden="true" className="h-4 w-4" />
                     Search
@@ -768,7 +971,7 @@ export default function DpdLabelDraftPage() {
                 </div> : null}
 
                 {predictions.length ? (
-                  <div className="max-h-[340px] overflow-y-auto border border-slate-200 [scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400">
+                  <div className="max-h-[340px] overflow-y-auto rounded-xl border border-slate-200 [scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400">
                     {predictions.map((prediction) => (
                       <button
                         key={prediction.placeId}
@@ -791,12 +994,12 @@ export default function DpdLabelDraftPage() {
                 ) : null}
 
                 {manualAddressConfirmationRequired ? (
-                  <div className="flex flex-wrap items-center justify-between gap-3 border border-amber-300 bg-amber-50 px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
                     <div>
                       <p className="text-sm font-semibold text-amber-950">No automatic address match was found.</p>
                       <p className="mt-1 text-sm text-amber-800">Review the delivery address below before confirming it as entered.</p>
                     </div>
-                    <button type="button" onClick={handleConfirmEnteredAddress} disabled={busy} className="inline-flex h-10 items-center justify-center bg-amber-700 px-4 text-sm font-semibold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-amber-400">
+                    <button type="button" onClick={handleConfirmEnteredAddress} disabled={busy} className="inline-flex h-11 items-center justify-center rounded-xl bg-amber-700 px-4 text-sm font-semibold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-amber-400">
                       Use Address As Entered
                     </button>
                   </div>
@@ -820,10 +1023,10 @@ export default function DpdLabelDraftPage() {
               </div>
             </section>
 
-            <section className="border border-slate-200 bg-white">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
                 <div>
-                  <h2 className="text-sm font-semibold uppercase text-slate-500">Parcel Details</h2>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Parcel Details</h2>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <SourceBadge>From invoice</SourceBadge>
                     <SourceBadge>Account default</SourceBadge>
@@ -833,14 +1036,14 @@ export default function DpdLabelDraftPage() {
                   type="button"
                   onClick={handleSaveCorrections}
                   disabled={busy || !draftChanged}
-                  className="inline-flex h-9 items-center justify-center gap-2 bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   <FiSave aria-hidden="true" className="h-4 w-4" />
                   Save
                 </button>
               </div>
               <div className="space-y-4 p-4">
-                <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
+                <div className="grid gap-4 ">
                   <label className="block">
                     <ShipmentFieldLabel required>Number of Boxes</ShipmentFieldLabel>
                     <input
@@ -850,26 +1053,26 @@ export default function DpdLabelDraftPage() {
                       step="1"
                       value={parcelForms.length}
                       onChange={handleParcelCountChange}
-                      className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                      className="mt-2 h-11 w-full rounded-xl border border-slate-300 px-3.5 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                     />
                   </label>
-                  <div className="grid gap-3 border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-2">
+                  {/* <div className="grid mt-4 p-3 gap-2 rounded-xl border border-slate-300 bg-slate-50 text-sm sm:grid-cols-2">
                     <div>
-                      <span className="block text-xs font-semibold uppercase text-slate-500">Total Parcels</span>
-                      <span className="mt-1 block font-semibold text-slate-950">{parcelForms.length}</span>
+                      <span className=" text-xs font-semibold uppercase text-slate-500">Total Parcels</span>
+                      <span className="mt-1 ml-3  font-semibold text-slate-950">{parcelForms.length}</span>
                     </div>
                     <div>
-                      <span className="block text-xs font-semibold uppercase text-slate-500">Total Weight</span>
-                      <span className="mt-1 block font-semibold text-slate-950">
+                      <span className=" text-xs font-semibold uppercase text-slate-500">Total Weight</span>
+                      <span className=" ml-3  font-semibold text-slate-950">
                         {parcelForms.reduce((total, parcel) => total + (Number(parcel.weightKg) || 0), 0).toFixed(2)} kg
                       </span>
                     </div>
-                  </div>
+                  </div> */}
                 </div>
 
                 {parcelForms.map((parcel, index) => (
-                  <div key={parcel.sequence} className="border border-slate-200">
-                    <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
+                  <div key={parcel.sequence} className="overflow-hidden rounded-xl border border-slate-200">
+                    <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Parcel {index + 1} of {parcelForms.length}
                     </div>
                     <div className="grid gap-4 p-3 md:grid-cols-4">
@@ -892,7 +1095,7 @@ export default function DpdLabelDraftPage() {
                   </div>
                 ))}
 
-                <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   Enter the actual parcel contents. Incorrect or mismatched descriptions may result in inspection and additional penalty charges.
                 </p>
 
@@ -906,13 +1109,13 @@ export default function DpdLabelDraftPage() {
             </section>
           </div>
 
-          <aside className="space-y-4">
-            <section className="border border-slate-200 bg-white p-4">
+          <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <button
                 type="button"
                 onClick={() => void handleCreateLabel("DPD")}
                 disabled={busy}
-                className="inline-flex h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
                 {busy ? "Creating..." : "Create Shipment"}
@@ -921,12 +1124,12 @@ export default function DpdLabelDraftPage() {
                 type="button"
                 onClick={() => void handleCreateLabel("SWIFTLINE")}
                 disabled={busy}
-                className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
               >
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
                 {busy ? "Creating..." : "Create Without DPD Label"}
               </button>
-              <div className="mt-4 border border-slate-200 bg-slate-50 p-3 text-sm">
+              <div className="mt-4 rounded-xl border border-slate-400 bg-slate-50 p-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-semibold text-slate-600">Service</span>
                   <span className="font-semibold text-slate-950">{formatCountryRateService(draftCorrectionForm.serviceType)}</span>
@@ -969,7 +1172,7 @@ export default function DpdLabelDraftPage() {
                   ) : null}
                 </div>
               </div>
-              <div className="mt-4 border border-amber-200 bg-amber-50 p-3">
+              <div className="mt-4 rounded-xl border border-red-400 bg-amber-50 p-3">
                 <h3 className="text-sm font-semibold text-amber-900">Prohibited Items Reminder</h3>
                 <ul className="mt-2 text-xs font-medium text-amber-800">
                   {prohibitedItems.map((item) => (
@@ -980,7 +1183,7 @@ export default function DpdLabelDraftPage() {
             </section>
 
             {result ? (
-              <section className="border border-emerald-200 bg-emerald-50">
+              <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-emerald-50 shadow-sm">
                 <div className="flex items-start gap-3 border-b border-emerald-200 px-4 py-4">
                   <FiCheckCircle aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
                   <div className="min-w-0">
@@ -990,7 +1193,7 @@ export default function DpdLabelDraftPage() {
                     </p>
                   </div>
                 </div>
-                <dl className="grid gap-px bg-emerald-200 sm:grid-cols-2">
+                {/* <dl className="grid gap-px bg-emerald-200 sm:grid-cols-2">
                   <ResultValue className="sm:col-span-2" label="Swiftline Tracking" value={result.bookingConfirmation?.swiftlineTrackingNumber ?? result.dpdShipment.swiftlineTrackingNumber} />
                   <ResultValue className="sm:col-span-2" label="Carrier Shipment" value={result.bookingConfirmation?.carrierShipmentId ?? result.dpdShipment.dpdShipmentId} />
                   <ResultValue label="Parcels" value={result.bookingConfirmation
@@ -1004,7 +1207,7 @@ export default function DpdLabelDraftPage() {
                       ? `Advance ${formatMoney(result.bookingConfirmation.advanceAmountMinor / 100)} / Credit ${formatMoney(result.bookingConfirmation.creditAmountMinor / 100)}`
                       : "Pending"}
                   />
-                </dl>
+                </dl> */}
 
                 <div className="bg-white">
                   <ShipmentLabelsPanel
@@ -1016,7 +1219,7 @@ export default function DpdLabelDraftPage() {
                 <div className="grid gap-2 border-t border-emerald-200 p-4 sm:grid-cols-3">
                   <Link
                     href={`/dashboard/shipments/${draft._id}`}
-                    className="inline-flex h-10 items-center justify-center gap-2 border border-emerald-300 bg-white px-3 text-sm font-semibold text-emerald-800 hover:border-emerald-600"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-3 text-xs py-1 font-semibold text-emerald-800 transition hover:border-emerald-600"
                   >
                     <FiExternalLink aria-hidden="true" className="h-4 w-4" />
                     Open Shipment
@@ -1024,15 +1227,15 @@ export default function DpdLabelDraftPage() {
                   {result.shipmentInvoice ? (
                     <Link
                       href={`/dashboard/shipments/${draft._id}/invoice`}
-                      className="inline-flex h-10 items-center justify-center gap-2 border border-emerald-300 bg-white px-3 text-sm font-semibold text-emerald-800 hover:border-emerald-600"
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-3 text-xs py-1 font-semibold text-emerald-800 transition hover:border-emerald-600"
                     >
-                      <FiExternalLink aria-hidden="true" className="h-4 w-4" />
+                      <FiExternalLink aria-hidden="true" className="h-4 w-4 " />
                       View Invoice
                     </Link>
                   ) : null}
                   <Link
                     href="/dashboard/dpd-labels"
-                    className="inline-flex h-10 items-center justify-center gap-2 border border-emerald-300 bg-white px-3 text-sm font-semibold text-emerald-800 hover:border-emerald-600"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-white px-3 text-xs py-1 font-semibold text-emerald-800 transition hover:border-emerald-600"
                   >
                     <FiTruck aria-hidden="true" className="h-4 w-4" />
                     Create Another

@@ -56,7 +56,7 @@ export function ClientDashboardShell({
   const navigation = [
     { label: "Dashboard", href: "/client/dashboard", icon: FiGrid },
     { label: "Create Shipment", href: "/client/dpd-labels", icon: FiBriefcase },
-    { label: "Get Quote", href: "/client/get-quote", icon: FiClipboard, quoteRequest: true },
+    { label: "Get Live Quote", href: "/client/get-quote", icon: FiClipboard, quoteRequest: true },
     { label: "My Quotes", href: "/client/quotes", icon: FiFileText, quote: true },
     { label: "Tracking", href: "/client/tracking", icon: FiTruck },
     { label: "Support Tickets", href: "/client/tickets", icon: FiHelpCircle },
@@ -118,7 +118,7 @@ export function ClientDashboardShell({
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8 shadow-sm">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 ">
               <NotificationBell />
               <div className="text-right">
                 <p className="text-sm font-semibold text-slate-900">{user.name || user.email}</p>

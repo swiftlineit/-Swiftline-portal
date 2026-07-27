@@ -113,8 +113,8 @@ export default function CancellationReview({
   }
 
   return (
-    <div className="space-y-5 p-5">
-      <div className="grid gap-4 border-b border-slate-200 pb-5 sm:grid-cols-2">
+    <div className="space-y-5 p-5 ">
+      <div className="grid gap-4 border-b border-slate-200 pb-5 sm:grid-cols-2 ">
         <Value label="Cancellation Reason" value={cancellation.reason} />
         <Value label="Original Shipment Charge" value={money.format(cancellation.originalAmountMinor / 100)} />
         <Value label="Requested By" value={`${cancellation.requesterType.toLowerCase()} - ${cancellation.requesterRole.replaceAll("_", " ")}`} />

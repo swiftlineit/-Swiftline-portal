@@ -41,17 +41,17 @@ return (
     >
       {sidebarOpen ? (
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0D1282] text-base font-bold text-white">
+          {/* <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg  text-base font-bold text-white">
             <Image
               src="/Slogo.png"
               alt="Swiftline Cargo"
               width={24}
               height={24}
-              className="h-6 w-6 object-contain"
+              className="h-8 w-8 object-contain rounded-2xl"
             />
-          </span>
+          </span> */}
 
-          <span className="truncate text-lg font-bold tracking-tight text-[#0D1282]">
+          <span className="truncate text-3xl font-[times] ml-5 tracking-wide font-bold  text-[#0D1282]">
             Swiftline
           </span>
         </div>

@@ -66,7 +66,7 @@ export function ShipmentLabelsPanel({
   if (!labels.length) return null;
 
   return (
-    <section className="border border-slate-200 bg-white">
+    <section className="border border-slate-200 bg-white rounded-2xl">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div>
           <h2 className="text-base font-semibold text-slate-950">Shipment Labels</h2>
@@ -85,7 +85,7 @@ export function ShipmentLabelsPanel({
                   <h3 className="font-semibold text-slate-950">
                     {label.labelType === "DPD" ? "DPD Label" : "Swiftline Internal Label"}
                   </h3>
-                  <span className="text-xs font-medium text-slate-500">{label.format} {label.labelSize}</span>
+                  <span className="text-xs font-medium text-slate-500">{label.format} </span>
                 </div>
                 <p className="mt-1 break-all text-sm font-medium text-slate-700">{label.parcelNumber}</p>
                 {label.labelType === "DPD" && label.providerMode === "SIMULATED" ? (
@@ -157,7 +157,7 @@ function LabelButton({
       type="button"
       onClick={onClick}
       disabled={busy}
-      className={`inline-flex h-9 items-center justify-center border border-slate-300 bg-white font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-wait disabled:opacity-60 ${compact ? "min-w-0 gap-1.5 px-2 text-sm" : "gap-2 px-3"}`}
+      className={`inline-flex h-9 items-center rounded-xl justify-center border border-slate-300 bg-white font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-wait disabled:opacity-60 ${compact ? "min-w-0 gap-1.5 px-2 text-sm" : "gap-2 px-3"}`}
     >
       <span aria-hidden="true" className="text-base">{icon}</span>
       {busy ? "Opening..." : label}

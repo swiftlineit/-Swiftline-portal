@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { Branch } from "../models/branch.model.js";
 import { OperationsManifest } from "../models/operationsManifest.model.js";
+import { buildOperationsManifestEdi } from "../services/edi/ediExport.service.js";
 import {
   buildOperationsManifestExcel,
   buildOperationsManifestPdf,
@@ -20,7 +21,7 @@ import {
   reopenOperationsBag,
   scanOperationsParcel,
   sealOperationsManifest,
-  updateDeclaredValue,
+  updateParcelValue,
   updateOperationsManifest
 } from "../services/operationsManifest.service.js";
 import { operationsBranchIds, operationsUser } from "../middleware/operationsBranchAccess.middleware.js";
@@ -162,9 +163,13 @@ export async function scanParcel(request: Request, response: Response) {
 
 export async function setGoodsValue(request: Request, response: Response) {
   try {
-    const actorId = userId(request); const input = parsedBody(response, z.object({ declaredValueMinor: z.number().int().min(1, "Goods value must be greater than zero.") }), request.body);
+    const actorId = userId(request);
+    const input = parsedBody(response, z.object({
+      parcelNumber: z.string().trim().min(1, "Select the parcel to value."),
+      valueMinor: z.number().int().min(1, "Goods value must be greater than zero.")
+    }), request.body);
     if (!actorId || !input) return;
-    await updateDeclaredValue({ manifestId: String(request.params.manifestId), consignmentId: String(request.params.consignmentId), ...input, userId: actorId });
+    await updateParcelValue({ manifestId: String(request.params.manifestId), consignmentId: String(request.params.consignmentId), ...input, userId: actorId });
     return response.json({ success: true, message: "Goods value updated." });
   } catch (error) { return sendError(response, error); }
 }
@@ -214,17 +219,26 @@ export async function cancelManifest(request: Request, response: Response) {
   catch (error) { return sendError(response, error); }
 }
 
-async function download(request: Request, response: Response, format: "xlsx" | "pdf") {
+const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const exportFormats = {
+  xlsx: { build: buildOperationsManifestExcel, contentType: XLSX_CONTENT_TYPE, filename: (number: string) => `ops-manifest-${number}.xlsx` },
+  pdf: { build: buildOperationsManifestPdf, contentType: "application/pdf", filename: (number: string) => `ops-manifest-${number}.pdf` },
+  edi: { build: buildOperationsManifestEdi, contentType: XLSX_CONTENT_TYPE, filename: (number: string) => `edi-${number}.xlsx` }
+} as const;
+
+async function download(request: Request, response: Response, format: keyof typeof exportFormats) {
   try {
     const manifest = await OperationsManifest.findById(String(request.params.manifestId)).exec();
     if (!manifest) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
     if (!(manifest.status === "SEALED" || manifest.status === "DISPATCHED")) throw new OperationsManifestServiceError("Exports are available after the manifest is sealed.", 409);
-    const file = format === "xlsx" ? await buildOperationsManifestExcel(manifest) : await buildOperationsManifestPdf(manifest);
-    response.setHeader("Content-Type", format === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/pdf");
-    response.setHeader("Content-Disposition", `${request.query.view === "1" ? "inline" : "attachment"}; filename=\"${manifest.manifestNumber}.${format}\"`);
+    const spec = exportFormats[format];
+    const file = await spec.build(manifest);
+    response.setHeader("Content-Type", spec.contentType);
+    response.setHeader("Content-Disposition", `${request.query.view === "1" ? "inline" : "attachment"}; filename=\"${spec.filename(manifest.manifestNumber)}\"`);
     return response.send(file);
   } catch (error) { return sendError(response, error); }
 }
 
 export const exportExcel = (request: Request, response: Response) => download(request, response, "xlsx");
 export const exportPdf = (request: Request, response: Response) => download(request, response, "pdf");
+export const exportEdi = (request: Request, response: Response) => download(request, response, "edi");

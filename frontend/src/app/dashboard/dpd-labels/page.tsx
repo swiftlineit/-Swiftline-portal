@@ -313,7 +313,7 @@ export default function DpdLabelsPage() {
           type="button"
           onClick={handleTemplateDownload}
           disabled={busy}
-          className="inline-flex h-10 items-center gap-2 bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="inline-flex h-10 items-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
         >
           <FiDownload aria-hidden="true" className="h-4 w-4" />
           Download Template
@@ -321,13 +321,13 @@ export default function DpdLabelsPage() {
       </div>
 
       {error ? (
-        <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+        <div className="mb-4 border border-red-200 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
           {error}
         </div>
       ) : null}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="border border-slate-200 bg-white">
+        <section className="border border-slate-200 bg-white rounded-2xl">
           <div className="border-b border-slate-200 px-5 py-4">
             <h2 className="text-sm font-semibold uppercase text-slate-500">Account Context</h2>
           </div>
@@ -338,7 +338,7 @@ export default function DpdLabelsPage() {
                 <select
                   value={businessAccountId}
                   onChange={(event) => setBusinessAccountId(event.target.value)}
-                  className="h-10 w-full appearance-none border border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  className="h-10 w-full appearance-none border rounded-xl border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                 >
                   <option value="">Select account</option>
                   {accounts.map((account) => (
@@ -357,7 +357,7 @@ export default function DpdLabelsPage() {
                 <select
                   value={branchId}
                   onChange={(event) => setBranchId(event.target.value)}
-                  className="h-10 w-full appearance-none border border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  className="h-10 w-full appearance-none border border-slate-300 rounded-xl bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                 >
                   <option value="">Select branch</option>
                   {branches.map((branch) => (
@@ -373,8 +373,8 @@ export default function DpdLabelsPage() {
         </section>
 
         <aside className="space-y-5">
-          <section className="border border-slate-200 bg-white p-5">
-            <h2 className="text-sm font-semibold uppercase text-slate-500">Invoice Upload</h2>
+          <section className="border border-slate-200 bg-white p-5 rounded-2xl">
+            <h2 className="text-sm font-semibold uppercase text-slate-500 text-center">Invoice Upload</h2>
             <label
               onDragOver={(event) => {
                 event.preventDefault();
@@ -382,7 +382,7 @@ export default function DpdLabelsPage() {
               }}
               onDragLeave={() => setDragActive(false)}
               onDrop={handleDrop}
-              className={`mt-4 flex min-h-36 cursor-pointer flex-col items-center justify-center border border-dashed px-4 py-6 text-center transition ${
+              className={`mt-4 flex min-h-36 cursor-pointer rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center transition ${
                 dragActive ? "border-blue-900 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-900"
               }`}
             >
@@ -399,7 +399,7 @@ export default function DpdLabelsPage() {
               type="button"
               onClick={handleUpload}
               disabled={!canUpload}
-              className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="mt-4 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               <FiFileText aria-hidden="true" className="h-4 w-4" />
               {busy ? "Processing..." : "Create Draft"}
@@ -413,9 +413,9 @@ export default function DpdLabelsPage() {
               type="button"
               onClick={handleManualDraft}
               disabled={!canCreateManual}
-              className="inline-flex h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+              className="inline-flex h-10 w-full items-center rounded-xl justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
             >
-              <FiEdit3 aria-hidden="true" className="h-4 w-4" />
+           
               {creatingManual ? "Starting Draft..." : "Create Without Invoice"}
             </button>
           </section>
@@ -439,7 +439,7 @@ export default function DpdLabelsPage() {
         </aside>
       </div>
 
-      <section className="mt-6 border border-slate-200 bg-white">
+      <section className="mt-6 border border-slate-200 bg-white rounded-2xl">
         <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold uppercase text-slate-500">Recent Shipments</h2>

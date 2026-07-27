@@ -369,6 +369,46 @@ export async function closeCreditBillingCycle(input: {
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Close every completed-but-unclosed billing period for one account, oldest
+// first. Each individual close is idempotent (it no-ops a period that already has
+// a statement), so a missed run is recovered on the next one and re-running is
+// safe. This is what the scheduled job calls per account.
+export async function closeDueCreditBillingCycles(input: {
+  businessAccountId: mongoose.Types.ObjectId;
+  createdBy: mongoose.Types.ObjectId;
+  now?: Date;
+  lookbackPeriods?: number;
+}) {
+  const now = input.now ?? new Date();
+  const account = await BusinessCreditAccount.findOne({ businessAccountId: input.businessAccountId }).lean().exec();
+  if (!account) return { closed: 0, statements: [] as ReturnType<typeof serializeCreditBillingStatement>[] };
+
+  // Step back far enough to recover realistic gaps; each step lands in an earlier
+  // period. 31 days guarantees crossing a month boundary for monthly cycles.
+  const stepDays = account.billingCycle === "WEEKLY" ? 7 : 31;
+  const lookbackPeriods = input.lookbackPeriods ?? (account.billingCycle === "WEEKLY" ? 8 : 3);
+
+  const statements: ReturnType<typeof serializeCreditBillingStatement>[] = [];
+  let closed = 0;
+
+  for (let index = lookbackPeriods - 1; index >= 0; index -= 1) {
+    const closingDate = new Date(now.getTime() - index * stepDays * DAY_MS);
+    const result = await closeCreditBillingCycle({
+      businessAccountId: input.businessAccountId,
+      createdBy: input.createdBy,
+      closingDate
+    });
+    if (result.created && result.statement) {
+      statements.push(result.statement);
+      closed += 1;
+    }
+  }
+
+  return { closed, statements };
+}
+
 export async function listCreditBillingStatements(businessAccountId: mongoose.Types.ObjectId) {
   const account = await BusinessCreditAccount.findOne({ businessAccountId }).exec();
   if (account) {
@@ -395,4 +435,111 @@ export async function getCreditBillingStatement(
   }).exec();
   if (!statement) throw new CreditBillingCycleError(404, "Credit billing statement was not found.");
   return statement;
+}
+
+// Write off (adjust down) an outstanding statement balance. This is the manual
+// remedy for a statement that cannot otherwise be cleared and for genuine bad
+// debt. The statement, its underlying invoices, and the account's invoiced
+// outstanding all move down together by exactly the written-off amount, so no new
+// drift is introduced.
+export async function writeOffCreditStatement(input: {
+  businessAccountId: mongoose.Types.ObjectId;
+  statementId: mongoose.Types.ObjectId;
+  amountMinor: number;
+  reason: string;
+  createdBy: mongoose.Types.ObjectId;
+}) {
+  if (!Number.isInteger(input.amountMinor) || input.amountMinor <= 0) {
+    throw new CreditBillingCycleError(400, "Write-off amount must be a positive whole-rupee value.");
+  }
+
+  const session = await mongoose.startSession();
+  try {
+    let serialized: ReturnType<typeof serializeCreditBillingStatement> | undefined;
+    await session.withTransaction(async () => {
+      const statement = await CreditBillingStatement.findOne({ _id: input.statementId, businessAccountId: input.businessAccountId }).session(session).exec();
+      if (!statement) throw new CreditBillingCycleError(404, "Credit billing statement was not found.");
+      if (statement.outstandingAmountMinor <= 0) throw new CreditBillingCycleError(409, "This statement has no outstanding balance to write off.");
+
+      const account = await BusinessCreditAccount.findOne({ businessAccountId: input.businessAccountId }).session(session).exec();
+      if (!account) throw new CreditBillingCycleError(404, "Business credit account was not found.");
+
+      const writeOffMinor = Math.min(input.amountMinor, statement.outstandingAmountMinor, account.invoicedOutstandingMinor);
+      if (writeOffMinor <= 0) throw new CreditBillingCycleError(409, "The requested write-off exceeds the account's invoiced balance.");
+
+      // Settle the statement's own invoices oldest-first, as far as the write-off allows.
+      let remainingMinor = writeOffMinor;
+      const invoiceIds = statement.lines.flatMap((line) => line.shipmentInvoiceId ? [line.shipmentInvoiceId] : []);
+      const feeInvoiceIds = statement.lines.flatMap((line) => line.cancellationFeeInvoiceId ? [line.cancellationFeeInvoiceId] : []);
+
+      const invoices = await ShipmentInvoice.find({ _id: { $in: invoiceIds }, creditOutstandingMinor: { $gt: 0 } })
+        .sort({ issuedAt: 1, _id: 1 }).session(session).exec();
+      for (const invoice of invoices) {
+        if (remainingMinor <= 0) break;
+        const applied = Math.min(remainingMinor, invoice.creditOutstandingMinor);
+        const next = invoice.creditOutstandingMinor - applied;
+        await ShipmentInvoice.updateOne(
+          { _id: invoice._id, creditOutstandingMinor: invoice.creditOutstandingMinor },
+          { $set: { creditOutstandingMinor: next, paymentStatus: next === 0 ? "PAID" : "PARTIALLY_PAID" } },
+          { runValidators: true, session }
+        ).exec();
+        remainingMinor -= applied;
+      }
+
+      const feeInvoices = await CancellationFeeInvoice.find({ _id: { $in: feeInvoiceIds }, creditOutstandingMinor: { $gt: 0 } })
+        .sort({ issuedAt: 1, _id: 1 }).session(session).exec();
+      for (const feeInvoice of feeInvoices) {
+        if (remainingMinor <= 0) break;
+        const applied = Math.min(remainingMinor, feeInvoice.creditOutstandingMinor);
+        const next = feeInvoice.creditOutstandingMinor - applied;
+        await CancellationFeeInvoice.updateOne(
+          { _id: feeInvoice._id, creditOutstandingMinor: feeInvoice.creditOutstandingMinor },
+          { $set: { creditOutstandingMinor: next, paymentStatus: next === 0 ? "PAID" : "PARTIALLY_PAID" } },
+          { runValidators: true, session }
+        ).exec();
+        remainingMinor -= applied;
+      }
+
+      const updatedAccount = await BusinessCreditAccount.findOneAndUpdate(
+        { _id: account._id, version: account.version, invoicedOutstandingMinor: { $gte: writeOffMinor } },
+        { $inc: { invoicedOutstandingMinor: -writeOffMinor, version: 1 } },
+        { returnDocument: "after", runValidators: true, session }
+      ).exec();
+      if (!updatedAccount) throw new CreditBillingCycleError(409, "Credit balances changed while writing off the statement. Try again.");
+
+      statement.creditAdjustmentMinor += writeOffMinor;
+      statement.outstandingAmountMinor -= writeOffMinor;
+      statement.status = statement.outstandingAmountMinor === 0
+        ? "PAID"
+        : statement.status === "OVERDUE" ? "OVERDUE" : "PARTIALLY_PAID";
+      await statement.save({ session });
+
+      await appendCreditLedgerEntry({
+        account: updatedAccount,
+        type: "STATEMENT_WRITTEN_OFF",
+        reference: statement.statementNumber,
+        description: "Credit statement balance written off.",
+        amountMinor: writeOffMinor,
+        idempotencyKey: `STATEMENT_WRITE_OFF:${String(statement._id)}:${updatedAccount.version}`,
+        createdBy: input.createdBy,
+        metadata: { statementId: statement._id, reason: input.reason, writeOffMinor },
+        session
+      });
+      await AuditLog.create([{
+        action: "CREDIT_STATEMENT_WRITTEN_OFF",
+        entityType: "CREDIT_BILLING_STATEMENT",
+        entityId: statement._id,
+        performedBy: input.createdBy,
+        performedAt: new Date(),
+        metadata: { businessAccountId: input.businessAccountId, statementNumber: statement.statementNumber, writeOffMinor, reason: input.reason }
+      }], { session });
+
+      serialized = serializeCreditBillingStatement(statement);
+    });
+
+    if (!serialized) throw new CreditBillingCycleError(500, "Statement write-off did not complete.");
+    return serialized;
+  } finally {
+    await session.endSession();
+  }
 }

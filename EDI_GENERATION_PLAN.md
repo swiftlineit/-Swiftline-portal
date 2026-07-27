@@ -1,316 +1,216 @@
-# EDI Generation — Field Mapping & Implementation Plan
+# EDI Generation — Final Field Mapping & Implementation Plan
 
-Status: **plan only, no code written yet.**
+Status: **plan approved by product answers. No code written yet.**
 Reference files analysed: `MANIFEST  SLC-012.xlsx`, `EDI RUN SLC012.xls`.
 
----
-
-## 1. What the two files actually are
-
-### Manifest (`MANIFEST SLC-012.xlsx`)
-- One sheet (`Worksheet`), range `A1:O584`.
-- Rows 1–13: header block. Origin/destination agent in cols E/F, label/value pairs in cols G/H.
-- Row 14: column headings `S.No *, Consignment No. *, Pieces *, Weight (kg), Consignor *, Consignee *, Description *, Value *, Currency *, Bag No *, Service Info`.
-- Rows 15+: **63 consignment blocks**. Each block is one scalar row plus a vertical address stack in cols E (consignor) and F (consignee).
-- **Block heights are not fixed**: observed 8, 9, 10 and 22 rows. Address lines land at *different offsets per block*.
-
-### EDI (`EDI RUN SLC012.xls`)
-- BIFF8 `.xls`. `Sheet1` = flat table, headers in row 1, **36 columns A→AJ**, 63 data rows. `Sheet2` is empty (an artifact — do not reproduce it).
-- One row per consignment. No header block, no merges, no styling.
-
-### Cross-check (joined on HAWB)
-| Check | Result |
-|---|---|
-| Row count | 63 manifest blocks ↔ 63 EDI rows, **1:1, no orphans either way** |
-| `PKG` / `Weight` / `Value` / `InvoiceValue` / `FOB_Value` / `CurrencyType` | 63/63 exact match |
-| `ConsignorName` / `ConsigneeName` | 63/63 exact match |
-| `ExportInvoiceNo` = `GSTInvoiceNo` = `CRN_NO` = HAWB | 63/63 |
-| `MHBSNo` = manifest number + zero-padded bag no | 63/63 (`SLC012` + `01` → `SLC01201`) |
-| `CRN_MHBS_NO` = `MHBSNo` | 63/63 |
-| `DescriptionofGoods` | 58/63 — the 5 differences are **deliberate word removals** (see §4.6) |
-| Consignor / consignee **address blocks** | only 25/63 and 20/63 match |
-
-> ⚠️ **The address columns in the sample EDI are unreliable test data.** Rows 2–3 map perfectly; beyond that, addresses were pasted from a small rotating pool (e.g. row 28: city `KURUKSHETRA`, state `Delhi`, PIN `132024`). Names, numbers and constants are trustworthy; per-row addresses past row ~3 are not. All address rules below are derived only from the rows that were *not* scrambled.
+### Decisions locked (this revision)
+1. **Aadhaar** is captured in consignor details (`consignorAddress.aadhaarNumber`, or per-parcel `parcel.aadhaarNumber`) → `GSTINNumber` is unblocked.
+2. **HAWB** = the Swiftline **parcel barcode** (`swiftlineParcelNumber`, e.g. `SLCDEL17072026001-01`).
+3. **One EDI row per parcel** (not per consignment).
+4. **Restricted goods** are **blocked at data entry** with an error toast — *not* scrubbed in the EDI. See §4.6.
+5. **Consignor state** now comes from the new consignor details.
+6. Output is **`.xls` (BIFF8)**.
+7. **`ADCode`** column stays **empty**.
 
 ---
 
-## 2. Field mapping table
+## 1. What the two files are (unchanged from analysis)
 
-`SRC` legend — **H**: manifest header (DB `OperationsManifest.header`) · **DB**: MongoDB record · **CALC**: derived · **CONST**: fixed value · **MISSING**: not currently stored anywhere.
+- **Manifest** (`.xlsx`): one sheet, a header block (rows 1–13), headings on row 14, then 63 consignment blocks of **variable height** (8/9/10/22 rows) with address lines stacked vertically in cols E/F.
+- **EDI** (`.xls`, BIFF8): flat table, headers on row 1, **36 columns A→AJ**, 63 data rows, one per consignment *in this sample because every consignment had exactly one parcel*. `Sheet2` is an empty artifact — do not reproduce it.
+- **Join:** 63↔63, 1:1, no orphans. All scalar/name/constant/ID columns match 63/63. Per-row **addresses past row ~3 are scrambled test data** and are not used to derive rules.
 
-| # | EDI column | Manifest column | SRC | Origin | Transformation |
+---
+
+## 2. Final field mapping (36 columns)
+
+Row grain = **one parcel**. "Consignment" fields repeat across a consignment's parcel rows; "parcel" fields differ per row. `SRC`: **DB-snap** = sealed manifest snapshot · **DB-live** = live `ShipmentDraft` (needed for the full Aadhaar only) · **CALC** = derived · **CONST** = fixed.
+
+| # | EDI column | SRC | Origin | Grain | Transformation |
 |---|---|---|---|---|---|
-| 1 | `MAWBNumber` | Header `MAWB NO. *` | H | `header.mawbNumber` | trim, uppercase; repeated on every row |
-| 2 | `HAWBNumber` | `Consignment No. *` | DB | `consignment.consignmentNumber` | `formatManifestConsignmentNumber()` — reuse the manifest's existing helper |
-| 3 | `ConsignorName` | `Consignor` line 1 | DB | `account.company.companyName` ?? contact full name | trim |
-| 4 | `ConsignorAddress1` | `Consignor` line 2 | DB | `account.company.registeredAddress` | trim + strip trailing comma |
-| 5 | `ConsignorAddress2` | `Consignor` line 3 | **MISSING** | — | `""` until a second address line exists (§3.4) |
-| 6 | `ConsignorCity` | `Consignor` line 4 | DB | `account.company.city` | trim |
-| 7 | `ConsignorState` | `Consignor` line 5 | DB | `account.company.stateOrProvince` | **Title Case** (`PUNJAB`→`Punjab`, `UTTAR PRADESH`→`Uttar Pradesh`) |
-| 8 | `ConsignorPostalCode` | `Consignor` line 6 | DB | `account.company.postalCode` | force **text** (sample is inconsistently numeric — we normalise) |
-| 9 | `ConsignorCountry` | `Consignor` line 7 (ISO-2) | CALC | `account.company.addressCountry` | ISO-2 → **UPPERCASE full name** (`IN`→`INDIA`) |
-| 10 | `ConsigneeName` | `Consignee` line 1 | DB | `consignee.companyName \|\| contactName` | trim |
-| 11 | `ConsigneeAddress1` | `Consignee` line 2 | DB | `consignee.addressLine1` | trim + strip trailing comma |
-| 12 | `ConsigneeAddress2` | `Consignee` line 3 | DB | `consignee.addressLine2` | trim + strip trailing comma, `""` when absent |
-| 13 | `ConsigneeCity` | `Consignee` line 4 | DB | `consignee.townOrCity` | trim |
-| 14 | `ConsigneeState` | `Consignee` line 5 | DB | `consignee.county` | **Title Case**, `""` when absent (`MANCHESTER`→`Manchester`) |
-| 15 | `ConsigneePostalCode` | `Consignee` line 6 | DB | `consignee.postcode` | force text |
-| 16 | `ConsigneeCountry` | `Consignee` line 7 (ISO-2) | CALC | `consignee.countryCode` (fallback `countryName`) | ISO-2 → UPPERCASE full name (`GB`→`UNITED KINGDOM`, `DE`→`GERMANY`, `GR`→`GREECE`, `US`→`UNITED STATES OF AMERICA`) |
-| 17 | `PKG` | `Pieces *` | CALC | packed parcel count | number |
-| 18 | `Weight` | `Weight (kg)` | CALC | Σ packed parcel weights | number, 3 dp max |
-| 19 | `DescriptionofGoods` | `Description *` | CALC | `consignment.description` | **prohibited terms removed** (§4.6) |
-| 20 | `Value` | `Value *` | CALC | `declaredValueMinor / 100` | number |
-| 21 | `ExportInvoiceNo` | — | ❓ | HAWB *(sample)* vs `InvoiceUpload.invoiceNumber` *(DB)* | **decision needed** (§3.5) |
-| 22 | `GSTInvoiceNo` | — | ❓ | same as #21 | same as #21 |
-| 23 | `InvoiceValue` | `Value *` | CALC | = `Value` | number |
-| 24 | `CurrencyType` | `Currency *` | DB | `consignment.currency` | always `INR` (schema enum) |
-| 25 | `PayType` | — | CONST | — | `"N"` |
-| 26 | `IGSTPaid` | — | CONST | — | `0` (numeric) |
-| 27 | `Bond` | — | CONST | — | `"NA"` |
-| 28 | `MHBSNo` | `Bag No *` | DB | `bag.bagNumber` | **direct** — `formatOperationsBagNumber()` already emits `SLC` + 3-digit manifest seq + 2-digit bag seq (`SLC01201`) |
-| 29 | `GSTINType` | — | ❓ | `account.company.registrationIdType` | `"Aadhaar Number"` in the sample; vocabulary needs confirming (§3.2) |
-| 30 | `GSTINNumber` | — | **MISSING** | — | numeric, 12 digits in the sample (§3.1) |
-| 31 | `GSTDate` | Header `FLIGHT DEPARTURE DATE` | CALC | `header.departureDate` | `yyyy-MM-dd` → **`d/M/yyyy` text**, no leading zeros (`17/7/2026`) |
-| 32 | `ExportDate` | same | CALC | same | same |
-| 33 | `ADCode` | — | **MISSING** | — | blank in the sample (§3.3) |
-| 34 | `CRN_NO` | `Consignment No. *` | CALC | = `HAWBNumber` | direct |
-| 35 | `CRN_MHBS_NO` | `Bag No *` | CALC | = `MHBSNo` | direct |
-| 36 | `FOB_Value` | `Value *` | CALC | = `Value` | number |
+| 1 | `MAWBNumber` | DB-snap | `header.mawbNumber` | header | trim, uppercase; on every row |
+| 2 | `HAWBNumber` | DB-snap | parcel `swiftlineParcelNumber` | **parcel** | uppercase; the scanned barcode incl. `-NN` suffix |
+| 3 | `ConsignorName` | DB-snap | `consignor.contactName` ?? `companyName` | consignment | trim |
+| 4 | `ConsignorAddress1` | DB-snap | `consignor.addressLine1` | consignment | `ediAddressLine` (trim + strip trailing comma) |
+| 5 | `ConsignorAddress2` | DB-snap | `consignor.addressLine2` | consignment | `ediAddressLine`, `""` when absent |
+| 6 | `ConsignorCity` | DB-snap | `consignor.townOrCity` | consignment | trim |
+| 7 | `ConsignorState` | DB-snap | `consignor.county` | consignment | **Title Case** (`PUNJAB`→`Punjab`, `UTTAR PRADESH`→`Uttar Pradesh`) |
+| 8 | `ConsignorPostalCode` | DB-snap | `consignor.postcode` | consignment | force **text** |
+| 9 | `ConsignorCountry` | CALC | `consignor.countryCode` (always `IN`) | consignment | ISO-2 → UPPER full name → `INDIA` |
+| 10 | `ConsigneeName` | DB-snap | `consignee.companyName` ?? `contactName` | consignment | trim |
+| 11 | `ConsigneeAddress1` | DB-snap | `consignee.addressLine1` | consignment | `ediAddressLine` |
+| 12 | `ConsigneeAddress2` | DB-snap | `consignee.addressLine2` | consignment | `ediAddressLine`, `""` when absent |
+| 13 | `ConsigneeCity` | DB-snap | `consignee.townOrCity` | consignment | trim |
+| 14 | `ConsigneeState` | DB-snap | `consignee.county` | consignment | **Title Case**, `""` when absent |
+| 15 | `ConsigneePostalCode` | DB-snap | `consignee.postcode` | consignment | force text |
+| 16 | `ConsigneeCountry` | CALC | `consignee.countryCode` (fallback name) | consignment | ISO-2 → UPPER full name (`GB`→`UNITED KINGDOM`, `DE`→`GERMANY`, `GR`→`GREECE`, `US`→`UNITED STATES OF AMERICA`, …) |
+| 17 | `PKG` | CONST | — | parcel | `1` (one parcel per row) |
+| 18 | `Weight` | DB-snap | parcel `weightKg` | **parcel** | number, ≤3 dp |
+| 19 | `DescriptionofGoods` | DB-snap | parcel `contentsDescription` | **parcel** | trim only — **no scrub** (restricted items can't reach the DB, §4.6) |
+| 20 | `Value` | DB-snap | `declaredValueMinor / 100` | consignment→first parcel row | number; see §4.8 |
+| 21 | `ExportInvoiceNo` | CALC | = `HAWBNumber` | parcel | one shared rule (§4.9) |
+| 22 | `GSTInvoiceNo` | CALC | = `HAWBNumber` | parcel | same rule as #21 |
+| 23 | `InvoiceValue` | CALC | = `Value` | consignment→first row | number |
+| 24 | `CurrencyType` | CONST | — | row | `INR` |
+| 25 | `PayType` | CONST | — | row | `N` |
+| 26 | `IGSTPaid` | CONST | — | row | `0` (numeric) |
+| 27 | `Bond` | CONST | — | row | `NA` |
+| 28 | `MHBSNo` | DB-snap | parcel's `bagNumber` | **parcel** | direct — `formatOperationsBagNumber` already emits `SLC01201`-style |
+| 29 | `GSTINType` | CONST | — | row | `Aadhaar Number` |
+| 30 | `GSTINNumber` | **DB-live** | parcel `aadhaarNumber` ?? shared `consignorAddress.aadhaarNumber` | parcel | 12-digit **numeric**; full value read live (§3.1) |
+| 31 | `GSTDate` | DB-snap | `header.departureDate` | header | `yyyy-MM-dd` → `d/M/yyyy` **text**, no leading zeros |
+| 32 | `ExportDate` | DB-snap | `header.departureDate` | header | same as #31 |
+| 33 | `ADCode` | CONST | — | row | **empty** |
+| 34 | `CRN_NO` | CALC | = `HAWBNumber` | parcel | direct |
+| 35 | `CRN_MHBS_NO` | CALC | = `MHBSNo` | parcel | direct |
+| 36 | `FOB_Value` | CALC | = `Value` | consignment→first row | number |
 
-**Manifest columns with no EDI counterpart:** `S.No *`, `Service Info` (EXP/CARGO).
-**Manifest header fields with no EDI counterpart:** flight number, IATA origin/destination, total bags, total weight, value type, FROM/TO agent blocks.
-
-### Mapping shape summary
-- **Direct (14):** #1, 2, 3, 4, 6, 8, 10, 11, 12, 13, 15, 17, 18, 24, 28
-- **Renamed only (7):** Pieces→`PKG`, Consignment No.→`HAWBNumber`, Bag No→`MHBSNo`, Value→`Value`/`InvoiceValue`/`FOB_Value`, Currency→`CurrencyType`
-- **Reformatted (6):** #7, 9, 14, 16, 31, 32
-- **Constants (4):** #25, 26, 27, and #24 in practice
-- **Copies of other EDI columns (5):** #21, 22, 23, 34, 35, 36
-- **Not in the manifest at all (5):** #29, 30, 33 + whichever of #21/#22 resolves to the invoice number
-- **Rule-filtered (1):** #19
+**Manifest fields with no EDI counterpart:** `S.No`, `Service Info`, flight number, IATA codes, total bags/weight, value type, FROM/TO agent blocks.
 
 ---
 
-## 3. Missing data list
+## 3. Missing-data list — all resolved
 
-### 3.1 `GSTINNumber` — 🔴 blocking
-`IBusinessAccount` has **no Aadhaar/GSTIN number field**. It holds `documents.aadhaarCard` (an uploaded *file*), `company.gstin` (15-char GSTIN), and `company.registrationId` + `registrationIdType`. The sample column is a bare 12-digit number = Aadhaar.
-**Options:** (a) confirm `company.registrationId` already holds the Aadhaar for individual senders and read it there; (b) add `company.aadhaarNumber` to the schema + the account form + a backfill. **Recommend (a) first** — it may already be populated.
+### 3.1 `GSTINNumber` (Aadhaar) — ✅ resolved, with one constraint
+Source: `parcel.aadhaarNumber` when `kycUseForAllParcels === false`, else the shared `consignorAddress.aadhaarNumber`. Stored as 12 digits.
+**Constraint:** the booking **and sealed snapshots redact the Aadhaar** (`maskAadhaarNumber` → `XXXX XXXX 1234`) by design. The EDI needs the full number, so the generator reads it **from the live `ShipmentDraft`** (via `consignment.shipmentDraftId`) at generation time. This is the *only* field EDI reads outside the sealed snapshot, and it keeps redaction intact everywhere else. Never copy the full Aadhaar into the sealed snapshot.
 
-### 3.2 `GSTINType` — 🟠
-Constant `"Aadhaar Number"` across all 63 sample rows. Should really be derived from `registrationIdType`. Need the exact accepted vocabulary from the customs system (e.g. `Aadhaar Number` / `GSTIN` / `PAN`). Until then: derive where possible, default `"Aadhaar Number"`.
+### 3.2 `GSTINType` — ✅ constant `"Aadhaar Number"` (all senders are Aadhaar-KYC individuals).
+### 3.3 `ADCode` — ✅ leave empty (no schema change).
+### 3.4 `ConsignorAddress2` — ✅ `consignorAddress.addressLine2` now exists.
+### 3.5 `ExportInvoiceNo` / `GSTInvoiceNo` — ✅ = `HAWBNumber` (matches sample), single rule.
+### 3.6 Consignor state — ✅ `consignorAddress.county`.
+### 3.7 Restricted goods — ✅ moved to input validation (§4.6).
 
-### 3.3 `ADCode` — 🟡
-Blank in every sample row and stored nowhere. AD Code belongs to the exporter's authorised-dealer bank branch. **Recommend** adding `Branch.adCode` (optional, defaults `""`) so it can be filled later without touching the generator.
-
-### 3.4 `ConsignorAddress2` — 🟡
-`company.registeredAddress` is a single free-text field; there is no line 2. The sample manifest shows two consignor address lines. **Recommend** adding `company.registeredAddressLine2` (optional). Emits `""` until then.
-
-### 3.5 `ExportInvoiceNo` / `GSTInvoiceNo` — 🟠 decision needed
-The sample sets both to the HAWB. The DB has a real `InvoiceUpload.invoiceNumber`. These are different things and customs may reject the wrong one. **Recommend** making it a single named rule in the column registry so it flips in one line.
-
-### 3.6 Prohibited-goods word list — 🟠
-See §4.6. No such list exists in the codebase today.
-
-### 3.7 Consignor state is currently dropped by the manifest generator — 🟠
-`formatConsignor()` in `shipmentManifest.service.ts:81-91` builds the consignor block from companyName, contactName, registeredAddress, city, postalCode, country, phone — **`stateOrProvince` is not included**, even though the sample manifest clearly shows a state line. EDI needs it (#7). Adding it fixes the manifest *and* feeds the EDI, but it **changes manifest output**, so it needs sign-off.
+Nothing is blocking. No new persisted schema fields are required for the EDI itself.
 
 ---
 
 ## 4. Transformation rules
 
-Every rule below is a pure function, unit-testable in isolation.
+Each is a pure, unit-tested function.
 
-### 4.1 `ediText(value)`
-`null`/`undefined` → `""`. Numbers → string. Always trims. **Never emits `null`** — the sample uses empty strings for absent values.
+- **4.1 `ediText`** — null/undefined→`""`, numbers→string, trims. Never emits null.
+- **4.2 `ediAddressLine`** — `ediText` + strip one trailing comma (`"AMUNPUR 31, "`→`"AMUNPUR 31"`); internal commas kept.
+- **4.3 `titleCaseState`** — per-word title case; verified `PUNJAB→Punjab`, `UTTAR PRADESH→Uttar Pradesh`, `MANCHESTER→Manchester`; already-cased passes through.
+- **4.4 `ediCountryName`** — ISO-3166 alpha-2 → **UPPERCASE** full name (`IN→INDIA`, `GB→UNITED KINGDOM`, `DE→GERMANY`, `GR→GREECE`, `US→UNITED STATES OF AMERICA`). New lookup `reference/countryNames.ts` (none exists today).
+- **4.5 `ediDate`** — `yyyy-MM-dd`→`d/M/yyyy` **text**, no zero padding (`2026-07-17`→`17/7/2026`). Distinct from the manifest's `dd-MM-yyyy` helper — do **not** reuse it.
+- **4.7 Cell types** — numeric: `Weight`, `Value`, `InvoiceValue`, `FOB_Value`, `PKG`, `IGSTPaid`, `GSTINNumber`. Everything else text, including postal codes and both dates.
 
-### 4.2 `ediAddressLine(value)`
-`ediText` then strip a trailing comma. Evidence: `"AMUNPUR 31, "` → `"AMUNPUR 31"`, `"HOSHIARPUR, "` → `"HOSHIARPUR"`, `"BATH RD, SLOUGH, "` → `"BATH RD"` *(the manifest's line 3 is itself a two-part string; only the trailing comma is stripped — internal commas stay)*.
+### 4.6 Restricted goods → **blocked at entry, not scrubbed in EDI**
+Add a shared restricted-items guard on `contentsDescription`. On entry (frontend) a match raises an **error toast: "This item is restricted."** and blocks save; the backend rejects the same in `validateParcel`. Because restricted items can never enter the DB, the EDI `DescriptionofGoods` is emitted **verbatim** (no removal logic). The sample's `GHEE`/`COSMETIC ITEAM` removals are ignored — they were manual edits and are not on this list.
 
-### 4.3 `titleCaseState(value)`
-Per-word: first letter upper, rest lower. Verified on the 25 unscrambled rows: `PUNJAB`→`Punjab`, `HARYANA`→`Haryana`, `DELHI`→`Delhi`, `GUJRAT`→`Gujrat`, `RAJASTHAN`→`Rajasthan`, `UTTAR PRADESH`→`Uttar Pradesh`, and already-cased `Uttar Pradesh` passes through unchanged. Same rule for consignee state: `MANCHESTER`→`Manchester`, `LONDON`→`London`.
+Categories (each maps to a keyword set in config `restrictedGoods.ts`, case-insensitive, word/substring match):
+Alcohol/Liquor · Tobacco/Nicotine/Vape · Cash/Currency · Gold/Silver/Precious Metals · Gems/Diamonds · Arms/Ammunition/Weapons · Explosives/Fireworks · Flammable Items · Dangerous Chemicals · Poison/Toxic Material · Prescription Medicines · Narcotics/Drugs · Live Animals · Plants/Seeds · Pornographic Material · Counterfeit Goods · Loose battery/Power bank · Perishable fresh food · Human remains/Ashes.
 
-### 4.4 `ediCountryName(codeOrName)`
-ISO-3166 alpha-2 → **uppercase** full name. Confirmed pairs: `IN`→`INDIA`, `GB`→`UNITED KINGDOM`, `DE`→`GERMANY`, `GR`→`GREECE`. Also present in the sample: `SPAIN`, `PORTUGAL`, `UNITED STATES OF AMERICA` *(note: not "UNITED STATES")*. A non-ISO input that is already a full name passes through uppercased. **No such lookup exists in the backend today — it must be added** (`reference/countryNames.ts`).
+One list, imported by both frontend (toast) and backend (reject) so the two never drift.
 
-### 4.5 `ediDate(isoDate)`
-`yyyy-MM-dd` → `d/M/yyyy` **as a text cell**, no zero padding: `2026-07-17` → `17/7/2026`. Note this differs from the manifest's own `formatManifestDate()`, which produces `dd-MM-yyyy` — **do not reuse it**.
+### 4.8 Value across a consignment's parcel rows
+Declared value is per-consignment. Following the manifest's existing convention, `Value`/`InvoiceValue`/`FOB_Value` are populated on the **consignment's first parcel row** and left **empty on its other parcel rows**, so a multi-parcel shipment is never counted twice and EDI totals reconcile with the manifest. (All sample consignments are single-parcel, so this is invisible there.) Adjustable via one flag if customs wants the value repeated.
 
-### 4.6 `scrubDescription(text)`
-The 5 sample differences are all removals of the same kind of term:
+### 4.9 Column identity rules
+`ExportInvoiceNo = GSTInvoiceNo = CRN_NO = HAWBNumber` and `CRN_MHBS_NO = MHBSNo` and `InvoiceValue = FOB_Value = Value` are expressed as **references to the resolved column**, defined once, so a change propagates.
 
-| HAWB | Manifest | EDI | Removed |
-|---|---|---|---|
-| SLC170720 | `GHEE,JEERA,PAPAD,SNACKS,SPICES` | `JEERA,PAPAD,SNACKS,SPICES` | `GHEE` |
-| SLC170752 | `UTENSILS,SNACKS,PRESSURE COOKER,GHEE` | `UTENSILS,SNACKS,PRESSURE COOKER` | `GHEE` |
-| SLC170762 | `GHEE,SPICES,SWEETS,...` | `SPICES,SWEETS,...` | `GHEE` |
-| SLC170764 | `LADIES PURSE,T-SHIRT,PAPER TRAYS,GHEE,SHOES` | `LADIES PURSE,T-SHIRT,PAPER TRAYS,SHOES` | `GHEE` |
-| SLC170726 | `SNAKCS,DRESS SET,COSMETIC ITEAM,ARTIFICAL JEWELLARY` | `SNAKCS,DRESS SET,ARTIFICAL JEWELLARY` | `COSMETIC ITEAM` |
-
-Rule: split on `,`, drop any item whose normalised text matches a configured prohibited term, re-join with `,`. Case-insensitive, whitespace-tolerant. **The list is config, not code** — `EDI_PROHIBITED_DESCRIPTION_TERMS` in `ediConstants.ts`, seeded with `GHEE` and `COSMETIC ITEAM`. Needs the operations team's full list.
-Edge case to handle: if every item is removed, fall back to `"GENERAL MERCHANDISE"` rather than emitting an empty description.
-
-### 4.7 Cell types
-`Weight`, `Value`, `InvoiceValue`, `FOB_Value`, `PKG`, `IGSTPaid`, `GSTINNumber` → **numeric** cells.
-Everything else → **text** cells, including postal codes and both dates. (The sample is inconsistent on postal codes — some numeric, some text. We normalise to text; a leading-zero PIN would otherwise be corrupted.)
-
-### 4.8 Row granularity — ❓ decision needed
-Every consignment in the sample had exactly one parcel, so the file cannot tell us what a multi-parcel HAWB looks like. The **manifest** emits one row per *parcel*. **Recommendation: the EDI emits one row per *consignment* (HAWB)** — `PKG` = parcel count, `Weight` = consignment total, `Value` = full declared value, one row per HAWB. That matches customs semantics (a HAWB is one shipment) and keeps HAWB unique per row as in the sample. This is a single flag in the builder if it turns out to be wrong.
-
-### 4.9 Output file format
-The sample is BIFF8 `.xls`. **Verified: the already-installed `xlsx@0.18.5` writes BIFF8 correctly** (`bookType: "biff8"`, round-trips cleanly). ExcelJS — used for the manifest — cannot write `.xls`. So the EDI generator uses `xlsx`, the manifest keeps ExcelJS. No new dependency.
+### 4.10 File format
+BIFF8 `.xls` via the already-installed `xlsx@0.18.5` (`bookType:"biff8"` — verified round-trips cleanly). ExcelJS cannot write `.xls`; it stays on the manifest. No new dependency.
 
 ---
 
-## 5. Why the EDI must not read the Manifest Excel
-
-Three independent reasons, all confirmed by the file itself:
-
-1. **Block heights vary** (8/9/10/22 rows). Address lines sit at different offsets per consignment — any offset-based parse silently mis-reads.
-2. **The manifest is lossy by design.** `uniqueLines()` in `shipmentManifest.service.ts:39-48` de-duplicates address lines, so when city == county one of them simply disappears. It is not reversible.
-3. **The manifest never contained 5 of the EDI's columns** (`GSTINNumber`, `GSTINType`, `ADCode`, and the invoice numbers). They have to come from the DB regardless.
+## 5. Why the EDI is built from data, not from the Manifest Excel
+Variable block heights, `uniqueLines()` de-duplication that is irreversible, redacted Aadhaar, and 5 EDI columns that were never in the manifest — all mean the manifest file cannot be a source. The EDI generator receives a **normalized object**, never a workbook.
 
 ---
 
-## 6. Current architecture and required refactoring
+## 6. Architecture & refactoring
 
-### 6.1 How data flows today
-
+### 6.1 Target
 ```
-DpdShipment.currentShipmentSnapshot        (ShipmentBookingSnapshot — structured: account.company, consignee)
-        │
-        ▼  buildManifestLine()                       ← ⚠ FLATTENS to { formatted: "line\nline\nline" }
-OperationsManifestConsignment
-   .consignorSnapshot / .consigneeSnapshot           ← ⚠ structure already lost here
-        │
-        ▼  sealOperationsManifest()
-OperationsManifest.sealedSnapshot                    (frozen; inherits the loss)
-        │
-        ├─► buildOperationsManifestExcel()  ← ⚠ builds a fake IShipmentManifest and casts it `as never`
-        │        └─► buildShipmentManifestWorkbook()
-        └─► buildOperationsManifestPdf()    ← ⚠ re-implements the same row/address layout independently
+OperationsManifest.sealedSnapshot (v2 — structured parties + parcel barcodes)
+                 │
+                 ▼
+   buildManifestDocumentModel()      ← SHARED SHIPMENT DATA BUILDER → NormalizedManifestDocument
+     ┌───────────┼───────────────────────────────┐
+     ▼           ▼                                 ▼
+ Manifest Excel  Manifest PDF          EDI Excel (xlsx/biff8, driven by EDI_COLUMNS)
+ (ExcelJS)       (PDFKit)              + live Aadhaar lookup for GSTINNumber
 ```
+The EDI generator consumes a `NormalizedManifestDocument` (per-parcel rows) plus a small live-data side-channel for the full Aadhaar.
 
-### 6.2 Three problems this creates
-
-1. **Structure loss at `buildManifestLine`** ([shipmentManifest.service.ts:115-134](portal/backend/src/services/shipmentManifest.service.ts#L115-L134)). The parties become one newline-joined string. EDI needs 14 discrete address fields. **This is the one mandatory refactor.**
-2. **The `virtualManifest` cast** ([operationsManifest.service.ts:1043-1082](portal/backend/src/services/operationsManifest.service.ts#L1043-L1082)) fabricates an `IShipmentManifest` and casts it `as never` to reuse the client-manifest writer. It works, but it is exactly the seam a third output would have to copy. It becomes the shared builder instead.
-3. **Duplicated layout logic.** `sealedParcelRows`, address spreading, `formatManifestConsignmentNumber` and the value-on-first-row rule exist twice — once for Excel, once for PDF. A third copy for EDI is the outcome to avoid.
-
-### 6.3 Target architecture
-
-```
-                     OperationsManifest.sealedSnapshot (v2 — now carries structured parties)
-                                       │
-                                       ▼
-                     buildManifestDocumentModel()          ← THE SHARED SHIPMENT DATA BUILDER
-                                       │                      returns NormalizedManifestDocument
-                                       │                      { header, totals, consignments[], parcelRows[] }
-                     ┌─────────────────┼─────────────────┐
-                     ▼                 ▼                 ▼
-            Manifest Excel        Manifest PDF        EDI Excel
-            (ExcelJS)             (PDFKit)            (xlsx / biff8, driven by EDI_COLUMNS)
-```
-
-The EDI generator receives a **`NormalizedManifestDocument`** — never a file path, never a workbook.
-
-### 6.4 Refactors required (in order)
-
+### 6.2 Refactors (in order)
 | # | Change | File | Risk |
 |---|---|---|---|
-| R1 | `buildManifestLine()` also returns `consignor.party` / `consignee.party` (structured) alongside the existing `formatted`. **No new DB reads** — the full `ShipmentBookingSnapshot` is already in scope. | `shipmentManifest.service.ts` | Low — additive |
-| R2 | Persist `party` on `consignorSnapshot` / `consigneeSnapshot` (already `Mixed`, so **no migration**). | `operationsManifestConsignment.model.ts` | None |
-| R3 | Add `stateOrProvince` to `formatConsignor()` (§3.7). **Changes manifest output** — needs sign-off. | `shipmentManifest.service.ts` | Medium |
-| R4 | Bump `sealedSnapshot` to `version: 2`; readers accept 1 and 2. | `operationsManifest.service.ts` | Low |
-| R5 | Extract `buildManifestDocumentModel()`; move `sealedParcelRows` + the value-on-first-row rule into it. | new `manifestDocument.service.ts` | Medium |
-| R6 | Rewrite `buildOperationsManifestExcel` / `Pdf` to consume the model; **delete the `as never` cast**. Output must stay byte-comparable. | `operationsManifest.service.ts` | Medium |
-| R7 | Backfill: v1 sealed manifests have no `party`. EDI returns a clear 409; a script re-derives `party` from the still-present `DpdShipment` snapshots. | new script | Low |
+| R1 | `buildManifestLine` returns structured `consignor.party` / `consignee.party` (from `snapshot.consignor` — the new per-shipment consignor, incl. `county` state — and the consignee) beside the existing `formatted`. No new DB reads. | `shipmentManifest.service.ts` | Low, additive |
+| R2 | Persist `party` on `consignorSnapshot`/`consigneeSnapshot` (already `Mixed` — no migration). | `operationsManifestConsignment.model.ts` | None |
+| R3 | Ensure the manifest consignor is sourced from the **new consignor details** (with state), not the business account. Changes manifest output → **needs sign-off**. | `shipmentManifest.service.ts` | Medium |
+| R4 | Sealed snapshot → `version: 2`; keep each parcel's `swiftlineParcelNumber` + `bagNumber` (barcode already flows via scans). Readers accept v1 and v2. | `operationsManifest.service.ts` | Low |
+| R5 | Extract `buildManifestDocumentModel()`; move `sealedParcelRows` + first-row-value rule into it. | new `manifestDocument.service.ts` | Medium |
+| R6 | Repoint Excel + PDF at the model; delete the `as never` cast. Output must stay byte-identical. | `operationsManifest.service.ts` | Medium |
+| R7 | Backfill `party` + parcel numbers onto v1 sealed manifests from the still-present `DpdShipment`/draft data; EDI 409s cleanly until then. | new script | Low |
 
-Note R1–R2 only help manifests sealed *after* deployment. R7 covers the rest.
+### 6.3 New: restricted-goods guard (independent of the EDI)
+`restrictedGoods.ts` (shared list + `findRestrictedTerms(description)`), wired into backend `validateParcel` and the frontend description inputs (toast). Ships on its own.
 
 ---
 
-## 7. Recommended folder structure
-
+## 7. Folder structure
 ```
 portal/backend/src/
-├── types/
-│   └── manifestDocument.ts              NEW  NormalizedManifestDocument / ConsignmentRow / PartySnapshot
+├── types/manifestDocument.ts                 NEW  NormalizedManifestDocument / ParcelRow / PartySnapshot
 ├── services/
-│   ├── manifestDocument.service.ts      NEW  ★ shared builder: sealedSnapshot → normalized model
-│   ├── shipmentManifest.service.ts      EDIT R1, R3 — buildManifestLine emits structured party
-│   ├── operationsManifest.service.ts    EDIT R4, R6 — seal v2; exports consume the model
-│   ├── reference/
-│   │   └── countryNames.ts              NEW  ISO-3166 alpha-2 → EDI country name
+│   ├── manifestDocument.service.ts           NEW  ★ shared builder
+│   ├── shipmentManifest.service.ts           EDIT R1, R3
+│   ├── operationsManifest.service.ts         EDIT R4, R6
+│   ├── reference/countryNames.ts             NEW  ISO-2 → EDI country name
+│   ├── restrictedGoods.ts                    NEW  shared restricted list + matcher
 │   └── edi/
-│       ├── ediColumns.ts                NEW  ★ THE single ordered column registry (all 36)
-│       ├── ediTransforms.ts             NEW  pure formatters (§4)
-│       ├── ediConstants.ts              NEW  PayType/Bond/IGSTPaid/GSTINType + prohibited terms
-│       ├── ediWorkbook.service.ts       NEW  writes BIFF8 from EDI_COLUMNS — no column indexes
-│       └── ediExport.service.ts         NEW  orchestrator + readiness check
-├── controllers/
-│   └── operationsManifest.controller.ts EDIT add exportEdi (reuses the existing download() helper)
-├── routes/
-│   └── operationsManifest.routes.ts     EDIT GET /:manifestId/export-edi.xls
-├── scripts/
-│   └── backfillManifestPartySnapshots.ts NEW  R7
+│       ├── ediColumns.ts                     NEW  ★ single ordered 36-column registry
+│       ├── ediTransforms.ts                  NEW  §4 pure formatters
+│       ├── ediConstants.ts                   NEW  PayType/Bond/IGSTPaid/GSTINType/ADCode
+│       ├── ediWorkbook.service.ts            NEW  BIFF8 writer, driven by EDI_COLUMNS (no indexes)
+│       └── ediExport.service.ts              NEW  orchestrator + live-Aadhaar lookup + readiness check
+├── controllers/operationsManifest.controller.ts  EDIT exportEdi (reuse existing download())
+├── routes/operationsManifest.routes.ts            EDIT GET /:manifestId/export-edi.xls
+├── services/shipmentValidation.service.ts         EDIT restricted-goods check in validateParcel
+├── scripts/backfillManifestPartySnapshots.ts      NEW  R7
 └── tests/
-    ├── ediMapping.test.ts               NEW  transforms + full-row mapping against the sample
-    └── operationsManifest.test.ts       EDIT assert manifest output is unchanged after R5/R6
+    ├── ediMapping.test.ts                    NEW  transforms + full-row mapping vs sample rows 2–3
+    ├── restrictedGoods.test.ts               NEW  every category + clean descriptions
+    └── operationsManifest.test.ts            EDIT manifest output unchanged after R5/R6
 
 portal/frontend/src/
-├── lib/operationsManifests.ts           EDIT downloadOperationsManifest accepts "edi"
-└── app/dashboard/operations-manifests/[manifestId]/page.tsx   EDIT add "EDI" button next to Excel/PDF
+├── lib/restrictedGoods.ts                    NEW  (or shared import) list + matcher for the toast
+├── lib/operationsManifests.ts                EDIT download supports "edi"
+├── app/.../shipments/[draftId]/page.tsx      EDIT toast on restricted contentsDescription
+├── app/.../client/shipments/[draftId]/page.tsx  EDIT same
+└── app/dashboard/operations-manifests/[manifestId]/page.tsx  EDIT "EDI" download button
 ```
 
-### The centralisation rule
-`ediColumns.ts` is the **only** place a column name, its order, or its source appears:
-
+### Centralisation rule
+`ediColumns.ts` is the only place a column name, order, or source appears:
 ```ts
-export type EdiColumn = {
-  header: string;                                  // exact EDI header text
-  source: "HEADER" | "DB" | "CALC" | "CONSTANT";   // documentation + tooling
-  type: "text" | "number";
-  value: (row: NormalizedConsignmentRow, ctx: EdiContext) => string | number;
-};
-
-export const EDI_COLUMNS: readonly EdiColumn[] = [ /* 36 entries, in order */ ];
+type EdiColumn = { header: string; source: "SNAP"|"LIVE"|"CALC"|"CONST"; type: "text"|"number";
+                   value: (row: ParcelRow, ctx: EdiContext) => string | number };
+export const EDI_COLUMNS: readonly EdiColumn[] = [ /* 36, in order */ ];
 ```
-
-The writer only ever does `EDI_COLUMNS.map(c => c.header)` and `EDI_COLUMNS.map(c => c.value(row, ctx))`. Column order is array order — **no numeric index appears anywhere**. Adding, removing or reordering a column is a one-line edit.
+The writer only does `EDI_COLUMNS.map(c => c.header)` and `EDI_COLUMNS.map(c => c.value(row, ctx))`. Order = array order. **No numeric column index anywhere.**
 
 ---
 
 ## 8. Implementation plan
+- **Phase 1 — Restricted-goods guard (§6.3).** Independent, user-visible now. Ship first.
+- **Phase 2 — Structured party + parcel capture (R1, R2, R4).** Additive; manifest output unchanged.
+- **Phase 3 — Shared builder (R5, R6).** Acceptance: a manifest sealed *before* the change yields **byte-identical Excel + PDF** after.
+- **Phase 4 — EDI mapping layer (R3 sign-off first).** `countryNames`, `ediTransforms`, `ediConstants`, `ediColumns`. Pure, fully unit-tested before any workbook code.
+- **Phase 5 — EDI writer + endpoint.** BIFF8 writer, `ediExport` (with the live-Aadhaar lookup), controller/route, frontend button. Gate: `SEALED`/`DISPATCHED` only. Filename `{manifestNumber}-EDI.xls`.
+- **Phase 6 — Verify + backfill (R7).** Regenerate SLC-012 from DB; expect the trustworthy columns (constants, IDs, MHBS, names, numbers, dates) to match the sample exactly and addresses to differ (sample addresses are scrambled). Run R7.
 
-**Phase 0 — sign-off (blocking).** Resolve §3.1, §3.5, §4.6, §4.8, and R3. Everything else can proceed in parallel.
-
-**Phase 1 — structured party capture (R1, R2).** Extend `buildManifestLine`; persist `party`. Existing manifest output unchanged. Ship independently.
-
-**Phase 2 — shared builder (R4, R5, R6).** Extract `buildManifestDocumentModel`, repoint Excel + PDF at it, drop the `as never` cast. **Acceptance: a manifest sealed before the change produces an identical Excel and PDF after it.**
-
-**Phase 3 — EDI mapping layer.** `countryNames.ts`, `ediTransforms.ts`, `ediConstants.ts`, `ediColumns.ts`. Pure functions, no I/O, fully unit-tested before any workbook code exists.
-
-**Phase 4 — EDI writer + endpoint.** `ediWorkbook.service.ts` (BIFF8), `ediExport.service.ts`, controller + route, frontend button. Same gate as the other exports: `SEALED` or `DISPATCHED` only. Filename `{manifestNumber}-EDI.xls`.
-
-**Phase 5 — verification & backfill.** Regenerate the SLC-012 EDI from DB data and diff it against `EDI RUN SLC012.xls` — **expect the trustworthy columns (all constants, IDs, numbers, names, MHBS, dates) to match exactly, and the addresses to differ, because the sample's addresses are scrambled.** Then run the R7 backfill.
-
-### Test plan
-- **Unit:** every transform in §4, including the edge cases (empty description after scrub, missing country code, unpadded date, leading-zero PIN).
-- **Mapping:** build a `NormalizedManifestDocument` from the sample's *manifest* data, generate rows, assert all 36 columns for rows 2–3 (the two verified-clean rows) byte-for-byte.
-- **Regression:** manifest Excel + PDF unchanged across Phase 2.
-- **Integration:** seal → download EDI → re-read with `xlsx` → assert headers, row count and types.
+### Tests
+Transforms incl. edge cases (empty state, missing country code, unpadded date, leading-zero PIN); full 36-column assertion for the two clean sample rows; every restricted category (positive + negative); manifest regression across Phase 3; seal→download→re-read integration asserting headers, per-parcel row count, and cell types.
 
 ---
 
-## 9. Open decisions
+## 9. Remaining sign-off
+Only one item still needs your word before Phase 4:
+- **R3** — sourcing the manifest's consignor from the new per-shipment consignor details (so it carries state and matches the individual sender). This *changes what the manifest prints*. If you'd rather the manifest keep showing the business account and only the **EDI** use the new consignor details, say so and I'll scope R3 to the EDI path alone.
 
-| # | Question | Recommendation |
-|---|---|---|
-| 1 | Where does the consignor's 12-digit Aadhaar live? | Check `company.registrationId` first; add `company.aadhaarNumber` only if it is not there |
-| 2 | `ExportInvoiceNo` / `GSTInvoiceNo` — HAWB or real invoice number? | Sample says HAWB; keep it a one-line rule in `ediColumns.ts` |
-| 3 | One EDI row per consignment or per parcel? | **Per consignment (HAWB)** — `PKG` = parcel count |
-| 4 | Full prohibited-terms list | Seed with `GHEE`, `COSMETIC ITEAM`; operations team to complete |
-| 5 | Add consignor state to the manifest? (§3.7) | Yes — the sample manifest has it and EDI requires it |
-| 6 | `.xls` (matches sample) or `.xlsx`? | **`.xls` BIFF8** — verified working with the existing `xlsx` dependency |
-| 7 | `ADCode` source | Add optional `Branch.adCode`; emit `""` meanwhile |
+Everything else is decided.

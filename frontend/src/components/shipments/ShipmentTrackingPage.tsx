@@ -116,7 +116,7 @@ export default function ShipmentTrackingPage({ mode, title, description }: Shipm
         <p className="mt-1 max-w-3xl text-sm text-slate-500">{description}</p>
       </div>
 
-      <section className="border border-slate-200 bg-white">
+      <section className="border border-slate-300 bg-white rounded-2xl ">
         <div className="border-b border-slate-200 px-5 py-4">
           <h2 className="font-semibold text-slate-950">Find Shipment</h2>
           <p className="mt-1 text-sm text-slate-500">Search using a Swiftline tracking number, carrier shipment number, or parcel number.</p>
@@ -125,17 +125,17 @@ export default function ShipmentTrackingPage({ mode, title, description }: Shipm
           <label className="relative flex-1">
             <span className="sr-only">Tracking number</span>
             <FiSearch aria-hidden="true" className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Example: SLDL20072026000001" className="h-11 w-full border border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-950 outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Example: SLDL20072026000001" className="h-11  rounded-xl w-full border border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-950 outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900" />
           </label>
-          <button type="submit" disabled={loading} className="inline-flex h-11 items-center justify-center gap-2 bg-blue-950 px-6 text-sm font-semibold text-white hover:bg-blue-900 disabled:bg-slate-400"><FiSearch aria-hidden="true" />{loading ? "Searching..." : "Track Shipment"}</button>
+          <button type="submit" disabled={loading} className="inline-flex h-11 items-center rounded-xl justify-center gap-2 bg-blue-950 px-6 text-sm font-semibold text-white hover:bg-blue-900 disabled:bg-slate-400"><FiSearch aria-hidden="true" />{loading ? "Searching..." : "Track Shipment"}</button>
         </form>
       </section>
 
-      {error ? <div className="mt-5 flex items-start gap-3 border border-red-200 bg-red-50 p-4 text-sm text-red-700"><FiAlertCircle className="mt-0.5 shrink-0" /><div><p className="font-semibold">Unable to find shipment</p><p className="mt-1">{error}</p></div></div> : null}
-      {!searched && !result ? <div className="mt-5 border border-dashed border-slate-300 bg-slate-50 p-10 text-center"><FiPackage className="mx-auto h-6 w-6 text-blue-900" /><p className="mt-3 font-semibold text-slate-900">Tracking details will appear here</p><p className="mt-1 text-sm text-slate-500">Enter one of the tracking numbers printed on the shipment label.</p></div> : null}
+      {error ? <div className="mt-5 flex rounded-2xl items-start  der border-red-200 bg-red-50 p-4 text-sm text-red-700"><FiAlertCircle className=" shrink-0" /><div><p className="font-semibold">Unable to find shipment {""}{error}</p></div></div> : null}
+      {!searched && !result ? <div className="mt-5 border border-dashed border-slate-300 bg-slate-50 p-10 text-center"><FiPackage className="mx-auto  h-6 w-6 text-blue-900" /><p className="mt-3 font-semibold text-slate-900">Tracking details will appear here</p><p className="mt-1 text-sm text-slate-500">Enter one of the tracking numbers printed on the shipment label.</p></div> : null}
 
       {result ? <div className="mt-5 space-y-5">
-        <section className="border border-slate-200 bg-white">
+        <section className="border border-b-0 bg-white rounded-2xl">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
             <div><p className="text-xs font-semibold uppercase text-slate-500">Current Shipment Status</p><h2 className="mt-1 text-xl font-semibold text-slate-950">{result.consignee}</h2><p className="mt-1 text-sm text-slate-500">{result.swiftlineTrackingNumber || result.carrierShipmentNumber}</p></div>
             <span className={`border px-3 py-1.5 text-xs font-semibold uppercase ${statusTone(result.status)}`}>{result.statusLabel}</span>
@@ -149,13 +149,13 @@ export default function ShipmentTrackingPage({ mode, title, description }: Shipm
         </section>
 
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="border border-slate-200 bg-white">
+          <section className="border border-slate-200 bg-white rounded-2xl">
             <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-950">Shipment Timeline</h2><p className="mt-1 text-sm text-slate-500">Confirmed shipment events from Swiftline operations.</p></div>
             <div className="p-5">
               {timeline.length ? <ol className="relative ml-3 border-l border-slate-300">
                 {timeline.map((item) => (
                   <li key={item.id} className="relative pb-7 pl-7 last:pb-0">
-                    <span className="absolute -left-3 top-0 flex h-6 w-6 items-center justify-center border border-emerald-400 bg-emerald-50 text-emerald-600">
+                    <span className="absolute -left-3 top-0 flex h-6 w-6 items-center justify-center border border-emerald-400 bg-emerald-50 text-emerald-600 rounded">
                       <FiCheckCircle className="h-4 w-4" />
                     </span>
                     <p className="font-semibold text-slate-950">{item.statusLabel || labelStatus(item.status)}</p>
@@ -167,7 +167,7 @@ export default function ShipmentTrackingPage({ mode, title, description }: Shipm
             </div>
           </section>
 
-          <aside className="border border-slate-200 bg-white">
+          <aside className="border border-slate-200 bg-white rounded-2xl">
             <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-semibold text-slate-950">Shipment Details</h2></div>
             <div className="divide-y divide-slate-200">
               <Detail icon={<FiMapPin />} label="Destination" value={result.destination} />
@@ -175,7 +175,7 @@ export default function ShipmentTrackingPage({ mode, title, description }: Shipm
               {result.parcelNumbers.length ? <Detail icon={<FiTruck />} label="Parcel Numbers" value={result.parcelNumbers.join(", ")} /> : null}
               {result.branchName ? <Detail icon={<FiMapPin />} label="Assigned Branch" value={result.branchName} /> : null}
             </div>
-            <div className="border-t border-slate-200 p-5"><Link href={detailsHref} className="inline-flex h-10 w-full items-center justify-center border border-blue-900 text-sm font-semibold text-blue-900 hover:bg-blue-50">Open Shipment Details</Link></div>
+            <div className="border-t border-slate-200 p-5"><Link href={detailsHref} className="inline-flex h-10 w-full items-center justify-center border border-blue-900 text-sm font-semibold text-blue-900 hover:bg-blue-50 rounded-xl">Open Shipment Details</Link></div>
           </aside>
         </div>
       </div> : null}

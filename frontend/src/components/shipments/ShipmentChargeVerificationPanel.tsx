@@ -156,14 +156,14 @@ export default function ShipmentChargeVerificationPanel({
   const verification = state?.verification;
 
   return (
-    <section className="border border-slate-200 bg-white">
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Final Weight &amp; Charge</h2>
           <p className="mt-1 text-sm text-slate-600">Verify measured parcel details before Warehouse Scan In.</p>
         </div>
         {verification ? (
-          <span className="inline-flex items-center gap-2 border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+          <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
             <FiCheckCircle aria-hidden="true" /> Verified
           </span>
         ) : null}
@@ -172,7 +172,7 @@ export default function ShipmentChargeVerificationPanel({
       {loading ? (
         <div className="px-5 py-5 text-sm text-slate-600">Loading verification status...</div>
       ) : verification ? (
-        <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-5">
           <Summary label="Previous Charge" value={formatMinorAmount(verification.previousAmountMinor)} />
           <Summary label="Final Charge" value={formatMinorAmount(verification.verifiedAmountMinor)} />
           <Summary
@@ -188,38 +188,40 @@ export default function ShipmentChargeVerificationPanel({
         </div>
       ) : (
         <div className="space-y-5 p-5">
-          <div className="overflow-x-auto border border-slate-200">
-            <table className="min-w-[760px] w-full text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
-                <tr>
-                  <th className="px-3 py-3">Parcel</th>
-                  <th className="px-3 py-3">Actual Weight KG</th>
-                  <th className="px-3 py-3">Length CM</th>
-                  <th className="px-3 py-3">Width CM</th>
-                  <th className="px-3 py-3">Height CM</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {measurements.map((measurement, index) => (
-                  <tr key={measurement.sequence}>
-                    <td className="px-3 py-3 font-semibold text-slate-950">{measurement.sequence}</td>
-                    {(["actualWeightKg", "lengthCm", "widthCm", "heightCm"] as const).map((field) => (
-                      <td key={field} className="px-3 py-3">
-                        <input
-                          type="number"
-                          min="0.001"
-                          step="0.001"
-                          value={measurement[field]}
-                          onChange={(event) => updateMeasurement(index, field, event.target.value)}
-                          aria-label={`Parcel ${measurement.sequence} ${field}`}
-                          className="h-10 w-full min-w-28 border border-slate-300 px-3 text-slate-950 outline-none focus:border-blue-900"
-                        />
-                      </td>
-                    ))}
+          <div className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="overflow-x-auto">
+              <table className="min-w-[760px] w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-3">Parcel</th>
+                    <th className="px-3 py-3">Actual Weight KG</th>
+                    <th className="px-3 py-3">Length CM</th>
+                    <th className="px-3 py-3">Width CM</th>
+                    <th className="px-3 py-3">Height CM</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {measurements.map((measurement, index) => (
+                    <tr key={measurement.sequence}>
+                      <td className="px-3 py-3 font-semibold text-slate-950">{measurement.sequence}</td>
+                      {(["actualWeightKg", "lengthCm", "widthCm", "heightCm"] as const).map((field) => (
+                        <td key={field} className="px-3 py-3">
+                          <input
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            value={measurement[field]}
+                            onChange={(event) => updateMeasurement(index, field, event.target.value)}
+                            aria-label={`Parcel ${measurement.sequence} ${field}`}
+                            className="h-10 w-full min-w-28 rounded-lg border border-slate-300 px-3 text-slate-950 outline-none focus:border-blue-900"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {preview ? <VerificationPreview preview={preview} /> : null}
@@ -232,18 +234,18 @@ export default function ShipmentChargeVerificationPanel({
               rows={2}
               maxLength={500}
               placeholder="Optional operations note"
-              className="mt-2 w-full border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none focus:border-blue-900"
+              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950 outline-none focus:border-blue-900"
             />
           </label>
 
-          {error ? <div className="border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</div> : null}
+          {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</div> : null}
 
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => void checkCharges()}
               disabled={Boolean(busy)}
-              className="inline-flex h-10 items-center gap-2 border border-blue-900 px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-900 px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
             >
               <FiRefreshCw aria-hidden="true" />
               {busy === "PREVIEW" ? "Calculating..." : "Check Charges"}
@@ -252,7 +254,7 @@ export default function ShipmentChargeVerificationPanel({
               type="button"
               onClick={() => void finalizeCharge()}
               disabled={Boolean(busy) || !preview?.fundingPreview.canFund}
-              className="inline-flex h-10 items-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               <FiCheckCircle aria-hidden="true" />
               {busy === "FINALIZE" ? "Finalizing..." : "Finalize Weight & Charge"}
@@ -269,8 +271,8 @@ function VerificationPreview({ preview }: { preview: ShipmentChargeVerificationP
   const adjustment = funding.adjustment;
 
   return (
-    <div className="border border-slate-200">
-      <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
         <Summary label="Current Charge" value={formatMinorAmount(funding.previousAmountMinor)} />
         <Summary label="Final Charge" value={formatMinorAmount(funding.amendedAmountMinor)} />
         <Summary label="Difference" value={`${funding.deltaAmountMinor > 0 ? "+" : ""}${formatMinorAmount(funding.deltaAmountMinor)}`} />
@@ -337,7 +339,7 @@ function VerificationPreview({ preview }: { preview: ShipmentChargeVerificationP
 
 function Summary({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-white px-4 py-3">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
       <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
       <p className="mt-1 font-semibold text-slate-950">{value}</p>
     </div>

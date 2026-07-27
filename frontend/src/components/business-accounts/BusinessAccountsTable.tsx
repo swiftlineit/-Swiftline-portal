@@ -112,8 +112,8 @@ export function BusinessAccountsTable({
             return (
               <tr key={account.accountId} className="transition-colors hover:bg-[#EEEDED]/40">
                 <td className="px-4 py-3.5">
-                  <p className="font-semibold text-slate-900">{account.company.companyName}</p>
-                  <p className="mt-1 text-xs font-semibold text-[#0D1282]">{account.accountId}</p>
+                  <p className="font-semibold text-slate-900 capitalize">{account.company.companyName}</p>
+                  {/* <p className="mt-1 text-xs font-semibold text-[#0D1282]">{account.accountId}</p> */}
                   <p className="mt-1 text-xs text-slate-500">{account.contact.firstName} {account.contact.lastName}</p>
                 </td>
                 <td className="px-4 py-3.5 text-slate-400">—</td>
@@ -128,7 +128,7 @@ export function BusinessAccountsTable({
                   {assignedBranch ? (
                     <>
                       <p className="font-semibold text-slate-700">{assignedBranch.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">{assignedBranch.code}</p>
+                      {/* <p className="mt-1 text-xs text-slate-500">{assignedBranch.code}</p> */}
                     </>
                   ) : (
                     <span className="text-slate-400">Not assigned</span>
@@ -138,9 +138,9 @@ export function BusinessAccountsTable({
                   <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getKycBadgeClasses(account.kycReview?.overallStatus)}`}>
                     {formatKycStatus(account)}
                   </span>
-                  {account.kycReview?.overallStatus === "additional_information_required" && getKycReason(account) ? (
+                  {/* {account.kycReview?.overallStatus === "additional_information_required" && getKycReason(account) ? (
                     <p className="mt-1.5 max-w-40 text-xs font-medium text-[#8a7a00]">{getKycReason(account)}</p>
-                  ) : null}
+                  ) : null} */}
                 </td>
                 <td className="px-4 py-3.5">
                   <div className="relative w-48">

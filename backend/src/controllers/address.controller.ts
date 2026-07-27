@@ -8,11 +8,17 @@ import {
   validateGoogleAddress
 } from "../services/googleAddressValidation.service.js";
 import {
+  GooglePlacesError,
+  autocompleteAddresses as autocompleteGoogleAddresses,
+  getPlaceAddressDetails as getGooglePlaceAddressDetails
+} from "../services/googlePlaces.service.js";
+import {
   IdealPostcodesError,
   autocompleteUkAddresses,
   getPlaceAddressDetails,
   validateUkAddressWithPaf
 } from "../services/idealPostcodes.service.js";
+import { validateShipmentDraftFields } from "../services/shipmentValidation.service.js";
 import {
   assertShipmentDraftMutationAllowed,
   ShipmentDraftPolicyError
@@ -142,7 +148,11 @@ function getSuggestedAddressFromDraft(draft: { addressValidationResult: Record<s
 }
 
 function getProviderErrorResponse(error: unknown) {
-  if (error instanceof IdealPostcodesError || error instanceof GoogleAddressValidationError) {
+  if (
+    error instanceof IdealPostcodesError
+    || error instanceof GoogleAddressValidationError
+    || error instanceof GooglePlacesError
+  ) {
     return {
       statusCode: error.statusCode,
       body: {
@@ -343,6 +353,99 @@ export async function getPlaceAddress(request: Request, response: Response): Pro
       success: true,
       place: responsePlace
     });
+  } catch (error) {
+    const providerError = getProviderErrorResponse(error);
+    return response.status(providerError.statusCode).json(providerError.body);
+  }
+}
+
+// Consignors are Indian senders, so their lookup runs on Google Places rather
+// than the Ideal Postcodes PAF used for UK consignee delivery addresses.
+export async function autocompleteConsignorAddress(request: Request, response: Response): Promise<Response> {
+  const parsed = autocompleteSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, errors: parsed.error.format() });
+
+  try {
+    const predictions = await autocompleteGoogleAddresses(parsed.data.input, "in");
+
+    return response.status(200).json({ success: true, predictions });
+  } catch (error) {
+    const providerError = getProviderErrorResponse(error);
+    return response.status(providerError.statusCode).json(providerError.body);
+  }
+}
+
+export async function getConsignorPlaceAddress(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = placeIdSchema.safeParse(request.params.placeId);
+  if (!parsed.success) return response.status(400).json({ success: false, message: "Invalid place id" });
+
+  const shipmentDraftId = typeof request.query.shipmentDraftId === "string" ? request.query.shipmentDraftId : "";
+
+  try {
+    const place = await getGooglePlaceAddressDetails(parsed.data, "in");
+
+    if (shipmentDraftId && mongoose.Types.ObjectId.isValid(shipmentDraftId)) {
+      const draft = await ShipmentDraft.findById(shipmentDraftId).exec();
+
+      if (draft) {
+        try {
+          await assertShipmentDraftMutationAllowed({
+            draft,
+            userId,
+            portalRole: getAuthenticatedPortalRole(request)
+          });
+        } catch (error) {
+          const policyResponse = sendDraftPolicyError(response, error);
+          if (policyResponse) return policyResponse;
+          throw error;
+        }
+
+        const currentConsignor = draft.consignorAddress ?? ({} as typeof draft.consignorAddress);
+
+        // Places data describes the premises, never the person, so identity fields
+        // stay exactly as the user typed them.
+        draft.consignorAddress = {
+          ...currentConsignor,
+          addressLine1: place.address.addressLine1 || currentConsignor.addressLine1,
+          addressLine2: place.address.addressLine2 || currentConsignor.addressLine2 || "",
+          townOrCity: place.address.townOrCity || currentConsignor.townOrCity,
+          county: place.address.county || currentConsignor.county || "",
+          postcode: place.address.postcode || currentConsignor.postcode
+        } as typeof draft.consignorAddress;
+        draft.consignorPlaceId = place.placeId;
+        draft.validationIssues = validateShipmentDraftFields(draft);
+        await draft.save();
+
+        await writeAddressAuditLog("ADDRESS_SELECTED", draft._id as mongoose.Types.ObjectId, userId, {
+          provider: "google_places",
+          party: "CONSIGNOR",
+          addressId: place.placeId,
+          formattedAddress: place.formattedAddress
+        });
+
+        return response.status(200).json({
+          success: true,
+          place: {
+            placeId: place.placeId,
+            formattedAddress: place.formattedAddress,
+            address: {
+              addressLine1: draft.consignorAddress.addressLine1,
+              addressLine2: draft.consignorAddress.addressLine2 ?? "",
+              townOrCity: draft.consignorAddress.townOrCity,
+              county: draft.consignorAddress.county ?? "",
+              postcode: draft.consignorAddress.postcode,
+              countryCode: "IN",
+              countryName: "India"
+            }
+          }
+        });
+      }
+    }
+
+    return response.status(200).json({ success: true, place });
   } catch (error) {
     const providerError = getProviderErrorResponse(error);
     return response.status(providerError.statusCode).json(providerError.body);

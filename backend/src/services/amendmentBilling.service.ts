@@ -6,7 +6,7 @@ import { CreditLedgerEntry } from "../models/creditLedgerEntry.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { ShipmentCharge } from "../models/shipmentCharge.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
-import { getCreditBalances } from "./creditAccount.service.js";
+import { getCreditBalances, isCreditWindowOpen } from "./creditAccount.service.js";
 import { getCreditRestrictionState } from "./creditOverdue.service.js";
 import type { ShipmentPricingEstimate } from "./shipmentPricing.service.js";
 
@@ -188,9 +188,7 @@ export async function previewAmendmentFunding(input: {
       adjustment: null
     };
   }
-  const creditIsUsable = account.status === "ACTIVE"
-    && restriction.level !== "CREDIT_BLOCKED"
-    && (!account.validUntil || account.validUntil > new Date());
+  const creditIsUsable = isCreditWindowOpen(account) && restriction.level !== "CREDIT_BLOCKED";
   const availableCreditMinor = creditIsUsable ? balances.availableCreditMinor : 0;
   const availableBookingCapacityMinor = balances.availableAdvanceMinor + availableCreditMinor;
   const blocked = ["ON_HOLD", "SUSPENDED", "EXPIRED", "REJECTED", "CLOSED"].includes(account.status);
@@ -315,9 +313,7 @@ async function applyShipmentBillingAdjustment(input: {
   if (restriction.level === "ALL_BOOKINGS_BLOCKED") {
     throw new AmendmentBillingError(409, restriction.message);
   }
-  const creditIsUsable = account.status === "ACTIVE"
-    && restriction.level !== "CREDIT_BLOCKED"
-    && (!account.validUntil || account.validUntil > new Date());
+  const creditIsUsable = isCreditWindowOpen(account) && restriction.level !== "CREDIT_BLOCKED";
   const adjustment = calculateAmendmentBillingAdjustment({
     previousAmountMinor: invoice.totalAmountMinor,
     amendedAmountMinor,

@@ -39,6 +39,15 @@ export type ShipmentContentType = (typeof shipmentContentTypeValues)[number];
 export const shipmentServiceTypeValues = ["COURIER", "CARGO"] as const;
 export type ShipmentServiceType = (typeof shipmentServiceTypeValues)[number];
 
+export const shipmentKycDocumentTypeValues = ["aadhaar", "pan", "other"] as const;
+export type ShipmentKycDocumentType = (typeof shipmentKycDocumentTypeValues)[number];
+
+// Consignors are always Indian senders, so the country and dialling code are
+// fixed rather than user selectable.
+export const consignorCountryCode = "IN";
+export const consignorCountryName = "India";
+export const consignorMobileCountryCode = "+91";
+
 export interface ShipmentAddressSnapshot {
   companyName?: string;
   contactName?: string;
@@ -55,6 +64,35 @@ export interface ShipmentAddressSnapshot {
   deliveryInstructions?: string;
 }
 
+export interface ShipmentConsignorSnapshot {
+  companyName?: string;
+  contactName?: string;
+  email?: string;
+  mobileCountryCode?: string;
+  mobileNumber?: string;
+  aadhaarNumber?: string;
+  countryCode: string;
+  countryName?: string;
+  postcode: string;
+  addressLine1: string;
+  addressLine2?: string;
+  townOrCity: string;
+  county?: string;
+  pickupInstructions?: string;
+}
+
+export interface ShipmentKycDocument {
+  type: ShipmentKycDocumentType;
+  documentLabel: string;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  size: number;
+  path: string;
+  uploadedAt: Date;
+  uploadedBy?: mongoose.Types.ObjectId | null;
+}
+
 export interface ShipmentParcel {
   sequence: number;
   weightKg: number;
@@ -65,6 +103,10 @@ export interface ShipmentParcel {
   contentsDescription: string;
   shipmentReference1?: string;
   shipmentReference2?: string;
+  // Per-parcel KYC, used only when the shipment does not share one KYC set
+  // across all parcels (see kycUseForAllParcels).
+  aadhaarNumber?: string;
+  kycDocuments?: Partial<Record<ShipmentKycDocumentType, ShipmentKycDocument>>;
 }
 
 export interface IShipmentDraft extends mongoose.Document {
@@ -72,6 +114,12 @@ export interface IShipmentDraft extends mongoose.Document {
   businessAccountId: mongoose.Types.ObjectId;
   branchId: mongoose.Types.ObjectId;
   sender: Record<string, unknown>;
+  consignorAddress: ShipmentConsignorSnapshot;
+  consignorPlaceId?: string;
+  // When true, the draft-level aadhaarNumber + kycDocuments apply to every parcel.
+  // When false, each parcel carries its own aadhaarNumber + kycDocuments.
+  kycUseForAllParcels: boolean;
+  kycDocuments: Partial<Record<ShipmentKycDocumentType, ShipmentKycDocument>>;
   consigneeEnteredAddress: ShipmentAddressSnapshot;
   consigneeSelectedAddress?: ShipmentAddressSnapshot | null;
   consigneeValidatedAddress?: ShipmentAddressSnapshot | null;
@@ -112,6 +160,42 @@ const addressSnapshotSchema = new mongoose.Schema<ShipmentAddressSnapshot>(
   { _id: false }
 );
 
+const consignorSnapshotSchema = new mongoose.Schema<ShipmentConsignorSnapshot>(
+  {
+    companyName: { type: String, trim: true, maxlength: 120, default: "" },
+    contactName: { type: String, trim: true, maxlength: 120, default: "" },
+    email: { type: String, lowercase: true, trim: true, maxlength: 160, default: "" },
+    mobileCountryCode: { type: String, trim: true, maxlength: 8, default: consignorMobileCountryCode },
+    mobileNumber: { type: String, trim: true, maxlength: 30, default: "" },
+    // Stored as 12 digits without separators so KYC lookups stay comparable.
+    aadhaarNumber: { type: String, trim: true, maxlength: 12, default: "" },
+    countryCode: { type: String, uppercase: true, trim: true, maxlength: 2, default: consignorCountryCode },
+    countryName: { type: String, trim: true, maxlength: 80, default: consignorCountryName },
+    postcode: { type: String, uppercase: true, trim: true, maxlength: 20, default: "" },
+    addressLine1: { type: String, trim: true, maxlength: 120, default: "" },
+    addressLine2: { type: String, trim: true, maxlength: 120, default: "" },
+    townOrCity: { type: String, trim: true, maxlength: 80, default: "" },
+    county: { type: String, trim: true, maxlength: 80, default: "" },
+    pickupInstructions: { type: String, trim: true, maxlength: 500, default: "" }
+  },
+  { _id: false }
+);
+
+const kycDocumentSchema = new mongoose.Schema<ShipmentKycDocument>(
+  {
+    type: { type: String, enum: shipmentKycDocumentTypeValues, required: true },
+    documentLabel: { type: String, trim: true, maxlength: 80, default: "" },
+    originalName: { type: String, required: true },
+    storedName: { type: String, required: true },
+    mimeType: { type: String, required: true },
+    size: { type: Number, required: true },
+    path: { type: String, required: true },
+    uploadedAt: { type: Date, default: Date.now },
+    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
+  },
+  { _id: false }
+);
+
 const parcelSchema = new mongoose.Schema<ShipmentParcel>(
   {
     sequence: { type: Number, required: true, min: 1 },
@@ -127,7 +211,14 @@ const parcelSchema = new mongoose.Schema<ShipmentParcel>(
     },
     contentsDescription: { type: String, trim: true, maxlength: 120, default: "" },
     shipmentReference1: { type: String, trim: true, maxlength: 120, default: "" },
-    shipmentReference2: { type: String, trim: true, maxlength: 120, default: "" }
+    shipmentReference2: { type: String, trim: true, maxlength: 120, default: "" },
+    // Stored as 12 digits without separators, mirroring the consignor field.
+    aadhaarNumber: { type: String, trim: true, maxlength: 12, default: "" },
+    kycDocuments: {
+      aadhaar: { type: kycDocumentSchema },
+      pan: { type: kycDocumentSchema },
+      other: { type: kycDocumentSchema }
+    }
   },
   { _id: false }
 );
@@ -149,6 +240,16 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
     },
     branchId: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", required: true, index: true },
     sender: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // Drafts created before consignor capture existed keep an empty snapshot and
+    // are completed during review.
+    consignorAddress: { type: consignorSnapshotSchema, default: () => ({}) },
+    consignorPlaceId: { type: String, trim: true, maxlength: 255, default: "" },
+    kycUseForAllParcels: { type: Boolean, default: true },
+    kycDocuments: {
+      aadhaar: { type: kycDocumentSchema },
+      pan: { type: kycDocumentSchema },
+      other: { type: kycDocumentSchema }
+    },
     consigneeEnteredAddress: { type: addressSnapshotSchema, required: true },
     consigneeSelectedAddress: { type: addressSnapshotSchema, default: null },
     consigneeValidatedAddress: { type: addressSnapshotSchema, default: null },
@@ -181,6 +282,16 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
 );
 
 shipmentDraftSchema.index({ businessAccountId: 1, branchId: 1, status: 1 });
+
+// The consignor is always an Indian sender, so these stay fixed no matter what
+// a client, an import, or an older draft supplied.
+shipmentDraftSchema.pre("validate", function pinConsignorCountry() {
+  if (!this.consignorAddress) return;
+
+  this.consignorAddress.countryCode = consignorCountryCode;
+  this.consignorAddress.countryName = consignorCountryName;
+  this.consignorAddress.mobileCountryCode = consignorMobileCountryCode;
+});
 
 shipmentDraftSchema.pre("validate", function syncParcelSummary() {
   this.parcelList = this.parcelList.map((parcel, index) => ({

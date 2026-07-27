@@ -74,6 +74,24 @@ function formatPersonAddress(value: unknown, includePhone = false) {
 }
 
 function formatConsignor(snapshot: ShipmentBookingSnapshot) {
+  // Shipments booked after consignor capture carry the actual Indian sender.
+  // Older shipments fall back to the business account behind the shipment.
+  const consignor = snapshot.consignor;
+  if (consignor && text(consignor.contactName)) {
+    const phone = `${text(consignor.mobileCountryCode)}${text(consignor.mobileNumber)}`;
+    return uniqueLines([
+      consignor.companyName,
+      consignor.contactName,
+      consignor.addressLine1,
+      consignor.addressLine2,
+      consignor.townOrCity,
+      consignor.county,
+      consignor.postcode,
+      manifestCountryCode(consignor.countryName, consignor.countryCode),
+      phone ? `TEL-${phone}` : ""
+    ]).join("\n");
+  }
+
   const account = snapshot.account as { company?: Record<string, unknown>; contact?: Record<string, unknown> };
   const company = account.company ?? {};
   const contact = account.contact ?? {};
@@ -89,6 +107,93 @@ function formatConsignor(snapshot: ShipmentBookingSnapshot) {
       ? `TEL-${text(contact.countryCode)}${text(contact.mobileNumber)}`
       : ""
   ]).join("\n");
+}
+
+/**
+ * Structured consignor/consignee fields for downstream exports (e.g. the EDI file)
+ * that need discrete columns rather than the manifest's newline-joined `formatted`
+ * block. Built beside `formatted` from the same booking snapshot, so it adds no DB
+ * reads and never loses fields to address de-duplication. Aadhaar is deliberately
+ * absent — it stays redacted in snapshots and is read live when actually needed.
+ */
+export type ManifestPartySnapshot = {
+  companyName: string;
+  contactName: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postcode: string;
+  countryCode: string; // ISO-2 where resolvable, else the raw value
+  countryName: string;
+  phone: string; // digits only, no "TEL-" prefix
+};
+
+function partyPhone(countryCode: unknown, number: unknown) {
+  return `${text(countryCode)}${text(number)}`;
+}
+
+function consigneePartySnapshot(value: unknown): ManifestPartySnapshot {
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return {
+    companyName: text(source.companyName),
+    contactName: text(source.contactName),
+    addressLine1: text(source.addressLine1),
+    addressLine2: text(source.addressLine2),
+    city: text(source.townOrCity),
+    state: text(source.county),
+    postcode: text(source.postcode),
+    countryCode: manifestCountryCode(source.countryName, source.countryCode),
+    countryName: text(source.countryName),
+    phone: partyPhone(source.mobileCountryCode, source.mobileNumber)
+  };
+}
+
+// Mirrors formatConsignor's source selection: the captured Indian sender when
+// present, otherwise the business account behind the shipment.
+function consignorPartySnapshot(snapshot: ShipmentBookingSnapshot): ManifestPartySnapshot {
+  const consignor = snapshot.consignor;
+  if (consignor && text(consignor.contactName)) {
+    return {
+      companyName: text(consignor.companyName),
+      contactName: text(consignor.contactName),
+      addressLine1: text(consignor.addressLine1),
+      addressLine2: text(consignor.addressLine2),
+      city: text(consignor.townOrCity),
+      state: text(consignor.county),
+      postcode: text(consignor.postcode),
+      countryCode: manifestCountryCode(consignor.countryName, consignor.countryCode),
+      countryName: text(consignor.countryName),
+      phone: partyPhone(consignor.mobileCountryCode, consignor.mobileNumber)
+    };
+  }
+  const account = snapshot.account as { company?: Record<string, unknown>; contact?: Record<string, unknown> };
+  const company = account.company ?? {};
+  const contact = account.contact ?? {};
+  return {
+    companyName: text(company.companyName),
+    contactName: compact([contact.title, contact.firstName, contact.lastName]).join(" "),
+    addressLine1: text(company.registeredAddress),
+    addressLine2: "",
+    city: text(company.city),
+    state: text(company.stateOrProvince),
+    postcode: text(company.postalCode),
+    countryCode: manifestCountryCode(company.addressCountry),
+    countryName: text(company.addressCountry),
+    phone: partyPhone(contact.countryCode, contact.mobileNumber)
+  };
+}
+
+/** The structured consignor + consignee parties for a booking snapshot. Reused by
+ * the backfill that adds parties to manifests sealed before they were captured. */
+export function buildManifestParties(snapshot: ShipmentBookingSnapshot): {
+  consignor: ManifestPartySnapshot;
+  consignee: ManifestPartySnapshot;
+} {
+  return {
+    consignor: consignorPartySnapshot(snapshot),
+    consignee: consigneePartySnapshot(snapshot.consignee)
+  };
 }
 
 export function formatManifestOrigin(senderValue: unknown) {
@@ -112,6 +217,18 @@ export function formatManifestConsignmentNumber(value: string) {
   return text(value).toUpperCase().replace(/0{2}(?=\d{4}$)/, "");
 }
 
+// The customer's business account name for the manifest header, taken from the
+// immutable booking snapshot so it matches the rest of the manifest's data.
+export function manifestBusinessAccountName(snapshot: ShipmentBookingSnapshot | null | undefined) {
+  const account = snapshot?.account && typeof snapshot.account === "object"
+    ? snapshot.account as Record<string, unknown>
+    : {};
+  const company = account.company && typeof account.company === "object"
+    ? account.company as Record<string, unknown>
+    : {};
+  return text(company.companyName);
+}
+
 export function buildManifestLine(input: ManifestLineInput): ShipmentManifestLineSnapshot {
   const descriptions = [...new Set(input.snapshot.parcels
     .map((parcel) => text(parcel.contentsDescription))
@@ -123,8 +240,8 @@ export function buildManifestLine(input: ManifestLineInput): ShipmentManifestLin
     consignmentNumber: input.snapshot.tracking.swiftlineTrackingNumber,
     pieces: input.snapshot.parcels.length,
     weightKg: Number(input.snapshot.parcels.reduce((total, parcel) => total + parcel.actualWeightKg, 0).toFixed(3)),
-    consignor: { formatted: formatConsignor(input.snapshot) },
-    consignee: { formatted: formatPersonAddress(input.snapshot.consignee, true) },
+    consignor: { formatted: formatConsignor(input.snapshot), party: consignorPartySnapshot(input.snapshot) },
+    consignee: { formatted: formatPersonAddress(input.snapshot.consignee, true), party: consigneePartySnapshot(input.snapshot.consignee) },
     description: descriptions.join(", ") || "Shipment contents",
     declaredValueMinor: input.declaredValueMinor,
     currency: "INR",
@@ -225,7 +342,35 @@ function spreadManifestAddress(value: unknown) {
   const address = lines.filter((line) => line !== phone);
   const spread = [...address.slice(0, 3), "", ...address.slice(3)];
   if (phone) spread.push("", phone);
-  return spread;
+  // Pad to the fixed ten-row block so legacy (party-less) lines align with the rest.
+  while (spread.length < 10) spread.push("");
+  return spread.slice(0, 10);
+}
+
+/**
+ * The fixed ten-row consignor/consignee block: contact name first (no company),
+ * then address, then a blank, the phone (consignee only), and a trailing blank
+ * tenth row. Absent fields still take their row so every block lines up.
+ */
+export function fixedPartyAddressRows(party: ManifestPartySnapshot, includePhone: boolean): string[] {
+  const phone = includePhone && party.phone ? `TEL-${party.phone}` : "";
+  return [
+    party.contactName,
+    party.addressLine1,
+    party.addressLine2,
+    party.city,
+    party.state,
+    party.postcode,
+    party.countryCode,
+    "",
+    phone,
+    ""
+  ];
+}
+
+function manifestPartyOf(value: unknown): ManifestPartySnapshot | null {
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return source.party && typeof source.party === "object" ? source.party as ManifestPartySnapshot : null;
 }
 
 async function buildClientShipmentManifestWorkbook(manifest: IShipmentManifest): Promise<Buffer> {
@@ -265,7 +410,12 @@ async function buildClientShipmentManifestWorkbook(manifest: IShipmentManifest):
   });
 
   const firstLine = manifest.lineSnapshots[0];
-  const accountName = splitManifestLines(firstLine?.consignor.formatted, 1)[0] ?? "Business Account";
+  // The header names the customer's business account. It is captured explicitly
+  // at manifest creation; the consignor first line is only a fallback for
+  // manifests generated before the account name was stored.
+  const accountName = text(header.businessAccountName)
+    || splitManifestLines(firstLine?.consignor.formatted, 1)[0]
+    || "Business Account";
   const details: Array<[string, string | number]> = [
     ["Manifest Number", manifest.manifestNumber],
     ["Generated Date", manifest.generatedAt.toLocaleDateString("en-GB")],
@@ -366,12 +516,13 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
     { key: "consignment", width: 25 },
     { key: "pieces", width: 9 },
     { key: "weight", width: 13 },
-    { key: "consignor", width: 32 },
-    { key: "consignee", width: 36 },
+    // Wide enough that a long address line stays on its own row instead of wrapping.
+    { key: "consignor", width: 44 },
+    { key: "consignee", width: 44 },
     { key: "description", width: 32 },
     { key: "value", width: 14 },
     { key: "currency", width: 11 },
-    { key: "bag", width: 12 },
+    { key: "bag", width: 14 },
     { key: "service", width: 14 }
   ];
 
@@ -452,10 +603,14 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
   });
 
   manifest.lineSnapshots.forEach((line, index) => {
-    const consignorLines = spreadManifestAddress(line.consignor.formatted);
-    const consigneeLines = spreadManifestAddress(line.consignee.formatted);
-    // The block ends on a blank line of its own rather than a separate divider row.
-    const blockSize = Math.max(1, consignorLines.length, consigneeLines.length) + 1;
+    // Prefer the structured party: a fixed ten-row block (no company name, and the
+    // phone on the consignee only). Legacy party-less lines fall back to the text block.
+    const consignorParty = manifestPartyOf(line.consignor);
+    const consigneeParty = manifestPartyOf(line.consignee);
+    const consignorLines = consignorParty ? fixedPartyAddressRows(consignorParty, false) : spreadManifestAddress(line.consignor.formatted);
+    const consigneeLines = consigneeParty ? fixedPartyAddressRows(consigneeParty, true) : spreadManifestAddress(line.consignee.formatted);
+    // Ten rows, the last one blank, so every consignor/consignee block is identical.
+    const blockSize = Math.max(consignorLines.length, consigneeLines.length);
     const firstRowNumber = worksheet.rowCount + 1;
     // A parcel row carries its own value only when it opens a consignment.
     const declaredValue = typeof line.declaredValueMinor === "number" ? line.declaredValueMinor / 100 : "";

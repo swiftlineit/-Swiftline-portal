@@ -20,7 +20,7 @@ import {
   runBagAction,
   runManifestAction,
   scanOperationsParcel,
-  setOperationsGoodsValue,
+  setOperationsParcelValue,
   type ManifestDetail,
   type OperationsBag,
   type OperationsConsignment,
@@ -196,19 +196,19 @@ export default function OperationsManifestWorkspace() {
     }
   }
 
-  async function saveGoodsValue(consignmentId: string, current?: number | null) {
-    const entered = window.prompt("Goods value in INR", current ? String(current / 100) : "");
+  async function saveGoodsValue(consignmentId: string, parcelNumber: string, current?: number | null) {
+    const entered = window.prompt(`Goods value in INR for parcel ${parcelNumber}`, current ? String(current / 100) : "");
     if (!entered) return;
     const rupees = Number(entered);
     if (!Number.isFinite(rupees) || rupees <= 0) return toast.error("Enter a valid goods value greater than zero.");
     await refreshAction(
-      () => setOperationsGoodsValue(manifestId, consignmentId, Math.round(rupees * 100)),
+      () => setOperationsParcelValue(manifestId, consignmentId, parcelNumber, Math.round(rupees * 100)),
       "Goods value updated."
     );
   }
 
-  async function exportFile(format: "xlsx" | "pdf", view = false) {
-    try { await downloadOperationsManifest(manifestId, format, view); }
+  async function exportFile(format: "xlsx" | "pdf" | "edi", view = false) {
+    try { await downloadOperationsManifest(manifestId, format, view, data?.manifest.manifestNumber); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Export unavailable."); }
   }
 
@@ -405,9 +405,9 @@ function PhoneScannerPanel({
   );
 }
 
-function ManifestHeader({ data, busy, onRefresh, onExport, onSeal, onDispatch }: { data: ManifestDetail; busy: boolean; onRefresh: () => void; onExport: (format: "xlsx" | "pdf", view?: boolean) => void; onSeal: () => void; onDispatch: () => void }) {
+function ManifestHeader({ data, busy, onRefresh, onExport, onSeal, onDispatch }: { data: ManifestDetail; busy: boolean; onRefresh: () => void; onExport: (format: "xlsx" | "pdf" | "edi", view?: boolean) => void; onSeal: () => void; onDispatch: () => void }) {
   const { manifest } = data;
-  return <div className="mb-5 flex flex-wrap items-start justify-between gap-4 rounded-lg border border-[#EEEDED] bg-white p-5 shadow-sm"><div><Link href="/dashboard/operations-manifests" className="text-sm font-semibold text-[#0D1282]">Back to manifests</Link><div className="mt-3 flex items-center gap-3"><h1 className="text-2xl font-semibold text-slate-950">{manifest.manifestNumber}</h1><span className="rounded border border-[#0D1282]/25 bg-[#EEEDED] px-2.5 py-1 text-xs font-semibold text-[#0D1282]">{manifest.status.replaceAll("_", " ")}</span></div><p className="mt-1 text-sm text-slate-500">{manifest.branch?.name} ({manifest.branch?.code}) | {manifest.header.originIataCode || "Origin"} to {manifest.header.destinationIataCode || manifest.header.destinationCountryName || "Destination"}</p></div><div className="flex flex-wrap gap-2"><button onClick={onRefresh} title="Refresh" className="flex h-10 w-10 items-center justify-center rounded-md border border-[#0D1282]/20 bg-white text-[#0D1282] hover:bg-[#EEEDED]"><FiRefreshCw className={busy ? "animate-spin" : ""} /></button>{["SEALED", "DISPATCHED"].includes(manifest.status) ? <><ActionButton onClick={() => onExport("pdf", true)} icon={<FiPrinter />} label="View PDF" /><ActionButton onClick={() => onExport("xlsx")} icon={<FiDownload />} label="Excel" /><ActionButton onClick={() => onExport("pdf")} icon={<FiDownload />} label="PDF" /></> : null}{manifest.status === "READY_TO_SEAL" ? <button onClick={onSeal} className="inline-flex h-10 items-center gap-2 rounded-md bg-[#F0DE36] px-4 text-sm font-semibold text-[#0D1282] hover:brightness-95"><FiCheck />Seal Manifest</button> : null}{manifest.status === "SEALED" ? <button onClick={onDispatch} className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90"><FiSend />Dispatch</button> : null}</div></div>;
+  return <div className="mb-5 flex flex-wrap items-start justify-between gap-4 rounded-lg border border-[#EEEDED] bg-white p-5 shadow-sm"><div><Link href="/dashboard/operations-manifests" className="text-sm font-semibold text-[#0D1282]">Back to manifests</Link><div className="mt-3 flex items-center gap-3"><h1 className="text-2xl font-semibold text-slate-950">{manifest.manifestNumber}</h1><span className="rounded border border-[#0D1282]/25 bg-[#EEEDED] px-2.5 py-1 text-xs font-semibold text-[#0D1282]">{manifest.status.replaceAll("_", " ")}</span></div><p className="mt-1 text-sm text-slate-500">{manifest.branch?.name} ({manifest.branch?.code}) | {manifest.header.originIataCode || "Origin"} to {manifest.header.destinationIataCode || manifest.header.destinationCountryName || "Destination"}</p></div><div className="flex flex-wrap gap-2"><button onClick={onRefresh} title="Refresh" className="flex h-10 w-10 items-center justify-center rounded-md border border-[#0D1282]/20 bg-white text-[#0D1282] hover:bg-[#EEEDED]"><FiRefreshCw className={busy ? "animate-spin" : ""} /></button>{["SEALED", "DISPATCHED"].includes(manifest.status) ? <><ActionButton onClick={() => onExport("pdf", true)} icon={<FiPrinter />} label="View PDF" /><ActionButton onClick={() => onExport("xlsx")} icon={<FiDownload />} label="Excel" /><ActionButton onClick={() => onExport("pdf")} icon={<FiDownload />} label="PDF" /><ActionButton onClick={() => onExport("edi")} icon={<FiDownload />} label="EDI" /></> : null}{manifest.status === "READY_TO_SEAL" ? <button onClick={onSeal} className="inline-flex h-10 items-center gap-2 rounded-md bg-[#F0DE36] px-4 text-sm font-semibold text-[#0D1282] hover:brightness-95"><FiCheck />Seal Manifest</button> : null}{manifest.status === "SEALED" ? <button onClick={onDispatch} className="inline-flex h-10 items-center gap-2 rounded-md bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90"><FiSend />Dispatch</button> : null}</div></div>;
 }
 
 function ActionButton({ onClick, icon, label }: { onClick: () => void; icon: React.ReactNode; label: string }) { return <button onClick={onClick} className="inline-flex h-10 items-center gap-2 rounded-md border border-[#0D1282]/20 bg-white px-4 text-sm font-semibold text-[#0D1282] hover:bg-[#EEEDED]">{icon}{label}</button>; }
@@ -434,7 +434,7 @@ function BagButton({ bag, active, onSelect, onAction }: { bag: OperationsBag; ac
   );
 }
 
-function ConsignmentTable({ rows, canEdit, onValue, onRemove }: { rows: OperationsConsignment[]; canEdit: boolean; onValue: (id: string, current?: number | null) => void; onRemove: (parcel: string) => void }) {
+function ConsignmentTable({ rows, canEdit, onValue, onRemove }: { rows: OperationsConsignment[]; canEdit: boolean; onValue: (id: string, parcelNumber: string, current?: number | null) => void; onRemove: (parcel: string) => void }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-[#EEEDED] bg-white shadow-sm">
       <table className="w-full min-w-[820px] text-left text-sm">
@@ -445,7 +445,7 @@ function ConsignmentTable({ rows, canEdit, onValue, onRemove }: { rows: Operatio
             <th className="px-3 py-2.5">Contents</th>
             <th className="px-3 py-2.5">Parcels</th>
             <th className="px-3 py-2.5 text-right">Weight</th>
-            <th className="px-3 py-2.5 text-right">Goods Value</th>
+            <th className="px-3 py-2.5 text-right">Total Value</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[#EEEDED]">
@@ -462,17 +462,27 @@ function ConsignmentTable({ rows, canEdit, onValue, onRemove }: { rows: Operatio
                 {/* A held-back box is normal, so this count is a record rather than a warning. */}
                 <p className="mb-1.5 text-[11px] font-semibold text-slate-600">{item.scannedParcelNumbers.length} of {item.expectedParcelNumbers.length} scanned</p>
                 <div className="space-y-1">
-                  {item.scannedParcelNumbers.map((parcel) => (
-                    <div key={parcel} className="flex items-center justify-between gap-1.5 rounded border border-[#EEEDED] px-2 py-1">
-                      <span className="truncate font-mono text-[10px]">{parcel}</span>
-                      {canEdit ? <button type="button" onClick={() => onRemove(parcel)} title="Remove parcel from bag" className="shrink-0 rounded p-1 text-[#D71313] hover:bg-[#D71313]/5"><FiTrash2 /></button> : null}
-                    </div>
-                  ))}
+                  {item.scannedParcelNumbers.map((parcel) => {
+                    const parcelValue = item.parcelValues?.find((value) => value.parcelNumber === parcel)?.valueMinor ?? null;
+                    return (
+                      <div key={parcel} className="flex items-center justify-between gap-1.5 rounded border border-[#EEEDED] px-2 py-1">
+                        <span className="truncate font-mono text-[10px]">{parcel}</span>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {/* Each box carries its own customs value. */}
+                          {canEdit
+                            ? <button type="button" onClick={() => onValue(item.id, parcel, parcelValue)} className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${parcelValue ? "text-[#0D1282] hover:bg-[#0D1282]/5" : "text-[#D71313] underline"}`}>{parcelValue ? formatMoney(parcelValue) : "Add value"}</button>
+                            : <span className="text-[10px] font-semibold text-slate-600">{formatMoney(parcelValue)}</span>}
+                          {canEdit ? <button type="button" onClick={() => onRemove(parcel)} title="Remove parcel from bag" className="rounded p-1 text-[#D71313] hover:bg-[#D71313]/5"><FiTrash2 /></button> : null}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </td>
               <td className="px-3 py-3 text-right text-xs font-semibold">{item.weightKg.toFixed(3)} kg</td>
               <td className="px-3 py-3 text-right">
-                <button disabled={!canEdit} onClick={() => onValue(item.id, item.declaredValueMinor)} className={`text-xs font-semibold ${item.goodsValueRequired ? "text-[#D71313] underline" : "text-[#0D1282]"}`}>{formatMoney(item.declaredValueMinor)}</button>
+                <span className={`text-xs font-semibold ${item.goodsValueRequired ? "text-[#D71313]" : "text-slate-900"}`}>{formatMoney(item.declaredValueMinor)}</span>
+                {item.goodsValueRequired ? <p className="mt-0.5 text-[10px] text-[#D71313]">Value needed per parcel</p> : null}
               </td>
             </tr>
           ))}

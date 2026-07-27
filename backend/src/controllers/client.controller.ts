@@ -1,3 +1,4 @@
+import fs from "fs";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { Branch } from "../models/branch.model.js";
@@ -18,6 +19,14 @@ import {
   createShipmentAmendment,
   previewShipmentAmendment
 } from "./shipmentAmendment.controller.js";
+import {
+  deleteShipmentKycDocument,
+  deleteShipmentParcelKycDocument,
+  downloadShipmentKycDocument,
+  downloadShipmentParcelKycDocument,
+  uploadShipmentKycDocument,
+  uploadShipmentParcelKycDocument
+} from "./shipmentKyc.controller.js";
 import { downloadShipmentInvoicePdf, getShipmentInvoice } from "./shipmentInvoice.controller.js";
 import { buildStoredLabelAccess } from "./dpdShipment.controller.js";
 import {
@@ -696,6 +705,85 @@ export async function updateClientShipmentDraft(request: Request, response: Resp
   }
 
   return updateShipmentDraft(request, response);
+}
+
+export async function uploadClientShipmentKycDocument(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  const accessible = Boolean(userId) && await clientCanAccessDraft(String(userId), draftId, true);
+
+  if (!accessible) {
+    // Multer has already written the file, so discard it before rejecting.
+    if (request.file?.path) await fs.promises.unlink(request.file.path).catch(() => undefined);
+    return userId
+      ? response.status(404).json({ success: false, message: "Shipment draft not found" })
+      : response.status(401).json({ success: false, message: "Unauthorized" });
+  }
+
+  return uploadShipmentKycDocument(request, response);
+}
+
+export async function deleteClientShipmentKycDocument(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!await clientCanAccessDraft(userId, draftId, true)) {
+    return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  }
+
+  return deleteShipmentKycDocument(request, response);
+}
+
+export async function downloadClientShipmentKycDocument(request: Request, response: Response): Promise<Response | void> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!await clientCanAccessDraft(userId, draftId)) {
+    return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  }
+
+  return downloadShipmentKycDocument(request, response);
+}
+
+export async function uploadClientShipmentParcelKycDocument(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  const accessible = Boolean(userId) && await clientCanAccessDraft(String(userId), draftId, true);
+
+  if (!accessible) {
+    if (request.file?.path) await fs.promises.unlink(request.file.path).catch(() => undefined);
+    return userId
+      ? response.status(404).json({ success: false, message: "Shipment draft not found" })
+      : response.status(401).json({ success: false, message: "Unauthorized" });
+  }
+
+  return uploadShipmentParcelKycDocument(request, response);
+}
+
+export async function deleteClientShipmentParcelKycDocument(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!await clientCanAccessDraft(userId, draftId, true)) {
+    return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  }
+
+  return deleteShipmentParcelKycDocument(request, response);
+}
+
+export async function downloadClientShipmentParcelKycDocument(request: Request, response: Response): Promise<Response | void> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!await clientCanAccessDraft(userId, draftId)) {
+    return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  }
+
+  return downloadShipmentParcelKycDocument(request, response);
 }
 
 function serializeClientDpdShipment(shipment: {

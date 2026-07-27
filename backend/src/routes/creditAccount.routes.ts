@@ -1,7 +1,8 @@
 import { Router } from "express";
 import {
-  activateAdminCreditAccount, approveAdminCreditAccount, getAdminCreditAccount,
-  listAdminCreditAccounts, rejectAdminCreditAccount
+  activateAdminCreditAccount, approveAdminCreditAccount, closeAdminCreditAccount,
+  getAdminCreditAccount, listAdminCreditAccounts, reactivateAdminCreditAccount,
+  rejectAdminCreditAccount, suspendAdminCreditAccount
 } from "../controllers/adminCredit.controller.js";
 import {
   closeAdminBillingCycle,
@@ -13,7 +14,8 @@ import {
   handleCreditBillingError,
   listAdminPayments,
   listAdminStatements,
-  verifyAdminOfflinePayment
+  verifyAdminOfflinePayment,
+  writeOffAdminStatement
 } from "../controllers/creditBilling.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 
@@ -35,6 +37,10 @@ creditAccountRouter.get("/:businessAccountId", getAdminCreditAccount);
 creditAccountRouter.post("/:businessAccountId/approve", approveAdminCreditAccount);
 creditAccountRouter.post("/:businessAccountId/activate", activateAdminCreditAccount);
 creditAccountRouter.post("/:businessAccountId/reject", rejectAdminCreditAccount);
+creditAccountRouter.post("/:businessAccountId/suspend", suspendAdminCreditAccount);
+creditAccountRouter.post("/:businessAccountId/reactivate", reactivateAdminCreditAccount);
+creditAccountRouter.post("/:businessAccountId/close", closeAdminCreditAccount);
+creditAccountRouter.post("/:businessAccountId/statements/:statementId/write-off", writeOffAdminStatement);
 creditAccountRouter.use((error: unknown, _request: import("express").Request, response: import("express").Response, next: import("express").NextFunction) => {
   try {
     handleCreditBillingError(error, response);

@@ -1,7 +1,9 @@
 import { env } from "../config/env.js";
 import {
   GoogleAddressComponent,
+  IndianPortalAddress,
   PortalAddress,
+  mapGoogleComponentsToIndianAddress,
   mapGoogleComponentsToPortalAddress
 } from "./addressMapping.service.js";
 
@@ -18,7 +20,7 @@ export interface AddressPrediction {
 export interface PlaceAddressDetails {
   placeId: string;
   formattedAddress: string;
-  address: PortalAddress;
+  address: PortalAddress | IndianPortalAddress;
   addressComponents: GoogleAddressComponent[];
 }
 
@@ -47,8 +49,33 @@ async function readGoogleJson(response: Response) {
   }
 }
 
-export async function autocompleteUkAddresses(input: string): Promise<AddressPrediction[]> {
+type PlacesRegion = {
+  regionCode: string;
+  languageCode: string;
+  notFoundMessage: string;
+};
+
+const placesRegions = {
+  gb: {
+    regionCode: "gb",
+    languageCode: "en-GB",
+    notFoundMessage: "No matching UK address was found. Enter the address manually."
+  },
+  in: {
+    regionCode: "in",
+    languageCode: "en-IN",
+    notFoundMessage: "No matching Indian address was found. Enter the address manually."
+  }
+} as const satisfies Record<string, PlacesRegion>;
+
+export type PlacesRegionKey = keyof typeof placesRegions;
+
+export async function autocompleteAddresses(
+  input: string,
+  region: PlacesRegionKey = "gb"
+): Promise<AddressPrediction[]> {
   const apiKey = getPlacesApiKey();
+  const { regionCode, languageCode, notFoundMessage } = placesRegions[region];
   const response = await fetch(autocompleteUrl, {
     method: "POST",
     headers: {
@@ -57,14 +84,14 @@ export async function autocompleteUkAddresses(input: string): Promise<AddressPre
     },
     body: JSON.stringify({
       input,
-      includedRegionCodes: ["gb"],
-      languageCode: "en-GB"
+      includedRegionCodes: [regionCode],
+      languageCode
     })
   });
   const payload = await readGoogleJson(response);
 
   if (!response.ok) {
-    throw new GooglePlacesError("No matching UK address was found. Enter the address manually.", response.status);
+    throw new GooglePlacesError(notFoundMessage, response.status);
   }
 
   const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
@@ -91,7 +118,10 @@ export async function autocompleteUkAddresses(input: string): Promise<AddressPre
   });
 }
 
-export async function getPlaceAddressDetails(placeId: string): Promise<PlaceAddressDetails> {
+export async function getPlaceAddressDetails(
+  placeId: string,
+  region: PlacesRegionKey = "gb"
+): Promise<PlaceAddressDetails> {
   const apiKey = getPlacesApiKey();
   const fieldMask = "id,formattedAddress,addressComponents";
   const response = await fetch(`${placesBaseUrl}/places/${encodeURIComponent(placeId)}`, {
@@ -104,7 +134,7 @@ export async function getPlaceAddressDetails(placeId: string): Promise<PlaceAddr
   const payload = await readGoogleJson(response);
 
   if (!response.ok) {
-    throw new GooglePlacesError("No matching UK address was found. Enter the address manually.", response.status);
+    throw new GooglePlacesError(placesRegions[region].notFoundMessage, response.status);
   }
 
   const components = Array.isArray(payload.addressComponents)
@@ -114,7 +144,9 @@ export async function getPlaceAddressDetails(placeId: string): Promise<PlaceAddr
   return {
     placeId: typeof payload.id === "string" ? payload.id : placeId,
     formattedAddress: typeof payload.formattedAddress === "string" ? payload.formattedAddress : "",
-    address: mapGoogleComponentsToPortalAddress(components),
+    address: region === "in"
+      ? mapGoogleComponentsToIndianAddress(components)
+      : mapGoogleComponentsToPortalAddress(components),
     addressComponents: components
   };
 }

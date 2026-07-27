@@ -15,6 +15,7 @@ import {
 } from "@/lib/shipmentManifests";
 
 type LineState = { selected: boolean; declaredValue: string; bagNumber: string };
+
 type ManifestHeaderState = {
   destinationAgent: string;
   flightNumber: string;
@@ -51,14 +52,18 @@ export default function ShipmentManifestPanel({
     try {
       const data = await getShipmentManifestContext(draftId, audience);
       setContext(data);
-      setLines(Object.fromEntries(data.eligibleShipments.map((shipment) => [
-        shipment.shipmentDraftId,
-        {
-          selected: shipment.shipmentDraftId === data.currentShipmentDraftId,
-          declaredValue: "",
-          bagNumber: ""
-        }
-      ])));
+      setLines(
+        Object.fromEntries(
+          data.eligibleShipments.map((shipment) => [
+            shipment.shipmentDraftId,
+            {
+              selected: shipment.shipmentDraftId === data.currentShipmentDraftId,
+              declaredValue: "",
+              bagNumber: ""
+            }
+          ])
+        )
+      );
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Manifest information could not be loaded.");
     }
@@ -69,9 +74,10 @@ export default function ShipmentManifestPanel({
     return () => window.clearTimeout(timer);
   }, [loadContext]);
 
-  const selectedShipments = useMemo(() => (
-    context?.eligibleShipments.filter((shipment) => lines[shipment.shipmentDraftId]?.selected) ?? []
-  ), [context, lines]);
+  const selectedShipments = useMemo(
+    () => context?.eligibleShipments.filter((shipment) => lines[shipment.shipmentDraftId]?.selected) ?? [],
+    [context, lines]
+  );
   const currentShipment = context?.eligibleShipments.find((shipment) => shipment.shipmentDraftId === draftId);
   const currentShipmentEligible = Boolean(currentShipment);
   const selectedPieces = selectedShipments.reduce((sum, shipment) => sum + shipment.pieces, 0);
@@ -94,6 +100,7 @@ export default function ShipmentManifestPanel({
 
   async function handleCreate() {
     if (!context || !selectedShipments.length) return;
+
     if (audience === "client") {
       const declaredValue = Number(lines[draftId]?.declaredValue);
       if (!Number.isFinite(declaredValue) || declaredValue <= 0) {
@@ -104,10 +111,13 @@ export default function ShipmentManifestPanel({
       setBusy(true);
       setError("");
       try {
-        const result = await createShipmentManifest({
-          currentShipmentDraftId: draftId,
-          declaredValueMinor: Math.round(declaredValue * 100)
-        }, audience);
+        const result = await createShipmentManifest(
+          {
+            currentShipmentDraftId: draftId,
+            declaredValueMinor: Math.round(declaredValue * 100)
+          },
+          audience
+        );
         toast.success(`${result.manifest.manifestNumber} created successfully.`);
         await downloadShipmentManifest(result.manifest, audience);
         setShowForm(false);
@@ -128,7 +138,10 @@ export default function ShipmentManifestPanel({
       setError(`Enter a bag number and declared goods value for ${invalidLine.consignmentNumber}.`);
       return;
     }
-    if ((header.originIataCode && header.originIataCode.length !== 3) || (header.destinationIataCode && header.destinationIataCode.length !== 3)) {
+    if (
+      (header.originIataCode && header.originIataCode.length !== 3) ||
+      (header.destinationIataCode && header.destinationIataCode.length !== 3)
+    ) {
       setError("IATA codes must contain exactly three letters.");
       return;
     }
@@ -136,15 +149,18 @@ export default function ShipmentManifestPanel({
     setBusy(true);
     setError("");
     try {
-      const result = await createShipmentManifest({
-        currentShipmentDraftId: draftId,
-        ...header,
-        lines: selectedShipments.map((shipment) => ({
-          shipmentDraftId: shipment.shipmentDraftId,
-          declaredValueMinor: Math.round(Number(lines[shipment.shipmentDraftId].declaredValue) * 100),
-          bagNumber: lines[shipment.shipmentDraftId].bagNumber.trim()
-        }))
-      }, audience);
+      const result = await createShipmentManifest(
+        {
+          currentShipmentDraftId: draftId,
+          ...header,
+          lines: selectedShipments.map((shipment) => ({
+            shipmentDraftId: shipment.shipmentDraftId,
+            declaredValueMinor: Math.round(Number(lines[shipment.shipmentDraftId].declaredValue) * 100),
+            bagNumber: lines[shipment.shipmentDraftId].bagNumber.trim()
+          }))
+        },
+        audience
+      );
       toast.success(`${result.manifest.manifestNumber} created successfully.`);
       await downloadShipmentManifest(result.manifest, audience);
       setShowForm(false);
@@ -169,21 +185,27 @@ export default function ShipmentManifestPanel({
   }
 
   return (
-    <section className="border border-slate-200 bg-white">
+    <section className="border rounded-2xl border-slate-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Manifest</h2>
           <p className="mt-1 text-sm text-slate-600">Create and download dispatch manifests from booked shipments.</p>
         </div>
         {context?.canCreate && !ownManifestExists && currentShipmentEligible ? (
-          <button type="button" onClick={() => setShowForm((value) => !value)} className="inline-flex h-10 items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900">
+          <button
+            type="button"
+            onClick={() => setShowForm((value) => !value)}
+            className="inline-flex h-10 rounded-2xl items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900"
+          >
             {showForm ? <FiX aria-hidden="true" /> : <FiPlus aria-hidden="true" />}
             {showForm ? "Close" : "Create Manifest"}
           </button>
         ) : null}
       </div>
 
-      {error ? <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm font-medium text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm font-medium text-red-700">{error}</div>
+      ) : null}
 
       {context?.existingManifests.length ? (
         <div className="divide-y divide-slate-100">
@@ -200,10 +222,17 @@ export default function ShipmentManifestPanel({
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">{formatDashboardDate(manifest.generatedAt)} | {manifest.shipmentCount} shipment(s) | {manifest.totalWeightKg.toFixed(2)} kg</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {formatDashboardDate(manifest.generatedAt)} | {manifest.shipmentCount} shipment(s) | {manifest.totalWeightKg.toFixed(2)} kg
+                  </p>
                 </div>
               </div>
-              <button type="button" onClick={() => void handleDownload(manifest)} disabled={busy} className="inline-flex h-9 items-center justify-center gap-2 border border-slate-300 px-3 text-sm font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-not-allowed disabled:opacity-50">
+              <button
+                type="button"
+                onClick={() => void handleDownload(manifest)}
+                disabled={busy}
+                className="inline-flex h-9 items-center justify-center gap-2 border border-slate-300 px-3 text-sm font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 <FiDownload aria-hidden="true" /> Download
               </button>
             </div>
@@ -238,7 +267,12 @@ export default function ShipmentManifestPanel({
                 className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
               />
             </label>
-            <button type="button" onClick={() => void handleCreate()} disabled={busy} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-400">
+            <button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={busy}
+              className="mt-3 inline-flex h-10 w-full rounded-xl mr-6 items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
               <FiFileText aria-hidden="true" /> {busy ? "Creating..." : "Create And Download Manifest"}
             </button>
           </div>
@@ -246,23 +280,44 @@ export default function ShipmentManifestPanel({
       ) : showForm && context && audience === "admin" ? (
         <div className="space-y-5 p-5">
           <ManifestHeaderFields values={header} onChange={updateHeader} />
-          <div className="overflow-x-auto border border-slate-200">
+          <div className="overflow-x-auto border border-slate-200 rounded-2xl">
             <table className="min-w-[980px] w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                 <tr>
-                  <th className="px-3 py-3">Include</th><th className="px-3 py-3">Consignment</th><th className="px-3 py-3">Consignee</th><th className="px-3 py-3">Pieces</th><th className="px-3 py-3">Weight</th><th className="px-3 py-3">Bag No.</th><th className="px-3 py-3">Goods Value (INR)</th>
+                  <th className="px-3 py-3">Include</th>
+                  <th className="px-3 py-3">Consignment</th>
+                  <th className="px-3 py-3">Consignee</th>
+                  <th className="px-3 py-3">Pieces</th>
+                  <th className="px-3 py-3">Weight</th>
+                  <th className="px-3 py-3">Bag No.</th>
+                  <th className="px-3 py-3">Goods Value (INR)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {context.eligibleShipments.map((shipment) => (
-                  <ManifestShipmentRow key={shipment.shipmentDraftId} shipment={shipment} current={shipment.shipmentDraftId === draftId} state={lines[shipment.shipmentDraftId]} onChange={(patch) => updateLine(shipment.shipmentDraftId, patch)} />
+                  <ManifestShipmentRow
+                    key={shipment.shipmentDraftId}
+                    shipment={shipment}
+                    current={shipment.shipmentDraftId === draftId}
+                    state={lines[shipment.shipmentDraftId]}
+                    onChange={(patch) => updateLine(shipment.shipmentDraftId, patch)}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 pt-4">
-            <p className="text-sm text-slate-600"><strong className="text-slate-950">{selectedShipments.length}</strong> shipments | <strong className="text-slate-950">{selectedPieces}</strong> pieces | <strong className="text-slate-950">{selectedWeight.toFixed(2)} kg</strong></p>
-            <button type="button" onClick={() => void handleCreate()} disabled={busy || !selectedShipments.length} className="inline-flex h-10 items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-400">
+            <p className="text-sm text-slate-600">
+              <strong className="text-slate-950">{selectedShipments.length}</strong> shipments |{" "}
+              <strong className="text-slate-950">{selectedPieces}</strong> pieces |{" "}
+              <strong className="text-slate-950">{selectedWeight.toFixed(2)} kg</strong>
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={busy || !selectedShipments.length}
+              className="inline-flex h-10 items-center justify-center rounded-xl gap-2 mr-6 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
               <FiFileText aria-hidden="true" /> {busy ? "Creating..." : "Create And Download Manifest"}
             </button>
           </div>
@@ -272,11 +327,22 @@ export default function ShipmentManifestPanel({
   );
 }
 
-function ManifestHeaderFields({ values, onChange }: { values: ManifestHeaderState; onChange: (field: keyof ManifestHeaderState, value: string) => void }) {
+function ManifestHeaderFields({
+  values,
+  onChange
+}: {
+  values: ManifestHeaderState;
+  onChange: (field: keyof ManifestHeaderState, value: string) => void;
+}) {
   const fields = [
-    ["flightNumber", "Flight Number"], ["departureDate", "Departure Date"], ["mawbNumber", "MAWB Number"],
-    ["originIataCode", "Origin IATA"], ["destinationIataCode", "Destination IATA"], ["valueType", "Value Type"]
+    ["flightNumber", "Flight Number"],
+    ["departureDate", "Departure Date"],
+    ["mawbNumber", "MAWB Number"],
+    ["originIataCode", "Origin IATA"],
+    ["destinationIataCode", "Destination IATA"],
+    ["valueType", "Value Type"]
   ] as const;
+
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <label className="block md:col-span-2 xl:col-span-4">
@@ -287,7 +353,7 @@ function ManifestHeaderFields({ values, onChange }: { values: ManifestHeaderStat
           value={values.destinationAgent}
           onChange={(event) => onChange("destinationAgent", event.target.value)}
           placeholder={"Company or agent name\nAddress line 1\nCity and postcode\nCountry"}
-          className="mt-2 w-full resize-y border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+          className="mt-2 w-full resize-y border rounded-2xl border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
         />
       </label>
       {fields.map(([field, label]) => (
@@ -297,7 +363,7 @@ function ManifestHeaderFields({ values, onChange }: { values: ManifestHeaderStat
             type={field === "departureDate" ? "date" : "text"}
             value={values[field]}
             onChange={(event) => onChange(field, event.target.value)}
-            className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+            className="mt-2 h-10 w-full border rounded-xl border-slate-300 px-3 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
           />
         </label>
       ))}
@@ -314,6 +380,57 @@ function ManifestSummaryItem({ label, value }: { label: string; value: string })
   );
 }
 
-function ManifestShipmentRow({ shipment, current, state, onChange }: { shipment: ManifestEligibleShipment; current: boolean; state?: LineState; onChange: (patch: Partial<LineState>) => void }) {
-  return <tr><td className="px-3 py-3"><input type="checkbox" checked={Boolean(state?.selected)} disabled={current} onChange={(event) => onChange({ selected: event.target.checked })} aria-label={`Include ${shipment.consignmentNumber}`} /></td><td className="px-3 py-3"><p className="font-semibold text-slate-950">{shipment.consignmentNumber}</p><p className="mt-1 text-xs text-slate-500">{shipment.shipmentReference}</p></td><td className="px-3 py-3"><p className="font-medium text-slate-800">{shipment.consignee}</p><p className="mt-1 text-xs text-slate-500">{shipment.destination}</p></td><td className="px-3 py-3">{shipment.pieces}</td><td className="px-3 py-3">{shipment.weightKg.toFixed(2)} kg</td><td className="px-3 py-3"><input value={state?.bagNumber ?? ""} disabled={!state?.selected} onChange={(event) => onChange({ bagNumber: event.target.value })} className="h-9 w-28 border border-slate-300 px-2 disabled:bg-slate-100" /></td><td className="px-3 py-3"><input type="number" min="0.01" step="0.01" value={state?.declaredValue ?? ""} disabled={!state?.selected} onChange={(event) => onChange({ declaredValue: event.target.value })} className="h-9 w-36 border border-slate-300 px-2 disabled:bg-slate-100" /></td></tr>;
+function ManifestShipmentRow({
+  shipment,
+  current,
+  state,
+  onChange
+}: {
+  shipment: ManifestEligibleShipment;
+  current: boolean;
+  state?: LineState;
+  onChange: (patch: Partial<LineState>) => void;
+}) {
+  return (
+    <tr>
+      <td className="px-3 py-3">
+        <input
+          type="checkbox"
+          checked={Boolean(state?.selected)}
+          disabled={current}
+          onChange={(event) => onChange({ selected: event.target.checked })}
+          aria-label={`Include ${shipment.consignmentNumber}`}
+        />
+      </td>
+      <td className="px-3 py-3">
+        <p className="font-semibold text-slate-950">{shipment.consignmentNumber}</p>
+        <p className="mt-1 text-xs text-slate-500">{shipment.shipmentReference}</p>
+      </td>
+      <td className="px-3 py-3">
+        <p className="font-medium text-slate-800">{shipment.consignee}</p>
+        <p className="mt-1 text-xs text-slate-500">{shipment.destination}</p>
+      </td>
+      <td className="px-3 py-3">{shipment.pieces}</td>
+      <td className="px-3 py-3">{shipment.weightKg.toFixed(2)} kg</td>
+      <td className="px-3 py-3">
+        <input
+          value={state?.bagNumber ?? ""}
+          disabled={!state?.selected}
+          onChange={(event) => onChange({ bagNumber: event.target.value })}
+          className="h-9 w-28 border border-slate-300 px-2 rounded-xl disabled:bg-slate-100"
+        />
+      </td>
+      <td className="px-3 py-3">
+        <input
+          type="number"
+          min="0.01"
+          step="0.01"
+          value={state?.declaredValue ?? ""}
+          disabled={!state?.selected}
+          onChange={(event) => onChange({ declaredValue: event.target.value })}
+          className="h-9 w-36 border rounded-xl border-slate-300 px-2 disabled:bg-slate-100"
+        />
+      </td>
+    </tr>
+  );
 }

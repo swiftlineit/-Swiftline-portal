@@ -13,7 +13,8 @@ import {
   CreditBillingCycleError,
   getCreditBillingStatement,
   listCreditBillingStatements,
-  serializeCreditBillingStatement
+  serializeCreditBillingStatement,
+  writeOffCreditStatement
 } from "../services/creditBillingCycle.service.js";
 import { createCreditBillingStatementPdf } from "../services/creditBillingStatementPdf.service.js";
 import {
@@ -168,6 +169,30 @@ export async function closeAdminBillingCycle(request: Request, response: Respons
     ? "No finalized unbilled shipment invoices were found for the completed billing period."
     : result.created ? "Credit billing statement generated." : "This billing period has already been closed.";
   return response.status(result.created ? 201 : 200).json({ success: true, message, ...result });
+}
+
+const writeOffSchema = z.object({
+  amountMinor: z.number().int().positive("Write-off amount must be greater than zero."),
+  reason: z.string().trim().min(5, "Provide a reason for the write-off.").max(500)
+});
+
+export async function writeOffAdminStatement(request: Request, response: Response): Promise<Response> {
+  const currentUserId = userId(request);
+  const businessAccountId = adminBusinessAccountId(request);
+  const statementId = objectId(request.params.statementId);
+  if (!currentUserId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  if (!businessAccountId || !statementId) return response.status(400).json({ success: false, message: "Statement is invalid." });
+  const parsed = writeOffSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Check the write-off details." });
+
+  const statement = await writeOffCreditStatement({
+    businessAccountId,
+    statementId,
+    amountMinor: parsed.data.amountMinor,
+    reason: parsed.data.reason,
+    createdBy: currentUserId
+  });
+  return response.status(200).json({ success: true, message: "Statement balance written off.", statement });
 }
 
 export async function listClientStatements(request: Request, response: Response): Promise<Response> {

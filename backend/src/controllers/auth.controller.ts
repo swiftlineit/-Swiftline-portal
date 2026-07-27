@@ -10,6 +10,16 @@ import { BusinessAccountMember } from "../models/businessAccountMember.model.js"
 import { sendPasswordResetEmail } from "../services/mail.service.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
 
+// Cross-site delivery (frontend and API on different HTTPS origins, e.g. devtunnels)
+// requires SameSite=None; Secure, or the browser drops the refresh cookie. Same-origin
+// / localhost keeps the stricter Lax cookie.
+const refreshCookieOptions = () => ({
+  httpOnly: true,
+  secure: env.CROSS_SITE_COOKIES || env.NODE_ENV === "production",
+  sameSite: (env.CROSS_SITE_COOKIES ? "none" : "lax") as "none" | "lax",
+  maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
+});
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
@@ -139,12 +149,7 @@ export async function login(req: Request, res: Response): Promise<Response> {
   const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email });
 
   // set httpOnly secure cookie for refresh token
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
-  });
+  res.cookie("refreshToken", refreshToken, refreshCookieOptions());
 
   return res.status(200).json({
     success: true,
@@ -161,7 +166,9 @@ export async function login(req: Request, res: Response): Promise<Response> {
 }
 
 export async function logout(_req: Request, res: Response): Promise<Response> {
-  res.clearCookie("refreshToken");
+  // Clearing must use the same sameSite/secure flags the cookie was set with.
+  const { maxAge: _maxAge, ...clearOptions } = refreshCookieOptions();
+  res.clearCookie("refreshToken", clearOptions);
   return res.status(200).json({ success: true });
 }
 
@@ -209,12 +216,7 @@ export async function refresh(req: Request, res: Response): Promise<Response> {
     const accessToken = createAccessToken({ id: String(user._id), role, email: user.email });
     const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email });
 
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24 * 7
-    });
+    res.cookie("refreshToken", refreshToken, refreshCookieOptions());
 
     return res.status(200).json({ success: true, accessToken });
   } catch (error) {

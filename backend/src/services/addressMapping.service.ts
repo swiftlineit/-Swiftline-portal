@@ -50,6 +50,47 @@ export function mapGoogleComponentsToPortalAddress(components: GoogleAddressComp
   };
 }
 
+export interface IndianPortalAddress {
+  addressLine1: string;
+  addressLine2: string;
+  townOrCity: string;
+  county: string;
+  postcode: string;
+  countryCode: "IN";
+  countryName: "India";
+}
+
+/**
+ * Indian addresses rarely carry `postal_town`, and the district/state split lands
+ * on different administrative levels than in the UK, so consignor addresses get
+ * their own mapping rather than reusing the UK one.
+ */
+export function mapGoogleComponentsToIndianAddress(components: GoogleAddressComponent[]): IndianPortalAddress {
+  const subpremise = getLongText(components, "subpremise");
+  const premise = getLongText(components, "premise");
+  const streetNumber = getLongText(components, "street_number");
+  const route = getLongText(components, "route");
+  const sublocality = getLongText(components, "sublocality_level_1") || getLongText(components, "sublocality");
+  const neighborhood = getLongText(components, "neighborhood");
+  const locality = getLongText(components, "locality");
+  const district = getLongText(components, "administrative_area_level_3")
+    || getLongText(components, "administrative_area_level_2");
+  const state = getLongText(components, "administrative_area_level_1");
+  const postcode = getLongText(components, "postal_code").replace(/\D/g, "");
+  const line1Parts = [subpremise, premise, streetNumber, route].filter(Boolean);
+  const line2Parts = [sublocality, neighborhood].filter(Boolean);
+
+  return {
+    addressLine1: line1Parts.join(", ") || locality,
+    addressLine2: line2Parts.join(", "),
+    townOrCity: locality || district || sublocality,
+    county: state,
+    postcode,
+    countryCode: "IN",
+    countryName: "India"
+  };
+}
+
 export function formatPortalAddressLines(address: {
   addressLine1: string;
   addressLine2?: string;

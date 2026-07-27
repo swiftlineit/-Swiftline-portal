@@ -132,7 +132,7 @@ export default function ShipmentCancellationPanel({
   }
 
   return (
-    <section className="border border-slate-200 bg-white">
+    <section className="border border-slate-200 bg-white rounded-2xl">
       <div className="flex flex-wrap items-start justify-between gap-4 p-5">
         <div className="max-w-3xl">
           <div className="flex items-center gap-2">
@@ -158,7 +158,7 @@ export default function ShipmentCancellationPanel({
           <button
             type="button"
             onClick={() => setFormOpen(true)}
-            className="h-10 border border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50"
+            className="h-10 border border-red-300 rounded-xl px-4 text-sm font-semibold text-red-700 hover:bg-red-50"
           >
             Request Cancellation
           </button>
@@ -207,7 +207,7 @@ function CancellationRequestForm({
           maxLength={500}
           required
           placeholder="Explain why this shipment should be cancelled"
-          className="mt-2 w-full border border-slate-300 bg-white px-3 py-2 font-normal outline-none focus:border-blue-900"
+          className="mt-2 w-full border rounded-xl border-slate-300 bg-white px-3 py-2 font-normal outline-none focus:border-blue-900"
         />
       </label>
       {error ? <p className="mt-3 text-sm font-semibold text-red-700">{error}</p> : null}
@@ -215,7 +215,7 @@ function CancellationRequestForm({
         <button
           type="submit"
           disabled={busy || reason.trim().length < 5}
-          className="h-10 bg-red-600 px-4 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-10 bg-red-600 px-4 text-sm font-semibold rounded-xl text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "Submitting..." : "Submit Request"}
         </button>
@@ -223,7 +223,7 @@ function CancellationRequestForm({
           type="button"
           disabled={busy}
           onClick={onClose}
-          className="h-10 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
+          className="h-10 border border-slate-300 rounded-xl bg-white px-4 text-sm font-semibold text-slate-700"
         >
           Keep Shipment
         </button>
@@ -261,7 +261,7 @@ function DocumentActions({
             type="button"
             disabled={Boolean(busy)}
             onClick={() => void onAction(type, action)}
-            className="inline-flex h-9 items-center gap-2 border border-slate-300 px-3 text-sm font-semibold text-blue-900 hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 border border-slate-300 px-3 rounded-2xl  text-sm font-semibold text-blue-900 hover:bg-slate-50 disabled:opacity-50"
           >
             <Icon className="h-4 w-4" aria-hidden="true" />
             {label}

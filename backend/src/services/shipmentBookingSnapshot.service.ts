@@ -4,6 +4,7 @@ import type { IInvoiceUpload } from "../models/invoiceUpload.model.js";
 import type { IShipmentDraft } from "../models/shipmentDraft.model.js";
 import type { ShipmentPricingEstimate } from "./shipmentPricing.service.js";
 import type { ShipmentLabelData } from "./shipmentLabelPdf.service.js";
+import { maskAadhaarNumber } from "./aadhaarValidation.service.js";
 import { formatSwiftlineParcelNumber } from "./swiftlineTracking.service.js";
 
 export type ShipmentBookingSnapshot = {
@@ -14,7 +15,13 @@ export type ShipmentBookingSnapshot = {
     shipmentReference: string;
   };
   account: Record<string, unknown>;
+  /** The Swiftline branch the shipment is lodged at. */
   sender: Record<string, unknown>;
+  /**
+   * The Indian sender captured during review. Absent on shipments booked before
+   * consignor capture existed, so every reader must tolerate `undefined`.
+   */
+  consignor?: IShipmentDraft["consignorAddress"];
   consignee: IShipmentDraft["consigneeEnteredAddress"];
   service: {
     type: string;
@@ -87,6 +94,21 @@ function plain<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/**
+ * Booking snapshots feed labels, invoices, and manifests. The full Aadhaar number
+ * stays on the draft only; the snapshot keeps the masked form for reconciliation.
+ */
+function redactConsignorAadhaar(consignor: IShipmentDraft["consignorAddress"] | undefined) {
+  if (!consignor) return undefined;
+
+  return {
+    ...(typeof (consignor as { toObject?: () => unknown }).toObject === "function"
+      ? (consignor as unknown as { toObject: () => IShipmentDraft["consignorAddress"] }).toObject()
+      : consignor),
+    aadhaarNumber: maskAadhaarNumber(consignor.aadhaarNumber)
+  };
+}
+
 export function buildShipmentBookingSnapshot(input: {
   draft: IShipmentDraft;
   invoiceUpload: IInvoiceUpload;
@@ -127,6 +149,7 @@ export function buildShipmentBookingSnapshot(input: {
       address: input.branch.address,
       contact: input.branch.contact
     },
+    consignor: redactConsignorAadhaar(input.draft.consignorAddress),
     consignee,
     service: {
       type: input.draft.serviceType,

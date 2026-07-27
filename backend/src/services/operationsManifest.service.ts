@@ -15,13 +15,19 @@ import {
 } from "../models/operationsManifestScan.model.js";
 import { OperationsManifestScanSession } from "../models/operationsManifestScanSession.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
-import { ShipmentManifest } from "../models/shipmentManifest.model.js";
+import { ShipmentManifest, type IShipmentManifest } from "../models/shipmentManifest.model.js";
 import {
   buildManifestLine,
   buildShipmentManifestWorkbook,
+  fixedPartyAddressRows,
   formatManifestConsignmentNumber,
   formatManifestOrigin
 } from "./shipmentManifest.service.js";
+import {
+  buildManifestDocumentModel,
+  parseSealedSnapshot,
+  type SealedSnapshot
+} from "./manifestDocument.service.js";
 import { readShipmentBookingSnapshot, type ShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 
 export class OperationsManifestServiceError extends Error {
@@ -36,26 +42,15 @@ function isEditable(manifest: IOperationsManifest) {
   return editableStatuses.includes(manifest.status as (typeof editableStatuses)[number]);
 }
 
-function fiscalYearCode(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit"
-  }).formatToParts(date);
-  const year = Number(parts.find((part) => part.type === "year")?.value ?? date.getUTCFullYear());
-  const month = Number(parts.find((part) => part.type === "month")?.value ?? date.getUTCMonth() + 1);
-  const startYear = month >= 4 ? year : year - 1;
-  return `${String(startYear).slice(-2)}${String(startYear + 1).slice(-2)}`;
-}
-
 export async function allocateOperationsManifestNumber(session?: mongoose.ClientSession) {
+  // A single running sequence gives the plain SLC001, SLC002, … numbers operations use.
   const counter = await OperationsManifestCounter.findOneAndUpdate(
-    { _id: `operations-manifest-${fiscalYearCode()}` },
+    { _id: "operations-manifest" },
     { $inc: { sequence: 1 } },
     { upsert: true, returnDocument: "after", session }
   ).exec();
   if (!counter) throw new OperationsManifestServiceError("Manifest number could not be generated.", 500);
-  return `SLCM${fiscalYearCode()}${String(counter.sequence).padStart(5, "0")}`;
+  return `SLC${String(counter.sequence).padStart(3, "0")}`;
 }
 
 async function audit(
@@ -95,13 +90,30 @@ export function calculateScannedParcelWeight(consignment: {
   ));
 }
 
-function manifestSequence(manifestNumber: string) {
-  const match = /(\d{5})$/.exec(manifestNumber);
-  return String(Number(match?.[1] ?? 0)).padStart(3, "0");
+type ParcelValueSnapshot = { parcelNumber: string; valueMinor?: number | null };
+
+/** The declared value of each scanned parcel, in scan order. */
+export function scannedParcelValues(consignment: {
+  scannedParcelNumbers: string[];
+  parcelWeightSnapshots?: ParcelValueSnapshot[];
+}) {
+  const valueByParcel = new Map((consignment.parcelWeightSnapshots ?? []).map((parcel) => [parcel.parcelNumber, parcel.valueMinor ?? null]));
+  return consignment.scannedParcelNumbers.map((parcelNumber) => ({ parcelNumber, valueMinor: valueByParcel.get(parcelNumber) ?? null }));
+}
+
+/** Sum of the scanned parcels' declared values; null until every one has a value. */
+export function consignmentDeclaredValueMinor(consignment: {
+  scannedParcelNumbers: string[];
+  parcelWeightSnapshots?: ParcelValueSnapshot[];
+}) {
+  const values = scannedParcelValues(consignment);
+  if (!values.length || values.some((parcel) => !parcel.valueMinor)) return null;
+  return values.reduce((total, parcel) => total + (parcel.valueMinor ?? 0), 0);
 }
 
 export function formatOperationsBagNumber(manifestNumber: string, bagSequence: number) {
-  return `SLC${manifestSequence(manifestNumber)}${String(bagSequence).padStart(2, "0")}`;
+  // The MHBS is the manifest number with a two-digit bag suffix: SLC012 → SLC01201.
+  return `${manifestNumber}${String(bagSequence).padStart(2, "0")}`;
 }
 
 export function isOperationsBagWeightAllowed(weightKg: number) {
@@ -394,7 +406,8 @@ export async function scanOperationsParcel(input: {
   const parcelWeightSnapshots = snapshot.parcels.map((parcel) => ({
     parcelNumber: parcel.swiftlineParcelNumber.toUpperCase(),
     weightKg: roundWeight(parcel.actualWeightKg),
-    contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : ""
+    contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : "",
+    valueMinor: null
   }));
   const incomingWeightKg = parcelWeightSnapshots.find((parcel) => parcel.parcelNumber === parcelNumber)?.weightKg ?? 0;
   if (!expectedParcelNumbers.includes(parcelNumber)) {
@@ -543,21 +556,30 @@ export async function scanOperationsParcel(input: {
   return getOperationsManifestDetail(input.manifestId, { latestScanId: accepted ? String(accepted._id) : undefined });
 }
 
-export async function updateDeclaredValue(input: {
+export async function updateParcelValue(input: {
   manifestId: string;
   consignmentId: string;
-  declaredValueMinor: number;
+  parcelNumber: string;
+  valueMinor: number;
   userId: mongoose.Types.ObjectId;
 }) {
   const manifest = await OperationsManifest.findById(asObjectId(input.manifestId, "Operations manifest")).exec();
   if (!manifest || !isEditable(manifest)) throw new OperationsManifestServiceError("This manifest can no longer be edited.", 409);
-  const consignment = await OperationsManifestConsignment.findOneAndUpdate(
-    { _id: asObjectId(input.consignmentId, "Consignment"), manifestId: manifest._id, status: { $ne: "REMOVED" } },
-    { $set: { declaredValueMinor: input.declaredValueMinor } },
-    { returnDocument: "after", runValidators: true }
-  ).exec();
+  const consignment = await OperationsManifestConsignment.findOne({
+    _id: asObjectId(input.consignmentId, "Consignment"), manifestId: manifest._id, status: { $ne: "REMOVED" }
+  }).exec();
   if (!consignment) throw new OperationsManifestServiceError("Consignment was not found.", 404);
-  await audit("OPERATIONS_MANIFEST_UPDATED", manifest._id as mongoose.Types.ObjectId, input.userId, { consignmentId: consignment._id, declaredValueUpdated: true });
+
+  const parcelNumber = input.parcelNumber.trim().toUpperCase();
+  const parcel = consignment.parcelWeightSnapshots.find((item) => item.parcelNumber === parcelNumber);
+  if (!parcel) throw new OperationsManifestServiceError("That parcel is not part of this consignment.", 404);
+
+  parcel.valueMinor = input.valueMinor;
+  // The consignment value stays the sum of its parcels' values, for display and totals.
+  consignment.declaredValueMinor = consignmentDeclaredValueMinor(consignment);
+  consignment.markModified("parcelWeightSnapshots");
+  await consignment.save();
+  await audit("OPERATIONS_MANIFEST_UPDATED", manifest._id as mongoose.Types.ObjectId, input.userId, { consignmentId: consignment._id, parcelNumber, parcelValueUpdated: true });
   return consignment;
 }
 
@@ -722,7 +744,7 @@ export async function cancelOperationsBag(manifestIdValue: string, bagIdValue: s
   }
 }
 
-function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: string; totalWeightKg?: number }>, consignments: Array<{ status: string; declaredValueMinor?: number | null }>) {
+function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: string; totalWeightKg?: number }>, consignments: Array<{ status: string; scannedParcelNumbers?: string[]; parcelWeightSnapshots?: ParcelValueSnapshot[] }>) {
   const issues: string[] = [];
   const header = manifest.header;
   if (!header.destinationAgent) issues.push("Destination agent details are required.");
@@ -740,7 +762,11 @@ function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: stri
   // A part-scanned consignment is a real outcome: a box can be held back or returned
   // before the flight. The manifest records what was actually packed, so the scanned
   // parcel count on each row is the record rather than a blocker.
-  if (consignments.some((item) => !item.declaredValueMinor)) issues.push("Enter the goods value for every consignment.");
+  // Every packed parcel needs its own declared value, since each box is a customs line.
+  const parcelMissingValue = consignments.some((item) =>
+    scannedParcelValues({ scannedParcelNumbers: item.scannedParcelNumbers ?? [], parcelWeightSnapshots: item.parcelWeightSnapshots })
+      .some((parcel) => !parcel.valueMinor));
+  if (parcelMissingValue) issues.push("Enter the goods value for every parcel.");
   return issues;
 }
 
@@ -778,7 +804,8 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
             parcelNumber: scan.parcelNumber,
             weightKg: roundWeight(snapshotByParcel.get(scan.parcelNumber)?.weightKg ?? 0),
             description: snapshotByParcel.get(scan.parcelNumber)?.contentsDescription ?? "",
-            bagNumber: sealedBagNumberById.get(String(scan.bagId ?? "")) ?? ""
+            bagNumber: sealedBagNumberById.get(String(scan.bagId ?? "")) ?? "",
+            valueMinor: snapshotByParcel.get(scan.parcelNumber)?.valueMinor ?? null
           }));
         return {
           ...item,
@@ -786,8 +813,11 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
           bagNumbers: [...new Set(parcels.map((parcel) => parcel.bagNumber))].filter(Boolean)
         };
       });
+      // v2 adds structured consignor/consignee `party` fields on each consignment
+      // (for the EDI export). v1 snapshots stay readable; the EDI export checks for
+      // `party` directly rather than trusting the version number.
       manifest.sealedSnapshot = JSON.parse(JSON.stringify({
-        version: 1,
+        version: 2,
         manifestNumber: manifest.manifestNumber,
         header: manifest.header,
         branch,
@@ -896,7 +926,8 @@ async function normalizeEditableManifestData(manifest: IOperationsManifest) {
       consignment.parcelWeightSnapshots = snapshot.parcels.map((parcel) => ({
         parcelNumber: parcel.swiftlineParcelNumber.toUpperCase(),
         weightKg: roundWeight(parcel.actualWeightKg),
-        contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : ""
+        contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : "",
+        valueMinor: null
       }));
       consignment.weightKg = calculateScannedParcelWeight(consignment);
       await consignment.save();
@@ -946,7 +977,9 @@ export async function getOperationsManifestDetail(manifestIdValue: string, optio
         dpdShipmentId: String(item.dpdShipmentId),
         businessAccountId: String(item.businessAccountId),
         displayConsignmentNumber: formatManifestConsignmentNumber(item.consignmentNumber),
-        goodsValueRequired: !item.declaredValueMinor,
+        // Goods value is entered per parcel; the consignment value is their sum.
+        parcelValues: scannedParcelValues(item),
+        goodsValueRequired: scannedParcelValues(item).some((parcel) => !parcel.valueMinor),
         dpdWarning: item.dpdLabelGenerated ? "" : "DPD label has not been generated. This shipment uses Swiftline internal labels only."
       };
     }),
@@ -962,59 +995,10 @@ export async function getOperationsManifestDetail(manifestIdValue: string, optio
   };
 }
 
-type SealedSnapshot = {
-  manifestNumber: string;
-  header: IOperationsManifest["header"];
-  branch: Record<string, unknown>;
-  totals: { totalBags: number; totalConsignments: number; totalPhysicalParcels: number; totalWeightKg: number };
-  bags: Array<Record<string, unknown> & { _id: unknown; bagNumber: string }>;
-  consignments: Array<Record<string, unknown> & {
-    bagId: unknown;
-    shipmentDraftId: mongoose.Types.ObjectId;
-    dpdShipmentId: mongoose.Types.ObjectId;
-    consignmentNumber: string;
-    manifestPieces: number;
-    weightKg: number;
-    consignorSnapshot: Record<string, unknown>;
-    consigneeSnapshot: Record<string, unknown>;
-    description: string;
-    declaredValueMinor: number;
-    currency: "INR";
-    serviceInfo: string;
-    // Both absent on manifests sealed before parcels became individual rows.
-    bagNumbers?: string[];
-    parcels?: Array<{ parcelNumber: string; weightKg: number; description?: string; bagNumber: string }>;
-  }>;
-  sealedAt: string;
-};
-
-type SealedConsignment = SealedSnapshot["consignments"][number];
-
-/**
- * One row per packed parcel, each describing only its own contents. Manifests sealed
- * before this format keep their single summary row so historical exports stay stable.
- */
-function sealedParcelRows(item: SealedConsignment, bagById: Map<string, string>) {
-  if (item.parcels?.length) {
-    return item.parcels.map((parcel) => ({
-      ...parcel,
-      description: parcel.description || item.description
-    }));
-  }
-  return [{
-    parcelNumber: "",
-    weightKg: item.weightKg,
-    description: item.description,
-    bagNumber: item.bagNumbers?.join(", ") || bagById.get(String(item.bagId)) || ""
-  }];
-}
-
-function readSealedSnapshot(manifest: IOperationsManifest) {
-  const snapshot = manifest.sealedSnapshot as Partial<SealedSnapshot>;
-  if (!snapshot || !snapshot.header || !snapshot.branch || !snapshot.totals || !Array.isArray(snapshot.bags) || !Array.isArray(snapshot.consignments)) {
-    throw new OperationsManifestServiceError("The sealed manifest snapshot is unavailable.", 409);
-  }
-  return snapshot as SealedSnapshot;
+function readSealedSnapshot(manifest: IOperationsManifest): SealedSnapshot {
+  const snapshot = parseSealedSnapshot(manifest.sealedSnapshot);
+  if (!snapshot) throw new OperationsManifestServiceError("The sealed manifest snapshot is unavailable.", 409);
+  return snapshot;
 }
 
 function normalizedManifestAddress(value: unknown) {
@@ -1034,20 +1018,22 @@ function spacedPdfAddress(value: unknown) {
   const address = lines.filter((line) => line !== phone);
   const spread = [...address.slice(0, 3), "", ...address.slice(3)];
   if (phone) spread.push("", phone);
+  // Legacy fallback keeps the trailing blank row the fixed party block also carries.
+  spread.push("");
   return spread;
 }
 
 export async function buildOperationsManifestExcel(manifest: IOperationsManifest) {
   const snapshot = readSealedSnapshot(manifest);
-  const bagById = new Map(snapshot.bags.map((bag) => [String(bag._id), bag.bagNumber]));
+  const model = buildManifestDocumentModel(snapshot);
   const virtualManifest = {
-    manifestNumber: snapshot.manifestNumber,
+    manifestNumber: model.manifestNumber,
     businessAccountId: new mongoose.Types.ObjectId(),
     branchId: manifest.branchId,
-    shipmentDraftIds: snapshot.consignments.map((item) => item.shipmentDraftId),
+    shipmentDraftIds: model.consignments.map((item) => new mongoose.Types.ObjectId(item.shipmentDraftId)),
     headerSnapshot: {
-      originBranch: [String(snapshot.branch.name ?? ""), String(snapshot.branch.code ?? "")].filter(Boolean).join(" - "),
-      originAddress: formatManifestOrigin(snapshot.branch),
+      originBranch: [String(model.branch.name ?? ""), String(model.branch.code ?? "")].filter(Boolean).join(" - "),
+      originAddress: formatManifestOrigin(model.branch),
       destinationAgent: snapshot.header.destinationAgent,
       flightNumber: snapshot.header.flightNumber,
       departureDate: snapshot.header.departureDate,
@@ -1056,34 +1042,34 @@ export async function buildOperationsManifestExcel(manifest: IOperationsManifest
       destinationIataCode: snapshot.header.destinationIataCode,
       valueType: snapshot.header.valueType
     },
-    lineSnapshots: snapshot.consignments.flatMap((item) => sealedParcelRows(item, bagById).map((parcel, parcelIndex) => ({
-      shipmentDraftId: item.shipmentDraftId,
-      dpdShipmentId: item.dpdShipmentId,
-      consignmentNumber: item.consignmentNumber,
+    // One line per parcel, straight from the shared document model. The goods value
+    // already lives only on each consignment's first parcel row.
+    lineSnapshots: model.parcelRows.map((row) => ({
+      shipmentDraftId: new mongoose.Types.ObjectId(row.shipmentDraftId),
+      dpdShipmentId: new mongoose.Types.ObjectId(row.dpdShipmentId),
+      consignmentNumber: row.consignmentNumber,
       pieces: 1,
-      weightKg: parcel.weightKg,
-      consignor: { formatted: normalizedManifestAddress(item.consignorSnapshot.formatted) },
-      consignee: { formatted: normalizedManifestAddress(item.consigneeSnapshot.formatted) },
-      // Each row describes only the box on that row, not the whole shipment.
-      description: parcel.description,
-      // The goods value belongs to the consignment, so it is stated once on its
-      // first parcel row rather than repeated and double counted.
-      declaredValueMinor: parcelIndex === 0 ? item.declaredValueMinor : null,
-      currency: item.currency,
-      bagNumber: parcel.bagNumber,
-      serviceInfo: item.serviceInfo
-    }))),
-    totalPieces: snapshot.totals.totalPhysicalParcels,
-    totalWeightKg: snapshot.totals.totalWeightKg,
-    totalBags: snapshot.totals.totalBags,
+      weightKg: row.weightKg,
+      consignor: { formatted: normalizedManifestAddress(row.consignor.formatted), party: row.consignor.party },
+      consignee: { formatted: normalizedManifestAddress(row.consignee.formatted), party: row.consignee.party },
+      description: row.description,
+      declaredValueMinor: row.declaredValueMinor,
+      currency: row.currency,
+      bagNumber: row.bagNumber,
+      serviceInfo: row.serviceInfo
+    })),
+    totalPieces: model.totals.totalPhysicalParcels,
+    totalWeightKg: model.totals.totalWeightKg,
+    totalBags: model.totals.totalBags,
     actorRole: "admin",
-    generatedAt: new Date(snapshot.sealedAt)
+    generatedAt: model.generatedAt
   };
-  return buildShipmentManifestWorkbook(virtualManifest as never);
+  return buildShipmentManifestWorkbook(virtualManifest as unknown as IShipmentManifest);
 }
 
 export async function buildOperationsManifestPdf(manifest: IOperationsManifest) {
   const snapshot = readSealedSnapshot(manifest);
+  const model = buildManifestDocumentModel(snapshot);
   return new Promise<Buffer>((resolve, reject) => {
     const document = new PDFDocument({ size: "A4", layout: "landscape", margin: 20 });
     const chunks: Buffer[] = [];
@@ -1124,17 +1110,19 @@ export async function buildOperationsManifestPdf(manifest: IOperationsManifest) 
     y += 10;
     headers.forEach((header, index) => drawCell(index, y, 30, header, { bold: true }));
     y += 30;
-    const bagById = new Map(snapshot.bags.map((bag) => [String(bag._id), bag.bagNumber]));
     const rowHeight = 11.2;
-    let serial = 0;
-    snapshot.consignments.forEach((item) => {
-      const consignorLines = spacedPdfAddress(item.consignorSnapshot.formatted);
-      const consigneeLines = spacedPdfAddress(item.consigneeSnapshot.formatted);
-      // The block ends on a blank line of its own rather than a separate divider row.
-      const blockSize = Math.max(1, consignorLines.length, consigneeLines.length) + 1;
+    model.consignments.forEach((consignment) => {
+      // Same fixed ten-row block as the Excel: contact name first (no company), the
+      // phone on the consignee only, and a blank tenth row.
+      const consignorLines = consignment.consignor.party
+        ? fixedPartyAddressRows(consignment.consignor.party, false)
+        : spacedPdfAddress(consignment.consignor.formatted);
+      const consigneeLines = consignment.consignee.party
+        ? fixedPartyAddressRows(consignment.consignee.party, true)
+        : spacedPdfAddress(consignment.consignee.formatted);
+      const blockSize = Math.max(consignorLines.length, consigneeLines.length);
 
-      sealedParcelRows(item, bagById).forEach((parcel, parcelIndex) => {
-        serial += 1;
+      consignment.parcels.forEach((parcel) => {
         const blockHeight = blockSize * rowHeight;
         if (y + blockHeight > document.page.height - 28) {
           document.addPage();
@@ -1146,17 +1134,17 @@ export async function buildOperationsManifestPdf(manifest: IOperationsManifest) 
         for (let row = 0; row < blockSize; row += 1) {
           const values = row === 0
             ? [
-              serial,
-              formatManifestConsignmentNumber(item.consignmentNumber),
+              parcel.serial,
+              consignment.formattedConsignmentNumber,
               1,
               parcel.weightKg.toFixed(3),
               consignorLines[0] ?? "",
               consigneeLines[0] ?? "",
               parcel.description,
-              parcelIndex === 0 ? (item.declaredValueMinor / 100).toFixed(2) : "",
-              item.currency,
+              parcel.declaredValueMinor != null ? (parcel.declaredValueMinor / 100).toFixed(2) : "",
+              consignment.currency,
               parcel.bagNumber,
-              item.serviceInfo
+              consignment.serviceInfo
             ]
             : ["", "", "", "", consignorLines[row] ?? "", consigneeLines[row] ?? "", "", "", "", "", ""];
           values.forEach((value, column) => drawCell(column, y, rowHeight, value, { align: "center", size: 6.5 }));

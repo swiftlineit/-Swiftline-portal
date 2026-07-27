@@ -13,6 +13,7 @@ import {
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatMoney } from "@/lib/shipmentPricing";
 import { useAdminUser } from "@/lib/useAdminUser";
+import { FiChevronDown } from "react-icons/fi";
 
 function formatStatus(status: ShipmentAmendment["status"]) {
   return status.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -66,8 +67,8 @@ function getChangedFields(amendment: ShipmentAmendment) {
   const fields = previewChanges.length
     ? previewChanges.map((change) => change.fieldName)
     : amendment.appliedChanges.length
-    ? amendment.appliedChanges.map((change) => change.fieldName)
-    : collectRequestedFields(amendment.requestedChanges);
+      ? amendment.appliedChanges.map((change) => change.fieldName)
+      : collectRequestedFields(amendment.requestedChanges);
 
   return [...new Set(fields)].map(formatChangedField);
 }
@@ -116,7 +117,7 @@ function AmendmentReviewModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="amendment-review-title">
-      <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto bg-white shadow-xl">
+      <div className="max-h-[92vh] w-full max-w-6xl overflow-y-auto bg-white shadow-xl rounded-2xl">
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
           <div>
             <p className="text-xs font-semibold uppercase text-slate-500">Shipment Amendment</p>
@@ -137,7 +138,7 @@ function AmendmentReviewModal({
             <div><p className="text-xs font-semibold uppercase text-slate-500">Consignee</p><p className="mt-1 font-semibold text-slate-900">{amendment.consignee}</p></div>
             <div><p className="text-xs font-semibold uppercase text-slate-500">Branch</p><p className="mt-1 font-semibold text-slate-900">{amendment.branch?.name || "Not set"}</p><p className="text-xs text-slate-500">{amendment.branch?.code || ""}</p></div>
             <div><p className="text-xs font-semibold uppercase text-slate-500">Requested By</p><p className="mt-1 font-semibold capitalize text-slate-900">{amendment.actorRole}</p></div>
-            <div><p className="text-xs font-semibold uppercase text-slate-500">Status</p><span className={`mt-1 inline-block border px-2 py-1 text-xs font-semibold uppercase ${statusTone(amendment.status)}`}>{formatStatus(amendment.status)}</span></div>
+            <div><p className="text-xs font-semibold uppercase text-slate-500">Status</p><span className={`mt-1 inline-block border px-2 text-xs py-2 rounded font-semibold uppercase ${statusTone(amendment.status)}`}>{formatStatus(amendment.status)}</span></div>
           </div>
 
           {amendment.reason ? (
@@ -146,7 +147,7 @@ function AmendmentReviewModal({
 
           <div>
             <h3 className="text-sm font-semibold text-slate-950">Field Comparison</h3>
-            <div className="mt-3 overflow-x-auto border border-slate-200">
+            <div className="mt-3 overflow-x-auto border border-slate-200 rounded-2xl">
               <table className="min-w-full text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
                   <tr><th className="px-4 py-3">Field</th><th className="px-4 py-3">Existing Value</th><th className="px-4 py-3">Requested Value</th></tr>
@@ -167,7 +168,7 @@ function AmendmentReviewModal({
           {pricingImpact && currentPricing && requestedPricing ? (
             <div>
               <h3 className="text-sm font-semibold text-slate-950">Charge Comparison</h3>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="mt-3 grid gap-3 md:grid-cols-2 rounded-2xl">
                 <PricingSummary title="Existing Charges" estimate={currentPricing} />
                 <PricingSummary title="Requested Charges" estimate={requestedPricing} emphasize />
               </div>
@@ -175,7 +176,7 @@ function AmendmentReviewModal({
                 Charge difference: {pricingImpact.deltaAmount >= 0 ? "+" : ""}{formatMoney(pricingImpact.deltaAmount)}
               </p>
 
-              <div className="mt-3 overflow-x-auto border border-slate-200">
+              <div className="mt-3 overflow-x-auto border border-slate-200 rounded-2xl">
                 <table className="min-w-full text-left text-xs">
                   <thead className="border-b border-slate-200 bg-slate-100 uppercase text-slate-500">
                     <tr>
@@ -215,7 +216,7 @@ function AmendmentReviewModal({
                   Test billing only. Approval does not update Customer Advance or Credit balances.
                 </p>
               ) : (
-                <div className="mt-3 grid gap-3 border border-slate-200 bg-slate-50 p-4 sm:grid-cols-3">
+                <div className="mt-3 grid gap-3 border border-slate-200 bg-slate-50 rounded-2xl p-4 sm:grid-cols-3">
                   <FundingMetric label="Available Capacity at Request" value={formatMinorAmount(amendment.fundingPreview.availableBookingCapacityMinor)} />
                   <FundingMetric
                     label={requestReducesCharge ? "Credit Reduced" : "Customer Advance Used"}
@@ -238,7 +239,7 @@ function AmendmentReviewModal({
           {amendment.billingAdjustment && amendment.fundingPreview?.billingMode !== "TEST" ? (
             <div>
               <h3 className="text-sm font-semibold text-slate-950">Applied Billing Adjustment</h3>
-              <div className="mt-3 grid gap-3 border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="mt-3 grid gap-3 border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2  rounded-2xl lg:grid-cols-4">
                 <FundingMetric label="Advance Used" value={formatMinorAmount(amendment.billingAdjustment.advanceUsedMinor)} />
                 <FundingMetric label="Credit Used" value={formatMinorAmount(amendment.billingAdjustment.creditUsedMinor)} />
                 <FundingMetric label="Credit Reduced" value={formatMinorAmount(amendment.billingAdjustment.creditReducedMinor)} />
@@ -278,7 +279,7 @@ function FundingMetric({ label, value }: { label: string; value: string }) {
 
 function PricingSummary({ title, estimate, emphasize = false }: { title: string; estimate: ShipmentAmendmentPricingEstimate; emphasize?: boolean }) {
   return (
-    <div className={`border p-4 ${emphasize ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+    <div className={`border p-4 rounded-2xl ${emphasize ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
       <p className="text-xs font-semibold uppercase text-slate-500">{title}</p>
       <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
         <div><p className="text-xs text-slate-500">Base</p><p className="mt-1 font-semibold text-slate-900">{formatMoney(estimate.baseAmount)}</p></div>
@@ -366,22 +367,25 @@ export default function AmendmentsPage() {
           <h1 className="text-2xl font-semibold text-slate-950">Amendments</h1>
           <p className="mt-1 text-sm text-slate-500">Review client and admin shipment amendment requests.</p>
         </div>
-        <select
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-          className="h-10 border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
-        >
-          <option value="">All statuses</option>
-          <option value="REQUESTED">Requested</option>
-          <option value="APPROVED">Approved</option>
-          <option value="REJECTED">Rejected</option>
-          <option value="APPLIED">Applied</option>
-        </select>
+        <div className="relative">
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+            className="h-10 w-full appearance-none border border-slate-300 rounded-xl bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+          >
+            <option value="">All statuses</option>
+            <option value="REQUESTED">Requested</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="APPLIED">Applied</option>
+          </select>
+          <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        </div>
       </div>
 
       {error ? <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
 
-      <div className="overflow-x-auto border border-slate-200 bg-white">
+      <div className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
@@ -407,71 +411,71 @@ export default function AmendmentsPage() {
               const deltaAmount = amendment.pricingImpact?.deltaAmount;
 
               return (
-              <tr key={amendment.id} className="border-b border-slate-100 last:border-b-0">
-                <td className="px-4 py-3">
-                  <Link href={`/dashboard/shipments/${amendment.shipmentDraftId}`} className="font-semibold text-blue-900 hover:text-blue-700">
-                    {amendment.shipmentId}
-                  </Link>
-                  <p className="mt-1 text-xs text-slate-500">{formatDashboardDateTime(amendment.requestedAt)}</p>
-                </td>
-                <td className="px-4 py-3">
-                  <p className="font-medium text-slate-800">{amendment.consignee || "Not set"}</p>
-                  <p className="mt-1 text-xs capitalize text-slate-500">{amendment.actorRole} request</p>
-                </td>
-                <td className="px-4 py-3">
-                  <p className="font-medium text-slate-800">{amendment.branch?.name || "Not set"}</p>
-                  <p className="mt-1 text-xs text-slate-500">{amendment.branch?.code || amendment.branch?.city || "Not set"}</p>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex max-w-sm flex-wrap gap-2">
-                    {changedFields.slice(0, 4).map((field) => (
-                      <span key={field} className="border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
-                        {field}
-                      </span>
-                    ))}
-                    {changedFields.length > 4 ? (
-                      <span className="px-2 py-1 text-xs font-semibold text-slate-500">
-                        +{changedFields.length - 4} more
-                      </span>
+                <tr key={amendment.id} className="border-b border-slate-100 last:border-b-0">
+                  <td className="px-4 py-3">
+                    <Link href={`/dashboard/shipments/${amendment.shipmentDraftId}`} className="font-semibold text-blue-900 hover:text-blue-700">
+                      {amendment.shipmentId}
+                    </Link>
+                    <p className="mt-1 text-xs text-slate-500">{formatDashboardDateTime(amendment.requestedAt)}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-slate-800">{amendment.consignee || "Not set"}</p>
+                    <p className="mt-1 text-xs capitalize text-slate-500">{amendment.actorRole} request</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-slate-800">{amendment.branch?.name || "Not set"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{amendment.branch?.code || amendment.branch?.city || "Not set"}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex max-w-sm flex-wrap gap-2">
+                      {changedFields.slice(0, 4).map((field) => (
+                        <span key={field} className="  px-2 py-1 text-xs font-semibold text-slate-600">
+                          {field}
+                        </span>
+                      ))}
+                      {changedFields.length > 4 ? (
+                        <span className="px-2 py-1 text-xs font-semibold text-slate-500">
+                          +{changedFields.length - 4} more
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-slate-800">{formatCharge(currentCharge)}</p>
+                    {amendment.pricingImpact?.current.missingRate ? (
+                      <p className="mt-1 text-xs font-semibold text-amber-700">Rate missing</p>
                     ) : null}
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <p className="font-semibold text-slate-800">{formatCharge(currentCharge)}</p>
-                  {amendment.pricingImpact?.current.missingRate ? (
-                    <p className="mt-1 text-xs font-semibold text-amber-700">Rate missing</p>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3">
-                  <p className="font-semibold text-slate-950">{formatCharge(requestedCharge)}</p>
-                  {typeof deltaAmount === "number" ? (
-                    <p className={`mt-1 text-xs font-semibold ${getChargeTone(deltaAmount)}`}>
-                      {deltaAmount >= 0 ? "+" : ""}{formatMoney(deltaAmount)}
-                    </p>
-                  ) : null}
-                  {amendment.pricingImpact?.requested.exceedsMaxBoxKg ? (
-                    <p className="mt-1 text-xs font-semibold text-amber-700">Max box exceeded</p>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`border px-2 py-1 text-xs font-semibold uppercase tracking-wide ${statusTone(amendment.status)}`}>
-                    {formatStatus(amendment.status)}
-                  </span>
-                  {amendment.reason ? <p className="mt-2 max-w-xs text-xs text-slate-500">{amendment.reason}</p> : null}
-                </td>
-                <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReviewError("");
-                      setSelectedAmendment(amendment);
-                    }}
-                    className="font-semibold text-blue-900 hover:text-blue-700"
-                  >
-                    {amendment.status === "REQUESTED" ? "Review" : "View"}
-                  </button>
-                </td>
-              </tr>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-slate-950">{formatCharge(requestedCharge)}</p>
+                    {typeof deltaAmount === "number" ? (
+                      <p className={`mt-1 text-xs font-semibold ${getChargeTone(deltaAmount)}`}>
+                        {deltaAmount >= 0 ? "+" : ""}{formatMoney(deltaAmount)}
+                      </p>
+                    ) : null}
+                    {amendment.pricingImpact?.requested.exceedsMaxBoxKg ? (
+                      <p className="mt-1 text-xs font-semibold text-amber-700">Max box exceeded</p>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`border px-2 py-1 rounded-xl text-xs font-semibold uppercase tracking-wide ${statusTone(amendment.status)}`}>
+                      {formatStatus(amendment.status)}
+                    </span>
+                    {amendment.reason ? <p className="mt-2 max-w-xs text-xs text-slate-500">{amendment.reason}</p> : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReviewError("");
+                        setSelectedAmendment(amendment);
+                      }}
+                      className="font-semibold text-blue-900 hover:text-blue-700"
+                    >
+                      {amendment.status === "REQUESTED" ? "Review" : "View"}
+                    </button>
+                  </td>
+                </tr>
               );
             })}
           </tbody>

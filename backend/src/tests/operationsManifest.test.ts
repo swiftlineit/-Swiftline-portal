@@ -208,7 +208,9 @@ describe("operations manifest safeguards", () => {
   });
 
   it("uses the flight sequence for bag numbering and adds only scanned parcel weight", async () => {
-    assert.equal(formatOperationsBagNumber("SLCM262700012", 1), "SLC01201");
+    // The bag number is the manifest number plus a two-digit bag suffix.
+    assert.equal(formatOperationsBagNumber("SLC012", 1), "SLC01201");
+    assert.equal(formatOperationsBagNumber("SLC012", 12), "SLC01212");
     const parcelWeights = [{ parcelNumber: "P01", weightKg: 5 }, { parcelNumber: "P02", weightKg: 5 }];
     assert.equal(calculateScannedParcelWeight({ scannedParcelNumbers: ["P01"], parcelWeightSnapshots: parcelWeights }), 5);
     assert.equal(calculateScannedParcelWeight({ scannedParcelNumbers: ["P01", "P02"], parcelWeightSnapshots: parcelWeights }), 10);

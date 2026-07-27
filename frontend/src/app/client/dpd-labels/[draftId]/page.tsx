@@ -16,26 +16,53 @@ import {
   ShipmentSelectField,
   ShipmentTextField
 } from "@/components/shipments/ShipmentFormControls";
+import { ConsignorKycSection } from "@/components/shipments/ConsignorKycSection";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
 import {
   autocompleteClientAddress,
+  autocompleteClientConsignorAddress,
   confirmClientAddress,
   createClientDpdLabel,
   createClientSwiftlineShipment,
+  deleteClientShipmentKycDocument,
+  deleteClientShipmentParcelKycDocument,
+  getClientConsignorPlaceAddress,
   getClientPlaceAddress,
   getClientShipmentDraft,
+  openClientShipmentKycDocument,
+  openClientShipmentParcelKycDocument,
   updateClientShipmentDraft,
+  uploadClientShipmentKycDocument,
+  uploadClientShipmentParcelKycDocument,
   validateClientAddress
 } from "@/lib/clientDashboard";
 import { CountryRateCard, formatCountryRateService, getCountryFlag, listClientCountryRateCards } from "@/lib/countryRateCards";
+import { findRestrictedCategories, isRestrictedDescription } from "@/lib/restrictedGoods";
+import {
+  getPostcodeError,
+  getShipmentEmailError,
+  getShipmentMobileError
+} from "@/lib/shipmentContactValidation";
 import {
   AddressPrediction,
   ShipmentContentType,
   ShipmentDraft,
+  ShipmentKycDocuments,
   ShipmentServiceType,
   shipmentContentTypeOptions
 } from "@/lib/dpdLabels";
+import {
+  ConsignorForm,
+  ParcelKycState,
+  consigneeContactFrom,
+  consignorFormFromDraft,
+  consignorFormToPatch,
+  consignorFormsMatch,
+  createEmptyConsignorForm,
+  getConsignorFormIssues,
+  getKycIssues
+} from "@/lib/shipmentConsignor";
 import { calculateShipmentEstimate, formatMoney, getVolumetricDivisor } from "@/lib/shipmentPricing";
 
 type AddressForm = {
@@ -69,6 +96,7 @@ type ParcelForm = {
   contentsDescription: string;
   shipmentReference1: string;
   shipmentReference2: string;
+  aadhaarNumber: string;
 };
 
 const maxParcelCount = 10;
@@ -128,7 +156,8 @@ function createEmptyParcel(sequence: number): ParcelForm {
     shipmentContentType: "PARCEL",
     contentsDescription: "",
     shipmentReference1: "",
-    shipmentReference2: ""
+    shipmentReference2: "",
+    aadhaarNumber: ""
   };
 }
 
@@ -145,28 +174,43 @@ function normalizeParcels(draft: ShipmentDraft): ParcelForm[] {
     shipmentContentType: parcel.shipmentContentType ?? "PARCEL",
     contentsDescription: parcel.contentsDescription ?? "",
     shipmentReference1: parcel.shipmentReference1 ?? "",
-    shipmentReference2: parcel.shipmentReference2 ?? ""
+    shipmentReference2: parcel.shipmentReference2 ?? "",
+    aadhaarNumber: parcel.aadhaarNumber ?? ""
   }));
 }
 
 function isParcelEmpty(parcel: ParcelForm) {
   return !parcel.weightKg && !parcel.lengthCm && !parcel.widthCm && !parcel.heightCm
     && parcel.shipmentContentType === "PARCEL"
-    && !parcel.contentsDescription && !parcel.shipmentReference1 && !parcel.shipmentReference2;
+    && !parcel.contentsDescription && !parcel.shipmentReference1 && !parcel.shipmentReference2
+    && !parcel.aadhaarNumber;
 }
 
 function getReviewIssues(addressForm: AddressForm, contactForm: ContactForm, parcelForms: ParcelForm[]) {
   const issues: string[] = [];
   if (!contactForm.contactName.trim()) issues.push("Contact name is required");
-  if (contactForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactForm.email.trim())) {
-    issues.push("Enter a valid email address");
+  if (!contactForm.email.trim()) {
+    issues.push("Email is required");
+  } else {
+    const emailError = getShipmentEmailError(contactForm.email);
+    if (emailError) issues.push(emailError);
   }
   if (!contactForm.mobileCountryCode.trim()) issues.push("Mobile country code is required");
-  if (!contactForm.mobileNumber.trim()) issues.push("Mobile number is required");
+  if (!contactForm.mobileNumber.trim()) {
+    issues.push("Mobile number is required");
+  } else {
+    const mobileError = getShipmentMobileError(contactForm.mobileCountryCode, contactForm.mobileNumber);
+    if (mobileError) issues.push(mobileError);
+  }
   if (!addressForm.countryCode.trim()) issues.push("Country is required");
   if (!addressForm.addressLine1.trim()) issues.push("Address line 1 is required");
   if (!addressForm.townOrCity.trim()) issues.push("Town or city is required");
-  if (!addressForm.postcode.trim()) issues.push("Postcode is required");
+  if (!addressForm.postcode.trim()) {
+    issues.push("Postcode is required");
+  } else {
+    const postcodeError = getPostcodeError(addressForm.countryCode, addressForm.postcode);
+    if (postcodeError) issues.push(postcodeError);
+  }
   parcelForms.forEach((parcel, index) => {
     const label = `Parcel ${index + 1}`;
     const weight = Number(parcel.weightKg);
@@ -177,7 +221,12 @@ function getReviewIssues(addressForm: AddressForm, contactForm: ContactForm, par
       }
     }
     if (!parcel.shipmentContentType) issues.push(`${label}: shipment content type is required`);
-    if (!parcel.contentsDescription.trim()) issues.push(`${label}: contents description is required`);
+    if (!parcel.contentsDescription.trim()) {
+      issues.push(`${label}: contents description is required`);
+    } else {
+      const restricted = findRestrictedCategories(parcel.contentsDescription);
+      if (restricted.length) issues.push(`${label}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
+    }
   });
   return issues;
 }
@@ -211,6 +260,10 @@ export default function ClientDpdDraftReviewPage() {
     serviceType: "COURIER",
     serviceCode: ""
   });
+  const [consignorForm, setConsignorForm] = useState<ConsignorForm>(createEmptyConsignorForm());
+  const [kycUseForAll, setKycUseForAll] = useState(true);
+  const [kycDocuments, setKycDocuments] = useState<ShipmentKycDocuments>({});
+  const [parcelKyc, setParcelKyc] = useState<Record<number, ShipmentKycDocuments>>({});
   const [parcelForms, setParcelForms] = useState<ParcelForm[]>([createEmptyParcel(1)]);
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
@@ -226,6 +279,47 @@ export default function ClientDpdDraftReviewPage() {
   const currentReviewIssues = useMemo(
     () => getReviewIssues(addressForm, contactForm, parcelForms),
     [addressForm, contactForm, parcelForms]
+  );
+
+  const consignorChanged = useMemo(
+    () => (draft
+      ? !consignorFormsMatch(consignorForm, draft.consignorAddress)
+        || kycUseForAll !== (draft.kycUseForAllParcels ?? true)
+      : false),
+    [consignorForm, draft, kycUseForAll]
+  );
+  const consignorReviewIssues = useMemo(
+    () => getConsignorFormIssues(consignorForm, consigneeContactFrom(contactForm)),
+    [consignorForm, contactForm]
+  );
+  const consignorFieldIssues = useMemo(() => ({
+    contactName: findIssue(consignorReviewIssues, ["consignor contact name"]) ?? findIssue(consignorReviewIssues, ["contact names must"]),
+    email: findIssue(consignorReviewIssues, ["consignor email"]) ?? findIssue(consignorReviewIssues, ["email addresses must"]),
+    mobileNumber: findIssue(consignorReviewIssues, ["consignor mobile"]) ?? findIssue(consignorReviewIssues, ["mobile numbers must"]),
+    aadhaarNumber: findIssue(consignorReviewIssues, ["aadhaar"]),
+    addressLine1: findIssue(consignorReviewIssues, ["consignor address line 1"]),
+    townOrCity: findIssue(consignorReviewIssues, ["consignor town"]),
+    postcode: findIssue(consignorReviewIssues, ["pin code"])
+  }), [consignorReviewIssues]);
+
+  const consignorKycApi = useMemo(() => ({
+    autocompleteConsignorAddress: autocompleteClientConsignorAddress,
+    getConsignorPlaceAddress: getClientConsignorPlaceAddress,
+    uploadKycDocument: uploadClientShipmentKycDocument,
+    deleteKycDocument: deleteClientShipmentKycDocument,
+    openKycDocument: openClientShipmentKycDocument,
+    uploadParcelKycDocument: uploadClientShipmentParcelKycDocument,
+    deleteParcelKycDocument: deleteClientShipmentParcelKycDocument,
+    openParcelKycDocument: openClientShipmentParcelKycDocument
+  }), []);
+
+  const parcelKycStates = useMemo<ParcelKycState[]>(
+    () => parcelForms.map((parcel) => ({
+      sequence: parcel.sequence,
+      aadhaarNumber: parcel.aadhaarNumber,
+      kycDocuments: parcelKyc[parcel.sequence]
+    })),
+    [parcelForms, parcelKyc]
   );
   const destinationCountries = useMemo(() => {
     const countries = new Map<string, string>();
@@ -245,7 +339,8 @@ export default function ClientDpdDraftReviewPage() {
 
   const draftChanged = useMemo(() => {
     if (!draft) return false;
-    return JSON.stringify(parcelForms) !== JSON.stringify(normalizeParcels(draft))
+    return consignorChanged
+      || JSON.stringify(parcelForms) !== JSON.stringify(normalizeParcels(draft))
       || contactForm.companyName !== (draft.consigneeEnteredAddress.companyName ?? "")
       || contactForm.contactName !== (draft.consigneeEnteredAddress.contactName ?? "")
       || contactForm.email !== (draft.consigneeEnteredAddress.email ?? "")
@@ -260,7 +355,7 @@ export default function ClientDpdDraftReviewPage() {
       || addressForm.townOrCity !== (draft.consigneeEnteredAddress.townOrCity ?? "")
       || addressForm.county !== (draft.consigneeEnteredAddress.county ?? "")
       || addressForm.postcode !== (draft.consigneeEnteredAddress.postcode ?? "");
-  }, [addressForm, contactForm, draft, parcelForms]);
+  }, [addressForm, consignorChanged, contactForm, draft, parcelForms]);
 
   function syncDraft(nextDraft: ShipmentDraft) {
     const address = nextDraft.consigneeEnteredAddress;
@@ -285,6 +380,14 @@ export default function ClientDpdDraftReviewPage() {
       serviceType: nextDraft.serviceType ?? "COURIER",
       serviceCode: nextDraft.serviceCode ?? ""
     });
+    setConsignorForm(consignorFormFromDraft(nextDraft.consignorAddress));
+    setKycUseForAll(nextDraft.kycUseForAllParcels ?? true);
+    setKycDocuments(nextDraft.kycDocuments ?? {});
+    const parcelKycBySequence: Record<number, ShipmentKycDocuments> = {};
+    nextDraft.parcelList.forEach((parcel) => {
+      if (parcel.kycDocuments) parcelKycBySequence[parcel.sequence] = parcel.kycDocuments;
+    });
+    setParcelKyc(parcelKycBySequence);
     setParcelForms(normalizeParcels(nextDraft));
   }
 
@@ -453,6 +556,8 @@ export default function ClientDpdDraftReviewPage() {
 
     // PCS is derived from the parcel array length on the backend.
     const data = await updateClientShipmentDraft(draft._id, {
+      consignorAddress: consignorFormToPatch(consignorForm),
+      kycUseForAllParcels: kycUseForAll,
       consigneeEnteredAddress: {
         companyName: contactForm.companyName,
         contactName: contactForm.contactName,
@@ -477,7 +582,8 @@ export default function ClientDpdDraftReviewPage() {
         shipmentContentType: parcel.shipmentContentType,
         contentsDescription: parcel.contentsDescription,
         shipmentReference1: parcel.shipmentReference1,
-        shipmentReference2: parcel.shipmentReference2
+        shipmentReference2: parcel.shipmentReference2,
+        aadhaarNumber: parcel.aadhaarNumber
       })),
       serviceType: contactForm.serviceType,
       serviceCode: contactForm.serviceCode
@@ -489,7 +595,10 @@ export default function ClientDpdDraftReviewPage() {
   async function handleSave() {
     if (!draft || !draftChanged) return;
 
-    const issues = getReviewIssues(addressForm, contactForm, parcelForms);
+    const issues = [
+      ...getReviewIssues(addressForm, contactForm, parcelForms),
+      ...getConsignorFormIssues(consignorForm, consigneeContactFrom(contactForm))
+    ];
     if (issues.length) {
       setSubmitAttempted(true);
       setReviewIssues(issues);
@@ -516,7 +625,16 @@ export default function ClientDpdDraftReviewPage() {
   async function handleCreateLabel(bookingProvider: "DPD" | "SWIFTLINE" = "DPD") {
     if (!draft) return;
 
-    const issues = getReviewIssues(addressForm, contactForm, parcelForms);
+    const issues = [
+      ...getReviewIssues(addressForm, contactForm, parcelForms),
+      ...getConsignorFormIssues(consignorForm, consigneeContactFrom(contactForm)),
+      ...getKycIssues({
+        useForAll: kycUseForAll,
+        sharedAadhaar: consignorForm.aadhaarNumber,
+        sharedDocuments: kycDocuments,
+        parcels: parcelKycStates
+      })
+    ];
     if (issues.length) {
       setSubmitAttempted(true);
       setReviewIssues(issues);
@@ -613,12 +731,37 @@ export default function ClientDpdDraftReviewPage() {
         ) : (
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-5">
+              <ConsignorKycSection
+                shipmentDraftId={draft._id}
+                form={consignorForm}
+                onFormChange={(next) => { setConsignorForm(next); setReviewIssues([]); }}
+                fieldIssues={consignorFieldIssues}
+                submitAttempted={submitAttempted}
+                changed={consignorChanged}
+                onSave={handleSave}
+                busy={busy}
+                kycUseForAll={kycUseForAll}
+                onKycUseForAllChange={(next) => { setKycUseForAll(next); setReviewIssues([]); }}
+                sharedKycDocuments={kycDocuments}
+                onSharedKycChange={setKycDocuments}
+                parcels={parcelKycStates}
+                savedParcelCount={draft.parcelList.length}
+                onParcelAadhaarChange={(sequence, value) => {
+                  setParcelForms((current) => current.map((parcel) => (
+                    parcel.sequence === sequence ? { ...parcel, aadhaarNumber: value } : parcel
+                  )));
+                  setReviewIssues([]);
+                }}
+                onParcelKycChange={(sequence, documents) => setParcelKyc((current) => ({ ...current, [sequence]: documents }))}
+                api={consignorKycApi}
+              />
+
               <section className="border border-slate-200 bg-white">
                 <SectionHeader title="Consignee Details" onSave={handleSave} busy={busy} changed={draftChanged} />
                 <div className="grid gap-4 p-4 md:grid-cols-2">
                   <ShipmentTextField label="Consignee Company" value={contactForm.companyName} onChange={handleContactChange("companyName")} />
                   <ShipmentTextField label="Consignee Contact Name" required value={contactForm.contactName} onChange={handleContactChange("contactName")} error={findIssue(currentReviewIssues, ["contact name"])} revealError={submitAttempted} />
-                  <ShipmentTextField label="Consignee Email" type="email" value={contactForm.email} onChange={handleContactChange("email")} error={findIssue(currentReviewIssues, ["email"])} revealError={submitAttempted} />
+                  <ShipmentTextField label="Consignee Email" required type="email" value={contactForm.email} onChange={handleContactChange("email")} error={findIssue(currentReviewIssues, ["email"])} revealError={submitAttempted} />
                   <div className="grid gap-4 sm:grid-cols-2">
                     <ShipmentPhoneCodeField
                       value={contactForm.mobileCountryCode}
@@ -766,7 +909,7 @@ export default function ClientDpdDraftReviewPage() {
                             ))}
                         </ShipmentSelectField>
                         <div className="md:col-span-2">
-                          <ShipmentTextField label="Contents Description" required value={parcel.contentsDescription} onChange={handleParcelChange(index, "contentsDescription")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "contents"])} revealError={submitAttempted} />
+                          <ShipmentTextField label="Contents Description" required value={parcel.contentsDescription} onChange={handleParcelChange(index, "contentsDescription")} onBlur={() => { if (isRestrictedDescription(parcel.contentsDescription)) toast.error("This item is restricted."); }} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "contents"])} revealError={submitAttempted} />
                         </div>
                         <ShipmentTextField label="Reference (Optional)" value={parcel.shipmentReference1} onChange={handleParcelChange(index, "shipmentReference1")} />
                       </div>
@@ -850,8 +993,8 @@ export default function ClientDpdDraftReviewPage() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-4 border border-amber-200 bg-amber-50 p-3">
- <h3 className="text-sm font-semibold text-amber-900">Prohibited Items Reminder</h3>
+                <div className="mt-4 border border-red-400 bg-amber-50 p-3">
+ <h3 className="text-sm font-semibold text-amber-900 ">Prohibited Items Reminder</h3>
                 <ul className="mt-2 text-xs font-medium text-amber-800">
                     {prohibitedItems.map((item) => (
                       <li key={item}>- {item}</li>

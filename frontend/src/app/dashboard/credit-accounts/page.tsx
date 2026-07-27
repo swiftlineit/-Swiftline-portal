@@ -184,16 +184,16 @@ export default function AdminCreditAccountsPage() {
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead>
-                <tr style={{ backgroundColor: "#0D1282" }}>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Customer</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Status</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Used</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Available</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Advance</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Capacity</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Terms</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Agreement</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-white">Actions</th>
+                <tr className="bg-slate-100 text-black">
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Customer</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Status</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Used</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Available</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Advance</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Capacity</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Terms</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Agreement</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -209,7 +209,7 @@ export default function AdminCreditAccountsPage() {
                       style={{ backgroundColor: index % 2 === 0 ? "#FFFFFF" : "#FAFAFA" }}
                     >
                       <td className="px-4 py-4 text-left">
-                        <p className="font-semibold text-slate-900">{account.businessAccount?.companyName}</p>
+                        <p className="font-semibold text-slate-900 capitalize">{account.businessAccount?.companyName}</p>
                         <p className="mt-0.5 text-xs text-slate-400">{account.businessAccount?.accountId}</p>
                       </td>
                       <td className="px-4 py-4 text-left">
@@ -237,12 +237,12 @@ export default function AdminCreditAccountsPage() {
                         {agreement ? (
                           <>
                             <p className="font-medium text-slate-800">{agreement.status.replaceAll("_", " ")}</p>
-                            <p className="mt-0.5 text-xs text-slate-400">{agreement.agreementNumber}</p>
+                            {/* <p className="mt-0.5 text-xs text-slate-400">{agreement.agreementNumber}</p> */}
                           </>
                         ) : (
                           <span
-                            className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-                            style={{ backgroundColor: "#F0DE36", color: "#5a4e00" }}
+                            className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-red-400 text-white"
+                            
                           >
                             Not generated
                           </span>

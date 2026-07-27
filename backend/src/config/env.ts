@@ -17,6 +17,9 @@ const environmentSchema = z.object({
 
   CLIENT_URL: z.string().url(),
   CORS_ORIGINS: z.string().optional(),
+  // Set true when the frontend and API are served from different origins over HTTPS
+  // (e.g. two devtunnel subdomains), so the refresh cookie uses SameSite=None; Secure.
+  CROSS_SITE_COOKIES: booleanFromEnv.default(false),
 
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
   REDIS_URL: z.string().url().optional(),

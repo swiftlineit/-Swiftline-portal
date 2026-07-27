@@ -7,7 +7,13 @@ import {
   createClientShipmentLabelAccess,
   createClientManualShipmentDraft,
   createClientInvoiceUpload,
+  deleteClientShipmentKycDocument,
+  deleteClientShipmentParcelKycDocument,
   downloadClientDpdInvoiceTemplate,
+  downloadClientShipmentKycDocument,
+  downloadClientShipmentParcelKycDocument,
+  uploadClientShipmentKycDocument,
+  uploadClientShipmentParcelKycDocument,
   getClientDashboard,
   listClientShipments,
   getClientShipmentDetails,
@@ -28,7 +34,9 @@ import {
 } from "../controllers/prepaid.controller.js";
 import {
   autocompleteAddress,
+  autocompleteConsignorAddress,
   confirmValidatedAddress,
+  getConsignorPlaceAddress,
   getPlaceAddress,
   validateAddress
 } from "../controllers/address.controller.js";
@@ -40,6 +48,7 @@ import {
 import { listCountryRateCards } from "../controllers/countryRateCard.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { invoiceUpload } from "../middleware/invoiceUpload.middleware.js";
+import { shipmentKycUpload } from "../middleware/shipmentKycUpload.middleware.js";
 import {
   acceptClientPaymentTerms, getClientCreditSummary, getClientPaymentTerms, requestClientCredit
 } from "../controllers/clientCredit.controller.js";
@@ -125,6 +134,12 @@ clientRouter.post("/dpd-labels/invoice-uploads/:id/process", processClientInvoic
 clientRouter.post("/dpd-labels/drafts/manual", createClientManualShipmentDraft);
 clientRouter.get("/dpd-labels/drafts/:id", getClientShipmentDraft);
 clientRouter.patch("/dpd-labels/drafts/:id", updateClientShipmentDraft);
+clientRouter.post("/dpd-labels/drafts/:id/kyc-documents/:type", shipmentKycUpload, uploadClientShipmentKycDocument);
+clientRouter.delete("/dpd-labels/drafts/:id/kyc-documents/:type", deleteClientShipmentKycDocument);
+clientRouter.get("/dpd-labels/drafts/:id/kyc-documents/:type", downloadClientShipmentKycDocument);
+clientRouter.post("/dpd-labels/drafts/:id/parcels/:sequence/kyc-documents/:type", shipmentKycUpload, uploadClientShipmentParcelKycDocument);
+clientRouter.delete("/dpd-labels/drafts/:id/parcels/:sequence/kyc-documents/:type", deleteClientShipmentParcelKycDocument);
+clientRouter.get("/dpd-labels/drafts/:id/parcels/:sequence/kyc-documents/:type", downloadClientShipmentParcelKycDocument);
 clientRouter.post("/dpd-labels/drafts/:id/create-dpd-label", createClientDpdLabel);
 clientRouter.post("/dpd-labels/drafts/:id/create-swiftline-shipment", createClientSwiftlineShipment);
 clientRouter.get("/shipments", listClientShipments);
@@ -143,6 +158,8 @@ clientRouter.post("/shipments/:id/amendments", createClientShipmentAmendment);
 clientRouter.get("/shipments/:draftId/invoice", getClientShipmentInvoice);
 clientRouter.get("/shipments/:draftId/invoice/pdf", downloadClientShipmentInvoicePdf);
 clientRouter.post("/dpd-labels/addresses/autocomplete", autocompleteAddress);
+clientRouter.post("/dpd-labels/addresses/consignor/autocomplete", autocompleteConsignorAddress);
+clientRouter.get("/dpd-labels/addresses/consignor/places/:placeId", getConsignorPlaceAddress);
 clientRouter.get("/dpd-labels/addresses/places/:placeId", getPlaceAddress);
 clientRouter.post("/dpd-labels/addresses/validate", validateAddress);
 clientRouter.post("/dpd-labels/addresses/confirm", confirmValidatedAddress);

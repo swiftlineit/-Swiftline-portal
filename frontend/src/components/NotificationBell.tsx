@@ -72,11 +72,11 @@ export default function NotificationBell() {
         onClick={() => setOpen((current) => !current)}
         aria-label="Notifications"
         aria-expanded={open}
-        className="relative flex h-10 w-10 items-center justify-center border border-slate-300 bg-white text-slate-700 hover:border-blue-800 hover:text-blue-900"
+        className="relative flex h-10 w-10 items-center justify-center border rounded  border-slate-300 bg-white text-slate-700 hover:border-blue-800 hover:text-blue-900"
       >
         <FiBell className="h-4 w-4" />
         {unreadCount ? (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center bg-red-600 px-1 text-[10px] font-bold text-white">
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center  rounded-full justify-center bg-red-600 px-1 text-[10px] font-bold text-white">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         ) : null}

@@ -29,6 +29,42 @@ import { allocateSwiftlineTrackingNumber } from "../services/swiftlineTracking.s
 const databaseName = `sl_shipment_labels_${Date.now()}`;
 const generatedFiles = new Set<string>();
 
+// A complete Indian consignor plus mandatory KYC uploads, so booking drafts pass
+// the consignor validation added alongside consignor capture. "234567890124"
+// carries a valid Verhoeff check digit.
+const consignorFixture = {
+  companyName: "Delhi Exports Pvt Ltd",
+  contactName: "Ravi Sharma",
+  email: "ravi@delhiexports.example",
+  mobileCountryCode: "+91",
+  mobileNumber: "9876543210",
+  aadhaarNumber: "234567890124",
+  countryCode: "IN",
+  countryName: "India",
+  postcode: "110001",
+  addressLine1: "12 Connaught Place",
+  townOrCity: "New Delhi",
+  county: "Delhi"
+};
+
+function kycDocumentFixture(type: "aadhaar" | "pan" | "other", documentLabel: string) {
+  return {
+    type,
+    documentLabel,
+    originalName: `${type}.pdf`,
+    storedName: `${type}-${Date.now()}.pdf`,
+    mimeType: "application/pdf",
+    size: 1024,
+    path: `test://kyc/${type}.pdf`,
+    uploadedAt: new Date()
+  };
+}
+
+const kycDocumentsFixture = {
+  aadhaar: kycDocumentFixture("aadhaar", "Aadhaar Card"),
+  pan: kycDocumentFixture("pan", "PAN Card")
+};
+
 before(async () => {
   await mongoose.connect(env.MONGODB_URI, { dbName: databaseName, family: 4, retryWrites: false });
   assert.equal(mongoose.connection.name, databaseName);
@@ -196,6 +232,8 @@ describe("Swiftline tracking sequence", () => {
       businessAccountId: account._id,
       branchId: branch._id,
       sender: { name: branch.name, code: branch.code },
+      consignorAddress: consignorFixture,
+      kycDocuments: kycDocumentsFixture,
       consigneeEnteredAddress: {
         companyName: "Example Retail Ltd",
         contactName: "Asha Patel",
@@ -299,6 +337,8 @@ describe("Swiftline tracking sequence", () => {
       businessAccountId: account._id,
       branchId: branch._id,
       sender: draft.sender,
+      consignorAddress: consignorFixture,
+      kycDocuments: kycDocumentsFixture,
       consigneeEnteredAddress: draft.consigneeEnteredAddress,
       consigneeValidatedAddress: draft.consigneeValidatedAddress,
       addressValidationStatus: "VALIDATED",
