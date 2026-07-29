@@ -18,7 +18,7 @@ export default function CreditSummaryCards({ account }: { account: CreditAccount
   return (
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {metrics.map((metric, index) => (
-        <div key={metric.key} className={`border p-4 rounded-xl  border-amber-300 bg-blue-500 text-white`}>
+        <div key={metric.key} className={`border p-4 rounded-xl  border-slate-300 bg-linear-to-r from-blue-500 via-blue-400 to-blue-400  text-white`}>
           <p className={`text-xs font-semibold uppercase `}>{metric.label}</p>
           <p className="mt-3 text-xl font-semibold">{formatCreditMoney(account[metric.key] as number | undefined, account.currency)}</p>
           <p className={`mt-1 text-xs`}>

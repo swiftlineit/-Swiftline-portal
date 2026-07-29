@@ -12,6 +12,8 @@ import {
   previewFinalShipmentCharge
 } from "@/lib/dpdLabels";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
+import { getVolumetricFormula } from "@/lib/shipmentPricing";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 
 type Props = {
   dpdShipmentId: string;
@@ -288,7 +290,12 @@ function VerificationPreview({ preview }: { preview: ShipmentChargeVerificationP
             <tr>
               <th className="px-3 py-3 text-left">Parcel</th>
               <th className="px-3 py-3 text-right">Actual KG</th>
-              <th className="px-3 py-3 text-right">Volumetric KG</th>
+              <th className="px-3 py-3 text-right">
+                <span className="inline-flex items-center gap-1">
+                  Volumetric KG
+                  <InfoTooltip text={getVolumetricFormula()} />
+                </span>
+              </th>
               <th className="px-3 py-3 text-right">Chargeable KG</th>
               <th className="px-3 py-3 text-right">Rate / KG</th>
               <th className="px-3 py-3 text-right">Base Charge</th>

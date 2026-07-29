@@ -113,6 +113,18 @@ export async function createPaymentTopUp(input: CreatePaymentTopUpInput) {
   return { created: true as const, topUp };
 }
 
+/**
+ * Cancels an unpaid order. Used when a top-up is created but immediately refused
+ * (for example by the daily limit), so it never counts against the allowance.
+ */
+export async function cancelPaymentTopUp(paymentTopUpId: mongoose.Types.ObjectId, reason = "") {
+  return PaymentTopUp.findOneAndUpdate(
+    { _id: paymentTopUpId, status: { $in: ["CREATED", "CHECKOUT_OPENED"] } },
+    { $set: { status: "CANCELLED", failureDescription: reason } },
+    { returnDocument: "after", runValidators: true }
+  ).exec();
+}
+
 export async function markPaymentTopUpFailed(input: MarkTopUpFailedInput) {
   const filters: Record<string, string> = input.razorpayOrderId
     ? { razorpayOrderId: input.razorpayOrderId }

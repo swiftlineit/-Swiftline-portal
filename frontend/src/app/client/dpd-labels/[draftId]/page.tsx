@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi";
+import { FiArrowLeft, FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
@@ -63,7 +63,8 @@ import {
   getConsignorFormIssues,
   getKycIssues
 } from "@/lib/shipmentConsignor";
-import { calculateShipmentEstimate, formatMoney, getVolumetricDivisor } from "@/lib/shipmentPricing";
+import { calculateShipmentEstimate, formatMoney, getVolumetricDivisor, getVolumetricFormula } from "@/lib/shipmentPricing";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 
 type AddressForm = {
   countryCode: string;
@@ -713,8 +714,8 @@ export default function ClientDpdDraftReviewPage() {
             <h1 className="text-2xl font-semibold text-slate-950">Review Shipment Draft</h1>
             <p className="mt-1 text-sm text-slate-500">Review consignee, address, and parcel details before shipment creation is enabled.</p>
           </div>
-          <Link href="/client/dpd-labels" className="inline-flex h-10 items-center justify-center border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900">
-            Back to Upload
+          <Link href="/client/dpd-labels" className="inline-flex h-10 rounded-xl items-center justify-center border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900">
+           < FiArrowLeft className="h-4 w-4 mr-2" /> Back to Upload
           </Link>
         </div>
 
@@ -756,7 +757,7 @@ export default function ClientDpdDraftReviewPage() {
                 api={consignorKycApi}
               />
 
-              <section className="border border-slate-200 bg-white">
+              <section className="border border-slate-200 bg-white rounded-2xl">
                 <SectionHeader title="Consignee Details" onSave={handleSave} busy={busy} changed={draftChanged} />
                 <div className="grid gap-4 p-4 md:grid-cols-2">
                   <ShipmentTextField label="Consignee Company" value={contactForm.companyName} onChange={handleContactChange("companyName")} />
@@ -780,13 +781,13 @@ export default function ClientDpdDraftReviewPage() {
                       value={contactForm.deliveryInstructions}
                       onChange={handleContactChange("deliveryInstructions")}
                       rows={3}
-                      className="mt-2 w-full border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                      className="mt-2 w-full border rounded-2xl border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                     />
                   </label>
                 </div>
               </section>
 
-              <section className="border border-slate-200 bg-white">
+              <section className="border border-slate-200 bg-white rounded-2xl">
                 <SectionHeader title="Address" onSave={handleSave} busy={busy} changed={draftChanged} />
                 <div className="space-y-4 p-4">
                   {addressForm.countryCode === "GB" ? <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
@@ -869,7 +870,7 @@ export default function ClientDpdDraftReviewPage() {
                 </div>
               </section>
 
-              <section className="border border-slate-200 bg-white">
+              <section className="border border-slate-200 bg-white rounded-2xl">
                 <SectionHeader title="Parcel Details" onSave={handleSave} busy={busy} changed={draftChanged} />
                 <div className="space-y-4 p-4">
                   <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
@@ -882,10 +883,10 @@ export default function ClientDpdDraftReviewPage() {
                         step="1"
                         value={parcelForms.length}
                         onChange={handleParcelCountChange}
-                        className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                        className="mt-2 h-10 w-full border rounded-xl border-slate-300 px-3 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                       />
                     </label>
-                    <div className="grid gap-3 border border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-2">
+                    <div className="grid gap-3 border rounded-xl border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-2">
                       <ReadOnlyDetail label="Total Parcels" value={parcelForms.length} />
                       <ReadOnlyDetail label="Total Weight" value={`${totalWeight.toFixed(2)} kg`} />
                     </div>
@@ -909,9 +910,9 @@ export default function ClientDpdDraftReviewPage() {
                             ))}
                         </ShipmentSelectField>
                         <div className="md:col-span-2">
-                          <ShipmentTextField label="Contents Description" required value={parcel.contentsDescription} onChange={handleParcelChange(index, "contentsDescription")} onBlur={() => { if (isRestrictedDescription(parcel.contentsDescription)) toast.error("This item is restricted."); }} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "contents"])} revealError={submitAttempted} />
+                          <ShipmentTextField label="Contents Description" tooltip="Items/product details" required value={parcel.contentsDescription} onChange={handleParcelChange(index, "contentsDescription")} onBlur={() => { if (isRestrictedDescription(parcel.contentsDescription)) toast.error("This item is restricted."); }} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "contents"])} revealError={submitAttempted} />
                         </div>
-                        <ShipmentTextField label="Reference (Optional)" value={parcel.shipmentReference1} onChange={handleParcelChange(index, "shipmentReference1")} />
+                        <ShipmentTextField label="Reference (Optional)" tooltip="Can be a company name or a unique identifier of the shipment" value={parcel.shipmentReference1} onChange={handleParcelChange(index, "shipmentReference1")} />
                       </div>
                     </div>
                   ))}
@@ -922,8 +923,8 @@ export default function ClientDpdDraftReviewPage() {
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <ShipmentSelectField label="Service Type" required value={contactForm.serviceType} onChange={handleContactChange("serviceType")}>
-                        <option value="COURIER">Courier</option>
-                        <option value="CARGO">Cargo</option>
+                        <option value="COURIER"> Swiftline Courier</option>
+                        <option value="CARGO"> Swiftline Cargo</option>
                     </ShipmentSelectField>
                   </div>
                 </div>
@@ -931,12 +932,12 @@ export default function ClientDpdDraftReviewPage() {
             </div>
 
             <aside className="space-y-4">
-              <section className="border border-slate-200 bg-white p-4">
+              <section className="border border-slate-200 bg-white p-4 rounded-2xl">
                 <button
                   type="button"
                   onClick={() => void handleCreateLabel("DPD")}
                   disabled={busy}
-                  className="inline-flex h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                  className="inline-flex h-10 w-full rounded-xl items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
                   {busy ? "Processing..." : "Create Shipment"}
@@ -945,7 +946,7 @@ export default function ClientDpdDraftReviewPage() {
                   type="button"
                   onClick={() => void handleCreateLabel("SWIFTLINE")}
                   disabled={busy}
-                  className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                  className="mt-2 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
                 >
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
                   {busy ? "Processing..." : "Create Without DPD Label"}
@@ -953,11 +954,11 @@ export default function ClientDpdDraftReviewPage() {
                 <div className="mt-3 text-sm font-medium text-slate-600">
                   <p>The total shown below will be reserved from Customer Advance first, then available business credit.</p>
                 </div>
-                <div className="mt-4 border border-slate-200 bg-slate-50 p-3">
+                <div className="mt-4 border border-slate-400 bg-slate-50 p-3 rounded-2xl ">
                   <div className="grid gap-3 text-sm">
                     <ReadOnlyDetail label="Service" value={formatCountryRateService(contactForm.serviceType)} />
                     <ReadOnlyDetail label="Destination" value={`${getCountryFlag(addressForm.countryCode)} ${addressForm.countryName}`} />
-                    <ReadOnlyDetail label="Volumetric Divisor" value={getVolumetricDivisor(contactForm.serviceType)} />
+                    <ReadOnlyDetail label="Volumetric Divisor" value={getVolumetricDivisor(contactForm.serviceType)} tooltip={getVolumetricFormula(contactForm.serviceType)} />
                   </div>
                   <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
                     {chargeEstimate.parcels.map((parcel, index) => (
@@ -993,7 +994,7 @@ export default function ClientDpdDraftReviewPage() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-4 border border-red-400 bg-amber-50 p-3">
+                <div className="mt-4 border border-red-400 bg-amber-50 p-3 rounded-2xl">
  <h3 className="text-sm font-semibold text-amber-900 ">Prohibited Items Reminder</h3>
                 <ul className="mt-2 text-xs font-medium text-amber-800">
                     {prohibitedItems.map((item) => (
@@ -1018,7 +1019,7 @@ function SectionHeader({ title, onSave, busy, changed }: { title: string; onSave
         type="button"
         onClick={onSave}
         disabled={busy || !changed}
-        className="inline-flex h-9 items-center justify-center gap-2 bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+        className="inline-flex h-9 items-center rounded-xl justify-center gap-2 bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
       >
         <FiSave aria-hidden="true" className="h-4 w-4" />
         Save
@@ -1027,10 +1028,13 @@ function SectionHeader({ title, onSave, busy, changed }: { title: string; onSave
   );
 }
 
-function ReadOnlyDetail({ label, value }: { label: string; value?: string | number | null }) {
+function ReadOnlyDetail({ label, value, tooltip }: { label: string; value?: string | number | null; tooltip?: string }) {
   return (
     <div>
-      <span className="text-xs font-semibold uppercase text-slate-500">{label}</span>
+      <span className="flex items-center gap-1 text-xs font-semibold uppercase text-slate-500">
+        {label}
+        {tooltip ? <InfoTooltip text={tooltip} /> : null}
+      </span>
       <p className="mt-1 text-sm font-semibold text-slate-950">{value || "Not available"}</p>
     </div>
   );

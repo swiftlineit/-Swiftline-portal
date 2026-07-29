@@ -234,6 +234,18 @@ export type ClientPrepaidAccount = {
   availableBalanceMinor: number;
   status: string;
   minimumBalanceWarningMinor: number;
+  // Optional because a backend older than the top-up limits does not send them.
+  // The server is the authority on both, so the UI simply omits its own hint and
+  // pre-check when they are absent rather than assuming a shape.
+  minTopUpMinor?: number;
+  maxTopUpMinor?: number;
+  /** Today's allowance for this business account, resetting at IST midnight. */
+  dailyTopUp?: {
+    usedMinor: number;
+    limitMinor: number;
+    remainingMinor: number;
+    resetsAt: string;
+  };
 };
 
 export type ClientPrepaidTransaction = {

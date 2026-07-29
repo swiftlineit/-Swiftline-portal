@@ -2,8 +2,20 @@ import mongoose from "mongoose";
 
 export const supportTicketCategoryValues = [
   "SHIPMENT_BOOKING", "TRACKING", "LABEL_MANIFEST", "AMENDMENT_CANCELLATION",
+  "SHIPMENT_DELAYED", "SHIPMENT_NOT_RECEIVED", "SHIPMENT_LOST", "SHIPMENT_THEFT", "SHIPMENT_DAMAGED",
   "INVOICE_PAYMENT", "CREDIT_ACCOUNT", "ACCOUNT_ACCESS", "TECHNICAL", "OTHER"
 ] as const;
+
+/** Categories that describe a problem with one shipment, so one must be named. */
+export const shipmentIssueCategoryValues = [
+  "SHIPMENT_DELAYED", "SHIPMENT_NOT_RECEIVED", "SHIPMENT_LOST", "SHIPMENT_THEFT", "SHIPMENT_DAMAGED"
+] as const;
+
+/** A ticket in one of these states is still being worked, so it blocks a duplicate. */
+export const openSupportTicketStatusValues = ["OPEN", "IN_PROGRESS", "WAITING_FOR_CUSTOMER"] as const;
+
+/** How many replies a customer may still send once a ticket has been resolved. */
+export const resolvedClientReplyLimit = 2;
 export const supportTicketPriorityValues = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
 export const supportTicketStatusValues = ["OPEN", "IN_PROGRESS", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"] as const;
 

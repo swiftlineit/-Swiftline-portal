@@ -13,9 +13,11 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
 import {
   ClientDashboardAccount,
+  ClientPrepaidAccount,
   ClientPrepaidTopUp,
   createClientPrepaidTopUp,
   getClientDashboard,
+  getClientPrepaidAccount,
   getClientPrepaidTopUps,
   verifyClientPrepaidTopUp
 } from "@/lib/clientDashboard";
@@ -277,6 +279,8 @@ export default function ClientPaymentsPage() {
   const [selectedBusinessAccountId, setSelectedBusinessAccountId] = useState("");
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
   const [requiredDepositMinor, setRequiredDepositMinor] = useState(0);
+  // Carries the per-transaction bounds and today's remaining top-up allowance.
+  const [prepaidAccount, setPrepaidAccount] = useState<ClientPrepaidAccount | null>(null);
   const [topUps, setTopUps] = useState<ClientPrepaidTopUp[]>([]);
   const [amountRupees, setAmountRupees] = useState("1000");
   const [paymentPurpose, setPaymentPurpose] = useState<"CUSTOMER_ADVANCE" | "SECURITY_DEPOSIT">("CUSTOMER_ADVANCE");
@@ -294,6 +298,27 @@ export default function ClientPaymentsPage() {
     [accounts, selectedBusinessAccountId]
   );
 
+  // Both are absent on a backend that predates the top-up limits, so everything
+  // reading them must tolerate undefined rather than assume the newer shape.
+  const dailyTopUp = prepaidAccount?.dailyTopUp;
+  const topUpBounds = typeof prepaidAccount?.minTopUpMinor === "number"
+    && typeof prepaidAccount?.maxTopUpMinor === "number"
+    ? { min: prepaidAccount.minTopUpMinor, max: prepaidAccount.maxTopUpMinor }
+    : null;
+  const maxTopUpRupees = topUpBounds ? topUpBounds.max / 100 : null;
+
+  /** Refuses a keystroke that would take the amount past the per-payment ceiling. */
+  function handleAmountChange(value: string) {
+    // Deposits are exempt from the ceiling, and are set programmatically anyway.
+    if (paymentPurpose === "SECURITY_DEPOSIT" || maxTopUpRupees === null || value === "") {
+      setAmountRupees(value);
+      return;
+    }
+    const rupees = Number(value);
+    if (!Number.isFinite(rupees) || rupees > maxTopUpRupees) return;
+    setAmountRupees(value);
+  }
+
   const loadBalances = useCallback(async (
     businessAccountId: string,
     quiet = false,
@@ -306,9 +331,11 @@ export default function ClientPaymentsPage() {
       // Pending payments reconcile while history loads, so read credit status afterward.
       const topUpsResponse = await getClientPrepaidTopUps(businessAccountId);
       const creditResponse = await getClientCreditAccount(businessAccountId);
+      const prepaidResponse = await getClientPrepaidAccount(businessAccountId);
 
       setTopUps(topUpsResponse.topUps);
       setCreditAccount(creditResponse.creditAccount);
+      setPrepaidAccount(prepaidResponse.prepaidAccount);
       setRequiredDepositMinor(creditResponse.creditAccount.securityDepositRequiredMinor || 0);
       if (purpose === "SECURITY_DEPOSIT" && creditResponse.creditAccount.securityDepositRequiredMinor) {
         setAmountRupees(String(creditResponse.creditAccount.securityDepositRequiredMinor / 100));
@@ -397,6 +424,23 @@ export default function ClientPaymentsPage() {
     if (paymentPurpose === "SECURITY_DEPOSIT" && requiredDepositMinor > 0 && amountMinor !== requiredDepositMinor) {
       setError("Enter the exact required deposit amount.");
       return;
+    }
+    // Security deposits are exempt from both bounds, matching the server. Each
+    // check is skipped when the backend did not send its limit; the server still
+    // rejects the payment, so this only affects how early the customer is told.
+    if (paymentPurpose !== "SECURITY_DEPOSIT") {
+      if (topUpBounds && (amountMinor < topUpBounds.min || amountMinor > topUpBounds.max)) {
+        setError(`Enter an amount between ${formatMinorMoney(topUpBounds.min)} and ${formatMinorMoney(topUpBounds.max)}.`);
+        return;
+      }
+      if (dailyTopUp && amountMinor > dailyTopUp.remainingMinor) {
+        setError(
+          dailyTopUp.remainingMinor > 0
+            ? `This exceeds today's ${formatMinorMoney(dailyTopUp.limitMinor)} limit. ${formatMinorMoney(dailyTopUp.remainingMinor)} is still available.`
+            : `Today's ${formatMinorMoney(dailyTopUp.limitMinor)} top-up limit has been reached. Please try again after midnight.`
+        );
+        return;
+      }
     }
     if (!termsAccepted || !paymentTerms) {
       setError("Read and accept the current payment terms before continuing.");
@@ -554,8 +598,9 @@ export default function ClientPaymentsPage() {
                       type="number"
                       min="1"
                       step="1"
+                      max={paymentPurpose === "SECURITY_DEPOSIT" ? undefined : maxTopUpRupees ?? undefined}
                       value={amountRupees}
-                      onChange={(event) => setAmountRupees(event.target.value)}
+                      onChange={(event) => handleAmountChange(event.target.value)}
                       readOnly={paymentPurpose === "SECURITY_DEPOSIT"}
                       className="min-w-0 flex-1 px-3 text-sm font-semibold text-slate-950 outline-none"
                     />
@@ -563,8 +608,29 @@ export default function ClientPaymentsPage() {
                   <p className="mt-2 text-xs font-medium text-slate-500">
                     {paymentPurpose === "SECURITY_DEPOSIT"
                       ? `Required deposit: ${formatMinorMoney(requiredDepositMinor, "INR")}. This does not increase booking capacity.`
-                      : `Added to Customer Advance: ${formatMinorMoney(Math.max(Math.round((Number(amountRupees) || 0) * 100), 0), "INR")}.`}
+                      : `Add to Customer Advance: ${formatMinorMoney(Math.max(Math.round((Number(amountRupees) || 0) * 100), 0), "INR")}.`}
                   </p>
+                  {/* Deposits are exempt from both limits, so this only shows for
+                      top-ups, and each half appears only if the server sent it. */}
+                  {/* {paymentPurpose !== "SECURITY_DEPOSIT" && (topUpBounds || dailyTopUp) ? (
+                    <p className="mt-1 text-xs font-medium text-slate-500">
+                      {topUpBounds ? (
+                        <>
+                          Per payment {formatMinorMoney(topUpBounds.min, "INR")} to{" "}
+                          {formatMinorMoney(topUpBounds.max, "INR")}.{" "}
+                        </>
+                      ) : null}
+                      {dailyTopUp ? (
+                        <span className={dailyTopUp.remainingMinor > 0 ? "text-slate-700" : "font-semibold text-red-600"}>
+                          Today {formatMinorMoney(dailyTopUp.usedMinor, "INR")} of{" "}
+                          {formatMinorMoney(dailyTopUp.limitMinor, "INR")} used
+                          {dailyTopUp.remainingMinor > 0
+                            ? ` (${formatMinorMoney(dailyTopUp.remainingMinor, "INR")} left)`
+                            : " (limit reached)"}.
+                        </span>
+                      ) : null}
+                    </p>
+                  ) : null} */}
                 </div>
 
                 <label className="mt-4 flex items-start gap-3 border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -577,7 +643,7 @@ export default function ClientPaymentsPage() {
                   <span>
                     I have read and accept the current{" "}
                     <Link href="/client/credit/payment-terms" target="_blank" className="font-semibold text-blue-900 underline underline-offset-2">
-                      payment terms{paymentTerms ? ` (version ${paymentTerms.version})` : ""}
+                      payment terms
                     </Link>.
                   </span>
                 </label>

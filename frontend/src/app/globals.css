@@ -1,3 +1,7 @@
 @import "tailwindcss";
 
-
+/* Helvetica is the portal-wide typeface. Overriding `--font-sans` also feeds
+   Tailwind preflight's base `html` font-family, so every page inherits it. */
+@theme {
+  --font-sans: Helvetica, "Helvetica Neue", "Nimbus Sans", Arial, sans-serif;
+}

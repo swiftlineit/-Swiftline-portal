@@ -3,16 +3,19 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { AuditLog } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
+import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { DpdShipment, type IDpdShipment } from "../models/dpdShipment.model.js";
 import { ShipmentDraft, type IShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
-import { ShipmentManifest } from "../models/shipmentManifest.model.js";
+import { ShipmentManifest, type IShipmentManifest } from "../models/shipmentManifest.model.js";
+import { User } from "../models/user.model.js";
 import { clientCanAccessShipmentDraft } from "../services/shipmentDraftPolicy.service.js";
 import { readShipmentBookingSnapshot } from "../services/shipmentBookingSnapshot.service.js";
+import { notifyAdminsOfClientManifest } from "../services/shipmentManifestNotification.service.js";
+import { buildShipmentManifestPdf } from "../services/shipmentManifestPdf.service.js";
 import {
   allocateShipmentManifestNumber,
-  buildManifestLine,
-  buildShipmentManifestWorkbook,
+  buildHandoverManifestLine,
   formatManifestOrigin,
   manifestBusinessAccountName,
   serializeShipmentManifest,
@@ -229,12 +232,15 @@ async function createManifest(request: Request, response: Response, actorRole: "
         throw new ShipmentManifestServiceError("Shipment booking information is incomplete.", 409);
       }
       if (!businessAccountName) businessAccountName = manifestBusinessAccountName(snapshot);
-      return buildManifestLine({
+      // Handover columns are captured here too, so this manifest's PDF carries
+      // the same detail as one raised from the shipments list.
+      return buildHandoverManifestLine({
         shipmentDraftId: new mongoose.Types.ObjectId(draftId),
         dpdShipmentId: booking._id,
         snapshot,
         declaredValueMinor: lineInput.declaredValueMinor,
-        bagNumber: lineInput.bagNumber
+        bagNumber: lineInput.bagNumber,
+        remark: "DONE"
       });
     });
     const manifestNumber = await allocateShipmentManifestNumber();
@@ -247,6 +253,12 @@ async function createManifest(request: Request, response: Response, actorRole: "
         businessAccountName,
         originBranch: [assignedBranch.name, assignedBranch.code].filter(Boolean).join(" - "),
         originAddress: formatManifestOrigin(assignedBranch),
+        // This flow has no origin/destination inputs, so the handover header
+        // falls back to the lodging branch and the shipments' destination.
+        origin: assignedBranch.address?.city || assignedBranch.name || "",
+        destination: manifestInput.destinationAgent || lineSnapshots[0]?.destination || "",
+        coloader: "",
+        paymentType: "",
         destinationAgent: manifestInput.destinationAgent,
         flightNumber: manifestInput.flightNumber,
         departureDate: manifestInput.departureDate,
@@ -312,10 +324,10 @@ async function downloadManifest(request: Request, response: Response, actorRole:
     performedAt: new Date(),
     metadata: { manifestNumber: manifest.manifestNumber, actorRole }
   });
-  const filename = `MANIFEST-${manifest.manifestNumber}.xlsx`;
-  response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  return response.status(200).send(await buildShipmentManifestWorkbook(manifest));
+  const disposition = request.query.view === "1" ? "inline" : "attachment";
+  response.setHeader("Content-Type", "application/pdf");
+  response.setHeader("Content-Disposition", `${disposition}; filename="MANIFEST-${manifest.manifestNumber}.pdf"`);
+  return response.status(200).send(await buildShipmentManifestPdf(manifest));
 }
 
 export async function getAdminShipmentManifestContext(request: Request, response: Response) {
@@ -356,4 +368,264 @@ export async function downloadAdminShipmentManifest(request: Request, response: 
 
 export async function downloadClientShipmentManifest(request: Request, response: Response) {
   return downloadManifest(request, response, "client");
+}
+
+const bulkManifestSchema = z.object({
+  shipmentDraftIds: z.array(
+    z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Select valid shipments.")
+  ).min(1, "Select at least one shipment.").max(200, "A manifest can hold up to 200 shipments."),
+  origin: z.string().trim().min(1, "Origin is required.").max(120),
+  destination: z.string().trim().min(1, "Destination is required.").max(120),
+  coloader: z.string().trim().max(120).default(""),
+  paymentType: z.string().trim().max(60).default("")
+});
+
+/** The business accounts a client may read manifests for. */
+async function clientBusinessAccountIds(userId: mongoose.Types.ObjectId) {
+  const memberships = await BusinessAccountMember.find({ user: userId, status: "active" })
+    .select("businessAccount")
+    .lean()
+    .exec();
+  return memberships.map((membership) => membership.businessAccount);
+}
+
+async function serializeManifestList(manifests: IShipmentManifest[]) {
+  const creatorIds = [...new Set(manifests.map((manifest) => String(manifest.createdBy)))];
+  const creators = await User.find({ _id: { $in: creatorIds } }).select("name email").lean().exec();
+  const creatorById = new Map(creators.map((creator) => [String(creator._id), creator]));
+
+  return manifests.map((manifest) => {
+    const creator = creatorById.get(String(manifest.createdBy));
+    return {
+      ...serializeShipmentManifest(manifest),
+      generatedBy: creator?.name || creator?.email || "Not available",
+      createdAt: manifest.createdAt
+    };
+  });
+}
+
+async function listManifests(request: Request, response: Response, actorRole: "admin" | "client") {
+  const userId = getUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const requestedPage = Math.max(1, Number.parseInt(String(request.query.page ?? "1"), 10) || 1);
+  const limit = Math.min(50, Math.max(1, Number.parseInt(String(request.query.limit ?? "15"), 10) || 15));
+  const businessAccountId = typeof request.query.businessAccountId === "string" ? request.query.businessAccountId : "";
+
+  const query: Record<string, unknown> = {};
+  if (actorRole === "client") {
+    // Clients see manifests raised for their own business accounts, whoever sealed them.
+    const accountIds = await clientBusinessAccountIds(userId);
+    if (!accountIds.length) {
+      return response.status(200).json({
+        success: true,
+        manifests: [],
+        pagination: { page: 1, limit, total: 0, totalPages: 1 }
+      });
+    }
+    query.businessAccountId = { $in: accountIds };
+  }
+  if (businessAccountId && mongoose.Types.ObjectId.isValid(businessAccountId)) {
+    query.businessAccountId = new mongoose.Types.ObjectId(businessAccountId);
+  }
+
+  const total = await ShipmentManifest.countDocuments(query).exec();
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(requestedPage, totalPages);
+  const manifests = await ShipmentManifest.find(query)
+    .sort({ generatedAt: -1, _id: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .exec();
+
+  return response.status(200).json({
+    success: true,
+    manifests: await serializeManifestList(manifests),
+    pagination: { page, limit, total, totalPages }
+  });
+}
+
+/** Loads a manifest the actor is allowed to see, or throws a 404-shaped error. */
+async function loadVisibleManifest(
+  request: Request,
+  userId: mongoose.Types.ObjectId,
+  actorRole: "admin" | "client"
+) {
+  const manifestId = getManifestId(request);
+  if (!manifestId) throw new ShipmentManifestServiceError("Manifest not found.", 404);
+  const manifest = await ShipmentManifest.findById(manifestId).exec();
+  if (!manifest) throw new ShipmentManifestServiceError("Manifest not found.", 404);
+  if (actorRole === "client") {
+    const accountIds = await clientBusinessAccountIds(userId);
+    if (!accountIds.some((id) => String(id) === String(manifest.businessAccountId))) {
+      throw new ShipmentManifestServiceError("Manifest not found.", 404);
+    }
+  }
+  return manifest;
+}
+
+async function downloadManifestPdf(request: Request, response: Response, actorRole: "admin" | "client") {
+  const userId = getUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+  try {
+    const manifest = await loadVisibleManifest(request, userId, actorRole);
+    await AuditLog.create({
+      action: "SHIPMENT_MANIFEST_DOWNLOADED",
+      entityType: "SHIPMENT_MANIFEST",
+      entityId: manifest._id,
+      performedBy: userId,
+      performedAt: new Date(),
+      metadata: { manifestNumber: manifest.manifestNumber, actorRole, format: "pdf" }
+    });
+    const disposition = request.query.view === "1" ? "inline" : "attachment";
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Disposition", `${disposition}; filename="MANIFEST-${manifest.manifestNumber}.pdf"`);
+    return response.status(200).send(await buildShipmentManifestPdf(manifest));
+  } catch (error) {
+    return sendManifestError(response, error);
+  }
+}
+
+async function createBulkManifest(request: Request, response: Response, actorRole: "admin" | "client") {
+  const userId = getUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+  const parsed = bulkManifestSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: parsed.error.issues[0]?.message ?? "Manifest details are invalid."
+    });
+  }
+
+  try {
+    const selectedIds = [...new Set(parsed.data.shipmentDraftIds)];
+    const selectedObjectIds = selectedIds.map((id) => new mongoose.Types.ObjectId(id));
+    const drafts = await ShipmentDraft.find({ _id: { $in: selectedObjectIds } }).exec();
+    if (drafts.length !== selectedIds.length) {
+      throw new ShipmentManifestServiceError("One of the selected shipments is no longer available.", 409);
+    }
+
+    const [firstDraft] = drafts;
+    if (!firstDraft) throw new ShipmentManifestServiceError("Select at least one shipment.");
+    if (drafts.some((draft) => String(draft.businessAccountId) !== String(firstDraft.businessAccountId)
+      || String(draft.branchId) !== String(firstDraft.branchId))) {
+      throw new ShipmentManifestServiceError("All manifest shipments must belong to the same business account and branch.");
+    }
+    if (actorRole === "client") await assertClientAccess(userId, firstDraft, true);
+
+    const [bookings, existingAssignment, cancelledEvent, assignedBranch] = await Promise.all([
+      DpdShipment.find({ shipmentDraftId: { $in: selectedObjectIds }, status: "LABEL_RECEIVED" }).exec(),
+      ShipmentManifest.findOne({ shipmentDraftIds: { $in: selectedObjectIds }, actorRole }).lean().exec(),
+      ShipmentEvent.findOne({ shipmentDraftId: { $in: selectedObjectIds }, status: "SHIPMENT_CANCELLED" }).lean().exec(),
+      Branch.findById(firstDraft.branchId).lean().exec()
+    ]);
+    if (bookings.length !== selectedIds.length) {
+      throw new ShipmentManifestServiceError("Every selected shipment must be booked before it can be manifested.", 409);
+    }
+    if (existingAssignment) {
+      throw new ShipmentManifestServiceError("One of the selected shipments already belongs to a manifest.", 409);
+    }
+    if (cancelledEvent) throw new ShipmentManifestServiceError("Cancelled shipments cannot be added to a manifest.", 409);
+    if (!assignedBranch) {
+      throw new ShipmentManifestServiceError("The assigned branch details are unavailable. Contact Swiftline support.", 409);
+    }
+
+    const bookingByDraft = new Map(bookings.map((booking) => [String(booking.shipmentDraftId), booking]));
+    let businessAccountName = "";
+    const lineSnapshots = selectedIds.map((draftId) => {
+      const booking = bookingByDraft.get(draftId);
+      const snapshot = booking
+        ? readShipmentBookingSnapshot(booking.currentShipmentSnapshot) ?? readShipmentBookingSnapshot(booking.bookingSnapshot)
+        : null;
+      if (!booking || !snapshot) throw new ShipmentManifestServiceError("Shipment booking information is incomplete.", 409);
+      if (!businessAccountName) businessAccountName = manifestBusinessAccountName(snapshot);
+      return buildHandoverManifestLine({
+        shipmentDraftId: new mongoose.Types.ObjectId(draftId),
+        dpdShipmentId: booking._id,
+        snapshot,
+        // The handover manifest carries no goods-value column, so no value is
+        // declared here. Goods values stay on the shipment's own invoice.
+        declaredValueMinor: 0,
+        bagNumber: "1",
+        remark: "DONE"
+      });
+    });
+
+    const manifestNumber = await allocateShipmentManifestNumber();
+    const manifest = await ShipmentManifest.create({
+      manifestNumber,
+      businessAccountId: firstDraft.businessAccountId,
+      branchId: firstDraft.branchId,
+      shipmentDraftIds: selectedObjectIds,
+      headerSnapshot: {
+        businessAccountName,
+        originBranch: [assignedBranch.name, assignedBranch.code].filter(Boolean).join(" - "),
+        originAddress: formatManifestOrigin(assignedBranch),
+        origin: parsed.data.origin,
+        destination: parsed.data.destination,
+        coloader: parsed.data.coloader,
+        paymentType: parsed.data.paymentType,
+        destinationAgent: parsed.data.destination,
+        flightNumber: "",
+        departureDate: "",
+        mawbNumber: "",
+        originIataCode: "",
+        destinationIataCode: "",
+        valueType: ""
+      },
+      lineSnapshots,
+      totalPieces: lineSnapshots.reduce((sum, line) => sum + line.pieces, 0),
+      totalWeightKg: Number(lineSnapshots.reduce((sum, line) => sum + line.weightKg, 0).toFixed(3)),
+      totalBags: 1,
+      createdBy: userId,
+      actorRole,
+      generatedAt: new Date()
+    });
+
+    await AuditLog.create({
+      action: "SHIPMENT_MANIFEST_GENERATED",
+      entityType: "SHIPMENT_MANIFEST",
+      entityId: manifest._id,
+      performedBy: userId,
+      performedAt: new Date(),
+      metadata: { manifestNumber, shipmentDraftIds: selectedObjectIds, actorRole, source: "BULK" }
+    });
+
+    if (actorRole === "client") {
+      const creator = await User.findById(userId).select("name email").lean().exec();
+      await notifyAdminsOfClientManifest({
+        manifest,
+        businessAccountName,
+        generatedBy: creator?.name || creator?.email || ""
+      });
+    }
+
+    return response.status(201).json({ success: true, manifest: serializeShipmentManifest(manifest) });
+  } catch (error) {
+    return sendManifestError(response, error);
+  }
+}
+
+export async function createAdminBulkShipmentManifest(request: Request, response: Response) {
+  return createBulkManifest(request, response, "admin");
+}
+
+export async function createClientBulkShipmentManifest(request: Request, response: Response) {
+  return createBulkManifest(request, response, "client");
+}
+
+export async function listAdminShipmentManifests(request: Request, response: Response) {
+  return listManifests(request, response, "admin");
+}
+
+export async function listClientShipmentManifests(request: Request, response: Response) {
+  return listManifests(request, response, "client");
+}
+
+export async function downloadAdminShipmentManifestPdf(request: Request, response: Response) {
+  return downloadManifestPdf(request, response, "admin");
+}
+
+export async function downloadClientShipmentManifestPdf(request: Request, response: Response) {
+  return downloadManifestPdf(request, response, "client");
 }

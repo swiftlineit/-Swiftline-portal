@@ -41,10 +41,14 @@ import {
   validateAddress
 } from "../controllers/address.controller.js";
 import {
+  createClientBulkShipmentManifest,
   createClientShipmentManifest,
   downloadClientShipmentManifest,
-  getClientShipmentManifestContext
+  downloadClientShipmentManifestPdf,
+  getClientShipmentManifestContext,
+  listClientShipmentManifests
 } from "../controllers/shipmentManifest.controller.js";
+import { listClientBookedShipments } from "../controllers/shipmentListing.controller.js";
 import { listCountryRateCards } from "../controllers/countryRateCard.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { invoiceUpload } from "../middleware/invoiceUpload.middleware.js";
@@ -143,12 +147,16 @@ clientRouter.get("/dpd-labels/drafts/:id/parcels/:sequence/kyc-documents/:type",
 clientRouter.post("/dpd-labels/drafts/:id/create-dpd-label", createClientDpdLabel);
 clientRouter.post("/dpd-labels/drafts/:id/create-swiftline-shipment", createClientSwiftlineShipment);
 clientRouter.get("/shipments", listClientShipments);
+clientRouter.get("/booked-shipments", listClientBookedShipments);
 clientRouter.get("/tracking/:trackingNumber", trackClientShipment);
 clientRouter.get("/shipments/:draftId/labels/:labelId/access", createClientShipmentLabelAccess);
 clientRouter.get("/shipments/:id", getClientShipmentDetails);
 clientRouter.get("/shipments/:draftId/manifests/context", getClientShipmentManifestContext);
+clientRouter.get("/shipment-manifests", listClientShipmentManifests);
 clientRouter.post("/shipment-manifests", createClientShipmentManifest);
+clientRouter.post("/shipment-manifests/bulk", createClientBulkShipmentManifest);
 clientRouter.get("/shipment-manifests/:manifestId/download", downloadClientShipmentManifest);
+clientRouter.get("/shipment-manifests/:manifestId/pdf", downloadClientShipmentManifestPdf);
 clientRouter.get("/shipments/:draftId/cancellation", getClientShipmentCancellation);
 clientRouter.post("/shipments/:draftId/cancellation", requestClientShipmentCancellation);
 clientRouter.get("/shipment-cancellations/:id/credit-note/pdf", getClientCancellationCreditNotePdf);

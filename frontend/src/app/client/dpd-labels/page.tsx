@@ -311,10 +311,10 @@ export default function ClientDpdLabelsPage() {
             type="button"
             onClick={handleTemplateDownload}
             disabled={busy || creatingManual}
-            className="inline-flex h-10 items-center justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-400"
+            className="inline-flex h-10 items-center rounded-4xl justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-400"
           >
             <FiDownload aria-hidden="true" className="h-4 w-4" />
-            Download Template
+            Download Invoice Template 
           </button>
         </div>
 
@@ -323,7 +323,7 @@ export default function ClientDpdLabelsPage() {
         ) : null}
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="border border-slate-200 bg-white">
+          <section className="border border-slate-200 bg-white rounded-2xl">
             <div className="border-b border-slate-200 px-5 py-4">
               <h2 className="text-sm font-semibold uppercase text-slate-500">Account Context</h2>
             </div>
@@ -334,8 +334,8 @@ export default function ClientDpdLabelsPage() {
           </section>
 
           <aside className="space-y-5">
-            <section className="border border-slate-200 bg-white p-5">
-              <h2 className="text-sm font-semibold uppercase text-slate-500">Invoice Upload</h2>
+            <section className="border border-slate-200 bg-white p-5 rounded-2xl">
+              <h2 className="text-sm font-semibold uppercase text-slate-500 text-center">Invoice Upload</h2>
               <label
                 onDragOver={(event) => {
                   event.preventDefault();
@@ -343,7 +343,7 @@ export default function ClientDpdLabelsPage() {
                 }}
                 onDragLeave={() => setDragActive(false)}
                 onDrop={handleDrop}
-                className={`mt-4 flex min-h-36 cursor-pointer flex-col items-center justify-center border border-dashed px-4 py-6 text-center ${dragActive ? "border-blue-900 bg-blue-50" : "border-slate-300 bg-slate-50"}`}
+                className={`mt-4 flex min-h-36 cursor-pointer  rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center ${dragActive ? "border-blue-900 bg-blue-50" : "border-slate-300 bg-slate-50"}`}
               >
                 <FiUploadCloud aria-hidden="true" className="h-8 w-8 text-blue-900" />
                 <span className="mt-3 text-sm font-semibold text-slate-900">
@@ -356,7 +356,7 @@ export default function ClientDpdLabelsPage() {
                 type="button"
                 onClick={handleUpload}
                 disabled={!canUpload}
-                className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="mt-4 inline-flex h-10 w-full rounded-xl items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 <FiFileText aria-hidden="true" className="h-4 w-4" />
                 {busy ? "Processing..." : "Create Draft"}
@@ -370,7 +370,7 @@ export default function ClientDpdLabelsPage() {
                 type="button"
                 onClick={handleManualDraft}
                 disabled={!canCreateManual}
-                className="inline-flex h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                className="inline-flex h-10 w-full items-center rounded-xl justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
               >
                 <FiEdit3 aria-hidden="true" className="h-4 w-4" />
                 {creatingManual ? "Starting Draft..." : "Create Without Invoice"}
@@ -425,7 +425,7 @@ function ClientShipmentTable({
   const lastItem = Math.min(pagination.page * pagination.limit, pagination.total);
 
   return (
-    <section className="mt-6 border border-slate-200 bg-white">
+    <section className="mt-6 border border-slate-200 bg-white rounded-2xl">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Your Shipments</h2>
@@ -481,7 +481,7 @@ function ClientShipmentTable({
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-slate-900">{formatCapitalized(origin)} to {formatCapitalized(destination)}</p>
-                    <p className="mt-1 text-xs text-slate-500">{formatCapitalized(shipment.branch.name || shipment.branch.code) || "Assigned Branch"}</p>
+                    {/* <p className="mt-1 text-xs text-slate-500">{formatCapitalized(shipment.branch.name || shipment.branch.code) || "Assigned Branch"}</p> */}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-950">
                     {shipment.shipmentInvoice
@@ -489,7 +489,7 @@ function ClientShipmentTable({
                       : "-"}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
+                    <span className="inline-flex bg-white text-xs font-semibold text-slate-700">
                       {formatCapitalized(shipment.statusLabel || shipment.status)}
                     </span>
                   </td>
@@ -498,20 +498,20 @@ function ClientShipmentTable({
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex min-w-44 items-center justify-end gap-2">
-                      <Link href={viewHref} className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700">
-                        <FiExternalLink aria-hidden="true" className="h-4 w-4" />View
+                      <Link href={viewHref} className="inline-flex text-left items-center gap-1 font-semibold text-blue-900 hover:text-blue-700">
+                        <FiExternalLink aria-hidden="true" className="h-4 w-4" />View Shipment
                       </Link>
                       {shipment.shipmentInvoice ? (
                         <>
-                          <Link href={shipmentInvoicePageUrl(shipment.id, "client")} target="_blank" rel="noreferrer" title="View invoice" aria-label="View invoice" className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900">
+                          <Link href={shipmentInvoicePageUrl(shipment.id, "client")} target="_blank" rel="noreferrer" title="View invoice" aria-label="View invoice" className="inline-flex rounded h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900">
                             <FiFileText aria-hidden="true" className="h-4 w-4" />
                           </Link>
-                          <button type="button" title="Download invoice PDF" aria-label="Download invoice PDF" disabled={downloadingInvoiceId === shipment.id} onClick={() => void onInvoiceDownload(shipment)} className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:opacity-50">
+                          {/* <button type="button" title="Download invoice PDF" aria-label="Download invoice PDF" disabled={downloadingInvoiceId === shipment.id} onClick={() => void onInvoiceDownload(shipment)} className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:opacity-50">
                             <FiDownload aria-hidden="true" className="h-4 w-4" />
                           </button>
                           <Link href={shipmentInvoicePageUrl(shipment.id, "client", true)} target="_blank" rel="noreferrer" title="Print invoice" aria-label="Print invoice" className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900">
                             <FiPrinter aria-hidden="true" className="h-4 w-4" />
-                          </Link>
+                          </Link> */}
                         </>
                       ) : null}
                     </div>

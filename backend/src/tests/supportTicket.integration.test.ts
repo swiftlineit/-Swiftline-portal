@@ -7,6 +7,7 @@ import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { PortalNotification } from "../models/portalNotification.model.js";
+import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { SupportTicket } from "../models/supportTicket.model.js";
 import { SupportTicketCounter } from "../models/supportTicketCounter.model.js";
 import { SupportTicketMessage } from "../models/supportTicketMessage.model.js";
@@ -69,7 +70,15 @@ async function fixture() {
     { businessAccount: business._id, user: owner._id, role: "account_owner", status: "active", invitedBy: admin._id, joinedAt: new Date() },
     { businessAccount: business._id, user: operations._id, role: "operations", status: "active", invitedBy: admin._id, joinedAt: new Date() }
   ]);
-  return { admin, owner, operations, business };
+  return { admin, owner, operations, business, branch };
+}
+
+/** A minimal draft, enough for the related-shipment ownership check. */
+async function shipmentFixture(businessAccountId: mongoose.Types.ObjectId, branchId: mongoose.Types.ObjectId, createdBy: mongoose.Types.ObjectId) {
+  return ShipmentDraft.create({
+    invoiceUploadId: new mongoose.Types.ObjectId(), businessAccountId, branchId,
+    consigneeEnteredAddress: { contactName: "Test Consignee" }, parcelCount: 1, createdBy
+  });
 }
 
 const listFilters = { page: 1, limit: 20 };
@@ -121,5 +130,61 @@ describe("support ticket lifecycle", () => {
       getSupportTicket(String(ownerTicket._id), "CLIENT", operations._id),
       (error: unknown) => error instanceof SupportTicketError && error.statusCode === 404
     );
+  });
+
+  test("holds one live ticket per shipment and caps customer replies after resolution", { timeout: 120_000 }, async () => {
+    const { admin, owner, business, branch } = await fixture();
+    const shipment = await shipmentFixture(business._id, branch._id, owner._id);
+    const businessAccountId = String(business._id);
+    const relatedShipmentDraftId = String(shipment._id);
+
+    // A shipment problem is only actionable against a named shipment.
+    await assert.rejects(
+      createClientSupportTicket(owner._id, {
+        businessAccountId, category: "SHIPMENT_LOST",
+        subject: "Shipment cannot be found", description: "The shipment has not arrived and tracking has stopped."
+      }),
+      (error: unknown) => error instanceof SupportTicketError && error.statusCode === 400
+    );
+
+    const first = await createClientSupportTicket(owner._id, {
+      businessAccountId, category: "SHIPMENT_LOST", relatedShipmentDraftId,
+      subject: "Shipment cannot be found", description: "The shipment has not arrived and tracking has stopped."
+    });
+
+    // A second ticket for the same shipment would split one conversation.
+    await assert.rejects(
+      createClientSupportTicket(owner._id, {
+        businessAccountId, category: "SHIPMENT_DAMAGED", relatedShipmentDraftId,
+        subject: "Shipment arrived damaged", description: "The parcel was delivered with a crushed corner."
+      }),
+      (error: unknown) => error instanceof SupportTicketError && error.statusCode === 409
+    );
+
+    await updateSupportTicketByAdmin({ ticket: first, userId: admin._id, status: "RESOLVED", note: "Parcel located and delivered." });
+
+    // Resolving releases the shipment for a fresh ticket.
+    const second = await createClientSupportTicket(owner._id, {
+      businessAccountId, category: "SHIPMENT_DAMAGED", relatedShipmentDraftId,
+      subject: "Shipment arrived damaged", description: "The parcel was delivered with a crushed corner."
+    });
+    assert.notEqual(String(second._id), String(first._id));
+
+    // Two customer follow-ups are allowed on the resolved ticket, then no more.
+    await addSupportTicketReply({ ticket: first, userId: owner._id, audience: "CLIENT", message: "Thanks, but one box is still missing." });
+    await addSupportTicketReply({ ticket: first, userId: admin._id, audience: "ADMIN", message: "Checking with the destination hub." });
+    await addSupportTicketReply({ ticket: first, userId: owner._id, audience: "CLIENT", message: "Any update on the missing box?" });
+    await assert.rejects(
+      addSupportTicketReply({ ticket: first, userId: owner._id, audience: "CLIENT", message: "Still waiting for an answer." }),
+      (error: unknown) => error instanceof SupportTicketError && error.statusCode === 409
+    );
+
+    // Swiftline is never capped, so the customer's last question can be answered.
+    await addSupportTicketReply({ ticket: first, userId: admin._id, audience: "ADMIN", message: "The box was found and is out for delivery." });
+
+    const clientView = await serializeSupportTicket(first, "CLIENT", true);
+    assert.deepEqual(clientView.resolvedReplyAllowance, { used: 2, max: 2 });
+    // The allowance only applies once resolved, so an open ticket reports none.
+    assert.equal((await serializeSupportTicket(second, "CLIENT", true)).resolvedReplyAllowance, null);
   });
 });

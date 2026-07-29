@@ -15,6 +15,33 @@ export interface ShipmentManifestLineSnapshot {
   currency: "INR";
   bagNumber: string;
   serviceInfo: string;
+  /**
+   * Handover-document columns, captured at seal time beside the existing fields.
+   * All optional: manifests sealed before the handover PDF existed do not carry
+   * them, so every reader falls back to the older fields above.
+   */
+  awbNumbers?: string[];
+  forwardingNumbers?: string[];
+  destination?: string;
+  shipperName?: string;
+  receiverName?: string;
+  product?: string;
+  remark?: string;
+  /** The Swiftline service the customer bought: COURIER or CARGO. */
+  service?: string;
+  /**
+   * One entry per physical parcel. The handover manifest gives each parcel its
+   * own row, so these carry the per-parcel barcode, forwarding number, weight
+   * and product rather than a joined summary.
+   */
+  parcels?: ShipmentManifestParcelSnapshot[];
+}
+
+export interface ShipmentManifestParcelSnapshot {
+  awbNumber: string;
+  forwardingNumber: string;
+  weightKg: number;
+  product: string;
 }
 
 export interface IShipmentManifest extends mongoose.Document {
@@ -46,7 +73,24 @@ const manifestLineSchema = new mongoose.Schema<ShipmentManifestLineSnapshot>({
   declaredValueMinor: { type: Number, required: true, min: 0 },
   currency: { type: String, enum: ["INR"], default: "INR", required: true },
   bagNumber: { type: String, required: true, trim: true, maxlength: 40 },
-  serviceInfo: { type: String, required: true, trim: true, maxlength: 40 }
+  serviceInfo: { type: String, required: true, trim: true, maxlength: 40 },
+  awbNumbers: [{ type: String, trim: true, maxlength: 80 }],
+  forwardingNumbers: [{ type: String, trim: true, maxlength: 80 }],
+  destination: { type: String, trim: true, maxlength: 120 },
+  shipperName: { type: String, trim: true, maxlength: 200 },
+  receiverName: { type: String, trim: true, maxlength: 200 },
+  product: { type: String, trim: true, maxlength: 60 },
+  remark: { type: String, trim: true, maxlength: 120 },
+  service: { type: String, trim: true, maxlength: 40 },
+  parcels: {
+    type: [new mongoose.Schema<ShipmentManifestParcelSnapshot>({
+      awbNumber: { type: String, trim: true, maxlength: 80, default: "" },
+      forwardingNumber: { type: String, trim: true, maxlength: 80, default: "" },
+      weightKg: { type: Number, min: 0, default: 0 },
+      product: { type: String, trim: true, maxlength: 60, default: "" }
+    }, { _id: false })],
+    default: undefined
+  }
 }, { _id: false });
 
 const shipmentManifestSchema = new mongoose.Schema<IShipmentManifest>({

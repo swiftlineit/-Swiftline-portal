@@ -5,7 +5,8 @@ import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import {
-  SupportTicket, supportTicketCategoryValues, supportTicketPriorityValues, supportTicketStatusValues,
+  SupportTicket, openSupportTicketStatusValues, resolvedClientReplyLimit, shipmentIssueCategoryValues,
+  supportTicketCategoryValues, supportTicketPriorityValues, supportTicketStatusValues,
   type SupportTicketCategory, type SupportTicketPriority, type SupportTicketStatus
 } from "../models/supportTicket.model.js";
 import { SupportTicketCounter } from "../models/supportTicketCounter.model.js";
@@ -60,6 +61,22 @@ async function activeMembership(userId: mongoose.Types.ObjectId, businessAccount
   return BusinessAccountMember.findOne({ user: userId, businessAccount: businessAccountId, status: "active" }).exec();
 }
 
+function isShipmentIssueCategory(category: SupportTicketCategory) {
+  return (shipmentIssueCategoryValues as readonly string[]).includes(category);
+}
+
+/**
+ * How many replies the customer has already spent of their post-resolution
+ * allowance. Counted from `resolvedAt`, so reopening and resolving again grants
+ * a fresh allowance rather than leaving the thread permanently locked.
+ */
+function clientRepliesSinceResolution(
+  messages: Array<{ authorType: "CLIENT" | "ADMIN"; createdAt: Date }>,
+  resolvedAt: Date
+) {
+  return messages.filter((message) => message.authorType === "CLIENT" && message.createdAt >= resolvedAt).length;
+}
+
 async function assertClientCanView(ticket: InstanceType<typeof SupportTicket>, userId: mongoose.Types.ObjectId) {
   const membership = await activeMembership(userId, ticket.businessAccountId);
   if (!membership) throw new SupportTicketError("Ticket not found.", 404);
@@ -97,9 +114,19 @@ export async function serializeSupportTicket(ticket: InstanceType<typeof Support
     ? new Map((await User.find({ _id: { $in: messages.map((message) => message.authorId) } }).select("name email").lean().exec())
       .map((user) => [String(user._id), user]))
     : new Map<string, { name?: string; email: string }>();
+  // Only the detail view loads messages, and only it renders the composer, so the
+  // allowance is computed from the messages already in hand rather than re-queried.
+  const replyAllowance = includeMessages && ticket.status === "RESOLVED" && ticket.resolvedAt
+    ? {
+      used: Math.min(clientRepliesSinceResolution(messages, ticket.resolvedAt), resolvedClientReplyLimit),
+      max: resolvedClientReplyLimit
+    }
+    : null;
+
   return {
     id: String(ticket._id), ticketNumber: ticket.ticketNumber,
     businessAccountId: String(ticket.businessAccountId), branchId: String(ticket.branchId),
+    resolvedReplyAllowance: replyAllowance,
     category: ticket.category, priority: ticket.priority, status: ticket.status, subject: ticket.subject,
     relatedShipmentDraftId: ticket.relatedShipmentDraftId ? String(ticket.relatedShipmentDraftId) : null,
     assignedTo: ticket.assignedTo ? String(ticket.assignedTo) : null,
@@ -164,12 +191,29 @@ export async function createClientSupportTicket(userId: mongoose.Types.ObjectId,
   if (!membership || !account) throw new SupportTicketError("You do not have access to this business account.", 403);
   if (!account.assignedBranch) throw new SupportTicketError("Contact Swiftline because this account has no assigned branch.", 409);
   const branchId = account.assignedBranch;
+  // A shipment problem is only actionable against a named shipment.
+  if (isShipmentIssueCategory(input.category) && !input.relatedShipmentDraftId) {
+    throw new SupportTicketError("Select the shipment this issue relates to.");
+  }
   let shipmentId: mongoose.Types.ObjectId | null = null;
   if (input.relatedShipmentDraftId) {
     if (!mongoose.Types.ObjectId.isValid(input.relatedShipmentDraftId)) throw new SupportTicketError("Select a valid related shipment.");
     shipmentId = new mongoose.Types.ObjectId(input.relatedShipmentDraftId);
     const shipment = await ShipmentDraft.exists({ _id: shipmentId, businessAccountId: accountId });
     if (!shipment) throw new SupportTicketError("The selected shipment does not belong to this business account.", 400);
+    // One live ticket per shipment, across the whole account: a second one would
+    // split the conversation about the same problem.
+    const openTicket = await SupportTicket.findOne({
+      businessAccountId: accountId,
+      relatedShipmentDraftId: shipmentId,
+      status: { $in: openSupportTicketStatusValues }
+    }).select("ticketNumber").lean().exec();
+    if (openTicket) {
+      throw new SupportTicketError(
+        `Ticket ${openTicket.ticketNumber} is already open for this shipment. Reply on that ticket until it is resolved.`,
+        409
+      );
+    }
   }
   const now = new Date();
   const session = await mongoose.startSession();
@@ -225,6 +269,21 @@ export async function addSupportTicketReply(input: {
   if (input.audience === "CLIENT") {
     await assertClientCanView(input.ticket, input.userId);
     if (input.ticket.status === "CLOSED") throw new SupportTicketError("This ticket is closed. Please raise a new ticket if you still need help.", 409);
+    // A resolved ticket stays open for a short follow-up only. Swiftline is not
+    // capped, so a customer's last question can always be answered.
+    if (input.ticket.status === "RESOLVED" && input.ticket.resolvedAt) {
+      const messages = await SupportTicketMessage.find({
+        ticketId: input.ticket._id,
+        authorType: "CLIENT",
+        createdAt: { $gte: input.ticket.resolvedAt }
+      }).select("authorType createdAt").lean().exec();
+      if (messages.length >= resolvedClientReplyLimit) {
+        throw new SupportTicketError(
+          `This ticket is resolved and you have used both follow-up replies. Please raise a new ticket if you still need help.`,
+          409
+        );
+      }
+    }
   }
   const internal = input.audience === "ADMIN" && Boolean(input.internal);
   const now = new Date();

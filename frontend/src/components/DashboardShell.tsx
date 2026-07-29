@@ -1,7 +1,8 @@
 "use client";
 
 import { ReactNode } from "react";
-import { FiLogOut } from "react-icons/fi";
+import { FiLogOut, FiUser } from "react-icons/fi";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { AuthenticatedUser } from "@/lib/useAdminUser";
@@ -37,6 +38,14 @@ export default function DashboardShell({
                 <p className="text-sm font-semibold uppercase text-[#0D1282]">{user.name || user.email}</p>
                 <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">{user.role}</p>
               </div>
+              <Link
+                href="/dashboard/profile"
+                title="My Profile"
+                aria-label="My Profile"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30"
+              >
+                <FiUser aria-hidden="true" className="h-5 w-5" />
+              </Link>
               <button
                 onClick={handleLogout}
                 className="inline-flex items-center gap-2 rounded-lg bg-[#D71313] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2"

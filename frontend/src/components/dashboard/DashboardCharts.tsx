@@ -83,8 +83,8 @@ export function StagePipelineChart({
               onBlur={() => setActiveKey(null)}
               className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-3 rounded-lg px-1.5 py-2 outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/40 sm:grid-cols-[minmax(0,9rem)_1fr_auto]"
             >
-              <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-slate-200">
-                {Icon ? <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-white" /> : null}
+              <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium ">
+                {Icon ? <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0 " /> : null}
                 <span className="truncate">{stage.label}</span>
               </span>
 
@@ -100,8 +100,8 @@ export function StagePipelineChart({
               </span>
 
               <span className="flex items-baseline justify-end gap-2">
-                <span className="text-sm font-semibold tabular-nums text-white">{stage.count}</span>
-                <span className="w-9 text-right text-[11px] tabular-nums text-blue-200">{share(stage.count, total)}</span>
+                <span className="text-sm font-semibold tabular-nums ">{stage.count}</span>
+                <span className="w-9 text-right text-[11px] tabular-nums">{share(stage.count, total)}</span>
               </span>
             </div>
           </li>
@@ -161,7 +161,7 @@ export function DailyTrendChart({
         <TableToggle asTable onToggle={() => setAsTable(false)} />
         <div className="mt-3 max-h-[13.5rem] overflow-y-auto rounded-xl ring-1 ring-white/15">
           <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-[#0D1282] text-[11px] uppercase tracking-wide text-slate-300">
+            <thead className="sticky top-0 bg-[#0D1282] text-[11px] uppercase tracking-wide ">
               <tr>
                 <th scope="col" className="px-3 py-2 font-semibold">Date</th>
                 <th scope="col" className="px-3 py-2 text-right font-semibold">{unitLabel}</th>
@@ -170,8 +170,8 @@ export function DailyTrendChart({
             <tbody className="divide-y divide-white/10">
               {points.map((point) => (
                 <tr key={point.key}>
-                  <td className="px-3 py-2 text-slate-200">{point.caption}</td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-white">{point.count}</td>
+                  <td className="px-3 py-2 ">{point.caption}</td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums ">{point.count}</td>
                 </tr>
               ))}
             </tbody>
@@ -267,8 +267,8 @@ export function DailyTrendChart({
               }}
             >
               <div className="min-w-[8.5rem] rounded-xl bg-slate-900 px-3 py-2 shadow-lg shadow-black/40 ring-1 ring-white/10">
-                <p className="text-sm font-semibold leading-5 text-white">{activePoint.count} {unitLabel}</p>
-                <p className="mt-0.5 text-[11px] leading-4 text-slate-300">{activePoint.caption}</p>
+                <p className="text-sm font-semibold leading-5 ">{activePoint.count} {unitLabel}</p>
+                <p className="mt-0.5 text-[11px] leading-4 ">{activePoint.caption}</p>
               </div>
             </div>
           ) : null}
@@ -285,7 +285,7 @@ function TableToggle({ asTable, onToggle }: { asTable: boolean; onToggle: () => 
       <button
         type="button"
         onClick={onToggle}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 transition hover:border-[#F0DE36] hover:text-[#F0DE36] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 px-2.5 py-1.5 text-[11px] font-semibold  transition hover:border-[#F0DE36] hover:text-[#F0DE36] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
       >
         <Icon aria-hidden="true" className="h-3 w-3" />
         {asTable ? "Show chart" : "Show table"}

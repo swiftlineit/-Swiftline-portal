@@ -8,7 +8,7 @@ import { FiArrowDownRight, FiArrowRight, FiArrowUpRight, FiMinus } from "react-i
 // #EEEDED page plane plus a hairline ring, so cards read as raised without the
 // heavy inset/outset pairing of full neumorphism.
 export const panelSurface =
-"rounded-2xl bg-gradient-to-br from-[#0D1282] to-[#1a1fa8] ring-1 ring-slate-900/[0.04] shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-20px_rgba(13,18,130,0.30)]";
+"rounded-2xl bg-gradient-to-br from-white via-slate-50 to-slate-100 ring-1 ring-slate-900/[0.04] shadow border border-slate-100";
 export const panelLift =
   "transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_2px_6px_rgba(15,23,42,0.05),0_20px_44px_-22px_rgba(13,18,130,0.40)]";
 
@@ -43,8 +43,8 @@ export function SectionCard({
             </span>
           ) : null}
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold tracking-tight text-white">{title}</h2>
-            {subtitle ? <p className="mt-0.5 text-xs leading-5 text-slate-300">{subtitle}</p> : null}
+            <h2 className="truncate text-sm font-semibold tracking-tight ">{title}</h2>
+            {subtitle ? <p className="mt-0.5 text-xs leading-5 ">{subtitle}</p> : null}
           </div>
         </div>
         {action}
@@ -53,7 +53,7 @@ export function SectionCard({
       <div className={`min-w-0 flex-1 px-5 py-4 ${bodyClassName}`}>{children}</div>
 
       {footnote ? (
-        <p className="border-t border-white/10 px-5 py-2.5 text-[11px] leading-5 text-slate-300">{footnote}</p>
+        <p className="border-t border-white/10 px-5 py-2.5 text-[11px] leading-5 ">{footnote}</p>
       ) : null}
     </section>
   );
@@ -81,19 +81,18 @@ export function KpiCard({
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
-        <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-            emphasis ? "bg-white text-[#D71313]" : "bg-[#F0DE36] text-[#0D1282]"
+        {/* <span
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm ${
+            emphasis ? "bg-[#D71313]/10 text-[#D71313]" : "bg-[#F0DE36]/20 text-[#0D1282]"
           }`}
         >
           <Icon aria-hidden="true" className="h-[18px] w-[18px]" />
-        </span>
+        </span> */}
         {delta ? <DeltaBadge {...delta} /> : null}
       </div>
-
-      <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-white">{label}</p>
-      <p className="mt-1 text-[28px] font-semibold leading-9 tracking-tight text-white">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-white">{description}</p>
+      <p className="mt-1.5 text-3xl font-bold leading-9 tracking-tight text-slate-900 tabular-nums">{value}</p>
+      <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
 
       {/* {href ? (
         <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282]">

@@ -26,6 +26,7 @@ import {
   updateBusinessAccountOperationalAction,
   updateBusinessAccountStatus
 } from "@/lib/businessAccounts";
+import { CreditAccount, listAdminCreditAccounts } from "@/lib/creditAccounts";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 type BranchTab = "overview" | "businessAccounts" | "shipments" | "finance" | "tickets";
@@ -104,6 +105,9 @@ export default function BranchDetailPage() {
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [assigningAccount, setAssigningAccount] = useState<BusinessAccount | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
+  // Credit facilities keyed by business account _id, so the linked-accounts table
+  // can show available credit and outstanding alongside each account.
+  const [creditByBusinessId, setCreditByBusinessId] = useState<Map<string, CreditAccount>>(new Map());
 
   useEffect(() => {
     if (!user || !params.branchId) return;
@@ -135,6 +139,17 @@ export default function BranchDetailPage() {
     }
 
     void loadBranchForRoute();
+    // Supporting detail for the table, so a failure leaves the credit columns
+    // blank rather than breaking the branch page.
+    void listAdminCreditAccounts()
+      .then((data) => {
+        if (active) {
+          setCreditByBusinessId(new Map(data.creditAccounts.map((account) => [account.businessAccountId, account])));
+        }
+      })
+      .catch(() => {
+        if (active) setCreditByBusinessId(new Map());
+      });
 
     return () => {
       active = false;
@@ -293,7 +308,7 @@ export default function BranchDetailPage() {
               {branch ? (
                 <Link
                   href={`/dashboard/branches/${branch._id}/edit`}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63]"
+                  className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 px-4 py-2.5 text-sm font-semibold shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63]"
                 >
                   <FiEdit2 aria-hidden="true" className="h-4 w-4" /> Edit Branch
                 </Link>
@@ -303,7 +318,7 @@ export default function BranchDetailPage() {
 
           {/* Tab navigation */}
           {branch ? (
-            <div className="mt-5 flex flex-wrap gap-1 border-t border-slate-100 pt-4">
+            <div className="mt-5 flex flex-wrap gap-1 border-t border-slate-200 pt-4">
               {branchTabs.map((tab) => {
                 const isActive = activeTab === tab.id;
 
@@ -352,7 +367,7 @@ export default function BranchDetailPage() {
                     </div>
                     <Link
                       href="/dashboard/business-accounts/create"
-                      className="inline-flex items-center gap-2 rounded-lg bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63]"
+                      className="inline-flex items-center gap-2 rounded-4xl border border-slate-200  px-4 py-2.5 text-sm font-semibold shadow-sm shadow-[#0D1282]/20 transition "
                     >
                       <span className="text-base leading-none">+</span> Create Business Account
                     </Link>
@@ -360,6 +375,7 @@ export default function BranchDetailPage() {
                   <BusinessAccountsTable
                     accounts={linkedAccounts}
                     updatingAccountId={updatingAction}
+                    creditByBusinessId={creditByBusinessId}
                     onAccountMenuChange={handleAccountMenuChange}
                   />
                 </section>

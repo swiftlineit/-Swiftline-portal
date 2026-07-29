@@ -250,6 +250,42 @@ export function buildManifestLine(input: ManifestLineInput): ShipmentManifestLin
   };
 }
 
+/** The person named on the shipment, falling back to their company when unnamed. */
+function partyPersonName(party: ManifestPartySnapshot) {
+  return party.contactName || party.companyName;
+}
+
+/**
+ * A manifest line for the client handover document: the same core fields as
+ * `buildManifestLine` plus the discrete columns that document needs. Shipper and
+ * receiver are the two contact names captured on the shipment, and every physical
+ * parcel keeps its own barcode, forwarding number, weight and product so the
+ * document can give each parcel its own row.
+ */
+export function buildHandoverManifestLine(input: ManifestLineInput & { remark?: string }): ShipmentManifestLineSnapshot {
+  const line = buildManifestLine(input);
+  const parties = buildManifestParties(input.snapshot);
+  const parcels = input.snapshot.parcels.map((parcel) => ({
+    awbNumber: text(parcel.swiftlineParcelNumber),
+    forwardingNumber: text(parcel.carrierParcelNumber),
+    weightKg: parcel.actualWeightKg,
+    product: text(parcel.shipmentContentType)
+  }));
+
+  return {
+    ...line,
+    awbNumbers: parcels.map((parcel) => parcel.awbNumber).filter(Boolean),
+    forwardingNumbers: parcels.map((parcel) => parcel.forwardingNumber).filter(Boolean),
+    destination: parties.consignee.countryName || parties.consignee.countryCode,
+    shipperName: partyPersonName(parties.consignor),
+    receiverName: partyPersonName(parties.consignee),
+    product: [...new Set(parcels.map((parcel) => parcel.product).filter(Boolean))].join(", "),
+    remark: text(input.remark),
+    service: text(input.snapshot.service.type).toUpperCase(),
+    parcels
+  };
+}
+
 export async function allocateShipmentManifestNumber(session?: mongoose.ClientSession) {
   const counter = await ShipmentManifestCounter.findOneAndUpdate(
     { _id: "shipment-manifest" },
@@ -274,6 +310,11 @@ export function serializeShipmentManifest(manifest: IShipmentManifest) {
     mawbNumber: text(header.mawbNumber),
     originIataCode: text(header.originIataCode),
     destinationIataCode: text(header.destinationIataCode),
+    businessAccountName: text(header.businessAccountName),
+    origin: text(header.origin),
+    destination: text(header.destination),
+    coloader: text(header.coloader),
+    paymentType: text(header.paymentType),
     totalPieces: manifest.totalPieces,
     totalWeightKg: manifest.totalWeightKg,
     totalBags: manifest.totalBags,
@@ -373,123 +414,12 @@ function manifestPartyOf(value: unknown): ManifestPartySnapshot | null {
   return source.party && typeof source.party === "object" ? source.party as ManifestPartySnapshot : null;
 }
 
-async function buildClientShipmentManifestWorkbook(manifest: IShipmentManifest): Promise<Buffer> {
-  const header = manifest.headerSnapshot as Record<string, unknown>;
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Swiftline Portal";
-  workbook.company = "Swiftline Cargo and Express Logistics";
-  workbook.subject = `Client shipment manifest ${manifest.manifestNumber}`;
-  workbook.created = manifest.generatedAt;
-
-  const worksheet = workbook.addWorksheet("Client Manifest", {
-    views: [{ state: "frozen", ySplit: 9, activeCell: "A10", showGridLines: false, zoomScale: 85 }],
-    pageSetup: {
-      orientation: "landscape",
-      paperSize: 9,
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-      horizontalCentered: true,
-      printTitlesRow: "9:9",
-      margins: { left: 0.25, right: 0.25, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 }
-    }
-  });
-
-  worksheet.columns = [
-    { width: 7 }, { width: 25 }, { width: 9 }, { width: 13 }, { width: 34 },
-    { width: 38 }, { width: 34 }, { width: 16 }, { width: 14 }
-  ];
-  worksheet.mergeCells("A1:I1");
-  worksheet.getCell("A1").value = "Client Shipment Manifest";
-  worksheet.getRow(1).height = 30;
-  styleRange(worksheet, 1, 1, 1, 9, {
-    font: { bold: true, size: 15, color: { argb: manifestColours.text } },
-    fill: solidFill(manifestColours.white),
-    alignment: { horizontal: "center", vertical: "middle" },
-    border: manifestBorder
-  });
-
-  const firstLine = manifest.lineSnapshots[0];
-  // The header names the customer's business account. It is captured explicitly
-  // at manifest creation; the consignor first line is only a fallback for
-  // manifests generated before the account name was stored.
-  const accountName = text(header.businessAccountName)
-    || splitManifestLines(firstLine?.consignor.formatted, 1)[0]
-    || "Business Account";
-  const details: Array<[string, string | number]> = [
-    ["Manifest Number", manifest.manifestNumber],
-    ["Generated Date", manifest.generatedAt.toLocaleDateString("en-GB")],
-    ["Business Account", accountName],
-    ["Origin Branch", text(header.originBranch)],
-    ["Origin Address", text(header.originAddress)],
-    ["Total Pieces", manifest.totalPieces],
-    ["Total Weight (KG)", manifest.totalWeightKg]
-  ];
-  details.forEach(([label, value], index) => {
-    const rowNumber = index + 2;
-    worksheet.mergeCells(rowNumber, 1, rowNumber, 2);
-    worksheet.mergeCells(rowNumber, 3, rowNumber, 9);
-    worksheet.getCell(rowNumber, 1).value = label;
-    worksheet.getCell(rowNumber, 3).value = value;
-    worksheet.getCell(rowNumber, 1).font = { bold: true, size: 10 };
-    worksheet.getCell(rowNumber, 1).fill = solidFill(manifestColours.labelFill);
-    worksheet.getCell(rowNumber, 3).font = { size: 10 };
-    worksheet.getRow(rowNumber).height = label === "Origin Address" ? 42 : 22;
-    styleRange(worksheet, rowNumber, 1, rowNumber, 9, {
-      alignment: { vertical: "middle", wrapText: true },
-      border: manifestBorder
-    });
-  });
-
-  const headingRowNumber = 9;
-  worksheet.getRow(headingRowNumber).values = [
-    "S.No", "Consignment No.", "Pieces", "Weight (KG)", "Consignor",
-    "Consignee", "Description", "Goods Value (INR)", "Service"
-  ];
-  worksheet.getRow(headingRowNumber).height = 32;
-  styleRange(worksheet, headingRowNumber, 1, headingRowNumber, 9, {
-    font: { bold: true, size: 10 },
-    fill: solidFill(manifestColours.labelFill),
-    alignment: { horizontal: "center", vertical: "middle", wrapText: true },
-    border: manifestBorder
-  });
-
-  manifest.lineSnapshots.forEach((line, index) => {
-    const row = worksheet.addRow([
-      index + 1,
-      line.consignmentNumber,
-      line.pieces,
-      line.weightKg,
-      line.consignor.formatted,
-      line.consignee.formatted,
-      line.description,
-      line.declaredValueMinor / 100,
-      line.serviceInfo
-    ]);
-    const addressLines = Math.max(
-      splitManifestLines(line.consignor.formatted, 12).length,
-      splitManifestLines(line.consignee.formatted, 12).length
-    );
-    row.height = Math.max(54, Math.min(150, addressLines * 17));
-    for (let column = 1; column <= 9; column += 1) {
-      const cell = row.getCell(column);
-      cell.font = { size: 10 };
-      cell.alignment = { horizontal: "center", vertical: "top", wrapText: true };
-      cell.border = manifestBorder;
-    }
-    row.getCell(4).numFmt = "0.000";
-    row.getCell(8).numFmt = "#,##0.00";
-  });
-
-  worksheet.pageSetup.printArea = `A1:I${worksheet.rowCount}`;
-  worksheet.headerFooter.oddFooter = "Swiftline Portal | Computer Generated Client Manifest | Page &P of &N";
-  const buffer = await workbook.xlsx.writeBuffer();
-  return Buffer.from(buffer);
-}
-
+/**
+ * The courier-manifest workbook. Shipment manifests themselves download as the
+ * handover PDF (see `shipmentManifestPdf.service`); this builder remains because
+ * the operations manifest reuses it for its own Excel export.
+ */
 export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest): Promise<Buffer> {
-  if (manifest.actorRole === "client") return buildClientShipmentManifestWorkbook(manifest);
-
   const header = manifest.headerSnapshot as Record<string, unknown>;
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Swiftline Portal";

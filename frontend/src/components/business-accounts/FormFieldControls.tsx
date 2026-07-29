@@ -31,49 +31,9 @@ export type CompanyUpdater = <Key extends keyof BusinessAccountFormData["company
 
 export const businessAccountSteps = ["Contact Details", "Company Details", "Upload Documents", "Review & Submit"];
 
-export const departments = [
-  "Management",
-  "Operations",
-  "Logistics",
-  "Finance",
-  "Procurement",
-  "Accounts",
-  "Sales",
-  "Import and Export",
-  "Other"
-];
-
-export const industries = [
-  "Freight Forwarder",
-  "Custom House Agent (CHA)",
-  "Broker/Agent",
-  "E-commerce",
-  "Retail",
-  "Manufacturing",
-  "Healthcare",
-  "Pharmaceuticals",
-  "Automotive",
-  "Electronics",
-  "Fashion and Apparel",
-  "Food and Beverage",
-  "FMCG",
-  "Import and Export",
-  "Construction",
-  "Agriculture",
-  "Chemicals",
-  "Information Technology",
-  "Professional Services",
-  "Other"
-];
-
-export const shipmentVolumes = [
-  "1-50 shipments",
-  "51-200 shipments",
-  "201-500 shipments",
-  "501-1,000 shipments",
-  "1,001-5,000 shipments",
-  "More than 5,000 shipments"
-];
+// These moved to `lib/businessAccountOptions` so the profile page can offer the
+// same choices; re-exported here so the wizard's imports are unchanged.
+export { departments, industries, shipmentVolumes } from "@/lib/businessAccountOptions";
 
 export const countryOptions: SelectOption[] = [
   { value: "India", label: "India", iso2: "in" },

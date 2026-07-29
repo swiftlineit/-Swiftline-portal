@@ -15,6 +15,7 @@ import {
 } from "../services/razorpay/client.js";
 import { verifyRazorpayCheckoutSignature } from "../services/razorpay/signatures.js";
 import {
+  cancelPaymentTopUp,
   createPaymentTopUp,
   ensurePrepaidAccount,
   findPaymentTopUpByIdempotencyKey,
@@ -22,6 +23,7 @@ import {
   markPaymentTopUpCheckoutVerified,
   creditCapturedTopUp
 } from "../services/prepaid/topups.service.js";
+import { dailyLimitMessage, getDailyTopUpUsage } from "../services/prepaid/dailyTopUpLimit.service.js";
 import { canAccessCreditFinancials } from "../services/creditAccount.service.js";
 
 const createTopUpSchema = z.object({
@@ -153,6 +155,7 @@ export async function getClientPrepaidAccount(request: Request, response: Respon
   if (!clientAccount) return response.status(404).json({ success: false, message: "Business account not found" });
 
   const account = await ensurePrepaidAccount({ businessAccountId: clientAccount.businessAccountId });
+  const dailyTopUp = await getDailyTopUpUsage({ businessAccountId: clientAccount.businessAccountId });
 
   return response.status(200).json({
     success: true,
@@ -163,7 +166,12 @@ export async function getClientPrepaidAccount(request: Request, response: Respon
       reservedBalanceMinor: account.reservedBalanceMinor,
       availableBalanceMinor: account.cashBalanceMinor - account.reservedBalanceMinor,
       status: account.status,
-      minimumBalanceWarningMinor: account.minimumBalanceWarningMinor
+      minimumBalanceWarningMinor: account.minimumBalanceWarningMinor,
+      // Per-transaction bounds and today's remaining allowance, so the payment
+      // form can enforce the same rules the server does.
+      minTopUpMinor: env.RAZORPAY_MIN_TOPUP_MINOR,
+      maxTopUpMinor: env.RAZORPAY_MAX_TOPUP_MINOR,
+      dailyTopUp
     }
   });
 }
@@ -231,6 +239,19 @@ export async function createClientPrepaidTopUp(request: Request, response: Respo
     }
   }
 
+  // Fail before an order exists at Razorpay when the account is already at its
+  // daily ceiling. The authoritative check runs again once the row exists.
+  if (parsed.data.purpose === "CUSTOMER_ADVANCE") {
+    const usage = await getDailyTopUpUsage({ businessAccountId: clientAccount.businessAccountId });
+    if (parsed.data.amountMinor > usage.remainingMinor) {
+      return response.status(409).json({
+        success: false,
+        message: dailyLimitMessage(usage.remainingMinor),
+        dailyTopUp: usage
+      });
+    }
+  }
+
   const internalReference = `${parsed.data.purpose === "SECURITY_DEPOSIT" ? "DEPOSIT" : "TOPUP"}-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
   const razorpayOrder = await createRazorpayOrder({
     amountMinor: parsed.data.amountMinor,
@@ -252,6 +273,25 @@ export async function createClientPrepaidTopUp(request: Request, response: Respo
     idempotencyKey,
     razorpayOrderId: razorpayOrder.id
   });
+
+  // Two requests can pass the pre-check at once, so the row is created first and
+  // then confirmed against everything created at or before it. The earlier row
+  // wins; the later one is cancelled before its order is ever handed back.
+  if (parsed.data.purpose === "CUSTOMER_ADVANCE" && topUpResult.created) {
+    const confirmed = await getDailyTopUpUsage({
+      businessAccountId: clientAccount.businessAccountId,
+      upTo: { createdAt: topUpResult.topUp.createdAt, id: topUpResult.topUp._id as mongoose.Types.ObjectId }
+    });
+    if (confirmed.usedMinor > confirmed.limitMinor) {
+      await cancelPaymentTopUp(topUpResult.topUp._id as mongoose.Types.ObjectId);
+      const usage = await getDailyTopUpUsage({ businessAccountId: clientAccount.businessAccountId });
+      return response.status(409).json({
+        success: false,
+        message: dailyLimitMessage(usage.remainingMinor),
+        dailyTopUp: usage
+      });
+    }
+  }
 
   return response.status(201).json({
     success: true,

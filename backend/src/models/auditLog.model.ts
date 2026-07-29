@@ -71,7 +71,10 @@ export type AuditAction =
   | "SECURITY_DEPOSIT_RECEIVED"
   | "SUPPORT_TICKET_CREATED"
   | "SUPPORT_TICKET_REPLIED"
-  | "SUPPORT_TICKET_UPDATED";
+  | "SUPPORT_TICKET_UPDATED"
+  | "USER_PROFILE_UPDATED"
+  | "USER_PASSWORD_CHANGED"
+  | "BUSINESS_ACCOUNT_PROFILE_UPDATED";
 export type AuditEntityType =
   | "BRANCH"
   | "DPD_CONFIGURATION"
@@ -92,7 +95,8 @@ export type AuditEntityType =
   | "CREDIT_BILLING_STATEMENT"
   | "CREDIT_PAYMENT"
   | "CREDIT_AGREEMENT"
-  | "SUPPORT_TICKET";
+  | "SUPPORT_TICKET"
+  | "USER";
 
 export interface IAuditLog extends mongoose.Document {
   action: AuditAction;

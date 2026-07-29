@@ -4,21 +4,38 @@ import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 export type TicketAudience = "client" | "admin";
 export type TicketStatus = "OPEN" | "IN_PROGRESS" | "WAITING_FOR_CUSTOMER" | "RESOLVED" | "CLOSED";
 export type TicketPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
-export type TicketCategory = "SHIPMENT_BOOKING" | "TRACKING" | "LABEL_MANIFEST" | "AMENDMENT_CANCELLATION" | "INVOICE_PAYMENT" | "CREDIT_ACCOUNT" | "ACCOUNT_ACCESS" | "TECHNICAL" | "OTHER";
+export type TicketCategory = "SHIPMENT_BOOKING" | "TRACKING" | "LABEL_MANIFEST" | "AMENDMENT_CANCELLATION" | "SHIPMENT_DELAYED" | "SHIPMENT_NOT_RECEIVED" | "SHIPMENT_LOST" | "SHIPMENT_THEFT" | "SHIPMENT_DAMAGED" | "INVOICE_PAYMENT" | "CREDIT_ACCOUNT" | "ACCOUNT_ACCESS" | "TECHNICAL" | "OTHER";
 
 export const ticketCategories: Array<{ value: TicketCategory; label: string }> = [
   { value: "SHIPMENT_BOOKING", label: "Shipment Booking" }, { value: "TRACKING", label: "Tracking" },
   { value: "LABEL_MANIFEST", label: "Label or Manifest" }, { value: "AMENDMENT_CANCELLATION", label: "Amendment or Cancellation" },
+  { value: "SHIPMENT_DELAYED", label: "Shipment Delayed" }, { value: "SHIPMENT_NOT_RECEIVED", label: "Shipment Not Received" },
+  { value: "SHIPMENT_LOST", label: "Shipment Lost" }, { value: "SHIPMENT_THEFT", label: "Shipment Theft" },
+  { value: "SHIPMENT_DAMAGED", label: "Shipment Damaged" },
   { value: "INVOICE_PAYMENT", label: "Invoice or Payment" }, { value: "CREDIT_ACCOUNT", label: "Credit Account" },
   { value: "ACCOUNT_ACCESS", label: "Account Access" }, { value: "TECHNICAL", label: "Technical Issue" },
   { value: "OTHER", label: "Other" }
 ];
+
+/** Categories about a specific shipment, which therefore require one to be named. */
+export const shipmentIssueCategories: TicketCategory[] = [
+  "SHIPMENT_DELAYED", "SHIPMENT_NOT_RECEIVED", "SHIPMENT_LOST", "SHIPMENT_THEFT", "SHIPMENT_DAMAGED"
+];
+
+export function requiresRelatedShipment(category: TicketCategory) {
+  return shipmentIssueCategories.includes(category);
+}
+
+/** Statuses in which a ticket still blocks a second ticket for the same shipment. */
+export const openTicketStatuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_FOR_CUSTOMER"];
 
 export type SupportTicket = {
   id: string; ticketNumber: string; businessAccountId: string; branchId: string;
   category: TicketCategory; priority: TicketPriority; status: TicketStatus; subject: string;
   relatedShipmentDraftId: string | null; assignedTo: string | null;
   lastMessageAt: string; resolvedAt: string | null; closedAt: string | null; createdAt: string; updatedAt: string;
+  // Present only on a resolved ticket loaded with its messages; null otherwise.
+  resolvedReplyAllowance: { used: number; max: number } | null;
   account: { id: string; accountId: string; companyName: string } | null;
   branch: { id: string; name: string; code: string } | null;
   creator: { id: string; name: string; email: string } | null;

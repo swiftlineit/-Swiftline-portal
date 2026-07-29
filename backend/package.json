@@ -42,6 +42,8 @@
     "test:shipment:consignor": "tsx --test src/tests/consignorValidation.test.ts",
     "test:support-tickets": "tsx --test src/tests/supportTicket.integration.test.ts",
     "test:operations-manifests": "tsx --test src/tests/operationsManifest.test.ts",
+    "test:profile": "tsx --test src/tests/profileValidation.test.ts",
+    "test:prepaid:daily-limit": "tsx --test src/tests/dailyTopUpLimit.integration.test.ts",
     "test:business-accounts": "tsx --test src/tests/businessAccount.test.ts",
     "test:business-accounts:integration": "tsx --test src/tests/businessAccount.integration.test.ts",
     "test:branches": "tsx --test src/tests/branch.test.ts",

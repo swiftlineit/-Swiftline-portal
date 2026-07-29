@@ -131,8 +131,8 @@ export default function ClientCreditPage() {
             <h1 className="text-2xl font-semibold text-slate-950">Credit Account</h1>
             <p className="mt-1 text-sm text-slate-600">View the shared booking capacity for your business account.</p>
           </div>
-          <Link href="/client/credit/payment-terms" className="inline-flex h-10 items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 hover:border-blue-300">
-            <FiFileText aria-hidden="true" /> Payment Terms
+          <Link href="/client/credit/payment-terms" className="inline-flex rounded-4xl h-10 items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 hover:border-blue-300">
+            <FiFileText aria-hidden="true" />View Payment Terms
           </Link>
         </div>
 
@@ -152,13 +152,13 @@ export default function ClientCreditPage() {
           <div className="flex min-h-48 items-center justify-center border border-slate-200 bg-white text-sm font-semibold text-slate-500"><FiRefreshCw className="mr-2 animate-spin" /> Loading credit account...</div>
         ) : creditAccount && selectedAccount ? (
           <>
-            <section className="flex flex-wrap items-center justify-between gap-4 border border-slate-200 bg-white p-5">
+            {/* <section className="flex flex-wrap items-center justify-between gap-4 border border-slate-200 bg-white p-5">
               <div>
                 <p className="text-xs font-semibold uppercase text-slate-500">{selectedAccount.account.accountId}</p>
                 <h2 className="mt-1 text-lg font-semibold text-slate-950">{selectedAccount.account.company.companyName}</h2>
               </div>
               <CreditStatusBadge status={creditAccount.status} />
-            </section>
+            </section> */}
 
             <CreditSummaryCards account={creditAccount} />
 
@@ -171,14 +171,14 @@ export default function ClientCreditPage() {
             ) : null}
 
             {permissions.includes("viewCreditDetails") ? (
-              <section className="flex flex-wrap items-center justify-between gap-4 border border-slate-200 bg-white p-5">
+              <section className="flex flex-wrap items-center justify-between gap-4 border rounded-2xl border-slate-200 bg-white p-5">
                 <div><h2 className="font-semibold text-slate-950">Statements and Account Activity</h2><p className="mt-1 text-sm text-slate-600">Review billing statements, payments, and credit movements.</p></div>
-                <Link href="/client/credit/statements" className="inline-flex h-10 items-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white"><FiFileText /> View Statements</Link>
+                <Link href="/client/credit/statements" className="inline-flex rounded-4xl h-10 items-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white"><FiFileText /> View Statements</Link>
               </section>
             ) : null}
 
             {creditAccount.securityDepositRequiredMinor && creditAccount.businessAccount?.depositStatus !== "received" ? (
-              <section className="flex flex-wrap items-center justify-between gap-4 border border-amber-200 bg-amber-50 p-5">
+              <section className="flex flex-wrap items-center justify-between gap-4 border rounded-2xl border-amber-200 bg-amber-50 p-5">
                 <div>
                   <p className="text-xs font-semibold uppercase text-amber-700">Required Deposit</p>
                   <h2 className="mt-1 font-semibold text-slate-950">Deposit needed before activation</h2>
@@ -196,19 +196,19 @@ export default function ClientCreditPage() {
             ) : null}
 
             {agreement ? (
-              <section className="flex flex-wrap items-center justify-between gap-4 border border-slate-200 bg-white p-5">
+              <section className="flex flex-wrap items-center justify-between rounded-2xl gap-4 border border-slate-200 bg-white p-5">
                 <div>
                   <p className="text-xs font-semibold uppercase text-slate-500">Credit Agreement</p>
                   <h2 className="mt-1 font-semibold text-slate-950">{agreement.agreementNumber}</h2>
                   <p className="mt-1 text-sm text-slate-600">{agreement.status === "SIGNED" ? "Signed agreement available" : "Review and signature required before credit activation"}</p>
                 </div>
-                <Link href={`/client/credit/agreements/${agreement.id}`} className="inline-flex h-10 items-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800">
+                <Link href={`/client/credit/agreements/${agreement.id}`} className="inline-flex rounded-4xl h-10 items-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800">
                   <FiFileText /> {agreement.status === "SIGNED" ? "View Signed Agreement" : "Review and Sign"}
                 </Link>
               </section>
             ) : null}
 
-            <section className="grid gap-4 border border-slate-200 bg-white p-5 sm:grid-cols-2 lg:grid-cols-4">
+            <section className="grid gap-4 border border-slate-200 rounded-2xl bg-white p-5 sm:grid-cols-2 lg:grid-cols-4">
               <div><p className="text-xs font-semibold uppercase text-slate-500">Payment Terms</p><p className="mt-2 font-semibold text-slate-900">{creditAccount.paymentTermsDays === 0 ? "Due immediately" : `${creditAccount.paymentTermsDays} days`}</p></div>
               <div><p className="text-xs font-semibold uppercase text-slate-500">Billing Cycle</p><p className="mt-2 font-semibold text-slate-900">{creditAccount.billingCycle}</p></div>
               <div><p className="text-xs font-semibold uppercase text-slate-500">Valid Until</p><p className="mt-2 font-semibold text-slate-900">{creditAccount.validUntil ? new Date(creditAccount.validUntil).toLocaleDateString("en-GB").replaceAll("/", "-") : "Not assigned"}</p></div>

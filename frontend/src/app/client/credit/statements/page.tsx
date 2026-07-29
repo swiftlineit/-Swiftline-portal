@@ -119,7 +119,7 @@ export default function ClientCreditStatementsPage() {
             <p className="mt-1 text-sm text-slate-600">Review shipment invoices grouped for credit collection.</p>
           </div>
           <div className="flex gap-2">
-            <Link href={businessAccountId ? `/client/credit/ledger?businessAccountId=${businessAccountId}` : "/client/credit/ledger"} className="inline-flex h-10 items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900">
+            <Link href={businessAccountId ? `/client/credit/ledger?businessAccountId=${businessAccountId}` : "/client/credit/ledger"} className="inline-flex h-10 rounded-4xl items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900">
               <FiFileText /> Account Statement
             </Link>
             {selectedAccount?.membership.role === "finance" ? (
@@ -143,7 +143,7 @@ export default function ClientCreditStatementsPage() {
           gracePeriodDays={creditAccount?.gracePeriodDays}
         />
 
-        <section className="overflow-x-auto border border-slate-200 bg-white">
+        <section className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
               <tr>

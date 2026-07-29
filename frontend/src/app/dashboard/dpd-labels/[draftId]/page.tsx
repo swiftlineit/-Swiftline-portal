@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { FiCheckCircle, FiExternalLink, FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi";
+import { FiArrowLeft, FiCheckCircle, FiExternalLink, FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
 import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
 import {
@@ -62,7 +62,8 @@ import {
   validateAddress,
   validateShipmentDraft
 } from "@/lib/dpdLabels";
-import { calculateShipmentEstimate, formatMoney } from "@/lib/shipmentPricing";
+import { calculateShipmentEstimate, formatMoney, getVolumetricFormula } from "@/lib/shipmentPricing";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 type DpdShipmentResult = Awaited<ReturnType<typeof createDpdLabel>>;
@@ -856,7 +857,7 @@ export default function DpdLabelDraftPage() {
           <p className="mt-1 text-sm text-slate-500">Confirm consignee, destination, parcel, and charge details before booking.</p>
         </div>
         <Link href="/dashboard/dpd-labels" className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-blue-900 hover:text-blue-900">
-          Back to Upload
+         <FiArrowLeft className="h-4 w-4 mr-2" /> Back to Upload
         </Link>
       </div>
 
@@ -1088,9 +1089,9 @@ export default function DpdLabelDraftPage() {
                           ))}
                       </ShipmentSelectField>
                       <div className="md:col-span-2">
-                        <ShipmentTextField label="Contents Description" required value={parcel.contentsDescription} onChange={handleParcelFieldChange(index, "contentsDescription")} error={getParcelFieldIssue(index, ["contents description"])} revealError={submitAttempted} />
+                        <ShipmentTextField label="Contents Description" tooltip="Items/product details" required value={parcel.contentsDescription} onChange={handleParcelFieldChange(index, "contentsDescription")} error={getParcelFieldIssue(index, ["contents description"])} revealError={submitAttempted} />
                       </div>
-                      <ShipmentTextField label="Reference (Optional)" value={parcel.shipmentReference1} onChange={handleParcelFieldChange(index, "shipmentReference1")} />
+                      <ShipmentTextField label="Reference (Optional)" tooltip="Can be a company name or a unique identifier of the shipment" value={parcel.shipmentReference1} onChange={handleParcelFieldChange(index, "shipmentReference1")} />
                     </div>
                   </div>
                 ))}
@@ -1148,7 +1149,10 @@ export default function DpdLabelDraftPage() {
                       <p className="font-semibold text-slate-900">
                         Box {index + 1}: {parcel.chargeableWeightKg.toFixed(2)} kg chargeable
                       </p>
-                      <p>Actual {parcel.actualWeightKg.toFixed(2)} kg / Volumetric {parcel.volumetricWeightKg.toFixed(2)} kg</p>
+                      <p className="flex items-center gap-1">
+                        Actual {parcel.actualWeightKg.toFixed(2)} kg / Volumetric {parcel.volumetricWeightKg.toFixed(2)} kg
+                        <InfoTooltip text={getVolumetricFormula(draftCorrectionForm.serviceType)} />
+                      </p>
                       <p>{parcel.rate ? `${formatMoney(parcel.rate.chargesPerKg)} / KG` : "No matching rate slab"}</p>
                       {parcel.exceedsMaxBoxKg && parcel.rate ? (
                         <p className="mt-1 font-semibold text-amber-700">

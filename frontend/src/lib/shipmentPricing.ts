@@ -28,6 +28,19 @@ export function getVolumetricDivisor(serviceType: ShipmentServiceType) {
   return serviceType === "CARGO" ? 6000 : 5000;
 }
 
+/**
+ * How volumetric weight is worked out, for the hint shown wherever it appears.
+ * Pass the service type when it is known; without one, both divisors are listed
+ * because the divisor is what differs between Cargo and Courier.
+ */
+export function getVolumetricFormula(serviceType?: ShipmentServiceType) {
+  const divisor = serviceType
+    ? `${getVolumetricDivisor(serviceType)} for ${serviceType === "CARGO" ? "Cargo" : "Courier"}`
+    : "6000 for Cargo, 5000 for Courier";
+  return `Volumetric weight = (Length × Width × Height in cm) ÷ ${divisor}. `
+    + "The higher of actual and volumetric weight is charged.";
+}
+
 export function roundShipmentMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }

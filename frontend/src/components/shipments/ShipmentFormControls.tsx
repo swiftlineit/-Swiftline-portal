@@ -3,17 +3,28 @@
 import { ChangeEvent, ReactNode, useEffect, useState } from "react";
 import { CountrySelector, FlagImage } from "react-international-phone";
 import { FiChevronDown } from "react-icons/fi";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import { toast } from "react-toastify";
 import {
   getPhoneCountryByDialCode,
   preferredPhoneCountries
 } from "@/components/business-accounts/FormFieldControls";
 
-export function ShipmentFieldLabel({ children, required = false }: { children: ReactNode; required?: boolean }) {
+export function ShipmentFieldLabel({
+  children,
+  required = false,
+  tooltip
+}: {
+  children: ReactNode;
+  required?: boolean;
+  // Short explanation shown on hover, for fields whose wording is ambiguous.
+  tooltip?: string;
+}) {
   return (
-    <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+    <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
       {children}
-      {required ? <span className="ml-1 text-red-600">*</span> : null}
+      {required ? <span className="text-red-600">*</span> : null}
+      {tooltip ? <InfoTooltip text={tooltip} /> : null}
     </span>
   );
 }
@@ -38,6 +49,7 @@ export function ShipmentTextField({
   readOnly = false,
   maxLength,
   hint,
+  tooltip,
   onBlur
 }: {
   label: string;
@@ -52,6 +64,7 @@ export function ShipmentTextField({
   readOnly?: boolean;
   maxLength?: number;
   hint?: string;
+  tooltip?: string;
   // Fires after the field's own touched-tracking, e.g. to surface a restricted-goods toast.
   onBlur?: () => void;
 }) {
@@ -60,7 +73,7 @@ export function ShipmentTextField({
 
   return (
     <label className="block min-w-0">
-      <ShipmentFieldLabel required={required}>{label}</ShipmentFieldLabel>
+      <ShipmentFieldLabel required={required} tooltip={tooltip}>{label}</ShipmentFieldLabel>
       <input
         type={type}
         inputMode={inputMode}

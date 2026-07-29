@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import ExcelJS from "exceljs";
 import mongoose from "mongoose";
-import type { IShipmentManifest } from "../models/shipmentManifest.model.js";
+import type { IShipmentManifest, ShipmentManifestLineSnapshot } from "../models/shipmentManifest.model.js";
 import {
+  buildHandoverManifestLine,
   buildManifestLine,
   buildShipmentManifestWorkbook,
   formatManifestOrigin,
   manifestBusinessAccountName,
   type ManifestPartySnapshot
 } from "../services/shipmentManifest.service.js";
+import { buildShipmentManifestPdf, manifestRows } from "../services/shipmentManifestPdf.service.js";
 import type { ShipmentBookingSnapshot } from "../services/shipmentBookingSnapshot.service.js";
 
 function bookingSnapshot(): ShipmentBookingSnapshot {
@@ -64,8 +66,8 @@ function bookingSnapshot(): ShipmentBookingSnapshot {
       providerMode: "SIMULATED"
     },
     parcels: [
-      { sequence: 1, actualWeightKg: 4.5, contentsDescription: "Clothing", carrierParcelNumber: "P1", swiftlineParcelNumber: "S1" },
-      { sequence: 2, actualWeightKg: 5.5, contentsDescription: "Documents", carrierParcelNumber: "P2", swiftlineParcelNumber: "S2" }
+      { sequence: 1, actualWeightKg: 4.5, shipmentContentType: "PARCEL", contentsDescription: "Clothing", carrierParcelNumber: "P1", swiftlineParcelNumber: "S1" },
+      { sequence: 2, actualWeightKg: 5.5, shipmentContentType: "DOCUMENTS", contentsDescription: "Documents", carrierParcelNumber: "P2", swiftlineParcelNumber: "S2" }
     ],
     pricing: {} as ShipmentBookingSnapshot["pricing"],
     payment: { currency: "INR", totalAmountMinor: 118000, advanceAmountMinor: 0, creditAmountMinor: 118000 }
@@ -229,52 +231,58 @@ describe("shipment manifest workbook", () => {
     assert.equal(sheet.getCell("A14").font.bold, true);
   });
 
-  it("creates a client manifest with shipment data and no admin transport fields", async () => {
-    const line = buildManifestLine({
+});
+
+function handoverManifest(lines: ShipmentManifestLineSnapshot[]): IShipmentManifest {
+  return {
+    _id: new mongoose.Types.ObjectId(),
+    manifestNumber: "SLC-002",
+    businessAccountId: new mongoose.Types.ObjectId(),
+    branchId: new mongoose.Types.ObjectId(),
+    shipmentDraftIds: lines.map((line) => line.shipmentDraftId),
+    headerSnapshot: {
+      businessAccountName: "Example Exporter",
+      originBranch: "Swiftline Delhi - DEL-001",
+      originAddress: "Swiftline Delhi\n1 Logistics Park\nDelhi\n110001\nIndia",
+      origin: "Ahmedabad",
+      destination: "UK Service Del",
+      coloader: "Sky Cargo",
+      paymentType: "PREPAID"
+    },
+    lineSnapshots: lines,
+    totalPieces: lines.reduce((sum, line) => sum + line.pieces, 0),
+    totalWeightKg: lines.reduce((sum, line) => sum + line.weightKg, 0),
+    totalBags: 1,
+    actorRole: "client",
+    generatedAt: new Date("2026-07-21T10:00:00.000Z")
+  } as unknown as IShipmentManifest;
+}
+
+describe("handover manifest", () => {
+  it("keeps every parcel's own barcode, forwarding number, weight and product", () => {
+    const line = buildHandoverManifestLine({
       shipmentDraftId: new mongoose.Types.ObjectId(),
       dpdShipmentId: new mongoose.Types.ObjectId(),
       snapshot: bookingSnapshot(),
-      declaredValueMinor: 12_500_00,
-      bagNumber: "1"
+      declaredValueMinor: 0,
+      bagNumber: "1",
+      remark: "DONE"
     });
-    const manifest = {
-      _id: new mongoose.Types.ObjectId(),
-      manifestNumber: "SLC-002",
-      businessAccountId: new mongoose.Types.ObjectId(),
-      branchId: new mongoose.Types.ObjectId(),
-      shipmentDraftIds: [line.shipmentDraftId],
-      headerSnapshot: {
-        originBranch: "Swiftline Delhi - DEL-001",
-        originAddress: "Swiftline Delhi\n1 Logistics Park\nDelhi\n110001\nIndia"
-      },
-      lineSnapshots: [line],
-      totalPieces: 2,
-      totalWeightKg: 10,
-      totalBags: 1,
-      actorRole: "client",
-      generatedAt: new Date("2026-07-21T10:00:00.000Z")
-    } as unknown as IShipmentManifest;
 
-    const workbook = new ExcelJS.Workbook();
-    const bytes = await buildShipmentManifestWorkbook(manifest);
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-    const sheet = workbook.getWorksheet("Client Manifest");
-    assert.ok(sheet);
-    assert.equal(sheet.getCell("A1").value, "Client Shipment Manifest");
-    assert.equal(sheet.getCell("A2").value, "Manifest Number");
-    assert.equal(sheet.getCell("C2").value, "SLC-002");
-    assert.equal(sheet.getCell("B10").value, "SLDL21072026000001");
-    assert.equal(sheet.getCell("H10").value, 12500);
-
-    const visibleText = sheet.getSheetValues().flat().filter(Boolean).join(" ");
-    assert.equal(visibleText.includes("FLIGHT NUMBER"), false);
-    assert.equal(visibleText.includes("MAWB"), false);
-    assert.equal(visibleText.includes("Bag No"), false);
+    assert.deepEqual(line.parcels, [
+      { awbNumber: "S1", forwardingNumber: "P1", weightKg: 4.5, product: "PARCEL" },
+      { awbNumber: "S2", forwardingNumber: "P2", weightKg: 5.5, product: "DOCUMENTS" }
+    ]);
+    assert.equal(line.destination, "United Kingdom");
+    assert.equal(line.remark, "DONE");
+    assert.equal(line.pieces, 2);
+    assert.equal(line.weightKg, 10);
   });
 
-  it("headers the business account from headerSnapshot, not the consignor", async () => {
-    // A consignor that differs from the business account, so the header can only
-    // be correct if it reads businessAccountName rather than the consignor line.
+  it("takes shipper and receiver from the two contact names, and service from the service type", () => {
+    // A consignor company distinct from its contact name, and a business account
+    // distinct from both, so the shipper can only be right if it reads the
+    // consignor's contact name rather than either company.
     const snapshot = bookingSnapshot();
     snapshot.consignor = {
       companyName: "Sharma Trading Co",
@@ -289,42 +297,91 @@ describe("shipment manifest workbook", () => {
     } as ShipmentBookingSnapshot["consignor"];
 
     assert.equal(manifestBusinessAccountName(snapshot), "Example Exporter");
-
-    const line = buildManifestLine({
+    const line = buildHandoverManifestLine({
       shipmentDraftId: new mongoose.Types.ObjectId(),
       dpdShipmentId: new mongoose.Types.ObjectId(),
       snapshot,
+      declaredValueMinor: 0,
+      bagNumber: "1"
+    });
+
+    assert.equal(line.shipperName, "Ravi Sharma");
+    assert.equal(line.receiverName, "Asha Patel");
+    assert.equal(line.service, "COURIER");
+    // serviceInfo stays the EXP/CARGO code the EDI export and operations
+    // manifest depend on.
+    assert.equal(line.serviceInfo, "EXP");
+    // The consignor block still carries the real sender for other documents.
+    assert.ok(String(line.consignor.formatted).startsWith("Sharma Trading Co"));
+  });
+
+  it("gives every parcel its own row, numbered continuously across shipments", () => {
+    const lines = [
+      buildHandoverManifestLine({
+        shipmentDraftId: new mongoose.Types.ObjectId(),
+        dpdShipmentId: new mongoose.Types.ObjectId(),
+        snapshot: bookingSnapshot(),
+        declaredValueMinor: 0,
+        bagNumber: "1"
+      }),
+      buildHandoverManifestLine({
+        shipmentDraftId: new mongoose.Types.ObjectId(),
+        dpdShipmentId: new mongoose.Types.ObjectId(),
+        snapshot: bookingSnapshot(),
+        declaredValueMinor: 0,
+        bagNumber: "1"
+      })
+    ];
+
+    const rows = manifestRows(lines);
+    // Two shipments of two parcels each: four rows, not two.
+    assert.equal(rows.length, 4);
+    assert.deepEqual(rows.map((row) => row[0]), ["1", "2", "3", "4"]);
+    // Every row carries one parcel's own barcode, product, piece count and weight.
+    assert.deepEqual(rows.map((row) => row[1]), ["S1", "S2", "S1", "S2"]);
+    assert.deepEqual(rows.map((row) => row[2]), ["P1", "P2", "P1", "P2"]);
+    assert.deepEqual(rows.map((row) => row[7]), ["PARCEL", "DOCUMENTS", "PARCEL", "DOCUMENTS"]);
+    assert.deepEqual(rows.map((row) => row[8]), ["1", "1", "1", "1"]);
+    assert.deepEqual(rows.map((row) => row[9]), ["4.50", "5.50", "4.50", "5.50"]);
+    assert.deepEqual([...new Set(rows.map((row) => row[6]))], ["COURIER"]);
+  });
+
+  it("keeps a legacy line without per-parcel data as a single summary row", () => {
+    const legacyLine = buildManifestLine({
+      shipmentDraftId: new mongoose.Types.ObjectId(),
+      dpdShipmentId: new mongoose.Types.ObjectId(),
+      snapshot: bookingSnapshot(),
       declaredValueMinor: 12_500_00,
       bagNumber: "1"
     });
-    const manifest = {
-      _id: new mongoose.Types.ObjectId(),
-      manifestNumber: "SLC-003",
-      businessAccountId: new mongoose.Types.ObjectId(),
-      branchId: new mongoose.Types.ObjectId(),
-      shipmentDraftIds: [line.shipmentDraftId],
-      headerSnapshot: {
-        businessAccountName: manifestBusinessAccountName(snapshot),
-        originBranch: "Swiftline Delhi - DEL-001",
-        originAddress: "Swiftline Delhi\n1 Logistics Park\nDelhi\n110001\nIndia"
-      },
-      lineSnapshots: [line],
-      totalPieces: 2,
-      totalWeightKg: 10,
-      totalBags: 1,
-      actorRole: "client",
-      generatedAt: new Date("2026-07-21T10:00:00.000Z")
-    } as unknown as IShipmentManifest;
 
-    const workbook = new ExcelJS.Workbook();
-    const bytes = await buildShipmentManifestWorkbook(manifest);
-    await workbook.xlsx.load(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-    const sheet = workbook.getWorksheet("Client Manifest");
-    assert.ok(sheet);
-    // Row 4 is the "Business Account" detail row.
-    assert.equal(sheet.getCell("A4").value, "Business Account");
-    assert.equal(sheet.getCell("C4").value, "Example Exporter");
-    // The consignor column still carries the real sender.
-    assert.ok(String(sheet.getCell("E10").value).startsWith("Sharma Trading Co"));
+    const rows = manifestRows([legacyLine]);
+    assert.equal(rows.length, 1);
+    // Falls back to the consignment number and the shipment's own piece total.
+    assert.equal(rows[0]?.[1], "SLDL210720260001");
+    assert.equal(rows[0]?.[8], "2");
+    assert.equal(rows[0]?.[6], "EXP");
+  });
+
+  it("renders a PDF for handover lines and for legacy lines without the new fields", async () => {
+    const handoverLine = buildHandoverManifestLine({
+      shipmentDraftId: new mongoose.Types.ObjectId(),
+      dpdShipmentId: new mongoose.Types.ObjectId(),
+      snapshot: bookingSnapshot(),
+      declaredValueMinor: 0,
+      bagNumber: "1"
+    });
+    // Sealed before the handover columns existed: every new field is absent.
+    const legacyLine = buildManifestLine({
+      shipmentDraftId: new mongoose.Types.ObjectId(),
+      dpdShipmentId: new mongoose.Types.ObjectId(),
+      snapshot: bookingSnapshot(),
+      declaredValueMinor: 12_500_00,
+      bagNumber: "1"
+    });
+
+    const pdf = await buildShipmentManifestPdf(handoverManifest([handoverLine, legacyLine]));
+    assert.ok(pdf.length > 1000);
+    assert.equal(pdf.subarray(0, 5).toString("latin1"), "%PDF-");
   });
 });

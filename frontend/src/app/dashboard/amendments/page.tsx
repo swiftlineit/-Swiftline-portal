@@ -11,7 +11,8 @@ import {
   ShipmentAmendmentPricingEstimate
 } from "@/lib/dpdLabels";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
-import { formatMoney } from "@/lib/shipmentPricing";
+import { formatMoney, getVolumetricFormula } from "@/lib/shipmentPricing";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { FiChevronDown } from "react-icons/fi";
 
@@ -180,7 +181,7 @@ function AmendmentReviewModal({
                 <table className="min-w-full text-left text-xs">
                   <thead className="border-b border-slate-200 bg-slate-100 uppercase text-slate-500">
                     <tr>
-                      <th className="px-3 py-3">Parcel</th><th className="px-3 py-3">Actual KG</th><th className="px-3 py-3">Volumetric KG</th><th className="px-3 py-3">Chargeable KG</th><th className="px-3 py-3">Rate Slab</th><th className="px-3 py-3">Rate / KG</th><th className="px-3 py-3">Max Box KG</th><th className="px-3 py-3">Base Charge</th>
+                      <th className="px-3 py-3">Parcel</th><th className="px-3 py-3">Actual KG</th><th className="px-3 py-3"><span className="inline-flex items-center gap-1">Volumetric KG<InfoTooltip text={getVolumetricFormula()} /></span></th><th className="px-3 py-3">Chargeable KG</th><th className="px-3 py-3">Rate Slab</th><th className="px-3 py-3">Rate / KG</th><th className="px-3 py-3">Max Box KG</th><th className="px-3 py-3">Base Charge</th>
                     </tr>
                   </thead>
                   <tbody>

@@ -4,29 +4,38 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { IconType } from "react-icons";
 import { FiBriefcase, FiChevronLeft,FiArchive, FiChevronRight, FiClipboard, FiCreditCard, FiDollarSign, FiEdit3, FiFileText, FiGrid, FiHelpCircle, FiMapPin, FiUsers, FiPackage, FiTruck, FiXCircle } from "react-icons/fi";
+
+export type SidebarNavItem = { label: string; href: string; icon: IconType };
 
 const navigationItems = [
   { label: "Dashboard", href: "/dashboard", icon: FiGrid, roles: ["admin", "operations", "accounts", "delivery", "hr"] },
   { label: "Business Accounts", href: "/dashboard/business-accounts", icon: FiBriefcase, roles: ["admin"] },
   { label: "Credit Accounts", href: "/dashboard/credit-accounts", icon: FiCreditCard, roles: ["admin"] },
   { label: "Branches", href: "/dashboard/branches", icon: FiMapPin, roles: ["admin"] },
-  { label: "Shipments", href: "/dashboard/dpd-labels", icon: FiPackage, roles: ["admin"] },
+  // { label: "Create Shipment", href: "/dashboard/dpd-labels", icon: FiPackage, roles: ["admin"] },
+  { label: "Shipments", href: "/dashboard/shipments", icon: FiPackage, roles: ["admin"] },
   { label: "Tracking", href: "/dashboard/tracking", icon: FiTruck, roles: ["admin"] },
-  { label: "Manifests", href: "/dashboard/operations-manifests", icon: FiArchive, roles: ["admin", "operations"] },
+  { label: "Shipment Manifests", href: "/dashboard/shipment-manifests", icon: FiFileText, roles: ["admin"] },
+  { label: "Operations Manifests", href: "/dashboard/operations-manifests", icon: FiArchive, roles: ["admin", "operations"] },
   { label: "Amendments", href: "/dashboard/amendments", icon: FiEdit3, roles: ["admin"] },
   { label: "Cancellations", href: "/dashboard/cancellations", icon: FiXCircle, roles: ["admin"] },
   { label: "Quote Requests", href: "/dashboard/quote-requests", icon: FiClipboard, roles: ["admin"] },
-  { label: "Support Tickets", href: "/dashboard/tickets", icon: FiHelpCircle, roles: ["admin"] },
   { label: "Country Rate Card", href: "/dashboard/country-rate-card", icon: FiDollarSign, roles: ["admin"] },
   { label: "Tax Invoices", href: "/dashboard/tax-invoices", icon: FiFileText, roles: ["admin"] },
   { label: "Users", href: "/dashboard/users", icon: FiUsers, roles: ["admin"] },
+  { label: "Help Desk", href: "/dashboard/tickets", icon: FiHelpCircle, roles: ["admin"] },
+
 ];
 
-export default function Sidebar({ userRole }: { userRole?: string }) {
+// `items` lets the client portal reuse this chrome with its own links; without
+// it the staff navigation is filtered by role as usual.
+export default function Sidebar({ userRole, items }: { userRole?: string; items?: SidebarNavItem[] }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const visibleNavigationItems = navigationItems.filter((item) => item.roles.includes(userRole ?? ""));
+  const visibleNavigationItems: SidebarNavItem[] =
+    items ?? navigationItems.filter((item) => item.roles.includes(userRole ?? ""));
 
 return (
   <aside
@@ -51,7 +60,7 @@ return (
             />
           </span> */}
 
-          <span className="truncate text-3xl font-[times] ml-5 tracking-wide font-bold  text-[#0D1282]">
+          <span className="truncate text-3xl ml-5 tracking-wide font-bold  text-[#0D1282]">
             Swiftline
           </span>
         </div>
@@ -74,9 +83,11 @@ return (
     <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
       {visibleNavigationItems.map((item) => {
         const Icon = item.icon;
+        // Dashboard roots ("/dashboard", "/client/dashboard") own a whole URL
+        // subtree, so only an exact match should light them up.
         const isActive =
           pathname === item.href ||
-          (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));
+          (!item.href.endsWith("/dashboard") && pathname.startsWith(`${item.href}/`));
 
         return (
           <Link

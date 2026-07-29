@@ -17,6 +17,7 @@ import {
   updateBusinessAccountStatus
 } from "@/lib/businessAccounts";
 import { Branch, listBranches } from "@/lib/branches";
+import { CreditAccount, listAdminCreditAccounts } from "@/lib/creditAccounts";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 export default function BusinessAccountsPage() {
@@ -34,6 +35,9 @@ export default function BusinessAccountsPage() {
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  // Credit facilities keyed by business account _id, loaded once: the endpoint
+  // returns every account with credit, so it needs no search or page argument.
+  const [creditByBusinessId, setCreditByBusinessId] = useState<Map<string, CreditAccount>>(new Map());
   const pageSize = 10;
 
   useEffect(() => {
@@ -60,6 +64,17 @@ export default function BusinessAccountsPage() {
 
     return () => window.clearTimeout(timeout);
   }, [search, user, page]);
+
+  useEffect(() => {
+    if (!user) return;
+    // The credit columns are supporting detail, so a failure here leaves them
+    // blank rather than blocking the accounts list.
+    void listAdminCreditAccounts()
+      .then((data) => setCreditByBusinessId(
+        new Map(data.creditAccounts.map((account) => [account.businessAccountId, account]))
+      ))
+      .catch(() => setCreditByBusinessId(new Map()));
+  }, [user]);
 
   async function refreshAccount(accountId: string, updater: () => Promise<{ account: BusinessAccount }>) {
     setUpdatingAction(accountId);
@@ -175,7 +190,7 @@ export default function BusinessAccountsPage() {
           </div>
           <Link
             href="/dashboard/business-accounts/create"
-            className="inline-flex items-center gap-2 rounded-lg bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/40 focus:ring-offset-2"
+            className="inline-flex items-center gap-2 rounded-4xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/40 focus:ring-offset-2"
           >
             <span className="text-base leading-none">+</span> Create Business Account
           </Link>
@@ -207,6 +222,7 @@ export default function BusinessAccountsPage() {
             accounts={visibleAccounts}
             loading={accountsLoading}
             updatingAccountId={updatingAction}
+            creditByBusinessId={creditByBusinessId}
             onAccountMenuChange={handleAccountMenuChange}
           />
         </div>

@@ -7,9 +7,18 @@ import {
   BusinessAccountStatus,
   businessAccountStatusTransitions
 } from "@/lib/businessAccounts";
+import type { CreditAccount } from "@/lib/creditAccounts";
 
 // Shared business-account table used by the accounts list and the branch detail
 // page, so both stay in step instead of drifting as two hand-maintained copies.
+
+function formatMinorMoney(amountMinor: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0
+  }).format(amountMinor / 100);
+}
 
 const lifecycleActions: { label: string; status: BusinessAccountStatus }[] = [
   { label: "Approve", status: "approved" },
@@ -77,21 +86,25 @@ export function BusinessAccountsTable({
   loading = false,
   updatingAccountId,
   emptyMessage = "No business accounts found.",
+  creditByBusinessId,
   onAccountMenuChange
 }: {
   accounts: BusinessAccount[];
   loading?: boolean;
   updatingAccountId: string | null;
   emptyMessage?: string;
+  // Credit facilities keyed by business account _id. Only approved and active
+  // accounts can hold one, so a missing entry is normal rather than an error.
+  creditByBusinessId?: Map<string, CreditAccount>;
   onAccountMenuChange: (account: BusinessAccount, value: string) => void | Promise<void>;
 }) {
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-left text-sm">
-        <thead className="bg-[#0D1282] text-xs uppercase tracking-wide text-white">
+        <thead className="bg-slate-200 text-xs uppercase tracking-wide text-slate-600">
           <tr>
             <th className="px-4 py-3.5 font-semibold">Company</th>
-            <th className="px-4 py-3.5 font-semibold">Credit</th>
+            <th className="px-4 py-3.5 font-semibold">Available Credit</th>
             <th className="px-4 py-3.5 font-semibold">Outstanding</th>
             <th className="px-4 py-3.5 font-semibold">Status</th>
             <th className="px-4 py-3.5 font-semibold">Deposit</th>
@@ -108,6 +121,7 @@ export function BusinessAccountsTable({
           ) : accounts.map((account) => {
             const assignedBranch = getAssignedBranch(account);
             const isUpdating = updatingAccountId === account.accountId;
+            const credit = creditByBusinessId?.get(account._id);
 
             return (
               <tr key={account.accountId} className="transition-colors hover:bg-[#EEEDED]/40">
@@ -116,8 +130,28 @@ export function BusinessAccountsTable({
                   {/* <p className="mt-1 text-xs font-semibold text-[#0D1282]">{account.accountId}</p> */}
                   <p className="mt-1 text-xs text-slate-500">{account.contact.firstName} {account.contact.lastName}</p>
                 </td>
-                <td className="px-4 py-3.5 text-slate-400">—</td>
-                <td className="px-4 py-3.5 text-slate-400">—</td>
+                <td className="px-4 py-3.5">
+                  {!creditByBusinessId ? (
+                    // Caller did not load credit, so claiming "No credit" would lie.
+                    <span className="text-slate-400">—</span>
+                  ) : credit?.approvedCreditLimitMinor ? (
+                    // What is left to spend, not the approved limit: an exhausted
+                    // facility should read zero rather than look fully available.
+                    <span className="font-semibold text-slate-900">{formatMinorMoney(credit.availableCreditMinor ?? 0)}</span>
+                  ) : (
+                    <span className="text-slate-400">No credit</span>
+                  )}
+                </td>
+                <td className="px-4 py-3.5">
+                  {creditByBusinessId && credit?.approvedCreditLimitMinor ? (
+                    // Anything owed is worth spotting, so a non-zero balance is red.
+                    <span className={credit.invoicedOutstandingMinor ? "font-semibold text-red-600" : "text-slate-700"}>
+                      {formatMinorMoney(credit.invoicedOutstandingMinor ?? 0)}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-3.5">
                   <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getStatusBadgeClasses(account.status)}`}>
                     {formatAccountStatus(account.status)}

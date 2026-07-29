@@ -15,12 +15,30 @@ export type ShipmentManifestSummary = {
   mawbNumber: string;
   originIataCode: string;
   destinationIataCode: string;
+  businessAccountName: string;
+  origin: string;
+  destination: string;
+  coloader: string;
+  paymentType: string;
   totalPieces: number;
   totalWeightKg: number;
   totalBags: number;
   shipmentCount: number;
   actorRole: ShipmentManifestAudience;
   generatedAt: string;
+};
+
+export type ShipmentManifestListItem = ShipmentManifestSummary & {
+  generatedBy: string;
+  createdAt: string;
+};
+
+export type CreateBulkShipmentManifestInput = {
+  shipmentDraftIds: string[];
+  origin: string;
+  destination: string;
+  coloader: string;
+  paymentType: string;
 };
 
 export type ManifestEligibleShipment = {
@@ -89,18 +107,19 @@ async function readJson<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
+function manifestRoot(audience: ShipmentManifestAudience) {
+  return audience === "client" ? "/api/v1/client/shipment-manifests" : "/api/v1/shipment-manifests";
+}
+
 function paths(audience: ShipmentManifestAudience, draftId?: string, manifestId?: string) {
-  if (audience === "client") {
-    return {
-      context: `/api/v1/client/shipments/${draftId}/manifests/context`,
-      create: "/api/v1/client/shipment-manifests",
-      download: `/api/v1/client/shipment-manifests/${manifestId}/download`
-    };
-  }
+  const root = manifestRoot(audience);
   return {
-    context: `/api/v1/shipment-manifests/drafts/${draftId}/context`,
-    create: "/api/v1/shipment-manifests",
-    download: `/api/v1/shipment-manifests/${manifestId}/download`
+    context: audience === "client"
+      ? `/api/v1/client/shipments/${draftId}/manifests/context`
+      : `/api/v1/shipment-manifests/drafts/${draftId}/context`,
+    create: root,
+    createBulk: `${root}/bulk`,
+    download: `${root}/${manifestId}/download`
   };
 }
 
@@ -118,18 +137,62 @@ export async function createShipmentManifest(input: CreateShipmentManifestInput,
   return readJson<{ success: true; manifest: ShipmentManifestSummary }>(response);
 }
 
-export async function downloadShipmentManifest(manifest: ShipmentManifestSummary, audience: ShipmentManifestAudience) {
-  const response = await fetchWithAuth(apiUrl(paths(audience, undefined, manifest.id).download));
+export async function createBulkShipmentManifest(
+  input: CreateBulkShipmentManifestInput,
+  audience: ShipmentManifestAudience
+) {
+  const response = await fetchWithAuth(apiUrl(paths(audience).createBulk), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  return readJson<{ success: true; manifest: ShipmentManifestSummary }>(response);
+}
+
+export async function listShipmentManifests(audience: ShipmentManifestAudience, input: {
+  page?: number;
+  limit?: number;
+  businessAccountId?: string;
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("page", String(input.page ?? 1));
+  params.set("limit", String(input.limit ?? 15));
+  if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
+  const response = await fetchWithAuth(apiUrl(`${manifestRoot(audience)}?${params.toString()}`));
+  return readJson<{
+    success: true;
+    manifests: ShipmentManifestListItem[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }>(response);
+}
+
+/** Downloads (or opens) the handover manifest PDF. */
+export async function downloadShipmentManifest(
+  manifest: Pick<ShipmentManifestSummary, "id" | "manifestNumber">,
+  audience: ShipmentManifestAudience,
+  view = false
+) {
+  const response = await fetchWithAuth(
+    apiUrl(`${manifestRoot(audience)}/${manifest.id}/pdf${view ? "?view=1" : ""}`)
+  );
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { message?: string };
     throw new Error(payload.message || "Manifest could not be downloaded.");
   }
   const objectUrl = URL.createObjectURL(await response.blob());
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = `MANIFEST-${manifest.manifestNumber}.xlsx`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(objectUrl);
+  if (view) {
+    window.open(objectUrl, "_blank", "noopener,noreferrer");
+  } else {
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = `MANIFEST-${manifest.manifestNumber}.pdf`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+}
+
+export function manifestsHref(audience: ShipmentManifestAudience) {
+  return audience === "client" ? "/client/manifests" : "/dashboard/shipment-manifests";
 }

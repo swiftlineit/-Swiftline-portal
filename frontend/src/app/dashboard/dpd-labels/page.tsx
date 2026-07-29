@@ -313,10 +313,10 @@ export default function DpdLabelsPage() {
           type="button"
           onClick={handleTemplateDownload}
           disabled={busy}
-          className="inline-flex h-10 items-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="inline-flex h-10 items-center rounded-4xl justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-400"
         >
           <FiDownload aria-hidden="true" className="h-4 w-4" />
-          Download Template
+          Download Invoice Template
         </button>
       </div>
 
@@ -567,7 +567,7 @@ export default function DpdLabelsPage() {
                       {item.shipmentDraft ? (
                         <>
                           <Link href={`/dashboard/shipments/${item.shipmentDraft.id}`} className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700">
-                            <FiExternalLink aria-hidden="true" className="h-4 w-4" />Details
+                            <FiExternalLink aria-hidden="true" className="h-4 w-4" />View Details
                           </Link>
                           <Link href={shipmentInvoicePageUrl(item.shipmentDraft.id, "admin")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700">
                             <FiFileText aria-hidden="true" className="h-4 w-4" />Invoice

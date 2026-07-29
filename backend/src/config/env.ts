@@ -56,6 +56,12 @@ const environmentSchema = z.object({
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
   RAZORPAY_MIN_TOPUP_MINOR: z.coerce.number().int().positive().default(10000),
   RAZORPAY_MAX_TOPUP_MINOR: z.coerce.number().int().positive().default(10000000),
+  // Ceiling on how much a business account may push through Razorpay in one IST
+  // day. Defaults to 5,00,000 rupees.
+  RAZORPAY_MAX_DAILY_TOPUP_MINOR: z.coerce.number().int().positive().default(50000000),
+  // How long an unpaid order still counts against the daily total. Without this
+  // an abandoned checkout would hold its share of the allowance until midnight.
+  RAZORPAY_TOPUP_PENDING_TTL_MINUTES: z.coerce.number().int().positive().default(30),
   CLIENT_DPD_LABEL_CHARGE_MINOR: z.coerce.number().int().nonnegative().default(0)
 });
 

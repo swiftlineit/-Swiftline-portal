@@ -188,7 +188,7 @@ export default function BranchesPage() {
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="bg-[#0D1282] text-xs uppercase tracking-wide text-white">
+              <thead className="bg-slate-200 text-xs uppercase tracking-wide text-slate-600">
                 <tr>
                   <th className="px-4 py-3.5 font-semibold">Branch</th>
                   <th className="px-4 py-3.5 font-semibold">Status</th>

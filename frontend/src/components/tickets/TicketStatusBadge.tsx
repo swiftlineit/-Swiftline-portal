@@ -14,8 +14,8 @@ const priorityTones: Record<TicketPriority, string> = {
 };
 
 export function TicketStatusBadge({ status }: { status: TicketStatus }) {
-  return <span className={`inline-flex border px-2.5 py-1 text-xs font-semibold uppercase ${statusTones[status]}`}>{ticketLabel(status)}</span>;
+  return <span className={`inline-flex border px-2.5 rounded-4xl py-1 text-xs font-semibold uppercase ${statusTones[status]}`}>{ticketLabel(status)}</span>;
 }
 export function TicketPriorityBadge({ priority }: { priority: TicketPriority }) {
-  return <span className={`inline-flex border px-2.5 py-1 text-xs font-semibold uppercase ${priorityTones[priority]}`}>{ticketLabel(priority)}</span>;
+  return <span className={`inline-flex border rounded-4xl px-2.5 py-1 text-xs font-semibold uppercase ${priorityTones[priority]}`}>{ticketLabel(priority)}</span>;
 }

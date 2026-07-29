@@ -1,6 +1,6 @@
 import { getClientCreditAccount, type CreditAccount, type CreditPermission } from "@/lib/creditAccounts";
 import { listClientStatements, type CreditStatement } from "@/lib/creditBilling";
-import { getClientPrepaidTransactions, type ClientPrepaidTransaction, type ClientShipmentSummary } from "@/lib/clientDashboard";
+import { type ClientShipmentSummary } from "@/lib/clientDashboard";
 import { listShipmentQuotes } from "@/lib/shipmentQuotes";
 import { listSupportTickets } from "@/lib/supportTickets";
 
@@ -44,7 +44,6 @@ export type ClientExtras = {
   credit: CreditAccount | null;
   creditPermissions: CreditPermission[];
   statements: StatementRollup | null;
-  transactions: ClientPrepaidTransaction[];
   unavailable: string[];
 };
 
@@ -111,15 +110,14 @@ export async function loadClientExtras(input: {
   businessAccountId: string;
   canViewQuotes: boolean;
 }): Promise<ClientExtras> {
-  const [quotes, tickets, credit, statements, transactions] = await Promise.all([
+  const [quotes, tickets, credit, statements] = await Promise.all([
     input.canViewQuotes ? safe("Quotes", () => listShipmentQuotes("client", "QUOTED")) : null,
     safe("Support tickets", () => listSupportTickets("client", { status: "WAITING_FOR_CUSTOMER", limit: 1 })),
     safe("Credit account", () => getClientCreditAccount(input.businessAccountId)),
-    safe("Credit statements", () => listClientStatements(input.businessAccountId)),
-    safe("Wallet transactions", () => getClientPrepaidTransactions(input.businessAccountId))
+    safe("Credit statements", () => listClientStatements(input.businessAccountId))
   ]);
 
-  const unavailable = [quotes, tickets, credit, statements, transactions]
+  const unavailable = [quotes, tickets, credit, statements]
     .map((result) => result?.failed)
     .filter((label): label is string => Boolean(label));
 
@@ -129,7 +127,6 @@ export async function loadClientExtras(input: {
     credit: credit?.value?.creditAccount ?? null,
     creditPermissions: credit?.value?.permissions ?? [],
     statements: statements?.value ? rollupStatements(statements.value.statements) : null,
-    transactions: transactions?.value?.transactions.slice(0, 5) ?? [],
     unavailable: [...new Set(unavailable)]
   };
 }
