@@ -33,9 +33,9 @@ export default function DashboardShell({
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8">
             <div className="flex items-center gap-4">
-              <NotificationBell />
+              
               <div className="text-right">
-                <p className="text-sm font-semibold uppercase text-[#0D1282]">{user.name || user.email}</p>
+                <p className="text-sm font-semibold tracking-wide uppercase text-[#0D1282]">{user.name || user.email}</p>
                 <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">{user.role}</p>
               </div>
               <Link
@@ -46,9 +46,10 @@ export default function DashboardShell({
               >
                 <FiUser aria-hidden="true" className="h-5 w-5" />
               </Link>
+              <NotificationBell />
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center gap-2 rounded-lg bg-[#D71313] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2"
+                className="inline-flex items-center gap-2 rounded-4xl bg-[#D71313] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2"
               >
                 <FiLogOut aria-hidden="true" className="h-4 w-4" />
                 Logout

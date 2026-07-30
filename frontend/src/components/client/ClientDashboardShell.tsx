@@ -81,9 +81,8 @@ export function ClientDashboardShell({
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8">
             <div className="flex items-center gap-4">
-              <NotificationBell />
               <div className="text-right">
-                <p className="text-sm font-semibold uppercase text-[#0D1282]">{user.name || user.email}</p>
+                <p className="text-sm font-semibold tracking-wide uppercase text-[#0D1282]">{user.name || user.email}</p>
                 <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">{user.role}</p>
               </div>
               <Link
@@ -94,6 +93,7 @@ export function ClientDashboardShell({
               >
                 <FiUser aria-hidden="true" className="h-5 w-5" />
               </Link>
+               <NotificationBell />
               <button
                 type="button"
                 onClick={handleLogout}

@@ -72,7 +72,7 @@ export default function NotificationBell() {
         onClick={() => setOpen((current) => !current)}
         aria-label="Notifications"
         aria-expanded={open}
-        className="relative flex h-10 w-10 items-center justify-center border rounded  border-slate-300 bg-white text-slate-700 hover:border-blue-800 hover:text-blue-900"
+        className="relative flex h-10 w-10 items-center justify-center border rounded-4xl  border-slate-300 bg-white text-slate-700 hover:border-blue-800 hover:text-blue-900"
       >
         <FiBell className="h-4 w-4" />
         {unreadCount ? (
@@ -83,7 +83,7 @@ export default function NotificationBell() {
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-12 z-50 w-[360px] max-w-[calc(100vw-2rem)] border border-slate-200 bg-white shadow-xl">
+        <div className="absolute right-0 top-12 z-50 w-90 max-w-[calc(100vw-2rem)] border border-slate-200 bg-white shadow-xl">
           <div className="flex h-12 items-center justify-between border-b border-slate-200 px-4">
             <p className="text-sm font-semibold text-slate-950">Notifications</p>
             {unreadCount ? (
@@ -92,7 +92,7 @@ export default function NotificationBell() {
               </button>
             ) : null}
           </div>
-          <div className="max-h-[360px] overflow-y-auto">
+          <div className="max-h-90 overflow-y-auto">
             {error ? <p className="p-4 text-sm text-red-700">{error}</p> : null}
             {!error && !notifications.length ? <p className="p-6 text-center text-sm text-slate-500">No notifications yet.</p> : null}
             {notifications.map((notification) => (

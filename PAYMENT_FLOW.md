@@ -13,8 +13,6 @@ These paths are intentionally separate. Admins can keep creating operational lab
 
 ## Admin DPD Label Flow
 
-Admin-created labels do not use prepaid wallet balance.
-
 Flow:
 
 1. Admin reviews or updates a shipment draft.

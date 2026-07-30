@@ -48,7 +48,7 @@ export default function ClientDashboardHeader({
 
   return (
     <section className={`p-6 ${panelSurface}`}>
-      <div className="flex flex-wrap items-start justify-between gap-6">
+      <div className="flex flex-wrap flex-col items-start justify-between gap-6">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex items-center rounded-full bg-[#0D1282]/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#0D1282]">
@@ -60,29 +60,29 @@ export default function ClientDashboardHeader({
             </span>
           </div>
 
-          <h1 className="mt-3 text-2xl font-semibold tracking-wide text-slate-900 sm:text-[28px]">
-            {greeting()}, {getDisplayName(user)}
+          <h1 className="mt-3 text-2xl font-semibold tracking-wide text-slate-700 sm:text-[28px]">
+            {greeting()},<span className="tracking-wide text-black"> {getDisplayName(user)}</span>
           </h1>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
             {selectedAccount?.account.company.companyName || "Customer Dashboard"}
-            {" - "}Swiftline Customer Code <strong className="font-semibold text-slate-900">{selectedAccount?.account.accountId || "Not available"}</strong>
-            {" - "}Branch <strong className="font-semibold text-slate-900">{getBranchLabel(selectedBranch)}</strong>
+            {" - "}Swiftline Customer Code <strong className="font-semibold ">{selectedAccount?.account.accountId || "Not available"}</strong>
+            {" - "}Branch <strong className="font-semibold ">{getBranchLabel(selectedBranch)}</strong>
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           {canCreate ? (
-            <Link href="/client/dpd-labels" className="inline-flex items-center gap-2 rounded-lg bg-[#F0DE36] px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm shadow-black/10 transition hover:bg-[#e0cf2e] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
+            <Link href="/client/dpd-labels" className="inline-flex items-center gap-2 rounded-4xl bg-[#F0DE36] px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm shadow-black/10 transition hover:bg-[#e0cf2e] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
               <FiPlus aria-hidden="true" className="h-4 w-4" />Create Shipment
             </Link>
           ) : null}
           {canQuote ? (
-            <Link href="/client/get-quote" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
+            <Link href="/client/get-quote" className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
               <FiClipboard aria-hidden="true" className="h-4 w-4" />Get Live Quote
             </Link>
           ) : null}
           {canPay ? (
-            <Link href="/client/payments" className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
+            <Link href="/client/payments" className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
               <FiCreditCard aria-hidden="true" className="h-4 w-4" />Make Payment
             </Link>
           ) : null}
