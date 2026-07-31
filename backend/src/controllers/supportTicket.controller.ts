@@ -54,7 +54,8 @@ function filters(request: Request) {
     page: Math.max(1, Number(request.query.page) || 1),
     limit: Math.min(50, Math.max(1, Number(request.query.limit) || 20)),
     status, priority, category,
-    search: typeof request.query.search === "string" ? request.query.search.trim().slice(0, 120) : undefined
+    search: typeof request.query.search === "string" ? request.query.search.trim().slice(0, 120) : undefined,
+    branchId: typeof request.query.branchId === "string" ? request.query.branchId.trim() : undefined
   };
 }
 

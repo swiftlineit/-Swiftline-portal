@@ -11,12 +11,12 @@ import {
   FiExternalLink,
   FiFileText,
   FiPrinter,
-  FiUploadCloud
+  FiUploadCloud,
+  FiInfo
 } from "react-icons/fi";
 import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
   ClientShellUser
 } from "@/components/client/ClientDashboardShell";
 import ShipmentDraftReadyCard from "@/components/shipments/ShipmentDraftReadyCard";
@@ -34,6 +34,7 @@ import {
 } from "@/lib/clientDashboard";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { downloadShipmentInvoicePdf, shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
+import { RiMenuAddLine } from "react-icons/ri";
 
 type ClientDraft = NonNullable<Awaited<ReturnType<typeof uploadClientDpdInvoice>>["shipmentDraft"]>;
 
@@ -208,7 +209,7 @@ export default function ClientDpdLabelsPage() {
       anchor.click();
       window.URL.revokeObjectURL(url);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to download invoice template.");
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to download invoice format.");
     } finally {
       setBusy(false);
     }
@@ -300,12 +301,11 @@ export default function ClientDpdLabelsPage() {
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-950">Create Shipment</h1>
-            <p className="mt-1 text-sm text-slate-500">Your account and sender branch are filled from your Swiftline access.</p>
+            <h1 className="text-2xl  text-[#0D1282]"> <RiMenuAddLine className="inline-block mb-1 mr-1 text-lg" />Create & Manage Shipment  </h1>
+            <p className="mt-1 text-sm text-slate-500">create a new shipment manually or upload an invoice to pre-fill details.</p>
           </div>
           <button
             type="button"
@@ -314,7 +314,7 @@ export default function ClientDpdLabelsPage() {
             className="inline-flex h-10 items-center rounded-4xl justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-400"
           >
             <FiDownload aria-hidden="true" className="h-4 w-4" />
-            Download Invoice Template 
+            Download Invoice Format 
           </button>
         </div>
 
@@ -335,7 +335,42 @@ export default function ClientDpdLabelsPage() {
 
           <aside className="space-y-5">
             <section className="border border-slate-200 bg-white p-5 rounded-2xl">
-              <h2 className="text-sm font-semibold uppercase text-slate-500 text-center">Invoice Upload</h2>
+              <div className="flex items-center justify-center gap-2">
+  <h2 className="text-center text-sm font-semibold uppercase text-slate-500">
+    Invoice Upload
+  </h2>
+
+  <div className="group relative">
+    <button
+      type="button"
+      className="flex h-4 w-4 items-center justify-center rounded-full text-slate-400 transition hover:text-[#0D1282]"
+    >
+      <FiInfo className="h-3.5 w-3.5" />
+    </button>
+
+    <div
+      className="
+        pointer-events-none absolute left-1/2 top-full z-50 mt-3
+        w-64 -translate-x-1/2 rounded-xl
+        border border-slate-200 bg-white p-4
+        text-left opacity-0 shadow-xl
+        transition-all duration-200
+        group-hover:translate-y-1 group-hover:opacity-100
+      "
+    >
+      <p className="text-sm font-semibold text-slate-900">
+        Upload Invoice
+      </p>
+
+      <p className="mt-1 text-xs leading-5 text-slate-600">
+        Upload a supported Excel invoice to automatically pre-fill shipment
+        details, reducing manual entry and speeding up the booking process.
+      </p>
+
+      <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-l border-t border-slate-200 bg-white" />
+    </div>
+  </div>
+</div>
               <label
                 onDragOver={(event) => {
                   event.preventDefault();
@@ -400,7 +435,6 @@ export default function ClientDpdLabelsPage() {
           onInvoiceDownload={handleInvoiceDownload}
         />
       </div>
-    </ClientDashboardShell>
   );
 }
 

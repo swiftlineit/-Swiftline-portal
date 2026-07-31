@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import BusinessAccountForm from "@/components/business-accounts/BusinessAccountForm";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import { BusinessAccount, getBusinessAccount } from "@/lib/businessAccounts";
 import { useAdminUser } from "@/lib/useAdminUser";
 
@@ -37,18 +37,14 @@ export default function EditBusinessAccountPage() {
 
   if (loading || !user || accountLoading) return <DashboardLoading />;
 
-  return (
-    <DashboardShell user={user}>
-      {error || !account ? (
-        <div className="border border-red-200 bg-red-50 p-5">
-          <p className="text-sm font-semibold text-red-700">{error || "Business account not found."}</p>
-          <Link href="/dashboard/business-accounts" className="mt-4 inline-block text-sm font-semibold text-blue-900">
-            Back to Business Accounts
-          </Link>
-        </div>
-      ) : (
-        <BusinessAccountForm account={account} />
-      )}
-    </DashboardShell>
+  return error || !account ? (
+    <div className="border border-red-200 bg-red-50 p-5">
+      <p className="text-sm font-semibold text-red-700">{error || "Business account not found."}</p>
+      <Link href="/dashboard/business-accounts" className="mt-4 inline-block text-sm font-semibold text-blue-900">
+        Back to Business Accounts
+      </Link>
+    </div>
+  ) : (
+    <BusinessAccountForm account={account} />
   );
 }

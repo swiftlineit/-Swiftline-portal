@@ -176,7 +176,7 @@ export function EmptyState({
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEEDED] text-[#0D1282] shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]">
+      <span className="flex h-14 w-14 items-center justify-center rounded-2xl  shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]">
         <Icon aria-hidden="true" className="h-6 w-6" />
       </span>
       <p className={`text-sm font-semibold ${onLight ? "text-slate-900" : "text-white"}`}>{title}</p>

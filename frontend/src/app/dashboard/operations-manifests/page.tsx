@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { FiArrowRight, FiPlus, FiRefreshCw, FiChevronDown } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
+import DateFilterInput from "@/components/ui/DateFilterInput";
 import {
   listOperationsManifests,
   type ManifestStatus,
@@ -24,6 +25,7 @@ export default function OperationsManifestListPage() {
   const { user, loading } = useAdminUser(true);
   const [items, setItems] = useState<OperationsManifest[]>([]);
   const [status, setStatus] = useState("");
+  const [date, setDate] = useState("");
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [busy, setBusy] = useState(true);
@@ -32,7 +34,7 @@ export default function OperationsManifestListPage() {
     setBusy(true);
     setError("");
     try {
-      const data = await listOperationsManifests(page, status);
+      const data = await listOperationsManifests(page, status, date);
       setItems(data.items);
       setPages(data.pagination.pages);
     } catch (caught) {
@@ -44,7 +46,7 @@ export default function OperationsManifestListPage() {
     } finally {
       setBusy(false);
     }
-  }, [page, status]);
+  }, [page, status, date]);
   useEffect(() => {
     if (!user) return;
     let active = true;
@@ -58,7 +60,6 @@ export default function OperationsManifestListPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-lg border border-[#EEEDED] bg-white p-5 shadow-sm">
           <div>
@@ -71,6 +72,13 @@ export default function OperationsManifestListPage() {
             </p>
           </div>
           <div className="flex gap-2">
+           <DateFilterInput
+             value={date}
+             onChange={(value) => {
+               setDate(value);
+               setPage(1);
+             }}
+           />
            <div className="relative">
   <select
     value={status}
@@ -80,7 +88,7 @@ export default function OperationsManifestListPage() {
     }}
     className="h-10 w-full appearance-none rounded-4xl border border-[#0D1282]/20 bg-white px-3 pr-10 text-sm font-medium text-[#0D1282]"
   >
-    <option value="">All statuses</option>
+    <option value="">All Status</option>
     {statuses.map((item) => (
       <option key={item}>{item}</option>
     ))}
@@ -193,6 +201,5 @@ export default function OperationsManifestListPage() {
           </button>
         </div>
       </div>
-    </DashboardShell>
   );
 }

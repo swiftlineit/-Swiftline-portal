@@ -36,6 +36,7 @@ export type SupportTicketFilters = {
   priority?: SupportTicketPriority;
   category?: SupportTicketCategory;
   search?: string;
+  branchId?: string;
 };
 
 function financialYear(date: Date) {
@@ -155,6 +156,9 @@ function ticketQuery(filters: SupportTicketFilters) {
   if (filters.search) {
     const escaped = filters.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     query.$or = [{ ticketNumber: { $regex: escaped, $options: "i" } }, { subject: { $regex: escaped, $options: "i" } }];
+  }
+  if (filters.branchId) {
+    query.branchId = new mongoose.Types.ObjectId(filters.branchId);
   }
   return query;
 }

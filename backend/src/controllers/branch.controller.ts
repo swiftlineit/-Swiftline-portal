@@ -1,9 +1,12 @@
+import fs from "fs";
+import path from "path";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 import { AuditLog } from "../models/auditLog.model.js";
 import {
   Branch,
+  branchDocumentTypeValues,
   branchServiceValues,
   branchStatusValues,
   BranchStatus,
@@ -16,6 +19,8 @@ import { OperationsManifest } from "../models/operationsManifest.model.js";
 import { User } from "../models/user.model.js";
 
 const currencyValues = ["INR", "USD", "AED", "GBP", "EUR", "SGD", "CAD", "AUD", "SAR"] as const;
+
+const privateUploadRoot = path.resolve(process.cwd(), "private_uploads");
 const countryCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Country code must be a two-letter ISO code");
 const branchCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{3,20}$/, "Branch code must be 3-20 uppercase letters, numbers, or hyphens");
 const branchLabelCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9]{2,4}$/, "Station code must be 2-4 uppercase letters or numbers");
@@ -48,6 +53,11 @@ const branchOperationsSchema = z.object({
   workingDays: z.array(z.enum(workingDayValues)).default([])
 });
 
+const branchPhoneNumberSchema = z.object({
+  label: z.string().trim().max(50).default(""),
+  number: z.string().trim().regex(/^\+[1-9]\d{6,14}$/, "Phone must include country code, for example +919876543210").or(z.literal(""))
+});
+
 const branchPayloadSchema = z.object({
   name: z.string().trim().min(3).max(100),
   code: branchCodeSchema,
@@ -72,6 +82,7 @@ const branchPayloadSchema = z.object({
   baseCurrency: z.enum(currencyValues).optional().or(z.literal("")),
   gstin: gstinSchema.optional().or(z.literal("")),
   invoiceSacCode: z.string().trim().max(12).optional().default(""),
+  phoneNumbers: z.array(branchPhoneNumberSchema).max(3).optional().default([]),
   status: z.enum(["DRAFT", "ACTIVE"])
 });
 
@@ -91,7 +102,8 @@ const branchUpdateSchema = z.object({
   operations: branchOperationsSchema.optional(),
   baseCurrency: z.enum(currencyValues).optional().or(z.literal("")),
   gstin: gstinSchema.optional().or(z.literal("")),
-  invoiceSacCode: z.string().trim().max(12).optional()
+  invoiceSacCode: z.string().trim().max(12).optional(),
+  phoneNumbers: z.array(branchPhoneNumberSchema).max(3).optional()
 });
 
 type BranchUpdatePayload = z.infer<typeof branchUpdateSchema>;
@@ -210,6 +222,7 @@ function normalizeBranchPayload(data: BranchPayload, userId: mongoose.Types.Obje
     baseCurrency: data.baseCurrency || "",
     gstin: data.gstin || "",
     invoiceSacCode: data.invoiceSacCode || "",
+    phoneNumbers: data.phoneNumbers ?? [],
     status: data.status as BranchStatus,
     // Creating a branch already active counts as its first activation.
     activatedAt: data.status === "ACTIVE" ? new Date() : null,
@@ -233,7 +246,10 @@ const auditedBranchFields = [
   "baseCurrency",
   "gstin",
   "invoiceSacCode",
-  "status"
+  "status",
+  "phoneNumbers",
+  "images",
+  "documents"
 ] as const;
 
 // Compare the tracked fields and return a before/after diff of what actually changed.
@@ -346,6 +362,7 @@ function buildBranchUpdate(data: BranchUpdatePayload, userId: mongoose.Types.Obj
   if (data.baseCurrency !== undefined) update.baseCurrency = data.baseCurrency || "";
   if (data.gstin !== undefined) update.gstin = data.gstin || "";
   if (data.invoiceSacCode !== undefined) update.invoiceSacCode = data.invoiceSacCode || "";
+  if (data.phoneNumbers !== undefined) update.phoneNumbers = data.phoneNumbers;
 
   return update;
 }
@@ -561,6 +578,151 @@ export async function getBranch(request: Request, response: Response): Promise<R
 
   const branch = await Branch.findById(branchId).populate("createdBy", "email name").lean().exec();
   if (!branch) return response.status(404).json({ success: false, message: "Branch not found" });
+
+  return response.status(200).json({ success: true, branch });
+}
+
+export async function uploadBranchImages(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const branchId = typeof request.params.branchId === "string" ? request.params.branchId : "";
+  if (!branchId || !mongoose.Types.ObjectId.isValid(branchId)) {
+    return response.status(404).json({ success: false, message: "Branch not found" });
+  }
+
+  const branch = await Branch.findById(branchId).exec();
+  if (!branch) return response.status(404).json({ success: false, message: "Branch not found" });
+
+  const files = (request.files as Record<string, Express.Multer.File[]> | undefined)?.["images"];
+  if (!files || !files.length) {
+    return response.status(400).json({ success: false, message: "No images provided." });
+  }
+
+  const newPaths = files.map((file) => path.relative(privateUploadRoot, file.path).replace(/\\/g, "/"));
+  branch.images = [...branch.images, ...newPaths];
+  branch.updatedBy = userId;
+  await branch.save();
+
+  return response.status(200).json({ success: true, branch });
+}
+
+export async function deleteBranchImage(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const branchId = typeof request.params.branchId === "string" ? request.params.branchId : "";
+  if (!branchId || !mongoose.Types.ObjectId.isValid(branchId)) {
+    return response.status(404).json({ success: false, message: "Branch not found" });
+  }
+
+  const imageIndexStr = request.params.imageIndex;
+  if (typeof imageIndexStr !== "string") return response.status(400).json({ success: false, message: "Invalid image index." });
+  const imageIndex = Number.parseInt(imageIndexStr, 10);
+  if (!Number.isInteger(imageIndex) || imageIndex < 0) {
+    return response.status(400).json({ success: false, message: "Invalid image index." });
+  }
+
+  const branch = await Branch.findById(branchId).exec();
+  if (!branch) return response.status(404).json({ success: false, message: "Branch not found" });
+
+  if (imageIndex >= branch.images.length) {
+    return response.status(404).json({ success: false, message: "Image not found at this index." });
+  }
+
+  const removedImagePath: string | undefined = branch.images[imageIndex];
+  branch.images.splice(imageIndex, 1);
+  branch.updatedBy = userId;
+  await branch.save();
+
+  // Remove file from disk; failure is non-blocking.
+  if (removedImagePath) fs.promises.unlink(path.resolve(privateUploadRoot, removedImagePath)).catch(() => undefined);
+
+  return response.status(200).json({ success: true, branch });
+}
+
+export async function uploadBranchDocument(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const branchId = typeof request.params.branchId === "string" ? request.params.branchId : "";
+  if (!branchId || !mongoose.Types.ObjectId.isValid(branchId)) {
+    return response.status(404).json({ success: false, message: "Branch not found" });
+  }
+
+  const branch = await Branch.findById(branchId).exec();
+  if (!branch) return response.status(404).json({ success: false, message: "Branch not found" });
+
+  const docType = typeof request.body.type === "string" ? request.body.type : "";
+  if (!branchDocumentTypeValues.includes(docType as typeof branchDocumentTypeValues[number])) {
+    return response.status(400).json({ success: false, message: "Document type must be PAN, GST, or OTHER." });
+  }
+
+  const title = typeof request.body.title === "string" ? request.body.title.trim() : "";
+
+  const files = (request.files as Record<string, Express.Multer.File[]> | undefined)?.["document"];
+  const uploadedFile = files?.[0];
+  if (!uploadedFile) {
+    return response.status(400).json({ success: false, message: "No document file provided." });
+  }
+
+  // Replace existing document of the same type (PAN/GST) or append.
+  const existingIndex = docType !== "OTHER"
+    ? branch.documents.findIndex((doc) => doc.type === docType)
+    : -1;
+
+  const docEntry = {
+    type: docType as "PAN" | "GST" | "OTHER",
+    title: docType === "OTHER" ? title : docType,
+    fileName: uploadedFile.originalname,
+    filePath: path.relative(privateUploadRoot, uploadedFile.path).replace(/\\/g, "/"),
+    uploadedAt: new Date()
+  };
+
+  if (existingIndex >= 0) {
+    const existingDoc = branch.documents[existingIndex];
+    const oldPath = existingDoc?.filePath;
+    branch.documents[existingIndex] = docEntry;
+    if (oldPath) fs.promises.unlink(path.resolve(privateUploadRoot, oldPath)).catch(() => undefined);
+  } else {
+    branch.documents.push(docEntry);
+  }
+
+  branch.updatedBy = userId;
+  await branch.save();
+
+  return response.status(200).json({ success: true, branch });
+}
+
+export async function deleteBranchDocument(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const branchId = typeof request.params.branchId === "string" ? request.params.branchId : "";
+  if (!branchId || !mongoose.Types.ObjectId.isValid(branchId)) {
+    return response.status(404).json({ success: false, message: "Branch not found" });
+  }
+
+  const docIndexStr = request.params.docIndex;
+  if (typeof docIndexStr !== "string") return response.status(400).json({ success: false, message: "Invalid document index." });
+  const docIndex = Number.parseInt(docIndexStr, 10);
+  if (!Number.isInteger(docIndex) || docIndex < 0) {
+    return response.status(400).json({ success: false, message: "Invalid document index." });
+  }
+
+  const branch = await Branch.findById(branchId).exec();
+  if (!branch) return response.status(404).json({ success: false, message: "Branch not found" });
+
+  if (docIndex >= branch.documents.length || !branch.documents[docIndex]) {
+    return response.status(404).json({ success: false, message: "Document not found at this index." });
+  }
+
+  const removedDocPath = branch.documents[docIndex].filePath;
+  branch.documents.splice(docIndex, 1);
+  branch.updatedBy = userId;
+  await branch.save();
+
+  fs.promises.unlink(path.resolve(privateUploadRoot, removedDocPath)).catch(() => undefined);
 
   return response.status(200).json({ success: true, branch });
 }

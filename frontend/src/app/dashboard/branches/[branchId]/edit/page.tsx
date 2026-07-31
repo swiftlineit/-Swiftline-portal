@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import BranchForm from "@/components/branches/BranchForm";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import { Branch, branchToFormData, getBranch } from "@/lib/branches";
 import { useAdminUser } from "@/lib/useAdminUser";
 
@@ -38,7 +38,6 @@ export default function EditBranchPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
       <div className="min-h-full bg-[#EEEDED]/60 -m-6 p-6 lg:-m-8 lg:p-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div className="border-l-4 border-[#F0DE36] pl-4">
@@ -72,6 +71,5 @@ export default function EditBranchPage() {
           />
         ) : null}
       </div>
-    </DashboardShell>
   );
 }

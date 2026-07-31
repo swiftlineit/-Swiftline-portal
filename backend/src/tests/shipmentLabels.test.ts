@@ -120,6 +120,9 @@ describe("immutable multi-parcel booking snapshot", () => {
           { sequence: 1, actualWeightKg: 7, volumetricWeightKg: 1.2, chargeableWeightKg: 7, rateCardId: "rate-1", rateFromKg: 5.01, rateToKg: 10, chargesPerKg: 200, maxBoxKg: 25, baseAmount: 1400, exceedsMaxBoxKg: false },
           { sequence: 2, actualWeightKg: 11, volumetricWeightKg: 4.8, chargeableWeightKg: 11, rateCardId: "rate-2", rateFromKg: 10.01, rateToKg: 20, chargesPerKg: 180, maxBoxKg: 25, baseAmount: 1980, exceedsMaxBoxKg: false }
         ],
+        freightAmount: 3380,
+        csbType: "CSB_IV" as const,
+        csbClearanceAmount: 0,
         baseAmount: 3380,
         gstAmount: 608.4,
         totalAmount: 3988.4,

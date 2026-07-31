@@ -3,6 +3,9 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { ShipmentQuote, shipmentQuoteStatusValues } from "../models/shipmentQuote.model.js";
+import { dayBounds } from "../utils/dateRangeFilter.js";
+import { csbTypeValues } from "../services/csbType.service.js";
+import { quoteDocumentCodeValues } from "../services/quoteDocuments.service.js";
 import {
   ShipmentQuoteError, calculateQuoteEstimate, changeShipmentQuoteStatus,
   convertShipmentQuoteToDraft, createShipmentDraftFromEstimate, createShipmentQuote, loadQuoteContext,
@@ -13,9 +16,11 @@ import {
 const parcelSchema = z.object({
   sequence: z.coerce.number().int().min(1),
   actualWeightKg: z.coerce.number().positive().max(10000),
-  lengthCm: z.coerce.number().positive().max(10000),
-  widthCm: z.coerce.number().positive().max(10000),
-  heightCm: z.coerce.number().positive().max(10000)
+  // Dimensions are optional: the customer may not know them at quote time.
+  lengthCm: z.coerce.number().min(0).max(10000).default(0),
+  widthCm: z.coerce.number().min(0).max(10000).default(0),
+  heightCm: z.coerce.number().min(0).max(10000).default(0),
+  contents: z.string().trim().min(2).max(500)
 });
 
 const quoteRequestSchema = z.object({
@@ -23,9 +28,12 @@ const quoteRequestSchema = z.object({
   destinationCountryCode: z.string().trim().length(2).transform((value) => value.toUpperCase()),
   destinationCountryName: z.string().trim().min(2).max(80),
   shipmentType: z.enum(["DOCUMENTS", "PARCEL", "MERCHANDISE", "SAMPLES", "GIFTS", "RETURNS", "OTHER"]),
+  // Mandatory: CSB-V attracts a flat clearance charge, so it can never be assumed.
+  csbType: z.enum(csbTypeValues, { message: "Select CSB-IV or CSB-V." }),
   serviceType: z.enum(["COURIER", "CARGO"]),
-  goodsValueMinor: z.coerce.number().int().min(0).max(1_000_000_000),
-  contents: z.string().trim().min(2).max(500),
+  goodsValueMinor: z.coerce.number().int().min(1).max(1_000_000_000),
+  availableDocuments: z.array(z.enum(quoteDocumentCodeValues))
+    .min(1, "Select at least one available document."),
   parcels: z.array(parcelSchema).min(1).max(100)
 });
 
@@ -165,6 +173,8 @@ async function list(request: Request, response: Response, audience: "CLIENT" | "
         filters.businessAccountId = request.query.businessAccountId;
       }
     }
+    const bounds = dayBounds(typeof request.query.date === "string" ? request.query.date : undefined);
+    if (bounds) filters.createdAt = { $gte: bounds.start, $lte: bounds.end };
     const [quotes, total] = await Promise.all([
       ShipmentQuote.find(filters).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).exec(),
       ShipmentQuote.countDocuments(filters)

@@ -105,8 +105,10 @@ export async function acceptPaymentTerms(input: { businessAccountId: string; ter
   return parse<{ success: true; message: string }>(response);
 }
 
-export async function listAdminCreditAccounts() {
-  const response = await fetchWithAuth(apiUrl("/api/v1/credit-accounts"));
+export async function listAdminCreditAccounts(status: CreditAccountStatus | "" = "") {
+  const url = new URL(apiUrl("/api/v1/credit-accounts"));
+  if (status) url.searchParams.set("status", status);
+  const response = await fetchWithAuth(url.toString());
   return parse<{ success: true; creditAccounts: CreditAccount[] }>(response);
 }
 

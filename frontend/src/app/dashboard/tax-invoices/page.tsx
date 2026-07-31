@@ -79,7 +79,7 @@ export default function TaxInvoicesPage() {
           onChange={(event) => setStatus(event.target.value)}
           className="h-10 w-full border border-slate-300 bg-white px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
         >
-          <option value="">All statuses</option>
+          <option value="">All Status</option>
           <option value="DRAFT">Draft</option>
           <option value="FINALIZED">Finalized</option>
         </select>

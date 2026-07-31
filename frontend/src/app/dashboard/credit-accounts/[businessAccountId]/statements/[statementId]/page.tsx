@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FiDownload, FiPrinter, FiRefreshCw } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import {
   getAdminStatement,
   openAuthenticatedFile,
@@ -37,8 +37,7 @@ export default function AdminCreditStatementDetailPage() {
   const pdfPath = `/api/v1/credit-accounts/${params.businessAccountId}/statements/${params.statementId}/pdf`;
 
   return (
-    <DashboardShell user={user}>
-      <div className="mx-auto max-w-6xl space-y-5">
+    <div className="mx-auto max-w-6xl space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <Link href={`/dashboard/credit-accounts/${params.businessAccountId}`} className="text-sm font-semibold text-blue-900">Back to credit account</Link>
@@ -66,6 +65,5 @@ export default function AdminCreditStatementDetailPage() {
           </section>
         </> : null}
       </div>
-    </DashboardShell>
   );
 }

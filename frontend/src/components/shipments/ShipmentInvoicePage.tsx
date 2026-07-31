@@ -66,6 +66,8 @@ export default function ShipmentInvoicePage({ draftId, audience }: { draftId: st
   if (!invoice) return <main className="mx-auto mt-12 max-w-3xl border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-500">Loading shipment invoice...</main>;
 
   const parcels = invoice.shipment.parcels ?? [];
+  // Flat CSB-V clearance charge for the whole shipment, in minor units.
+  const csbClearanceMinor = Math.round((invoice.pricingSnapshot?.csbClearanceAmount ?? 0) * 100);
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 print:bg-white print:p-0">
@@ -132,6 +134,18 @@ export default function ShipmentInvoicePage({ draftId, audience }: { draftId: st
               </div>
             </div>
           ))}
+          {/* Flat charge for the whole shipment, so it sits below the per-box rows
+              rather than inside any one of them. Absent on CSB-IV. */}
+          {csbClearanceMinor > 0 ? (
+            <div className="grid grid-cols-[1.8fr_repeat(5,1fr)] border-t border-slate-950 text-center text-[11px]">
+              <div className="border-r border-slate-950 px-3 py-3 text-left font-bold uppercase">CSB-V Clearance Charge</div>
+              <div className="border-r border-slate-950 px-2 py-3">-</div>
+              <div className="border-r border-slate-950 px-2 py-3">-</div>
+              <div className="border-r border-slate-950 px-2 py-3">-</div>
+              <div className="border-r border-slate-950 px-2 py-3">-</div>
+              <div className="px-3 py-3 font-semibold">{money(csbClearanceMinor, invoice.currency)}</div>
+            </div>
+          ) : null}
         </section>
 
         <section className="relative grid grid-cols-[1fr_280px] border-x border-b border-slate-950 text-xs">

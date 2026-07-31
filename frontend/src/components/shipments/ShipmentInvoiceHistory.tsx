@@ -127,7 +127,7 @@ export default function ShipmentInvoiceHistory({
                         target="_blank"
                         rel="noreferrer"
                         title={`View Invoice ${version.revision}`}
-                        className="inline-flex  rounded-xl h-9 items-center gap-2 border border-slate-300 px-3 font-semibold text-blue-900 hover:border-blue-900"
+                        className="inline-flex  rounded-4xl h-9 items-center gap-2 border border-slate-300 px-3 font-semibold text-blue-900 hover:border-blue-900"
                       >
                         <FiEye aria-hidden="true" />
                         View

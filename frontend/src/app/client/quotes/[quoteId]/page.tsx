@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
 } from "@/components/client/ClientDashboardShell";
 import QuoteDetail from "@/components/quotes/QuoteDetail";
 import { getShipmentQuote, type ShipmentQuote } from "@/lib/shipmentQuotes";
@@ -31,7 +30,6 @@ export default function ClientQuoteDetailPage() {
   }, [params.quoteId, user]);
   if (loading || !user) return <ClientDashboardLoading />;
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-7xl">
         <Link
           href="/client/quotes"
@@ -56,6 +54,5 @@ export default function ClientQuoteDetailPage() {
           </div>
         ) : null}
       </div>
-    </ClientDashboardShell>
   );
 }

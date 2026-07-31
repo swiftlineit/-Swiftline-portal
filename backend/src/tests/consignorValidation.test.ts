@@ -115,8 +115,12 @@ describe("consignor draft validation", () => {
     }));
     assert.ok(issues.includes("Parcel 1: Aadhaar number is required"));
     assert.ok(issues.includes("Parcel 1: upload the Aadhaar card"));
-    // Parcel 2 is complete, so it raises no KYC issues.
-    assert.equal(issues.some((issue) => issue.startsWith("Parcel 2")), false);
+    // Parcel 2 is KYC-complete. It still raises the HSN issue every legacy parcel
+    // does (its contents predate per-item capture), so only KYC issues are excluded.
+    assert.equal(
+      issues.some((issue) => issue.startsWith("Parcel 2") && issue.toLowerCase().includes("aadhaar")),
+      false
+    );
   });
 
   test("rejects matching consignor and consignee identity", () => {
@@ -132,7 +136,9 @@ describe("consignor draft validation", () => {
     const issues = validateShipmentDraftFields(draftWith({
       parcels: [{ sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "SNACKS, GOLD RING" }]
     }));
-    assert.ok(issues.includes("Parcel 1: Gold / Silver / Precious Metals is a restricted item and cannot be shipped"));
+    // Restricted goods are now reported against the individual item that names
+    // them. A legacy parcel with only a description reads as its single item.
+    assert.ok(issues.includes("Parcel 1 item 1: Gold / Silver / Precious Metals is a restricted item and cannot be shipped"));
   });
 
   test("allows a parcel whose description merely contains a keyword substring", () => {
@@ -140,6 +146,50 @@ describe("consignor draft validation", () => {
       parcels: [{ sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "CASHEW NUTS, SNACKS" }]
     }));
     assert.equal(issues.some((issue) => issue.toLowerCase().includes("restricted")), false);
+  });
+
+  test("requires an HSN code on every declared item", () => {
+    const issues = validateShipmentDraftFields(draftWith({
+      parcels: [{
+        sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
+        items: [{ description: "Cookies", hsnCode: "19053100" }, { description: "Clothes", hsnCode: "" }],
+        contentsDescription: "Cookies, Clothes"
+      }]
+    }));
+    assert.ok(issues.includes("Parcel 1 item 2: HSN code is required"));
+    // The complete item raises nothing.
+    assert.equal(issues.some((issue) => issue.startsWith("Parcel 1 item 1")), false);
+  });
+
+  test("rejects a malformed HSN code", () => {
+    const issues = validateShipmentDraftFields(draftWith({
+      parcels: [{
+        sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
+        items: [{ description: "Cookies", hsnCode: "190" }],
+        contentsDescription: "Cookies"
+      }]
+    }));
+    assert.ok(issues.includes("Parcel 1 item 1: enter a valid 4, 6 or 8 digit HSN code"));
+  });
+
+  test("does not demand HSN codes on the amendment path, but still rejects malformed ones", () => {
+    // Shipments booked before HSN capture existed must stay amendable.
+    const legacy = validateShipmentDraftFields(draftWith({
+      parcels: [{
+        sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
+        contentsDescription: "Handicrafts"
+      }]
+    }), { requireConsignorDetails: false, requireItemHsnCodes: false });
+    assert.equal(legacy.some((issue) => issue.includes("HSN code is required")), false);
+
+    const malformed = validateShipmentDraftFields(draftWith({
+      parcels: [{
+        sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
+        items: [{ description: "Handicrafts", hsnCode: "12" }],
+        contentsDescription: "Handicrafts"
+      }]
+    }), { requireConsignorDetails: false, requireItemHsnCodes: false });
+    assert.ok(malformed.includes("Parcel 1 item 1: enter a valid 4, 6 or 8 digit HSN code"));
   });
 
   test("skips consignor checks when the caller opts out (amendment path)", () => {

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
 } from "@/components/client/ClientDashboardShell";
 import QuoteForm from "@/components/quotes/QuoteForm";
 import { getQuoteContext, type QuoteContext } from "@/lib/shipmentQuotes";
@@ -31,7 +30,6 @@ export default function ClientGetQuotePage() {
 
   if (loading || !user) return <ClientDashboardLoading />;
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-slate-950">Get Quote</h1>
@@ -58,6 +56,5 @@ export default function ClientGetQuotePage() {
           />
         ) : null}
       </div>
-    </ClientDashboardShell>
   );
 }

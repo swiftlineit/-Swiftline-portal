@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { FiAlertTriangle, FiBriefcase } from "react-icons/fi";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
   ClientShellUser
 } from "@/components/client/ClientDashboardShell";
 import ClientAccessBlocked from "@/components/client/dashboard/ClientAccessBlocked";
@@ -222,7 +221,6 @@ export default function ClientDashboardPage() {
   const selectedWallet = selectedAccount ? walletsByAccountId[selectedAccount.account.id] : undefined;
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto flex max-w-375 flex-col gap-6">
         <ClientDashboardHeader
           user={user}
@@ -272,6 +270,5 @@ export default function ClientDashboardPage() {
           </>
         )}
       </div>
-    </ClientDashboardShell>
   );
 }

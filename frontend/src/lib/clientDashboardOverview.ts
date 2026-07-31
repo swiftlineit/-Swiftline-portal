@@ -67,24 +67,24 @@ export function buildShipmentPipeline(summary: ClientShipmentSummary): ClientSta
 // `addressValidated` and `labelsCreated` are independent flags that persist
 // regardless of a draft's current status, so they read as completion ratios
 // against the whole pool rather than as pipeline stages.
-export function buildCompletionMeters(summary: ClientShipmentSummary): ClientMeter[] {
-  return [
-    {
-      key: "ADDRESS_VALIDATED",
-      label: "Address validated",
-      detail: "Confirmed deliverable by the carrier",
-      count: summary.addressValidated,
-      total: summary.totalShipments
-    },
-    {
-      key: "LABELS_CREATED",
-      label: "Labels created",
-      detail: "Ready to hand over for collection",
-      count: summary.labelsCreated,
-      total: summary.totalShipments
-    }
-  ];
-}
+// export function buildCompletionMeters(summary: ClientShipmentSummary): ClientMeter[] {
+//   return [
+//     {
+//       key: "ADDRESS_VALIDATED",
+//       label: "Address validated",
+//       detail: "Confirmed deliverable by the carrier",
+//       count: summary.addressValidated,
+//       total: summary.totalShipments
+//     },
+//     {
+//       key: "LABELS_CREATED",
+//       label: "Labels created",
+//       detail: "Ready to hand over for collection",
+//       count: summary.labelsCreated,
+//       total: summary.totalShipments
+//     }
+//   ];
+// }
 
 // A rejected section must not blank the whole dashboard, so each source
 // resolves to its value or the label of what could not be loaded.
@@ -111,7 +111,7 @@ export async function loadClientExtras(input: {
   canViewQuotes: boolean;
 }): Promise<ClientExtras> {
   const [quotes, tickets, credit, statements] = await Promise.all([
-    input.canViewQuotes ? safe("Quotes", () => listShipmentQuotes("client", "QUOTED")) : null,
+    input.canViewQuotes ? safe("Quotes", () => listShipmentQuotes("client", { status: "QUOTED" })) : null,
     safe("Support tickets", () => listSupportTickets("client", { status: "WAITING_FOR_CUSTOMER", limit: 1 })),
     safe("Credit account", () => getClientCreditAccount(input.businessAccountId)),
     safe("Credit statements", () => listClientStatements(input.businessAccountId))

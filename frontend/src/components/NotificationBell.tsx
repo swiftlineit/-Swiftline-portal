@@ -7,11 +7,14 @@ import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
-  type PortalNotification
+  type PortalNotification,
 } from "@/lib/notifications";
 
 function relativeTime(value: string) {
-  const minutes = Math.max(Math.floor((Date.now() - new Date(value).getTime()) / 60_000), 0);
+  const minutes = Math.max(
+    Math.floor((Date.now() - new Date(value).getTime()) / 60_000),
+    0,
+  );
   if (minutes < 1) return "Just now";
   if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
@@ -40,6 +43,7 @@ export default function NotificationBell() {
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void load(), 0);
     const interval = window.setInterval(() => void load(), 60_000);
+
     return () => {
       window.clearTimeout(initialLoad);
       window.clearInterval(interval);
@@ -50,10 +54,15 @@ export default function NotificationBell() {
     if (!notification.readAt) {
       await markNotificationRead(notification.id);
       setUnreadCount((count) => Math.max(count - 1, 0));
-      setNotifications((items) => items.map((item) => item.id === notification.id
-        ? { ...item, readAt: new Date().toISOString() }
-        : item));
+      setNotifications((items) =>
+        items.map((item) =>
+          item.id === notification.id
+            ? { ...item, readAt: new Date().toISOString() }
+            : item,
+        ),
+      );
     }
+
     setOpen(false);
     router.push(notification.href);
   }
@@ -61,50 +70,99 @@ export default function NotificationBell() {
   async function readAll() {
     await markAllNotificationsRead();
     const readAt = new Date().toISOString();
+
     setUnreadCount(0);
-    setNotifications((items) => items.map((item) => ({ ...item, readAt: item.readAt || readAt })));
+    setNotifications((items) =>
+      items.map((item) => ({
+        ...item,
+        readAt: item.readAt || readAt,
+      })),
+    );
   }
 
   return (
-    <div className="relative">
+    <div className="relative group">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-label="Notifications"
         aria-expanded={open}
-        className="relative flex h-10 w-10 items-center justify-center border rounded-4xl  border-slate-300 bg-white text-slate-700 hover:border-blue-800 hover:text-blue-900"
+        className="relative flex h-10 w-10 items-center justify-center rounded-4xl border border-slate-300 bg-white text-slate-700 transition hover:border-blue-800 hover:text-blue-900"
       >
         <FiBell className="h-4 w-4" />
+
         {unreadCount ? (
-          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center  rounded-full justify-center bg-red-600 px-1 text-[10px] font-bold text-white">
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         ) : null}
       </button>
 
+      {!open && (
+        <div
+          className="
+            pointer-events-none absolute left-1/2 top-full z-50 mt-2
+            -translate-x-1/2 whitespace-nowrap rounded-lg
+            bg-slate-900 px-3 py-2 text-xs font-medium text-white
+            opacity-0 shadow-xl transition-all duration-200
+            group-hover:translate-y-1 group-hover:opacity-100
+          "
+        >
+          Notifications
+          <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900" />
+        </div>
+      )}
+
       {open ? (
         <div className="absolute right-0 top-12 z-50 w-90 max-w-[calc(100vw-2rem)] border border-slate-200 bg-white shadow-xl">
           <div className="flex h-12 items-center justify-between border-b border-slate-200 px-4">
-            <p className="text-sm font-semibold text-slate-950">Notifications</p>
+            <p className="text-sm font-semibold text-slate-950">
+              Notifications
+            </p>
+
             {unreadCount ? (
-              <button type="button" onClick={() => void readAll()} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-900">
-                <FiCheck /> Mark all read
+              <button
+                type="button"
+                onClick={() => void readAll()}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-900"
+              >
+                <FiCheck />
+                Mark all read
               </button>
             ) : null}
           </div>
+
           <div className="max-h-90 overflow-y-auto">
-            {error ? <p className="p-4 text-sm text-red-700">{error}</p> : null}
-            {!error && !notifications.length ? <p className="p-6 text-center text-sm text-slate-500">No notifications yet.</p> : null}
+            {error ? (
+              <p className="p-4 text-sm text-red-700">{error}</p>
+            ) : null}
+
+            {!error && !notifications.length ? (
+              <p className="p-6 text-center text-sm text-slate-500">
+                No notifications yet.
+              </p>
+            ) : null}
+
             {notifications.map((notification) => (
               <button
                 key={notification.id}
                 type="button"
                 onClick={() => void openNotification(notification)}
-                className={`block w-full border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50 ${notification.readAt ? "bg-white" : "bg-blue-50"}`}
+                className={`block w-full border-b border-slate-100 px-4 py-3 text-left last:border-0 hover:bg-slate-50 ${
+                  notification.readAt ? "bg-white" : "bg-blue-50"
+                }`}
               >
-                <span className="block text-sm font-semibold text-slate-950">{notification.title}</span>
-                <span className="mt-1 block text-xs leading-5 text-slate-600">{notification.message}</span>
-                <span className="mt-1 block text-[11px] font-medium text-slate-400">{relativeTime(notification.createdAt)}</span>
+                <span className="block text-sm font-semibold text-slate-950">
+                  {notification.title}
+                </span>
+
+                <span className="mt-1 block text-xs leading-5 text-slate-600">
+                  {notification.message}
+                </span>
+
+                <span className="mt-1 block text-[11px] font-medium text-slate-400">
+                  {relativeTime(notification.createdAt)}
+                </span>
               </button>
             ))}
           </div>

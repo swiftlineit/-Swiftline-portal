@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { FiArrowLeft, FiDownload, FiRefreshCw } from "react-icons/fi";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
 } from "@/components/client/ClientDashboardShell";
 import {
   listClientLedger,
@@ -117,7 +116,6 @@ export default function ClientCreditLedgerPage() {
   if (userLoading || !user) return <ClientDashboardLoading />;
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -226,6 +224,5 @@ export default function ClientCreditLedgerPage() {
           ) : null}
         </section>
       </div>
-    </ClientDashboardShell>
   );
 }

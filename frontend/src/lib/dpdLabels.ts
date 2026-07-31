@@ -1,5 +1,7 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
+import type { CsbType } from "@/lib/csbType";
+import type { ParcelItem } from "@/lib/parcelItems";
 
 export type InvoiceUpload = {
   id: string;
@@ -98,12 +100,17 @@ export type ShipmentDraft = {
     widthCm?: number;
     heightCm?: number;
     shipmentContentType: ShipmentContentType;
+    // Per-item goods with HSN codes. Absent on parcels stored before items
+    // existed, which fall back to contentsDescription.
+    items?: ParcelItem[];
     contentsDescription: string;
     shipmentReference1?: string;
     shipmentReference2?: string;
     aadhaarNumber?: string;
     kycDocuments?: ShipmentKycDocuments;
   }>;
+  // Customs route. Absent on drafts created before CSB selection existed.
+  csbType?: CsbType;
   serviceType?: ShipmentServiceType;
   serviceCode: string;
   validationIssues: string[];
@@ -126,11 +133,13 @@ export type ShipmentDraftPatch = {
     widthCm?: number;
     heightCm?: number;
     shipmentContentType: ShipmentContentType;
+    items?: ParcelItem[];
     contentsDescription: string;
     shipmentReference1?: string;
     shipmentReference2?: string;
     aadhaarNumber?: string;
   }>;
+  csbType?: CsbType;
   serviceType?: ShipmentServiceType;
   serviceCode?: string;
 };
@@ -517,7 +526,7 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
 export async function downloadDpdInvoiceTemplate() {
   const response = await fetchWithAuth(apiUrl("/api/v1/invoice-templates/dpd/download"));
 
-  if (!response.ok) throw new Error("Unable to download invoice template.");
+  if (!response.ok) throw new Error("Unable to download invoice format.");
 
   return response.blob();
 }
@@ -642,14 +651,17 @@ export async function previewShipmentAmendment(shipmentDraftId: string, input: S
   }>(response);
 }
 
-export async function listShipmentAmendments(status = "") {
+export async function listShipmentAmendments(input: { status?: string; date?: string; page?: number } = {}) {
   const url = new URL(apiUrl("/api/v1/shipment-amendments"));
-  if (status) url.searchParams.set("status", status);
+  if (input.status) url.searchParams.set("status", input.status);
+  if (input.date) url.searchParams.set("date", input.date);
+  url.searchParams.set("page", String(input.page ?? 1));
   const response = await fetchWithAuth(url.toString());
 
   return parseApiResponse<{
     success: true;
     amendments: ShipmentAmendment[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
   }>(response);
 }
 

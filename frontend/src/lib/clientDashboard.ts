@@ -179,6 +179,8 @@ export type ClientShipmentDetails = {
     addressValidationStatus: string;
     serviceType: ShipmentDraft["serviceType"];
     serviceCode: string;
+    // Customs route. Absent on shipments booked before CSB selection existed.
+    csbType?: ShipmentDraft["csbType"];
     parcelCount: number;
     parcelList: ShipmentDraft["parcelList"];
     consignee: ShipmentDraft["consigneeEnteredAddress"];

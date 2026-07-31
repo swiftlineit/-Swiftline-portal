@@ -8,6 +8,7 @@ import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentCharge } from "../models/shipmentCharge.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentInvoiceCounter } from "../models/shipmentInvoiceCounter.model.js";
+import { formatCsbType } from "./csbType.service.js";
 import { calculateShipmentPricingEstimate, type ShipmentPricingEstimate } from "./shipmentPricing.service.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 
@@ -184,6 +185,7 @@ export async function ensureShipmentInvoiceForDraft(input: {
       countryCode: draft.consigneeEnteredAddress.countryCode,
       serviceType: draft.serviceType,
       parcels: draft.parcelList,
+      csbType: draft.csbType,
       session: input.session
     });
   }
@@ -322,7 +324,9 @@ export async function ensureShipmentInvoiceForDraft(input: {
     customer,
     shipment,
     sacCode: asString(snapshotSender.invoiceSacCode) || branch.invoiceSacCode || "",
-    description: `${serviceType === "CARGO" ? "Cargo" : "Courier"} shipment service - ${shipmentReference}`,
+    // The CSB route is part of the invoice description so the customs category
+    // this shipment was billed under is visible on the invoice record itself.
+    description: `${serviceType === "CARGO" ? "Cargo" : "Courier"} shipment service (${formatCsbType(pricing.csbType)}) - ${shipmentReference}`,
     taxableValueMinor,
     gstRatePercent: pricing.gstRate * 100,
     ...taxAmounts,

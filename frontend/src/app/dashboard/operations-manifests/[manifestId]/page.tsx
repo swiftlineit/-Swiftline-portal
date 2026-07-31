@@ -20,7 +20,7 @@ import {
   FiX,
 } from "react-icons/fi";
 import { toast } from "react-toastify";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import {
   createOperationsBag,
   createOperationsScanSession,
@@ -195,11 +195,9 @@ export default function OperationsManifestWorkspace() {
   if (loading || !user) return <DashboardLoading />;
   if (!data)
     return (
-      <DashboardShell user={user}>
-        <div className="p-10 text-center text-slate-500">
-          {busy ? "Loading manifest..." : "Manifest is unavailable."}
-        </div>
-      </DashboardShell>
+      <div className="p-10 text-center text-slate-500">
+        {busy ? "Loading manifest..." : "Manifest is unavailable."}
+      </div>
     );
 
   const currentData = data;
@@ -383,7 +381,7 @@ export default function OperationsManifestWorkspace() {
   }
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="mx-auto max-w-[1500px]">
         <ManifestHeader
           data={data}
@@ -605,7 +603,7 @@ export default function OperationsManifestWorkspace() {
           }}
         />
       ) : null}
-    </DashboardShell>
+    </>
   );
 }
 

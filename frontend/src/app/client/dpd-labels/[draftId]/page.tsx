@@ -7,10 +7,11 @@ import { FiArrowLeft, FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi
 import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
   ClientShellUser
 } from "@/components/client/ClientDashboardShell";
 import {
+  ParcelItemsEditor,
+  ShipmentCsbTypeField,
   ShipmentFieldLabel,
   ShipmentPhoneCodeField,
   ShipmentSelectField,
@@ -38,7 +39,14 @@ import {
   validateClientAddress
 } from "@/lib/clientDashboard";
 import { CountryRateCard, formatCountryRateService, getCountryFlag, listClientCountryRateCards } from "@/lib/countryRateCards";
-import { findRestrictedCategories, isRestrictedDescription } from "@/lib/restrictedGoods";
+import { findRestrictedCategories } from "@/lib/restrictedGoods";
+import { normalizeCsbType, type CsbType } from "@/lib/csbType";
+import {
+  composeContentsDescription,
+  getHsnCodeError,
+  normalizeParcelItems,
+  type ParcelItem
+} from "@/lib/parcelItems";
 import {
   getPostcodeError,
   getShipmentEmailError,
@@ -94,6 +102,9 @@ type ParcelForm = {
   widthCm: string;
   heightCm: string;
   shipmentContentType: ShipmentContentType;
+  // One row per distinct good, each with its own HSN code. The joined
+  // descriptions become contentsDescription on save.
+  items: ParcelItem[];
   contentsDescription: string;
   shipmentReference1: string;
   shipmentReference2: string;
@@ -155,6 +166,7 @@ function createEmptyParcel(sequence: number): ParcelForm {
     widthCm: "",
     heightCm: "",
     shipmentContentType: "PARCEL",
+    items: [{ description: "", hsnCode: "" }],
     contentsDescription: "",
     shipmentReference1: "",
     shipmentReference2: "",
@@ -173,6 +185,9 @@ function normalizeParcels(draft: ShipmentDraft): ParcelForm[] {
     widthCm: parcel.widthCm ? String(parcel.widthCm) : "",
     heightCm: parcel.heightCm ? String(parcel.heightCm) : "",
     shipmentContentType: parcel.shipmentContentType ?? "PARCEL",
+    // Drafts saved before per-item capture surface as a single item seeded from
+    // their existing description, so they open without a migration.
+    items: normalizeParcelItems(parcel),
     contentsDescription: parcel.contentsDescription ?? "",
     shipmentReference1: parcel.shipmentReference1 ?? "",
     shipmentReference2: parcel.shipmentReference2 ?? "",
@@ -222,12 +237,22 @@ function getReviewIssues(addressForm: AddressForm, contactForm: ContactForm, par
       }
     }
     if (!parcel.shipmentContentType) issues.push(`${label}: shipment content type is required`);
-    if (!parcel.contentsDescription.trim()) {
-      issues.push(`${label}: contents description is required`);
-    } else {
-      const restricted = findRestrictedCategories(parcel.contentsDescription);
-      if (restricted.length) issues.push(`${label}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
+    // Every declared item needs a description and a valid HSN code for customs.
+    const items = parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim());
+    if (!items.length) {
+      issues.push(`${label}: contents are required`);
     }
+    items.forEach((item, itemIndex) => {
+      const itemLabel = `${label} item ${itemIndex + 1}`;
+      if (!item.description.trim()) {
+        issues.push(`${itemLabel}: description is required`);
+      } else {
+        const restricted = findRestrictedCategories(item.description);
+        if (restricted.length) issues.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
+      }
+      const hsnError = getHsnCodeError(item.hsnCode);
+      if (hsnError) issues.push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
+    });
   });
   return issues;
 }
@@ -266,6 +291,9 @@ export default function ClientDpdDraftReviewPage() {
   const [kycDocuments, setKycDocuments] = useState<ShipmentKycDocuments>({});
   const [parcelKyc, setParcelKyc] = useState<Record<number, ShipmentKycDocuments>>({});
   const [parcelForms, setParcelForms] = useState<ParcelForm[]>([createEmptyParcel(1)]);
+  // Customs route for the shipment. Drafts saved before CSB selection existed
+  // read as CSB-IV, matching how the backend prices them.
+  const [csbType, setCsbType] = useState<CsbType>("CSB_IV");
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -331,12 +359,15 @@ export default function ClientDpdDraftReviewPage() {
     return [...countries].map(([code, name]) => ({ code, name }));
   }, [addressForm.countryCode, addressForm.countryName, rates]);
   const totalWeight = parcelForms.reduce((total, parcel) => total + (Number(parcel.weightKg) || 0), 0);
+  // Recalculates when the CSB type is toggled so the panel always reflects the
+  // clearance charge the backend will apply at booking.
   const chargeEstimate = useMemo(() => calculateShipmentEstimate({
     parcels: parcelForms,
     rates,
     countryCode: addressForm.countryCode,
-    serviceType: contactForm.serviceType
-  }), [addressForm.countryCode, contactForm.serviceType, parcelForms, rates]);
+    serviceType: contactForm.serviceType,
+    csbType
+  }), [addressForm.countryCode, contactForm.serviceType, csbType, parcelForms, rates]);
 
   const draftChanged = useMemo(() => {
     if (!draft) return false;
@@ -381,6 +412,7 @@ export default function ClientDpdDraftReviewPage() {
       serviceType: nextDraft.serviceType ?? "COURIER",
       serviceCode: nextDraft.serviceCode ?? ""
     });
+    setCsbType(normalizeCsbType(nextDraft.csbType));
     setConsignorForm(consignorFormFromDraft(nextDraft.consignorAddress));
     setKycUseForAll(nextDraft.kycUseForAllParcels ?? true);
     setKycDocuments(nextDraft.kycDocuments ?? {});
@@ -529,6 +561,17 @@ export default function ClientDpdDraftReviewPage() {
     };
   }
 
+  // contentsDescription is kept in step with the items so the value sent on save
+  // always matches what is on screen.
+  function handleParcelItemsChange(index: number, items: ParcelItem[]) {
+    setParcelForms((current) => current.map((parcel, parcelIndex) => (
+      parcelIndex === index
+        ? { ...parcel, items, contentsDescription: composeContentsDescription(items) }
+        : parcel
+    )));
+    setReviewIssues([]);
+  }
+
   function handleParcelCountChange(event: ChangeEvent<HTMLInputElement>) {
     const nextCount = Number(event.target.value);
     if (!Number.isInteger(nextCount) || nextCount < 1 || nextCount > maxParcelCount) return;
@@ -581,11 +624,16 @@ export default function ClientDpdDraftReviewPage() {
         widthCm: parcel.widthCm ? Number(parcel.widthCm) : undefined,
         heightCm: parcel.heightCm ? Number(parcel.heightCm) : undefined,
         shipmentContentType: parcel.shipmentContentType,
-        contentsDescription: parcel.contentsDescription,
+        // Blank rows are dropped so an untouched extra row never blocks a save.
+        items: parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim()),
+        // Recomputed from the items so the value the EDI export, manifest, carrier
+        // payload and labels read always matches what was entered.
+        contentsDescription: composeContentsDescription(parcel.items),
         shipmentReference1: parcel.shipmentReference1,
         shipmentReference2: parcel.shipmentReference2,
         aadhaarNumber: parcel.aadhaarNumber
       })),
+      csbType,
       serviceType: contactForm.serviceType,
       serviceCode: contactForm.serviceCode
     });
@@ -707,7 +755,6 @@ export default function ClientDpdDraftReviewPage() {
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -732,6 +779,17 @@ export default function ClientDpdDraftReviewPage() {
         ) : (
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-5">
+              {/* Customs route, first because CSB-V changes what is charged. */}
+              <section className="border border-slate-200 bg-white rounded-2xl">
+                <SectionHeader title="Shipment Type" onSave={handleSave} busy={busy} changed={draftChanged} />
+                <div className="p-4">
+                  <ShipmentCsbTypeField
+                    value={csbType}
+                    onChange={(next: CsbType) => { setCsbType(next); setReviewIssues([]); }}
+                  />
+                </div>
+              </section>
+
               <ConsignorKycSection
                 shipmentDraftId={draft._id}
                 form={consignorForm}
@@ -909,10 +967,15 @@ export default function ClientDpdDraftReviewPage() {
                               </option>
                             ))}
                         </ShipmentSelectField>
-                        <div className="md:col-span-2">
-                          <ShipmentTextField label="Contents Description" tooltip="Items/product details" required value={parcel.contentsDescription} onChange={handleParcelChange(index, "contentsDescription")} onBlur={() => { if (isRestrictedDescription(parcel.contentsDescription)) toast.error("This item is restricted."); }} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "contents"])} revealError={submitAttempted} />
-                        </div>
                         <ShipmentTextField label="Reference (Optional)" tooltip="Can be a company name or a unique identifier of the shipment" value={parcel.shipmentReference1} onChange={handleParcelChange(index, "shipmentReference1")} />
+                        {/* One row per distinct good, each with its own HSN code. */}
+                        <div className="md:col-span-4">
+                          <ParcelItemsEditor
+                            items={parcel.items}
+                            onChange={(items) => handleParcelItemsChange(index, items)}
+                            revealError={submitAttempted}
+                          />
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -981,6 +1044,17 @@ export default function ClientDpdDraftReviewPage() {
                   ) : null}
                   <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-sm">
                     <div className="flex items-center justify-between">
+                      <span className="text-slate-500">Freight</span>
+                      <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.freightAmount)}</span>
+                    </div>
+                    {/* Flat charge for the whole shipment, not per box. Absent on CSB-IV. */}
+                    {chargeEstimate.csbClearanceAmount > 0 ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">CSB-V Clearance Charge</span>
+                        <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.csbClearanceAmount)}</span>
+                      </div>
+                    ) : null}
+                    <div className="flex items-center justify-between">
                       <span className="text-slate-500">Subtotal</span>
                       <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.baseAmount)}</span>
                     </div>
@@ -1007,7 +1081,6 @@ export default function ClientDpdDraftReviewPage() {
           </div>
         )}
       </div>
-    </ClientDashboardShell>
   );
 }
 

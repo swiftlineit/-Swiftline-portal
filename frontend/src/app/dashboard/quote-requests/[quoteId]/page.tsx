@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import QuoteDetail from "@/components/quotes/QuoteDetail";
 import { getShipmentQuote, type ShipmentQuote } from "@/lib/shipmentQuotes";
 import { useAdminUser } from "@/lib/useAdminUser";
@@ -21,12 +21,10 @@ export default function AdminQuoteDetailPage() {
   }, [params.quoteId, user]);
   if (loading || !user) return <DashboardLoading />;
   return (
-    <DashboardShell user={user}>
       <div className="mx-auto max-w-7xl">
         <Link href="/dashboard/quote-requests" className="mb-4 inline-block text-sm font-semibold text-blue-900 hover:underline">Back to quote requests</Link>
         {error ? <div className="border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div> : null}
         {quote ? <QuoteDetail quote={quote} audience="admin" /> : !error ? <div className="border border-slate-200 bg-white p-8 text-sm text-slate-500">Loading quote...</div> : null}
       </div>
-    </DashboardShell>
   );
 }

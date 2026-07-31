@@ -1,5 +1,6 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, readJsonSafely, refreshAccessToken } from "@/lib/auth";
+import type { CsbType } from "@/lib/csbType";
 
 export type ShipmentAudience = "admin" | "client";
 
@@ -21,6 +22,8 @@ export type ShipmentListItem = {
   destinationCountry: string;
   product: string;
   serviceInfo: string;
+  // Customs route. Absent on shipments booked before CSB selection existed.
+  csbType?: CsbType;
   route: string;
   shipmentInvoice: {
     invoiceNumber: string;
@@ -94,6 +97,7 @@ export async function listShipments(audience: ShipmentAudience, input: {
   page?: number;
   limit?: number;
   status?: string;
+  date?: string;
   businessAccountId?: string;
   branchId?: string;
 } = {}) {
@@ -101,6 +105,7 @@ export async function listShipments(audience: ShipmentAudience, input: {
   params.set("page", String(input.page ?? 1));
   params.set("limit", String(input.limit ?? 20));
   if (input.status) params.set("status", input.status);
+  if (input.date) params.set("date", input.date);
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
   if (input.branchId) params.set("branchId", input.branchId);
   const base = audience === "client" ? "/api/v1/client/booked-shipments" : "/api/v1/shipments";

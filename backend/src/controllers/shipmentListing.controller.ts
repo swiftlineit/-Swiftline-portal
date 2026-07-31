@@ -31,6 +31,7 @@ export async function listAdminBookedShipments(request: Request, response: Respo
     ...pagination(request),
     actorRole: "admin",
     status: typeof request.query.status === "string" ? request.query.status : "",
+    date: typeof request.query.date === "string" ? request.query.date : "",
     businessAccountIds: businessAccountId ? [businessAccountId] : undefined,
     branchIds: branchId ? [branchId] : undefined
   });
@@ -83,6 +84,7 @@ export async function listClientBookedShipments(request: Request, response: Resp
     ...pagination(request),
     actorRole: "client",
     status: typeof request.query.status === "string" ? request.query.status : "",
+    date: typeof request.query.date === "string" ? request.query.date : "",
     businessAccountIds,
     branchIds: requestedBranchId ? [requestedBranchId] : branchIds
   });

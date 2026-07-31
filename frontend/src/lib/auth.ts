@@ -88,6 +88,24 @@ function findFirstApiError(value: unknown): string {
   return "";
 }
 
+export type LoginResult = {
+  success: true;
+  accessToken: string;
+  user: { id: string; email: string; role: string; name?: string; userStatus: string; hasSeenWelcome: boolean };
+};
+
+/** Exchanges a Google Identity Services ID token for the portal's own access/refresh tokens. */
+export async function loginWithGoogle(credential: string) {
+  const response = await fetch(apiUrl("/api/v1/auth/login/google"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ credential })
+  });
+
+  return parseAuthResponse<LoginResult>(response);
+}
+
 export async function getInvitation(token: string) {
   const response = await fetch(apiUrl(`/api/v1/auth/invitations/${encodeURIComponent(token)}`));
 

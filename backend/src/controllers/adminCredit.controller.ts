@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { AuditLog, type AuditAction } from "../models/auditLog.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
-import { BusinessCreditAccount, type CreditAccountStatus, type IBusinessCreditAccount } from "../models/businessCreditAccount.model.js";
+import { BusinessCreditAccount, creditAccountStatusValues, type CreditAccountStatus, type IBusinessCreditAccount } from "../models/businessCreditAccount.model.js";
 import { type CreditLedgerEntryType } from "../models/creditLedgerEntry.model.js";
 import { CreditLimitHistory } from "../models/creditLimitHistory.model.js";
 import { maxCreditLimitMinor } from "../models/financialTypes.js";
@@ -71,26 +71,34 @@ async function serializeAdminCreditAccount(account: InstanceType<typeof Business
   return { ...serialized, availableBookingCapacityMinor, restriction };
 }
 
-export async function listAdminCreditAccounts(_request: Request, response: Response): Promise<Response> {
+export async function listAdminCreditAccounts(request: Request, response: Response): Promise<Response> {
+  const requestedStatus = typeof request.query.status === "string" ? request.query.status.toUpperCase() : "";
+  const statusFilter = creditAccountStatusValues.includes(requestedStatus as CreditAccountStatus)
+    ? requestedStatus as CreditAccountStatus
+    : "";
+
   const businesses = await BusinessAccount.find({ status: { $in: ["approved", "active"] } })
     .select("accountId status company.companyName kycReview.overallStatus agreementStatus depositStatus")
     .sort({ updatedAt: -1 }).lean().exec();
   const creditAccounts = await BusinessCreditAccount.find({ businessAccountId: { $in: businesses.map((account) => account._id) } }).exec();
   const byBusinessId = new Map(creditAccounts.map((account) => [String(account.businessAccountId), account]));
-  return response.status(200).json({
-    success: true,
-    creditAccounts: await Promise.all(businesses.map(async (business) => {
-      const account = byBusinessId.get(String(business._id));
-      return account
-        ? { ...await serializeAdminCreditAccount(account), businessAccount: businessSummary(business) }
-        : {
-            id: "", businessAccountId: String(business._id), status: "NOT_REQUESTED", currency: "INR",
-            requestedCreditLimitMinor: 0, approvedCreditLimitMinor: 0, usedCreditMinor: 0,
-            availableCreditMinor: 0, availableAdvanceMinor: 0, availableBookingCapacityMinor: 0,
-            paymentTermsDays: 30, billingCycle: "MONTHLY", businessAccount: businessSummary(business)
-          };
-    }))
-  });
+  const allAccounts = await Promise.all(businesses.map(async (business) => {
+    const account = byBusinessId.get(String(business._id));
+    return account
+      ? { ...await serializeAdminCreditAccount(account), businessAccount: businessSummary(business) }
+      : {
+          id: "", businessAccountId: String(business._id), status: "NOT_REQUESTED", currency: "INR",
+          requestedCreditLimitMinor: 0, approvedCreditLimitMinor: 0, usedCreditMinor: 0,
+          availableCreditMinor: 0, availableAdvanceMinor: 0, availableBookingCapacityMinor: 0,
+          paymentTermsDays: 30, billingCycle: "MONTHLY", businessAccount: businessSummary(business)
+        };
+  }));
+  // The credit facility's status only exists after the businesses/credit-accounts
+  // join above, so filtering happens in memory rather than as a DB query.
+  const creditAccountsResult = statusFilter
+    ? allAccounts.filter((account) => account.status === statusFilter)
+    : allAccounts;
+  return response.status(200).json({ success: true, creditAccounts: creditAccountsResult });
 }
 
 export async function getAdminCreditAccount(request: Request, response: Response): Promise<Response> {

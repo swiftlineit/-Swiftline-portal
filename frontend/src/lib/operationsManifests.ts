@@ -151,13 +151,13 @@ export const listManifestBranches = () =>
     success: true;
     branches: Array<{ id: string; name: string; code: string }>;
   }>("/api/v1/operations-manifests/branches/options");
-export const listOperationsManifests = (page = 1, status = "") =>
+export const listOperationsManifests = (page = 1, status = "", date = "") =>
   request<{
     success: true;
     items: OperationsManifest[];
     pagination: { page: number; pages: number; total: number };
   }>(
-    `/api/v1/operations-manifests?page=${page}&limit=15${status ? `&status=${status}` : ""}`,
+    `/api/v1/operations-manifests?page=${page}&limit=15${status ? `&status=${status}` : ""}${date ? `&date=${date}` : ""}`,
   );
 export const createOperationsManifest = (body: {
   branchId: string;

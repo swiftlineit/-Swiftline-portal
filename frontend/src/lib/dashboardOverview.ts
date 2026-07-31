@@ -519,9 +519,9 @@ export async function loadDashboardOverview(role?: string): Promise<DashboardOve
     can("accounts") ? load("Business accounts", () => listBusinessAccounts("", "", 1, 1, "pending_review")) : null,
     can("accounts") ? load("Branches", () => listBranches("", "ACTIVE", 1, 1)) : null,
     can("manifests") ? loadManifestOverview(!can("shipments")) : null,
-    can("approvals") ? load("Amendments", () => listShipmentAmendments("REQUESTED")) : null,
-    can("approvals") ? load("Cancellations", () => listShipmentCancellations("REQUESTED")) : null,
-    can("approvals") ? load("Quote requests", () => listShipmentQuotes("admin", "REQUESTED")) : null,
+    can("approvals") ? load("Amendments", () => listShipmentAmendments({ status: "REQUESTED" })) : null,
+    can("approvals") ? load("Cancellations", () => listShipmentCancellations({ status: "REQUESTED" })) : null,
+    can("approvals") ? load("Quote requests", () => listShipmentQuotes("admin", { status: "REQUESTED" })) : null,
     can("approvals") ? load("Support tickets", () => listSupportTickets("admin", { status: "OPEN", limit: 5 })) : null,
     can("finance") ? load("Credit accounts", () => listAdminCreditAccounts()) : null,
     can("finance") ? load("Tax invoices", () => listTaxInvoices("", "DRAFT")) : null

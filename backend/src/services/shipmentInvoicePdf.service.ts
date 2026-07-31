@@ -75,6 +75,8 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   const customer = invoice.customer as Record<string, unknown>;
   const shipment = invoice.shipment as Record<string, unknown>;
   const parcels = Array.isArray(shipment.parcels) ? shipment.parcels as Record<string, unknown>[] : [];
+  // Carries the freight / CSB-V clearance split behind the taxable value.
+  const pricingSnapshot = invoice.pricingSnapshot as Record<string, unknown>;
   const logoPath = path.resolve(process.cwd(), "assets", "swiftline-invoice-logo.jpeg");
 
   if (fs.existsSync(logoPath)) doc.image(logoPath, 42, 38, { fit: [190, 58] });
@@ -133,6 +135,31 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
       width: columns[valueIndex + 1]! - columns[valueIndex]! - 8,
       align: "center"
     }));
+    y += 28;
+  }
+
+  // CSB-V shipments carry a flat customs clearance charge for the whole shipment
+  // (not per box), so it is shown as its own line under the per-box rows rather
+  // than folded into any box amount. CSB-IV shipments have none and skip this.
+  const csbClearanceMinor = Math.round(numberValue(pricingSnapshot, "csbClearanceAmount") * 100);
+  if (csbClearanceMinor > 0) {
+    if (y + 28 > 640) {
+      doc.addPage();
+      y = 48;
+    }
+    doc.rect(42, y, 507, 28).fill("#ffffff").strokeColor("#0f172a").stroke();
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#0f172a").text(
+      "CSB-V CLEARANCE CHARGE",
+      columns[0]! + 4,
+      y + 8,
+      { width: columns[4]! - columns[0]! - 8, align: "left" }
+    );
+    doc.font("Helvetica").fontSize(7).text(
+      money(csbClearanceMinor, invoice.currency),
+      columns[5]! + 4,
+      y + 8,
+      { width: columns[6]! - columns[5]! - 8, align: "center" }
+    );
     y += 28;
   }
 

@@ -208,7 +208,7 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
           type="button"
           onClick={() => setModalOpen(true)}
           disabled={!canCreateClientLogin}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0D1282]/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+          className="inline-flex items-center gap-2 rounded-4xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0D1282]/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
         >
           <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
             <path d="M10 4a1 1 0 0 1 1 1v4h4a1 1 0 1 1 0 2h-4v4a1 1 0 1 1-2 0v-4H5a1 1 0 1 1 0-2h4V5a1 1 0 0 1 1-1Z" />
@@ -246,7 +246,7 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
 
       <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
         <table className="min-w-full text-left text-sm">
-          <thead className="border-[#0D1282] bg-[#0D1282] text-white ">
+          <thead className="border-[#0D1282] bg-slate-200 text-slate-700 ">
             <tr>
               <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide ">User</th>
               <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide ">Role</th>

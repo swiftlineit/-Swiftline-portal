@@ -10,7 +10,7 @@ import {
 } from "react";
 import { FiDownload, FiEdit2, FiTrash2 } from "react-icons/fi";
 import { FlagImage, type CountryIso2 } from "react-international-phone";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import { BiSolidEdit } from "react-icons/bi";
 import { countryOptions } from "@/lib/branches";
 import {
@@ -196,7 +196,7 @@ export default function CountryRateCardPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">
@@ -412,7 +412,7 @@ export default function CountryRateCardPage() {
           </tbody>
         </table>
       </div>
-    </DashboardShell>
+    </>
   );
 }
 

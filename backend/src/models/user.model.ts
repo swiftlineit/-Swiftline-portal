@@ -11,6 +11,7 @@ export interface IUser extends mongoose.Document {
   email: string;
   phone?: string;
   passwordHash?: string;
+  googleId?: string | null;
   name?: string;
   role: Role;
   assignedBranches: mongoose.Types.ObjectId[];
@@ -33,6 +34,8 @@ const userSchema = new mongoose.Schema<IUser>(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     phone: { type: String, trim: true, default: "" },
     passwordHash: { type: String, default: "" },
+    // Set the first time this user successfully links a Google sign-in; null until then.
+    googleId: { type: String, default: null, unique: true, sparse: true },
     name: { type: String, trim: true, default: "" },
     role: {
       type: String,

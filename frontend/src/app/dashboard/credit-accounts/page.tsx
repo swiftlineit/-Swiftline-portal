@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FiCheck, FiEdit2, FiEye, FiFileText, FiRefreshCw, FiX } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import CreditAgreementPreviewDialog from "@/components/credit/CreditAgreementPreviewDialog";
 import CreditApprovalDialog from "@/components/credit/CreditApprovalDialog";
 import CreditStatusBadge from "@/components/credit/CreditStatusBadge";
@@ -16,16 +16,30 @@ import {
 import {
   activateCreditAccount,
   CreditAccount,
+  CreditAccountStatus,
   formatCreditMoney,
   listAdminCreditAccounts,
   rejectCreditAccount
 } from "@/lib/creditAccounts";
 import { useAdminUser } from "@/lib/useAdminUser";
 
+const creditAccountStatuses: CreditAccountStatus[] = [
+  "NOT_REQUESTED",
+  "PENDING_REVIEW",
+  "APPROVED",
+  "ACTIVE",
+  "ON_HOLD",
+  "SUSPENDED",
+  "EXPIRED",
+  "REJECTED",
+  "CLOSED"
+];
+
 export default function AdminCreditAccountsPage() {
   const { user, loading } = useAdminUser();
   const [accounts, setAccounts] = useState<CreditAccount[]>([]);
   const [agreements, setAgreements] = useState<CreditAgreement[]>([]);
+  const [status, setStatus] = useState<CreditAccountStatus | "">("");
   const [selected, setSelected] = useState<CreditAccount | null>(null);
   const [previewAgreement, setPreviewAgreement] = useState<CreditAgreement | null>(null);
   const [busyId, setBusyId] = useState("");
@@ -46,7 +60,7 @@ export default function AdminCreditAccountsPage() {
     setError("");
     try {
       const [creditResult, agreementResult] = await Promise.all([
-        listAdminCreditAccounts(),
+        listAdminCreditAccounts(status),
         listAdminCreditAgreements()
       ]);
       setAccounts(creditResult.creditAccounts);
@@ -61,7 +75,7 @@ export default function AdminCreditAccountsPage() {
   useEffect(() => {
     if (!user) return;
     let active = true;
-    Promise.all([listAdminCreditAccounts(), listAdminCreditAgreements()])
+    Promise.all([listAdminCreditAccounts(status), listAdminCreditAgreements()])
       .then(([creditResult, agreementResult]) => {
         if (!active) return;
         setAccounts(creditResult.creditAccounts);
@@ -74,7 +88,7 @@ export default function AdminCreditAccountsPage() {
         if (active) setDataLoading(false);
       });
     return () => { active = false; };
-  }, [user]);
+  }, [user, status]);
 
   async function saved(notice: string) {
     setSelected(null);
@@ -136,7 +150,7 @@ export default function AdminCreditAccountsPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="mx-auto max-w-[1500px] space-y-6" style={{ backgroundColor: "#EEEDED" }}>
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
@@ -147,16 +161,28 @@ export default function AdminCreditAccountsPage() {
             <h1 className="mt-1 text-2xl font-bold text-slate-900">Credit Accounts</h1>
             <p className="mt-1 text-sm text-slate-500">Review, approve, and manage business credit facilities.</p>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadData()}
-            disabled={dataLoading}
-            className="inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: "#0D1282" }}
-          >
-            <FiRefreshCw className={dataLoading ? "animate-spin" : ""} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as CreditAccountStatus | "")}
+              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-[#0D1282]"
+            >
+              <option value="">All Status</option>
+              {creditAccountStatuses.map((item) => (
+                <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              disabled={dataLoading}
+              className="inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: "#0D1282" }}
+            >
+              <FiRefreshCw className={dataLoading ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Alerts */}
@@ -345,6 +371,6 @@ export default function AdminCreditAccountsPage() {
 
       {selected ? <CreditApprovalDialog account={selected} onClose={() => setSelected(null)} onSaved={saved} /> : null}
       {previewAgreement ? <CreditAgreementPreviewDialog agreement={previewAgreement} onClose={() => setPreviewAgreement(null)} /> : null}
-    </DashboardShell>
+    </>
   );
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { FiAlertCircle, FiArrowLeft } from "react-icons/fi";
-import { ClientDashboardLoading, ClientDashboardShell } from "@/components/client/ClientDashboardShell";
+import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import { getPaymentTerms, PaymentTerms } from "@/lib/creditAccounts";
 import { useClientUser } from "@/lib/useClientUser";
 
@@ -24,7 +24,6 @@ export default function PaymentTermsPage() {
   if (userLoading || !user) return <ClientDashboardLoading />;
 
   return (
-    <ClientDashboardShell user={user}>
       <article className="mx-auto max-w-4xl">
         <Link href="/client/credit" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-900 hover:text-blue-700"><FiArrowLeft aria-hidden="true" /> Credit Account</Link>
         <header className="mt-4 border-b border-slate-200 bg-white px-6 py-7">
@@ -46,6 +45,5 @@ export default function PaymentTermsPage() {
           </div>
         ) : null}
       </article>
-    </ClientDashboardShell>
   );
 }

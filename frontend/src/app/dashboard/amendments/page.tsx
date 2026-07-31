@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { useCallback, useEffect, useState } from "react";
+import { DashboardLoading } from "@/components/DashboardShell";
+import DateFilterInput from "@/components/ui/DateFilterInput";
+import Pagination from "@/components/ui/Pagination";
 import {
   approveShipmentAmendment,
   listShipmentAmendments,
@@ -15,6 +17,8 @@ import { formatMoney, getVolumetricFormula } from "@/lib/shipmentPricing";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { FiChevronDown } from "react-icons/fi";
+
+const emptyPagination = { page: 1, limit: 50, total: 0, totalPages: 1 };
 
 function formatStatus(status: ShipmentAmendment["status"]) {
   return status.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -311,32 +315,35 @@ function formatRateSlab(parcel?: ShipmentAmendmentPricingEstimate["parcels"][num
 export default function AmendmentsPage() {
   const { user, loading } = useAdminUser();
   const [amendments, setAmendments] = useState<ShipmentAmendment[]>([]);
+  const [pagination, setPagination] = useState(emptyPagination);
   const [status, setStatus] = useState("");
+  const [date, setDate] = useState("");
+  const [page, setPage] = useState(1);
   const [dataLoading, setDataLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
   const [reviewError, setReviewError] = useState("");
   const [selectedAmendment, setSelectedAmendment] = useState<ShipmentAmendment | null>(null);
 
+  const loadAmendments = useCallback(async () => {
+    setDataLoading(true);
+    setError("");
+
+    try {
+      const result = await listShipmentAmendments({ status, date, page });
+      setAmendments(result.amendments);
+      setPagination(result.pagination);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to load amendments.");
+    } finally {
+      setDataLoading(false);
+    }
+  }, [status, date, page]);
+
   useEffect(() => {
     if (!user) return;
-
-    async function loadAmendments() {
-      setDataLoading(true);
-      setError("");
-
-      try {
-        const result = await listShipmentAmendments(status);
-        setAmendments(result.amendments);
-      } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : "Unable to load amendments.");
-      } finally {
-        setDataLoading(false);
-      }
-    }
-
     void loadAmendments();
-  }, [status, user]);
+  }, [loadAmendments, user]);
 
   async function reviewAmendment(amendmentId: string, action: "approve" | "reject", note: string) {
     setBusyId(amendmentId);
@@ -349,8 +356,7 @@ export default function AmendmentsPage() {
         await rejectShipmentAmendment(amendmentId, note);
       }
 
-      const result = await listShipmentAmendments(status);
-      setAmendments(result.amendments);
+      await loadAmendments();
       setSelectedAmendment(null);
     } catch (caughtError) {
       setReviewError(caughtError instanceof Error ? caughtError.message : "Unable to review amendment.");
@@ -362,25 +368,37 @@ export default function AmendmentsPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">Amendments</h1>
           <p className="mt-1 text-sm text-slate-500">Review client and admin shipment amendment requests.</p>
         </div>
-        <div className="relative">
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-            className="h-10 w-full appearance-none border border-slate-300 rounded-xl bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
-          >
-            <option value="">All statuses</option>
-            <option value="REQUESTED">Requested</option>
-            <option value="APPROVED">Approved</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="APPLIED">Applied</option>
-          </select>
-          <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="flex items-center gap-2">
+          <DateFilterInput
+            value={date}
+            onChange={(value) => {
+              setDate(value);
+              setPage(1);
+            }}
+          />
+          <div className="relative">
+            <select
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value);
+                setPage(1);
+              }}
+              className="h-10 w-full appearance-none border border-slate-300 rounded-xl bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+            >
+              <option value="">All Status</option>
+              <option value="REQUESTED">Requested</option>
+              <option value="APPROVED">Approved</option>
+              <option value="REJECTED">Rejected</option>
+              <option value="APPLIED">Applied</option>
+            </select>
+            <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          </div>
         </div>
       </div>
 
@@ -483,6 +501,13 @@ export default function AmendmentsPage() {
         </table>
       </div>
 
+      <Pagination
+        page={pagination.page}
+        totalPages={pagination.totalPages}
+        total={pagination.total}
+        onPageChange={setPage}
+      />
+
       {selectedAmendment ? (
         <AmendmentReviewModal
           key={selectedAmendment.id}
@@ -497,6 +522,6 @@ export default function AmendmentsPage() {
           onReview={(action, note) => reviewAmendment(selectedAmendment.id, action, note)}
         />
       ) : null}
-    </DashboardShell>
+    </>
   );
 }

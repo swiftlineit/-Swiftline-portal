@@ -13,6 +13,7 @@ import { clientCanAccessShipmentDraft } from "../services/shipmentDraftPolicy.se
 import { readShipmentBookingSnapshot } from "../services/shipmentBookingSnapshot.service.js";
 import { notifyAdminsOfClientManifest } from "../services/shipmentManifestNotification.service.js";
 import { buildShipmentManifestPdf } from "../services/shipmentManifestPdf.service.js";
+import { dayBounds } from "../utils/dateRangeFilter.js";
 import {
   allocateShipmentManifestNumber,
   buildHandoverManifestLine,
@@ -428,6 +429,8 @@ async function listManifests(request: Request, response: Response, actorRole: "a
   if (businessAccountId && mongoose.Types.ObjectId.isValid(businessAccountId)) {
     query.businessAccountId = new mongoose.Types.ObjectId(businessAccountId);
   }
+  const bounds = dayBounds(typeof request.query.date === "string" ? request.query.date : undefined);
+  if (bounds) query.generatedAt = { $gte: bounds.start, $lte: bounds.end };
 
   const total = await ShipmentManifest.countDocuments(query).exec();
   const totalPages = Math.max(1, Math.ceil(total / limit));

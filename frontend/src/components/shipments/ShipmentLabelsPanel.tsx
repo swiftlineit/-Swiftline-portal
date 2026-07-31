@@ -157,7 +157,7 @@ function LabelButton({
       type="button"
       onClick={onClick}
       disabled={busy}
-      className={`inline-flex h-9 items-center rounded-xl justify-center border border-slate-300 bg-white font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-wait disabled:opacity-60 ${compact ? "min-w-0 gap-1.5 px-2 text-sm" : "gap-2 px-3"}`}
+      className={`inline-flex h-9 items-center rounded-4xl justify-center border border-slate-300 bg-white font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-wait disabled:opacity-60 ${compact ? "min-w-0 gap-1.5 px-2 text-sm" : "gap-2 px-3"}`}
     >
       <span aria-hidden="true" className="text-base">{icon}</span>
       {busy ? "Opening..." : label}

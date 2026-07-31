@@ -39,7 +39,8 @@ export async function reserveShipmentBookingCharge(input: {
   const pricing = input.pricing ?? await calculateShipmentPricingEstimate({
       countryCode: input.draft.consigneeEnteredAddress.countryCode,
       serviceType: input.draft.serviceType,
-      parcels: input.draft.parcelList
+      parcels: input.draft.parcelList,
+      csbType: input.draft.csbType
     });
   if (pricing.missingRate) throw new Error("BOOKING_RATE_NOT_FOUND");
 

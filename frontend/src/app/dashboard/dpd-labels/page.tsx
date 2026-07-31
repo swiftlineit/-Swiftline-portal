@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
 import { FiChevronDown, FiDownload, FiEdit3, FiExternalLink, FiFileText, FiPrinter, FiUploadCloud } from "react-icons/fi";
 import { toast } from "react-toastify";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import ShipmentDraftReadyCard from "@/components/shipments/ShipmentDraftReadyCard";
 import { BusinessAccount, listBusinessAccounts } from "@/lib/businessAccounts";
 import { Branch, listBranches } from "@/lib/branches";
@@ -30,6 +30,7 @@ import {
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { downloadShipmentInvoicePdf, shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
 import { useAdminUser } from "@/lib/useAdminUser";
+import { RiMenuAddLine } from "react-icons/ri";
 
 function FieldLabel({ children, required = false }: { children: string; required?: boolean }) {
   return (
@@ -90,6 +91,32 @@ export default function DpdLabelsPage() {
   const [nextStatus, setNextStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [actionNote, setActionNote] = useState("");
 
+  const activeAccounts = useMemo(
+    () => accounts.filter((account) => account.status === "active"),
+    [accounts]
+  );
+
+  const selectedAccount = useMemo(
+    () => activeAccounts.find((account) => account.accountId === businessAccountId) ?? null,
+    [activeAccounts, businessAccountId]
+  );
+
+  const selectedAssignedBranch = useMemo(() => {
+    if (!selectedAccount?.assignedBranch) return null;
+
+    if (typeof selectedAccount.assignedBranch === "string") {
+      return branches.find((branch) => branch._id === selectedAccount.assignedBranch || branch.code === selectedAccount.assignedBranch) ?? null;
+    }
+
+    const assignedBranch = selectedAccount.assignedBranch;
+    return branches.find((branch) => branch._id === assignedBranch._id || branch.code === assignedBranch.code) ?? null;
+  }, [branches, selectedAccount]);
+
+  const branchOptions = useMemo(() => {
+    if (!selectedAssignedBranch) return [];
+    return branches.filter((branch) => branch._id === selectedAssignedBranch._id || branch.code === selectedAssignedBranch.code);
+  }, [branches, selectedAssignedBranch]);
+
   const canUpload = useMemo(
     () => Boolean(businessAccountId && branchId && file && !busy && !creatingManual),
     [branchId, businessAccountId, busy, creatingManual, file]
@@ -123,6 +150,19 @@ export default function DpdLabelsPage() {
 
     void loadOptions();
   }, [user]);
+
+  useEffect(() => {
+    if (!businessAccountId) {
+      setBranchId("");
+      return;
+    }
+
+    if (selectedAssignedBranch) {
+      setBranchId(selectedAssignedBranch.code);
+    } else {
+      setBranchId("");
+    }
+  }, [businessAccountId, selectedAssignedBranch]);
 
   function selectFile(nextFile: File | null) {
     if (!nextFile) return;
@@ -303,11 +343,12 @@ export default function DpdLabelsPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-950">Create Shipment</h1>
-          <p className="mt-1 text-sm text-slate-500">Upload an invoice to create a shipment draft.</p>
+        <h1 className="text-2xl  text-[#0D1282]"> <RiMenuAddLine className="inline-block mb-1 mr-1 text-lg" />Create & Manage Shipment  </h1>
+  
+          <p className="mt-1 text-sm text-slate-500">Upload an invoice OR create manually by selecting a business account first.</p>
         </div>
         <button
           type="button"
@@ -341,7 +382,7 @@ export default function DpdLabelsPage() {
                   className="h-10 w-full appearance-none border rounded-xl border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                 >
                   <option value="">Select account</option>
-                  {accounts.map((account) => (
+                  {activeAccounts.map((account) => (
                     <option key={account._id} value={account.accountId}>
                       {getAccountLabel(account)}
                     </option>
@@ -357,10 +398,11 @@ export default function DpdLabelsPage() {
                 <select
                   value={branchId}
                   onChange={(event) => setBranchId(event.target.value)}
-                  className="h-10 w-full appearance-none border border-slate-300 rounded-xl bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  disabled={!businessAccountId}
+                  className="h-10 w-full appearance-none border border-slate-300 rounded-xl bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 >
-                  <option value="">Select branch</option>
-                  {branches.map((branch) => (
+                  <option value="">{businessAccountId ? "Select branch" : "Choose account first"}</option>
+                  {branchOptions.map((branch) => (
                     <option key={branch._id} value={branch.code}>
                       {branch.code} - {branch.name}
                     </option>
@@ -409,15 +451,27 @@ export default function DpdLabelsPage() {
               <span className="text-xs font-semibold uppercase text-slate-400">Or</span>
               <span className="h-px flex-1 bg-slate-200" />
             </div>
-            <button
-              type="button"
-              onClick={handleManualDraft}
-              disabled={!canCreateManual}
-              className="inline-flex h-10 w-full items-center rounded-xl justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-            >
-           
-              {creatingManual ? "Starting Draft..." : "Create Without Invoice"}
-            </button>
+            <div className="group relative w-full">
+  <button
+    type="button"
+    onClick={handleManualDraft}
+    disabled={!canCreateManual}
+    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+  >
+    {creatingManual ? "Starting Draft..." : "Create Without Invoice"}
+  </button>
+
+  {!canCreateManual && (
+    <div className="pointer-events-none absolute left-1/2 top-full z-[9999] mt-3 hidden w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-3 text-center shadow-xl group-hover:block">
+      <p className="text-xs font-semibold text-slate-900">
+        Business Account Required
+      </p>
+      <p className="mt-1 text-xs  text-slate-600">
+        Please select a business account before creating a shipment draft.
+      </p>
+    </div>
+  )}
+</div>
           </section>
 
           {invoiceUpload?.processingErrors.length ? (
@@ -636,6 +690,6 @@ export default function DpdLabelsPage() {
           </table>
         </div>
       </section>
-    </DashboardShell>
+    </>
   );
 }

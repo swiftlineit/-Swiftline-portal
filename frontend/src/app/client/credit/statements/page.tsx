@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FiDownload, FiFileText, FiRefreshCw } from "react-icons/fi";
-import { ClientDashboardLoading, ClientDashboardShell } from "@/components/client/ClientDashboardShell";
+import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
+import DateFilterInput from "@/components/ui/DateFilterInput";
 import {
   closeClientCycle,
   listClientStatements,
@@ -35,6 +36,7 @@ export default function ClientCreditStatementsPage() {
   const [businessAccountId, setBusinessAccountId] = useState("");
   const [statements, setStatements] = useState<CreditStatement[]>([]);
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
+  const [date, setDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -45,15 +47,16 @@ export default function ClientCreditStatementsPage() {
     [accounts, businessAccountId]
   );
 
-  const loadStatements = useCallback(async (accountId: string) => {
+  const loadStatements = useCallback(async (accountId: string, dateFilter: string) => {
     const [statementResult, creditResult] = await Promise.all([
-      listClientStatements(accountId),
+      listClientStatements(accountId, { date: dateFilter }),
       getClientCreditAccount(accountId)
     ]);
     setStatements(statementResult.statements);
     setCreditAccount(creditResult.creditAccount);
   }, []);
 
+  // Discovers the eligible business accounts once per signed-in user.
   useEffect(() => {
     if (!user) return;
     let active = true;
@@ -65,32 +68,23 @@ export default function ClientCreditStatementsPage() {
         if (!active) return;
         setAccounts(eligible);
         setBusinessAccountId(firstId);
-        if (firstId) {
-          await loadStatements(firstId);
-        } else {
-          setError("Your account role cannot access credit statements.");
-        }
+        if (!firstId) setError("Your account role cannot access credit statements.");
       } catch (caught) {
         if (active) setError(caught instanceof Error ? caught.message : "Statements could not be loaded.");
-      } finally {
-        if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
-  }, [loadStatements, user]);
+  }, [user]);
 
-  async function changeAccount(accountId: string) {
-    setBusinessAccountId(accountId);
+  // Re-fetches statements whenever the selected account or date filter changes.
+  useEffect(() => {
+    if (!businessAccountId) return;
     setLoading(true);
     setError("");
-    try {
-      await loadStatements(accountId);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Statements could not be loaded.");
-    } finally {
-      setLoading(false);
-    }
-  }
+    loadStatements(businessAccountId, date)
+      .catch((caught) => setError(caught instanceof Error ? caught.message : "Statements could not be loaded."))
+      .finally(() => setLoading(false));
+  }, [businessAccountId, date, loadStatements]);
 
   async function closeCycle() {
     if (!businessAccountId) return;
@@ -100,7 +94,7 @@ export default function ClientCreditStatementsPage() {
     try {
       const result = await closeClientCycle(businessAccountId);
       setMessage(result.message);
-      await loadStatements(businessAccountId);
+      await loadStatements(businessAccountId, date);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The billing cycle could not be closed.");
     } finally {
@@ -111,7 +105,6 @@ export default function ClientCreditStatementsPage() {
   if (userLoading || !user) return <ClientDashboardLoading />;
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -119,6 +112,7 @@ export default function ClientCreditStatementsPage() {
             <p className="mt-1 text-sm text-slate-600">Review shipment invoices grouped for credit collection.</p>
           </div>
           <div className="flex gap-2">
+            <DateFilterInput value={date} onChange={setDate} />
             <Link href={businessAccountId ? `/client/credit/ledger?businessAccountId=${businessAccountId}` : "/client/credit/ledger"} className="inline-flex h-10 rounded-4xl items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900">
               <FiFileText /> Account Statement
             </Link>
@@ -131,7 +125,7 @@ export default function ClientCreditStatementsPage() {
         </div>
 
         {accounts.length > 1 ? (
-          <select value={businessAccountId} onChange={(event) => void changeAccount(event.target.value)} className="h-11 w-full max-w-md border border-slate-300 bg-white px-3 text-sm font-semibold">
+          <select value={businessAccountId} onChange={(event) => setBusinessAccountId(event.target.value)} className="h-11 w-full max-w-md border border-slate-300 bg-white px-3 text-sm font-semibold">
             {accounts.map((account) => <option key={account.account.id} value={account.account.id}>{account.account.company.companyName} ({account.account.accountId})</option>)}
           </select>
         ) : null}
@@ -179,6 +173,5 @@ export default function ClientCreditStatementsPage() {
           {loading ? <p className="p-10 text-center text-sm font-semibold text-slate-500">Loading statements...</p> : null}
         </section>
       </div>
-    </ClientDashboardShell>
   );
 }

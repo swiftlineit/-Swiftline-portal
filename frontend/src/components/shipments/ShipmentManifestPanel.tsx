@@ -195,7 +195,7 @@ export default function ShipmentManifestPanel({
           <button
             type="button"
             onClick={() => setShowForm((value) => !value)}
-            className="inline-flex h-10 rounded-2xl items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900"
+            className="inline-flex h-10 rounded-4xl items-center justify-center gap-2 bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900"
           >
             {showForm ? <FiX aria-hidden="true" /> : <FiPlus aria-hidden="true" />}
             {showForm ? "Close" : "Create Manifest"}

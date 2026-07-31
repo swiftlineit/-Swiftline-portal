@@ -96,10 +96,23 @@ export function createPaymentRequestId() {
   return crypto.randomUUID?.() ?? `credit-payment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export async function listClientStatements(businessAccountId: string) {
-  return parse<{ success: true; statements: CreditStatement[] }>(await fetchWithAuth(
-    apiUrl(`/api/v1/client/credit/statements?businessAccountId=${encodeURIComponent(businessAccountId)}`)
-  ));
+export type CreditListPagination = { page: number; limit: number; total: number; totalPages: number };
+export type CreditListFilter = { status?: string; date?: string; page?: number; limit?: number };
+
+function withFilter(url: URL, filter: CreditListFilter = {}) {
+  if (filter.status) url.searchParams.set("status", filter.status);
+  if (filter.date) url.searchParams.set("date", filter.date);
+  url.searchParams.set("page", String(filter.page ?? 1));
+  // Omitted (rather than defaulted) so callers that want "the full recent
+  // history in one call" keep that behavior; only pass this for paginated UIs.
+  if (filter.limit) url.searchParams.set("limit", String(filter.limit));
+  return url;
+}
+
+export async function listClientStatements(businessAccountId: string, filter: CreditListFilter = {}) {
+  const url = withFilter(new URL(apiUrl("/api/v1/client/credit/statements")), filter);
+  url.searchParams.set("businessAccountId", businessAccountId);
+  return parse<{ success: true; statements: CreditStatement[]; pagination: CreditListPagination }>(await fetchWithAuth(url.toString()));
 }
 
 export async function getClientStatement(businessAccountId: string, statementId: string) {
@@ -115,10 +128,9 @@ export async function closeClientCycle(businessAccountId: string) {
   ));
 }
 
-export async function listAdminStatements(businessAccountId: string) {
-  return parse<{ success: true; statements: CreditStatement[] }>(await fetchWithAuth(
-    apiUrl(`/api/v1/credit-accounts/${businessAccountId}/statements`)
-  ));
+export async function listAdminStatements(businessAccountId: string, filter: CreditListFilter = {}) {
+  const url = withFilter(new URL(apiUrl(`/api/v1/credit-accounts/${businessAccountId}/statements`)), filter);
+  return parse<{ success: true; statements: CreditStatement[]; pagination: CreditListPagination }>(await fetchWithAuth(url.toString()));
 }
 
 export async function getAdminStatement(businessAccountId: string, statementId: string) {
@@ -141,16 +153,15 @@ export async function writeOffAdminStatement(businessAccountId: string, statemen
   ));
 }
 
-export async function listClientCreditPayments(businessAccountId: string) {
-  return parse<{ success: true; payments: CreditPayment[] }>(await fetchWithAuth(
-    apiUrl(`/api/v1/client/credit/payments?businessAccountId=${encodeURIComponent(businessAccountId)}`)
-  ));
+export async function listClientCreditPayments(businessAccountId: string, filter: CreditListFilter = {}) {
+  const url = withFilter(new URL(apiUrl("/api/v1/client/credit/payments")), filter);
+  url.searchParams.set("businessAccountId", businessAccountId);
+  return parse<{ success: true; payments: CreditPayment[]; pagination: CreditListPagination }>(await fetchWithAuth(url.toString()));
 }
 
-export async function listAdminCreditPayments(businessAccountId: string) {
-  return parse<{ success: true; payments: CreditPayment[] }>(await fetchWithAuth(
-    apiUrl(`/api/v1/credit-accounts/${businessAccountId}/payments`)
-  ));
+export async function listAdminCreditPayments(businessAccountId: string, filter: CreditListFilter = {}) {
+  const url = withFilter(new URL(apiUrl(`/api/v1/credit-accounts/${businessAccountId}/payments`)), filter);
+  return parse<{ success: true; payments: CreditPayment[]; pagination: CreditListPagination }>(await fetchWithAuth(url.toString()));
 }
 
 export async function submitClientOfflinePayment(input: {
@@ -213,16 +224,17 @@ export async function verifyClientOnlinePayment(input: {
   ));
 }
 
-export async function listClientLedger(businessAccountId: string) {
-  return parse<{ success: true; entries: CreditLedgerEntry[] }>(await fetchWithAuth(
-    apiUrl(`/api/v1/client/credit/ledger?businessAccountId=${encodeURIComponent(businessAccountId)}`)
-  ));
+export type CreditLedgerListFilter = { date?: string; page?: number; limit?: number };
+
+export async function listClientLedger(businessAccountId: string, filter: CreditLedgerListFilter = {}) {
+  const url = withFilter(new URL(apiUrl("/api/v1/client/credit/ledger")), filter);
+  url.searchParams.set("businessAccountId", businessAccountId);
+  return parse<{ success: true; entries: CreditLedgerEntry[]; pagination: CreditListPagination }>(await fetchWithAuth(url.toString()));
 }
 
-export async function listAdminLedger(businessAccountId: string) {
-  return parse<{ success: true; entries: CreditLedgerEntry[] }>(await fetchWithAuth(
-    apiUrl(`/api/v1/credit-accounts/${businessAccountId}/ledger`)
-  ));
+export async function listAdminLedger(businessAccountId: string, filter: CreditLedgerListFilter = {}) {
+  const url = withFilter(new URL(apiUrl(`/api/v1/credit-accounts/${businessAccountId}/ledger`)), filter);
+  return parse<{ success: true; entries: CreditLedgerEntry[]; pagination: CreditListPagination }>(await fetchWithAuth(url.toString()));
 }
 
 export async function openAuthenticatedFile(url: string, downloadName?: string) {

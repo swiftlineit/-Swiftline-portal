@@ -6,6 +6,7 @@ import { FiArchive, FiChevronDown, FiExternalLink, FiFileText, FiPlus, FiRefresh
 import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
+import { formatCsbType } from "@/lib/csbType";
 import { createBulkShipmentManifest, manifestsHref } from "@/lib/shipmentManifests";
 import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
 import {
@@ -36,8 +37,12 @@ function formatMoney(shipment: ShipmentListItem) {
 export default function ShipmentsListPage({ audience }: { audience: ShipmentAudience }) {
   const [shipments, setShipments] = useState<ShipmentListItem[]>([]);
   const [pagination, setPagination] = useState<ShipmentListPagination>(emptyPagination);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // Keyed by shipment id so a selection survives moving to another page - only
+  // the rows on the page that was just (re)loaded are ever touched below.
+  const [selected, setSelected] = useState<Map<string, ShipmentListItem>>(new Map());
+  const [manifestFlowActive, setManifestFlowActive] = useState(false);
   const [status, setStatus] = useState("");
+  const [date, setDate] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -51,18 +56,28 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     setLoading(true);
     setError("");
     try {
-      const data = await listShipments(audience, { page, status });
+      const data = await listShipments(audience, { page, status, date });
       setShipments(data.shipments);
       setPagination(data.pagination);
-      // Rows that left the page can no longer be manifested from it.
-      const visibleIds = new Set(data.shipments.map((shipment) => shipment.id));
-      setSelectedIds((current) => current.filter((id) => visibleIds.has(id)));
+      // Refresh or drop only the selections that belong to this page - a shipment
+      // manifested elsewhere in the meantime is no longer eligible and falls out,
+      // but selections on other pages are left untouched so they survive paging.
+      setSelected((current) => {
+        if (!current.size) return current;
+        const next = new Map(current);
+        for (const shipment of data.shipments) {
+          if (!next.has(shipment.id)) continue;
+          if (shipment.manifestEligible) next.set(shipment.id, shipment);
+          else next.delete(shipment.id);
+        }
+        return next;
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to load shipments.");
     } finally {
       setLoading(false);
     }
-  }, [audience, page, status]);
+  }, [audience, date, page, status]);
 
   // Deferred so the fetch's setState lands after the first paint rather than
   // cascading a render, matching the other listing screens.
@@ -72,41 +87,53 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
   }, [load]);
 
   const selectable = useMemo(() => shipments.filter((shipment) => shipment.manifestEligible), [shipments]);
-  const selected = useMemo(
-    () => shipments.filter((shipment) => selectedIds.includes(shipment.id)),
-    [selectedIds, shipments]
-  );
+  const selectedList = useMemo(() => [...selected.values()], [selected]);
   const totals = useMemo(() => ({
-    pieces: selected.reduce((sum, shipment) => sum + shipment.pieces, 0),
-    weightKg: selected.reduce((sum, shipment) => sum + shipment.weightKg, 0)
-  }), [selected]);
+    pieces: selectedList.reduce((sum, shipment) => sum + shipment.pieces, 0),
+    weightKg: selectedList.reduce((sum, shipment) => sum + shipment.weightKg, 0)
+  }), [selectedList]);
 
   // A manifest covers one business account and branch, so a mixed selection
   // cannot become one document.
-  const mixedSelection = selected.length > 1 && selected.some((shipment) =>
-    shipment.businessAccountId !== selected[0]?.businessAccountId
-    || shipment.branchId !== selected[0]?.branchId);
-  const allSelected = selectable.length > 0 && selectable.every((shipment) => selectedIds.includes(shipment.id));
+  const mixedSelection = selectedList.length > 1 && selectedList.some((shipment) =>
+    shipment.businessAccountId !== selectedList[0]?.businessAccountId
+    || shipment.branchId !== selectedList[0]?.branchId);
+  const allSelected = selectable.length > 0 && selectable.every((shipment) => selected.has(shipment.id));
 
+  // Selects/deselects only the current page's eligible rows, leaving any
+  // selections already made on other pages untouched.
   function toggleAll() {
-    setSelectedIds(allSelected ? [] : selectable.map((shipment) => shipment.id));
+    setSelected((current) => {
+      const next = new Map(current);
+      if (allSelected) {
+        for (const shipment of selectable) next.delete(shipment.id);
+      } else {
+        for (const shipment of selectable) next.set(shipment.id, shipment);
+      }
+      return next;
+    });
   }
 
-  function toggleOne(shipmentId: string) {
-    setSelectedIds((current) => current.includes(shipmentId)
-      ? current.filter((id) => id !== shipmentId)
-      : [...current, shipmentId]);
+  function toggleOne(shipment: ShipmentListItem) {
+    setSelected((current) => {
+      const next = new Map(current);
+      if (next.has(shipment.id)) next.delete(shipment.id);
+      else next.set(shipment.id, shipment);
+      return next;
+    });
   }
 
   async function handleCreate(values: ManifestDialogValues) {
     setCreating(true);
     try {
-      const result = await createBulkShipmentManifest({ shipmentDraftIds: selectedIds, ...values }, audience);
-      toast.success(`Manifest ${result.manifest.manifestNumber} generated with ${selectedIds.length} `
-        + `${selectedIds.length === 1 ? "shipment" : "shipments"}.`);
+      const shipmentDraftIds = [...selected.keys()];
+      const result = await createBulkShipmentManifest({ shipmentDraftIds, ...values }, audience);
+      toast.success(`Manifest ${result.manifest.manifestNumber} generated with ${shipmentDraftIds.length} `
+        + `${shipmentDraftIds.length === 1 ? "shipment" : "shipments"}.`);
       setLastManifestNumber(result.manifest.manifestNumber);
       setDialogOpen(false);
-      setSelectedIds([]);
+      setSelected(new Map());
+      setManifestFlowActive(false);
       await load();
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "Manifest could not be generated.");
@@ -116,8 +143,8 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
   }
 
   return (
-    <div className="mx-auto max-w-[1500px]">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="mx-auto max-w-375">
+      <div className="mb-5 flex flex-wrap flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div>
           <h1 className="text-2xl font-semibold text-[#0D1282]">Shipments</h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -128,14 +155,26 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Filter By Status</span>
+            {/* <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date</span> */}
+            <div className="relative mt-2">
+              <input
+                type="date"
+                value={date}
+                onChange={(event) => { setDate(event.target.value); setPage(1); }}
+                className="h-10 w-44 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+          </label>
+
+          <label className="block">
+            {/* <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</span> */}
             <div className="relative mt-2">
               <select
                 value={status}
                 onChange={(event) => { setStatus(event.target.value); setPage(1); }}
                 className="h-10 w-56 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
               >
-                <option value="">All statuses</option>
+                <option value="">All Status</option>
                 {shipmentStatusOptions.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
@@ -146,15 +185,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
               />
             </div>
           </label>
-          <button
-            type="button"
-            onClick={() => void load()}
-            title="Refresh"
-            aria-label="Refresh shipments"
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-300 bg-white text-[#0D1282] hover:border-[#0D1282]"
-          >
-            <FiRefreshCw aria-hidden="true" className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          </button>
+       
           <Link
             href={manifestsHref(audience)}
             className="inline-flex h-10 items-center gap-2 rounded-4xl border border-[#0D1282] bg-white px-4 text-sm font-semibold text-[#0D1282] hover:bg-[#0D1282]/5"
@@ -162,12 +193,24 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
             <FiArchive aria-hidden="true" className="h-4 w-4" />
             View All Manifests
           </Link>
+          <button
+            type="button"
+            onClick={() => setManifestFlowActive((current) => !current)}
+            className={`inline-flex h-10 items-center gap-2 rounded-4xl border px-4 text-sm font-semibold ${
+              manifestFlowActive
+                ? "border-[#0D1282] bg-[#0D1282]/5 text-[#0D1282]"
+                : "border-[#0D1282] bg-white text-[#0D1282] hover:bg-[#0D1282]/5"
+            }`}
+          >
+            <FiArchive aria-hidden="true" className="h-4 w-4" />
+            Create Manifest
+          </button>
           <Link
             href={createShipmentHref}
             className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90"
           >
             <FiPlus aria-hidden="true" className="h-4 w-4" />
-            Create Shipment
+            Create New Shipment
           </Link>
         </div>
       </div>
@@ -193,36 +236,44 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
         </div>
       ) : null}
 
-      {selectedIds.length ? (
+      {manifestFlowActive ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#0D1282]/25 bg-[#0D1282]/5 px-4 py-3">
-          <div>
+          {selectedList.length ? (
+            <>
+              <div>
+                <p className="text-sm font-semibold text-[#0D1282]">
+                  {selectedList.length} {selectedList.length === 1 ? "shipment" : "shipments"} selected
+                  {" · "}{totals.pieces} pcs · {totals.weightKg.toFixed(2)} kg
+                </p>
+                {mixedSelection ? (
+                  <p className="mt-1 text-xs font-semibold text-amber-700">
+                    A manifest covers one business account and branch. Narrow the selection to continue.
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Map())}
+                  className="h-9 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDialogOpen(true)}
+                  disabled={mixedSelection}
+                  className="h-9 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  Create Manifest
+                </button>
+              </div>
+            </>
+          ) : (
             <p className="text-sm font-semibold text-[#0D1282]">
-              {selectedIds.length} {selectedIds.length === 1 ? "shipment" : "shipments"} selected
-              {" · "}{totals.pieces} pcs · {totals.weightKg.toFixed(2)} kg
+              Select shipments below using the checkboxes, then create a manifest.
             </p>
-            {mixedSelection ? (
-              <p className="mt-1 text-xs font-semibold text-amber-700">
-                A manifest covers one business account and branch. Narrow the selection to continue.
-              </p>
-            ) : null}
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setSelectedIds([])}
-              className="h-9 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              onClick={() => setDialogOpen(true)}
-              disabled={mixedSelection}
-              className="h-9 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90 disabled:cursor-not-allowed disabled:bg-slate-400"
-            >
-              Create Manifest
-            </button>
-          </div>
+          )}
         </div>
       ) : null}
 
@@ -256,8 +307,8 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                   <td className="px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={selectedIds.includes(shipment.id)}
-                      onChange={() => toggleOne(shipment.id)}
+                      checked={selected.has(shipment.id)}
+                      onChange={() => toggleOne(shipment)}
                       disabled={!shipment.manifestEligible}
                       aria-label={`Select shipment ${shipment.shipmentReference || shipment.id}`}
                       className="h-4 w-4 accent-[#0D1282] disabled:opacity-40"
@@ -267,7 +318,13 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                     <p className="font-semibold text-slate-950">
                       {shipment.shipmentReference || shipment.swiftlineTrackingNumber || "Pending"}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">{shipment.invoiceNumber || shipment.serviceInfo}</p>
+                    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <span>{shipment.invoiceNumber || shipment.serviceInfo}</span>
+                      {/* Customs route, so CSB-V shipments are identifiable at a glance. */}
+                      <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
+                        {formatCsbType(shipment.csbType)}
+                      </span>
+                    </p>
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-slate-800">{shipment.consignee || "Not set"}</p>
@@ -345,13 +402,13 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
 
       {dialogOpen ? (
         <CreateManifestDialog
-          shipmentCount={selected.length}
+          shipmentCount={selectedList.length}
           totalPieces={totals.pieces}
           totalWeightKg={totals.weightKg}
           busy={creating}
           defaults={{
-            origin: (selected[0]?.branch.city || selected[0]?.branch.name || "").toUpperCase(),
-            destination: (selected[0]?.destinationCountry || "").toUpperCase(),
+            origin: (selectedList[0]?.branch.city || selectedList[0]?.branch.name || "").toUpperCase(),
+            destination: (selectedList[0]?.destinationCountry || "").toUpperCase(),
             coloader: "",
             paymentType: ""
           }}

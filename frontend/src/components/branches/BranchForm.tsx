@@ -2,9 +2,13 @@
 
 import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { FiChevronDown, FiX } from "react-icons/fi";
+import { toast } from "react-toastify";
+import { FiChevronDown, FiTrash2, FiUpload, FiX } from "react-icons/fi";
 import {
+  BranchDocument,
+  BranchDocumentType,
   BranchFormData,
+  BranchPhoneNumber,
   BranchService,
   BranchStatus,
   ShipmentCoverage,
@@ -13,10 +17,14 @@ import {
   countryOptions,
   createBranch,
   currencyOptions,
+  deleteBranchDocument,
+  deleteBranchImage,
   formatBranchLabel,
   shipmentCoverageTypes,
   updateBranch,
   updateBranchStatus,
+  uploadBranchDocument,
+  uploadBranchImages,
   validateBranchCode,
   validateBranchCodeForEdit,
   workingDays
@@ -37,7 +45,11 @@ type FieldKey =
   | "shipmentCoverage"
   | "operatingCountries"
   | "baseCurrency"
-  | "workingDays";
+  | "workingDays"
+  | "policyAccepted"
+  | "phoneNumber0"
+  | "phoneNumber1"
+  | "phoneNumber2";
 type ValidationLevel = "DRAFT" | "ACTIVE";
 // draft  → save without activating
 // activate → create as active, or save edits and then activate
@@ -70,7 +82,14 @@ const initialForm: BranchFormData = {
   },
   baseCurrency: "",
   gstin: "",
-  invoiceSacCode: ""
+  invoiceSacCode: "",
+  phoneNumbers: [
+    { label: "", number: "" },
+    { label: "", number: "" },
+    { label: "", number: "" }
+  ],
+  existingImages: [],
+  existingDocuments: []
 };
 
 function normalizeBranchCode(value: string) {
@@ -121,6 +140,9 @@ function validateForm(data: BranchFormData, level: ValidationLevel, codeExists: 
   }
   // Indian branches need a GSTIN or invoice generation fails after the fact.
   if (data.address.countryCode === "IN" && !data.gstin.trim()) errors.gstin = "GSTIN is required for Indian branches.";
+
+  // Branches being activated must have PAN and GST documents uploaded.
+  // Documents are validated during upload flow, not here.
 
   return errors;
 }
@@ -416,6 +438,15 @@ function MultiSelect<T extends string>({
               </button>
             </span>
           ))}
+          {values.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-100"
+            >
+              <FiTrash2 className="h-3 w-3" /> Remove all
+            </button>
+          ) : null}
           <input
             value={query}
             role="combobox"
@@ -502,9 +533,21 @@ export default function BranchForm({
   const [form, setForm] = useState<BranchFormData>(initialData ?? initialForm);
   const [codeExists, setCodeExists] = useState<boolean | null>(null);
   const [savingMode, setSavingMode] = useState<SubmitMode | null>(null);
-  const [submitError, setSubmitError] = useState("");
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [touchedFields, setTouchedFields] = useState<Partial<Record<FieldKey, boolean>>>({});
+  const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [documentFiles, setDocumentFiles] = useState<{
+    pan?: File;
+    gst?: File;
+    other?: { title: string; file: File };
+  }>({});
+  const [uploading, setUploading] = useState(false);
+  const [existingImages, setExistingImages] = useState<string[]>(initialData?.existingImages ?? []);
+  const [existingDocuments, setExistingDocuments] = useState<BranchDocument[]>(initialData?.existingDocuments ?? []);
+  const [deletingImages, setDeletingImages] = useState<Set<number>>(new Set());
+  const [deletingDocs, setDeletingDocs] = useState<Set<number>>(new Set());
 
   const countrySelectOptions = useMemo(
     () => countryOptions.map((country) => ({ value: country.code, label: country.name, helper: country.code })),
@@ -565,24 +608,78 @@ export default function BranchForm({
     setForm((current) => ({ ...current, operations: { ...current.operations, ...update } }));
   }
 
+  function updatePhoneNumber(index: number, update: Partial<BranchPhoneNumber>) {
+    setForm((current) => {
+      const next = [...current.phoneNumbers];
+      next[index] = { ...next[index], ...update };
+      return { ...current, phoneNumbers: next };
+    });
+  }
+
+  function handleImageSelect(files: FileList | null) {
+    if (!files) return;
+    const newFiles = Array.from(files);
+    const combined = [...imageFiles, ...newFiles].slice(0, 5);
+    setImageFiles(combined);
+
+    // Generate preview URLs for new images.
+    const newPreviews = newFiles.map((file) => URL.createObjectURL(file));
+    setImagePreviews((prev) => {
+      // Revoke old previews to avoid memory leaks.
+      prev.forEach((url) => URL.revokeObjectURL(url));
+      return combined.map((file) => URL.createObjectURL(file));
+    });
+  }
+
+  function removeImage(index: number) {
+    setImageFiles((prev) => prev.filter((_, i) => i !== index));
+    setImagePreviews((prev) => {
+      URL.revokeObjectURL(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  function handleDocumentSelect(type: "pan" | "gst" | "other", file: File | null, title?: string) {
+    if (!file) {
+      setDocumentFiles((prev) => {
+        const next = { ...prev };
+        delete next[type];
+        return next;
+      });
+      return;
+    }
+    setDocumentFiles((prev) => {
+      if (type === "other") {
+        return { ...prev, other: { title: title ?? "", file } };
+      }
+      return { ...prev, [type]: file };
+    });
+  }
+
   async function handleSubmit(mode: SubmitMode) {
-    // Editing a live branch must keep it valid; drafts may stay incomplete.
+    // Activating a branch requires policy acceptance and mandatory documents.
     const requiresActiveValidation = mode === "activate" || (mode === "save" && initialStatus === "ACTIVE");
+
+    if (requiresActiveValidation && !policyAccepted) {
+      setSubmitAttempted(true);
+      toast.error("Please accept the branch operating policy.");
+      return;
+    }
+
     const errors = validateForm(form, requiresActiveValidation ? "ACTIVE" : "DRAFT", codeExists);
 
-    // Errors are always surfaced on submit — the action is never silently blocked.
     if (Object.keys(errors).length) {
       setSubmitAttempted(true);
       setTouchedFields((current) => ({
         ...current,
         ...Object.fromEntries(Object.keys(errors).map((field) => [field, true]))
       }));
-      setSubmitError("Please fix the highlighted fields before saving.");
+      toast.error("Please fix the highlighted fields before saving.");
       return;
     }
 
     setSavingMode(mode);
-    setSubmitError("");
+    setUploading(true);
 
     try {
       let branch;
@@ -591,7 +688,6 @@ export default function BranchForm({
         const result = await createBranch(form, mode === "activate" ? "ACTIVE" : "DRAFT");
         branch = result.branch;
       } else {
-        // Field changes are saved first; activation is a separate transition.
         const result = await updateBranch(branchId, form);
         branch = result.branch;
 
@@ -601,26 +697,40 @@ export default function BranchForm({
         }
       }
 
+      // Upload images if any were selected.
+      if (imageFiles.length) {
+        await uploadBranchImages(branch._id, imageFiles);
+      }
+
+      // Upload documents if any were selected.
+      const docUploads: Promise<unknown>[] = [];
+      if (documentFiles.pan) {
+        docUploads.push(uploadBranchDocument(branch._id, "PAN", "PAN Card", documentFiles.pan));
+      }
+      if (documentFiles.gst) {
+        docUploads.push(uploadBranchDocument(branch._id, "GST", "GST Certificate", documentFiles.gst));
+      }
+      if (documentFiles.other) {
+        docUploads.push(uploadBranchDocument(branch._id, "OTHER", documentFiles.other.title, documentFiles.other.file));
+      }
+      await Promise.all(docUploads);
+
+      toast.success(mode === "draft" ? "Branch saved as draft." : "Branch saved successfully.");
       router.push(`/dashboard/branches/${branch._id}`);
     } catch (caughtError) {
-      setSubmitError(caughtError instanceof Error ? caughtError.message : "Unable to save branch.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to save branch.");
     } finally {
       setSavingMode(null);
+      setUploading(false);
     }
   }
 
-  const saving = savingMode !== null;
-  const secondaryButtonClasses = "rounded-xl border border-[#EEEDED] bg-white px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition hover:bg-[#EEEDED]/60 disabled:cursor-not-allowed disabled:opacity-50";
-  const primaryButtonClasses = "rounded-xl bg-[#0D1282] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] disabled:cursor-not-allowed disabled:opacity-50";
+  const saving = savingMode !== null || uploading;
+  const secondaryButtonClasses = "rounded-4xl border border-[#EEEDED] bg-white px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition hover:bg-[#EEEDED]/60 disabled:cursor-not-allowed disabled:opacity-50";
+  const primaryButtonClasses = "rounded-4xl bg-[#0D1282] px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
     <div className="space-y-6">
-      {submitError ? (
-        <div className="rounded-xl border border-[#D71313]/25 bg-[#D71313]/5 px-4 py-3 text-sm font-semibold text-[#D71313]">
-          {submitError}
-        </div>
-      ) : null}
-
       <FormSection title="Basic Details" description="Branch identity and the station code used to build tracking numbers.">
         <div className="grid gap-5 md:grid-cols-2">
           <TextField
@@ -861,28 +971,355 @@ export default function BranchForm({
         </div>
       </FormSection>
 
-      <div className="flex flex-wrap items-center justify-end gap-3 rounded-2xl border border-[#EEEDED] bg-white px-5 py-4 shadow-sm">
+      <FormSection title="Branch Contact Numbers" description="Additional phone numbers for specific departments or staff.">
+        <div className="grid gap-5 md:grid-cols-3">
+          {form.phoneNumbers.map((phone, index) => (
+            <div key={index} className="space-y-3 rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
+              <TextField
+                label={`Label ${index + 1}`}
+                value={phone.label}
+                placeholder="e.g. Manager, Operations"
+                onChange={(event) => updatePhoneNumber(index, { label: event.target.value })}
+              />
+              <TextField
+                label={`Phone ${index + 1}`}
+                value={phone.number}
+                placeholder="+919876543210"
+                onChange={(event) => updatePhoneNumber(index, { number: event.target.value })}
+                error={visibleErrors[`phoneNumber${index}` as FieldKey]}
+              />
+            </div>
+          ))}
+        </div>
+      </FormSection>
+
+      <FormSection title="Branch Images" description="Upload up to 5 branch office images (JPG, PNG, GIF, WebP, max 5 MB each).">
+        <div className="space-y-4">
+          {(imagePreviews.length || existingImages.length) ? (
+            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              {existingImages.map((imagePath, index) => (
+                <div key={`existing-${index}`} className="group relative overflow-hidden rounded-xl border border-[#EEEDED] bg-[#EEEDED]/40">
+                  <img
+                    src={`/api/v1/files/${encodeURIComponent(imagePath.replace(/\\/g, "/"))}`}
+                    alt={`Existing branch image ${index + 1}`}
+                    className="h-32 w-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    disabled={deletingImages.has(index)}
+                    onClick={async () => {
+                      if (!branchId) return;
+                      setDeletingImages((prev) => new Set(prev).add(index));
+                      try {
+                        await deleteBranchImage(branchId, index);
+                        setExistingImages((prev) => prev.filter((_, i) => i !== index));
+                        toast.success("Image deleted.");
+                      } catch (caught) {
+                        toast.error(caught instanceof Error ? caught.message : "Failed to delete image.");
+                      } finally {
+                        setDeletingImages((prev) => { const next = new Set(prev); next.delete(index); return next; });
+                      }
+                    }}
+                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-[#D71313] opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100 disabled:opacity-50"
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              {imagePreviews.map((preview, index) => (
+                <div key={index} className="group relative overflow-hidden rounded-xl border border-[#EEEDED] bg-[#EEEDED]/40">
+                  <img
+                    src={preview}
+                    alt={`Branch image ${index + 1}`}
+                    className="h-32 w-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeImage(index)}
+                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-[#D71313] opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100"
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {imageFiles.length + existingImages.length < 5 ? (
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#EEEDED] px-4 py-8 text-sm font-semibold text-slate-500 transition hover:border-[#0D1282]/30 hover:text-[#0D1282]">
+              <FiUpload className="h-5 w-5" />
+              {imageFiles.length || existingImages.length ? "Add more images" : "Click to select branch images"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                multiple
+                className="hidden"
+                onChange={(event) => handleImageSelect(event.target.files)}
+              />
+            </label>
+          ) : null}
+          <p className="text-xs text-slate-400">{existingImages.length + imageFiles.length} / 5 images</p>
+        </div>
+      </FormSection>
+
+      <FormSection title="Branch Documents" description="Upload PAN Card (required), GST Certificate (required), and optional documents.">
+        <div className="grid gap-5 md:grid-cols-2">
+          {existingDocuments.filter((d) => d.type === "PAN").map((doc, idx) => {
+            const docIndex = existingDocuments.indexOf(doc);
+            return (
+              <div key={`existing-pan-${idx}`} className="rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
+                <p className="mb-3 text-sm font-semibold text-slate-700">PAN Card <span className="text-[#D71313]">*</span></p>
+                <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
+                  <div className="min-w-0 flex-1">
+                    <a href={`/api/v1/files/${encodeURIComponent(doc.filePath.replace(/\\/g, "/"))}`} target="_blank" rel="noopener noreferrer" className="truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</a>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={deletingDocs.has(docIndex)}
+                    onClick={async () => {
+                      if (!branchId) return;
+                      setDeletingDocs((prev) => new Set(prev).add(docIndex));
+                      try {
+                        await deleteBranchDocument(branchId, docIndex);
+                        setExistingDocuments((prev) => prev.filter((_, i) => i !== docIndex));
+                        toast.success("PAN document deleted.");
+                      } catch (caught) {
+                        toast.error(caught instanceof Error ? caught.message : "Failed to delete document.");
+                      } finally {
+                        setDeletingDocs((prev) => { const next = new Set(prev); next.delete(docIndex); return next; });
+                      }
+                    }}
+                    className="ml-2 text-[#D71313] hover:text-[#D71313]/70 disabled:opacity-50"
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          <div className="rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
+            <p className="mb-3 text-sm font-semibold text-slate-700">
+              PAN Card <span className="text-[#D71313]">*</span>
+            </p>
+            {documentFiles.pan ? (
+              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
+                <span className="truncate text-sm text-slate-700">{documentFiles.pan.name}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDocumentSelect("pan", null)}
+                  className="text-[#D71313] hover:text-[#D71313]/70"
+                >
+                  <FiX className="h-4 w-4" />
+                </button>
+              </div>
+            ) : existingDocuments.some((d) => d.type === "PAN") ? null : (
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#EEEDED] px-4 py-6 text-sm text-slate-500 hover:border-[#0D1282]/30 hover:text-[#0D1282]">
+                <FiUpload className="h-4 w-4" /> Upload PAN (PDF, JPG, PNG)
+                <input
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) handleDocumentSelect("pan", file);
+                  }}
+                />
+              </label>
+            )}
+          </div>
+
+          {existingDocuments.filter((d) => d.type === "GST").map((doc, idx) => {
+            const docIndex = existingDocuments.indexOf(doc);
+            return (
+              <div key={`existing-gst-${idx}`} className="rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
+                <p className="mb-3 text-sm font-semibold text-slate-700">GST Certificate <span className="text-[#D71313]">*</span></p>
+                <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
+                  <div className="min-w-0 flex-1">
+                    <a href={`/api/v1/files/${encodeURIComponent(doc.filePath.replace(/\\/g, "/"))}`} target="_blank" rel="noopener noreferrer" className="truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</a>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={deletingDocs.has(docIndex)}
+                    onClick={async () => {
+                      if (!branchId) return;
+                      setDeletingDocs((prev) => new Set(prev).add(docIndex));
+                      try {
+                        await deleteBranchDocument(branchId, docIndex);
+                        setExistingDocuments((prev) => prev.filter((_, i) => i !== docIndex));
+                        toast.success("GST document deleted.");
+                      } catch (caught) {
+                        toast.error(caught instanceof Error ? caught.message : "Failed to delete document.");
+                      } finally {
+                        setDeletingDocs((prev) => { const next = new Set(prev); next.delete(docIndex); return next; });
+                      }
+                    }}
+                    className="ml-2 text-[#D71313] hover:text-[#D71313]/70 disabled:opacity-50"
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          <div className="rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
+            <p className="mb-3 text-sm font-semibold text-slate-700">
+              GST Certificate <span className="text-[#D71313]">*</span>
+            </p>
+            {documentFiles.gst ? (
+              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
+                <span className="truncate text-sm text-slate-700">{documentFiles.gst.name}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDocumentSelect("gst", null)}
+                  className="text-[#D71313] hover:text-[#D71313]/70"
+                >
+                  <FiX className="h-4 w-4" />
+                </button>
+              </div>
+            ) : existingDocuments.some((d) => d.type === "GST") ? null : (
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#EEEDED] px-4 py-6 text-sm text-slate-500 hover:border-[#0D1282]/30 hover:text-[#0D1282]">
+                <FiUpload className="h-4 w-4" /> Upload GST (PDF, JPG, PNG)
+                <input
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) handleDocumentSelect("gst", file);
+                  }}
+                />
+              </label>
+            )}
+          </div>
+          {existingDocuments.filter((d) => d.type === "OTHER").map((doc, idx) => {
+            const docIndex = existingDocuments.indexOf(doc);
+            return (
+              <div key={`existing-other-${idx}`} className="md:col-span-2 rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
+                <p className="mb-3 text-sm font-semibold text-slate-700">Other Document (optional)</p>
+                <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-700">{doc.title || doc.type}</p>
+                    <a href={`/api/v1/files/${encodeURIComponent(doc.filePath.replace(/\\/g, "/"))}`} target="_blank" rel="noopener noreferrer" className="truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</a>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={deletingDocs.has(docIndex)}
+                    onClick={async () => {
+                      if (!branchId) return;
+                      setDeletingDocs((prev) => new Set(prev).add(docIndex));
+                      try {
+                        await deleteBranchDocument(branchId, docIndex);
+                        setExistingDocuments((prev) => prev.filter((_, i) => i !== docIndex));
+                        toast.success("Document deleted.");
+                      } catch (caught) {
+                        toast.error(caught instanceof Error ? caught.message : "Failed to delete document.");
+                      } finally {
+                        setDeletingDocs((prev) => { const next = new Set(prev); next.delete(docIndex); return next; });
+                      }
+                    }}
+                    className="ml-2 text-[#D71313] hover:text-[#D71313]/70 disabled:opacity-50"
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          <div className="md:col-span-2 rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
+            <p className="mb-3 text-sm font-semibold text-slate-700">Other Document (optional)</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <input
+                type="text"
+                value={documentFiles.other?.title ?? ""}
+                onChange={(event) => {
+                  const file = documentFiles.other?.file;
+                  handleDocumentSelect("other", file ?? null, event.target.value);
+                }}
+                placeholder="Document title"
+                className="h-11 rounded-xl border border-[#EEEDED] bg-white px-3.5 text-sm outline-none transition focus:ring-2 focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
+              />
+              {documentFiles.other?.file ? (
+                <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
+                  <span className="truncate text-sm text-slate-700">{documentFiles.other.file.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDocumentSelect("other", null)}
+                    className="text-[#D71313] hover:text-[#D71313]/70"
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#EEEDED] px-4 py-3 text-sm text-slate-500 hover:border-[#0D1282]/30 hover:text-[#0D1282]">
+                  <FiUpload className="h-4 w-4" /> Upload document (PDF, JPG, PNG)
+                  <input
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) handleDocumentSelect("other", file, documentFiles.other?.title ?? "");
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+        </div>
+      </FormSection>
+
+      {!isEditMode || initialStatus !== "ACTIVE" ? (
+        <div className={`rounded-xl border p-4 transition ${
+          submitAttempted && !policyAccepted
+            ? "border-[#D71313]/25 bg-[#D71313]/5"
+            : "border-[#EEEDED] bg-white"
+        }`}>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={policyAccepted}
+              onChange={(event) => {
+                setPolicyAccepted(event.target.checked);
+                if (event.target.checked) setSubmitAttempted(false);
+              }}
+              className="mt-0.5 h-4 w-4 accent-[#0D1282]"
+            />
+            <div>
+              <p className="text-sm font-semibold text-slate-700">
+                I confirm that the information provided is accurate and I accept the branch operating policies.
+                <span className="text-[#D71313]"> *</span>
+              </p>
+              {submitAttempted && !policyAccepted ? (
+                <p className="mt-1 text-xs font-semibold text-[#D71313]">
+                  You must accept the policy before activating this branch.
+                </p>
+              ) : null}
+            </div>
+          </label>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-end gap-3 rounded-2xl px-5 py-4">
         {!isEditMode ? (
           <>
-            <button type="button" onClick={() => void handleSubmit("draft")} disabled={saving} className={secondaryButtonClasses}>
-              {savingMode === "draft" ? "Saving..." : "Save as Draft"}
+            <button type="button" onClick={() => void handleSubmit("draft")} disabled={saving || uploading} className={secondaryButtonClasses}>
+              {uploading ? "Uploading files..." : savingMode === "draft" ? "Saving..." : "Save as Draft"}
             </button>
-            <button type="button" onClick={() => void handleSubmit("activate")} disabled={saving} className={primaryButtonClasses}>
-              {savingMode === "activate" ? "Creating..." : "Create Branch"}
+            <button type="button" onClick={() => void handleSubmit("activate")} disabled={saving || uploading} className={primaryButtonClasses}>
+              {uploading ? "Uploading files..." : savingMode === "activate" ? "Creating..." : "Create Branch"}
             </button>
           </>
         ) : initialStatus === "DRAFT" ? (
           <>
-            <button type="button" onClick={() => void handleSubmit("draft")} disabled={saving} className={secondaryButtonClasses}>
-              {savingMode === "draft" ? "Saving..." : "Save Draft"}
+            <button type="button" onClick={() => void handleSubmit("draft")} disabled={saving || uploading} className={secondaryButtonClasses}>
+              {uploading ? "Uploading files..." : savingMode === "draft" ? "Saving..." : "Save Draft"}
             </button>
-            <button type="button" onClick={() => void handleSubmit("activate")} disabled={saving} className={primaryButtonClasses}>
-              {savingMode === "activate" ? "Activating..." : "Save & Activate"}
+            <button type="button" onClick={() => void handleSubmit("activate")} disabled={saving || uploading} className={primaryButtonClasses}>
+              {uploading ? "Uploading files..." : savingMode === "activate" ? "Activating..." : "Save & Activate"}
             </button>
           </>
         ) : (
-          <button type="button" onClick={() => void handleSubmit("save")} disabled={saving} className={primaryButtonClasses}>
-            {savingMode === "save" ? "Saving..." : "Save Changes"}
+          <button type="button" onClick={() => void handleSubmit("save")} disabled={saving || uploading} className={primaryButtonClasses}>
+            {uploading ? "Uploading files..." : savingMode === "save" ? "Saving..." : "Save Changes"}
           </button>
         )}
       </div>

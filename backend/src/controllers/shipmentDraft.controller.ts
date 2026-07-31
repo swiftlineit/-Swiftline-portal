@@ -13,6 +13,8 @@ import {
 } from "../services/dpdProviderConfiguration.service.js";
 import { parseDpdInvoiceWorkbook } from "../services/invoiceParser.service.js";
 import { maskAadhaarNumber, normalizeAadhaarNumber } from "../services/aadhaarValidation.service.js";
+import { csbTypeValues } from "../services/csbType.service.js";
+import { maxParcelItems, normalizeParcelItems } from "../services/parcelItems.service.js";
 import { validateShipmentDraftFields } from "../services/shipmentValidation.service.js";
 import {
   assertShipmentDraftMutationAllowed,
@@ -68,6 +70,13 @@ const parcelPatchSchema = z.object({
   widthCm: z.coerce.number().nonnegative().optional().nullable(),
   heightCm: z.coerce.number().nonnegative().optional().nullable(),
   shipmentContentType: z.enum(shipmentContentTypeValues).default("PARCEL"),
+  // Individual goods with their HSN codes. Blank entries are allowed here so a
+  // partially filled draft can still be saved; completeness is enforced by
+  // validateShipmentDraftFields before booking.
+  items: z.array(z.object({
+    description: z.string().trim().max(120),
+    hsnCode: z.string().trim().max(8)
+  })).max(maxParcelItems).optional(),
   contentsDescription: z.string().trim().max(120),
   shipmentReference1: z.string().trim().max(120).optional(),
   shipmentReference2: z.string().trim().max(120).optional(),
@@ -81,6 +90,8 @@ const draftPatchSchema = z.object({
   consigneeEnteredAddress: addressPatchSchema.optional(),
   kycUseForAllParcels: z.boolean().optional(),
   parcelList: z.array(parcelPatchSchema).min(1).max(10).optional(),
+  // Customs route for the shipment; drives the CSB-V clearance charge.
+  csbType: z.enum(csbTypeValues).optional(),
   serviceType: z.enum(shipmentServiceTypeValues).optional(),
   serviceCode: z.string().trim().max(40).optional()
 });
@@ -401,6 +412,9 @@ export async function updateShipmentDraft(request: Request, response: Response):
         widthCm: parcel.widthCm ?? undefined,
         heightCm: parcel.heightCm ?? undefined,
         shipmentContentType: parcel.shipmentContentType,
+        // contentsDescription is recomposed from items by the model's
+        // pre-validate hook, so every downstream consumer stays in step.
+        items: parcel.items ?? existing?.items ?? [],
         contentsDescription: parcel.contentsDescription,
         shipmentReference1: parcel.shipmentReference1 ?? "",
         shipmentReference2: parcel.shipmentReference2 ?? "",
@@ -447,6 +461,20 @@ export async function updateShipmentDraft(request: Request, response: Response):
       changedAt
     );
     shipmentDraft.serviceType = parsed.data.serviceType;
+  }
+
+  // Audited like serviceType: switching to CSB-V changes what the customer is
+  // charged, so the change needs an attributable trail.
+  if (parsed.data.csbType) {
+    recordFieldChange(
+      changedFields,
+      "csbType",
+      shipmentDraft.csbType,
+      parsed.data.csbType,
+      userId,
+      changedAt
+    );
+    shipmentDraft.csbType = parsed.data.csbType;
   }
 
   shipmentDraft.validationIssues = validateShipmentDraftFields(shipmentDraft);

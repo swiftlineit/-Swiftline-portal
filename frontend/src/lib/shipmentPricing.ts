@@ -1,4 +1,5 @@
 import { CountryRateCard } from "@/lib/countryRateCards";
+import { getCsbClearanceCharge, normalizeCsbType, type CsbType } from "@/lib/csbType";
 import { ShipmentServiceType } from "@/lib/dpdLabels";
 
 export const defaultGstRate = 0.18;
@@ -73,9 +74,13 @@ export function calculateShipmentEstimate(input: {
   rates: CountryRateCard[];
   countryCode: string;
   serviceType: ShipmentServiceType;
+  // Omitted for drafts created before CSB selection existed; those price as
+  // CSB-IV, matching the backend.
+  csbType?: CsbType | null;
   gstRate?: number;
 }) {
   const gstRate = input.gstRate ?? defaultGstRate;
+  const csbType = normalizeCsbType(input.csbType);
   const parcels = input.parcels.map((parcel) => {
     const actualWeightKg = numeric(parcel.weightKg);
     const volumetricWeightKg = getParcelVolumetricWeight(parcel, input.serviceType);
@@ -92,15 +97,25 @@ export function calculateShipmentEstimate(input: {
       exceedsMaxBoxKg: Boolean(rate && chargeableWeightKg > rate.maxBoxKg)
     };
   });
-  const baseAmount = roundShipmentMoney(parcels.reduce((total, parcel) => total + parcel.baseAmount, 0));
+  const freightAmount = roundShipmentMoney(parcels.reduce((total, parcel) => total + parcel.baseAmount, 0));
+  const missingRate = parcels.some((parcel) => !parcel.rate && parcel.chargeableWeightKg > 0);
+  // Charged once for the whole shipment regardless of parcel count or weight.
+  // Suppressed when no rate applies so an unpriceable route never shows 1800 alone.
+  const csbClearanceAmount = missingRate ? 0 : getCsbClearanceCharge(csbType);
+  const baseAmount = roundShipmentMoney(freightAmount + csbClearanceAmount);
   const gstAmount = roundShipmentMoney(baseAmount * gstRate);
 
   return {
     parcels,
+    // Freight only, before the CSB-V clearance charge.
+    freightAmount,
+    csbType,
+    csbClearanceAmount,
+    // Taxable base that GST is charged on: freight + CSB-V clearance charge.
     baseAmount,
     gstAmount,
     totalAmount: roundShipmentMoney(baseAmount + gstAmount),
-    missingRate: parcels.some((parcel) => !parcel.rate && parcel.chargeableWeightKg > 0),
+    missingRate,
     exceedsMaxBoxKg: parcels.some((parcel) => parcel.exceedsMaxBoxKg)
   };
 }

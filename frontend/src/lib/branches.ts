@@ -1,6 +1,21 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 
+export type BranchDocumentType = "PAN" | "GST" | "OTHER";
+
+export type BranchDocument = {
+  type: BranchDocumentType;
+  title: string;
+  fileName: string;
+  filePath: string;
+  uploadedAt: string;
+};
+
+export type BranchPhoneNumber = {
+  label: string;
+  number: string;
+};
+
 export const branchServices = [
   "EXPRESS_COURIER",
   "AIR_FREIGHT",
@@ -64,6 +79,9 @@ export type Branch = {
   status: BranchStatus;
   // Set on first activation; once present, code and labelCode are frozen.
   activatedAt?: string | null;
+  images: string[];
+  documents: BranchDocument[];
+  phoneNumbers: BranchPhoneNumber[];
   createdBy?: { email?: string; name?: string };
   createdAt: string;
   updatedAt: string;
@@ -81,6 +99,9 @@ export type BranchFormData = {
   baseCurrency: string;
   gstin: string;
   invoiceSacCode: string;
+  phoneNumbers: BranchPhoneNumber[];
+  existingImages: string[];
+  existingDocuments: BranchDocument[];
 };
 
 export const countryOptions = [
@@ -235,7 +256,10 @@ export function branchToFormData(branch: Branch): BranchFormData {
     },
     baseCurrency: branch.baseCurrency ?? "",
     gstin: branch.gstin ?? "",
-    invoiceSacCode: branch.invoiceSacCode ?? ""
+    invoiceSacCode: branch.invoiceSacCode ?? "",
+    phoneNumbers: branch.phoneNumbers ?? [],
+    existingImages: branch.images ?? [],
+    existingDocuments: branch.documents ?? []
   };
 }
 
@@ -265,6 +289,53 @@ export async function updateBranchStatus(branchId: string, status: BranchStatus)
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status })
+  });
+
+  return parseApiResponse<{ success: true; branch: Branch }>(response);
+}
+
+export async function uploadBranchImages(branchId: string, files: File[]) {
+  const formData = new FormData();
+  files.forEach((file) => formData.append("images", file));
+
+  const response = await fetchWithAuth(apiUrl(`/api/v1/branches/${branchId}/images`), {
+    method: "POST",
+    body: formData
+  });
+
+  return parseApiResponse<{ success: true; branch: Branch }>(response);
+}
+
+export async function deleteBranchImage(branchId: string, imageIndex: number) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/branches/${branchId}/images/${imageIndex}`), {
+    method: "DELETE"
+  });
+
+  return parseApiResponse<{ success: true; branch: Branch }>(response);
+}
+
+export async function uploadBranchDocument(
+  branchId: string,
+  type: BranchDocumentType,
+  title: string,
+  file: File
+) {
+  const formData = new FormData();
+  formData.append("document", file);
+  formData.append("type", type);
+  formData.append("title", title);
+
+  const response = await fetchWithAuth(apiUrl(`/api/v1/branches/${branchId}/documents`), {
+    method: "POST",
+    body: formData
+  });
+
+  return parseApiResponse<{ success: true; branch: Branch }>(response);
+}
+
+export async function deleteBranchDocument(branchId: string, docIndex: number) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/branches/${branchId}/documents/${docIndex}`), {
+    method: "DELETE"
   });
 
   return parseApiResponse<{ success: true; branch: Branch }>(response);

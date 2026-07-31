@@ -153,11 +153,13 @@ export async function listShipmentManifests(audience: ShipmentManifestAudience, 
   page?: number;
   limit?: number;
   businessAccountId?: string;
+  date?: string;
 } = {}) {
   const params = new URLSearchParams();
   params.set("page", String(input.page ?? 1));
   params.set("limit", String(input.limit ?? 15));
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
+  if (input.date) params.set("date", input.date);
   const response = await fetchWithAuth(apiUrl(`${manifestRoot(audience)}?${params.toString()}`));
   return readJson<{
     success: true;

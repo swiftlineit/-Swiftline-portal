@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   FiAlertCircle,
   FiCheckCircle,
@@ -399,8 +400,18 @@ export default function ShipmentTrackingPage({
         </div>
       ) : null}
       {!searched && !result ? (
-        <div className="mt-5 border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-          <FiPackage className="mx-auto  h-6 w-6 text-blue-900" />
+        <div className="mt-5 border border-dashed border-slate-300 bg-white p-10 text-center rounded-2xl">
+          {/* <FiPackage className="mx-auto  h-6 w-6 text-blue-900" />
+           */}
+           <Image
+            src="/logo.svg"
+            alt="Track Shipment"
+            height={100}
+            width={100}
+            className="mx-auto h-12 w-30"
+          />
+        
+       
           <p className="mt-3 font-semibold text-slate-900">
             Tracking details will appear here
           </p>

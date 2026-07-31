@@ -1,5 +1,7 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
+import type { CsbType } from "@/lib/csbType";
+import type { QuoteDocumentCode } from "@/lib/quoteDocuments";
 
 export type QuoteStatus = "REQUESTED" | "UNDER_REVIEW" | "QUOTED" | "DECLINED" | "EXPIRED" | "CONVERTED";
 export type QuoteAudience = "client" | "admin";
@@ -9,15 +11,20 @@ export type QuoteParcelInput = {
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  contents: string;
 };
 export type ShipmentQuoteInput = {
   businessAccountId?: string;
   destinationCountryCode: string;
   destinationCountryName: string;
+  // What is inside the boxes. Labelled "Content Type" in the UI.
   shipmentType: "DOCUMENTS" | "PARCEL" | "MERCHANDISE" | "SAMPLES" | "GIFTS" | "RETURNS" | "OTHER";
+  // Customs route; CSB-V adds a flat clearance charge per shipment.
+  csbType: CsbType;
   serviceType: "COURIER" | "CARGO";
   goodsValueMinor: number;
-  contents: string;
+  // Export documents the customer already holds. At least one is required.
+  availableDocuments: QuoteDocumentCode[];
   parcels: QuoteParcelInput[];
 };
 export type QuoteContext = {
@@ -50,6 +57,9 @@ export type QuoteEstimate = {
     exceedsMaxBoxKg: boolean;
   }>;
   freightMinor: number;
+  // Flat CSB-V clearance charge for the whole shipment; zero on CSB-IV.
+  csbType: CsbType;
+  csbClearanceMinor: number;
   fuelSurchargeMinor: number | null;
   taxableAddOnsMinor: number | null;
   gstRate: number;
@@ -141,9 +151,13 @@ export async function createShipmentDraftFromQuote(audience: QuoteAudience, inpu
   );
 }
 
-export async function listShipmentQuotes(audience: QuoteAudience, status = "") {
+export type ShipmentQuoteListInput = { status?: string; date?: string; page?: number };
+
+export async function listShipmentQuotes(audience: QuoteAudience, input: ShipmentQuoteListInput = {}) {
   const url = new URL(apiUrl(root(audience)));
-  if (status) url.searchParams.set("status", status);
+  if (input.status) url.searchParams.set("status", input.status);
+  if (input.date) url.searchParams.set("date", input.date);
+  url.searchParams.set("page", String(input.page ?? 1));
   return parse<{ success: true; quotes: ShipmentQuote[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
     await fetchWithAuth(url.toString())
   );

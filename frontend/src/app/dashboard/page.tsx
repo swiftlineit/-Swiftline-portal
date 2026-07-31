@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import DashboardShell from "@/components/DashboardShell";
 import AdminActivityCard from "@/components/dashboard/admin/AdminActivityCard";
 import AdminDashboardBootstrap from "@/components/dashboard/admin/AdminDashboardBootstrap";
 import AdminDashboardHeader from "@/components/dashboard/admin/AdminDashboardHeader";
@@ -129,7 +128,7 @@ export default function DashboardPage() {
   const hasScope = capabilities.length > 0;
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="-m-6 min-h-full bg-[#EEEDED]/60 p-6 lg:-m-8 lg:p-8">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-6">
           <AdminDashboardHeader user={user} />
@@ -184,6 +183,6 @@ export default function DashboardPage() {
       </div>
 
       {showModal && <WelcomeModal onClose={handleClose} />}
-    </DashboardShell>
+    </>
   );
 }

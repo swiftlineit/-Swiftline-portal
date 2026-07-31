@@ -1,37 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FiPlus } from "react-icons/fi";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
 } from "@/components/client/ClientDashboardShell";
+import DateFilterInput from "@/components/ui/DateFilterInput";
+import Pagination from "@/components/ui/Pagination";
 import QuoteList from "@/components/quotes/QuoteList";
-import { listShipmentQuotes, type ShipmentQuote } from "@/lib/shipmentQuotes";
+import { listShipmentQuotes, type ShipmentQuote, type ShipmentQuoteListInput } from "@/lib/shipmentQuotes";
 import { useClientUser } from "@/lib/useClientUser";
+
+const emptyPagination = { page: 1, limit: 20, total: 0, totalPages: 1 };
 
 export default function ClientQuotesPage() {
   const { user, loading } = useClientUser();
   const [quotes, setQuotes] = useState<ShipmentQuote[]>([]);
+  const [pagination, setPagination] = useState(emptyPagination);
+  const [date, setDate] = useState("");
+  const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [dataLoading, setDataLoading] = useState(true);
 
+  const load = useCallback(async () => {
+    setDataLoading(true);
+    setError("");
+    try {
+      const input: ShipmentQuoteListInput = { date, page };
+      const result = await listShipmentQuotes("client", input);
+      setQuotes(result.quotes);
+      setPagination(result.pagination);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to load quotes.");
+    } finally {
+      setDataLoading(false);
+    }
+  }, [date, page]);
+
   useEffect(() => {
     if (!user) return;
-    listShipmentQuotes("client")
-      .then((result) => setQuotes(result.quotes))
-      .catch((caught) =>
-        setError(
-          caught instanceof Error ? caught.message : "Unable to load quotes.",
-        ),
-      )
-      .finally(() => setDataLoading(false));
-  }, [user]);
+    void load();
+  }, [load, user]);
 
   if (loading || !user) return <ClientDashboardLoading />;
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
@@ -42,13 +55,22 @@ export default function ClientQuotesPage() {
               Review estimates and branch-approved live quotes.
             </p>
           </div>
-          <Link
-            href="/client/get-quote"
-            className="inline-flex h-10 items-center gap-2 rounded-4xl bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900"
-          >
-            <FiPlus />
-            Get Quote
-          </Link>
+          <div className="flex items-center gap-2">
+            <DateFilterInput
+              value={date}
+              onChange={(value) => {
+                setDate(value);
+                setPage(1);
+              }}
+            />
+            <Link
+              href="/client/get-quote"
+              className="inline-flex h-10 items-center gap-2 rounded-4xl bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900"
+            >
+              <FiPlus />
+              Get Quote
+            </Link>
+          </div>
         </div>
         {error ? (
           <div className="mb-5 border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
@@ -56,7 +78,12 @@ export default function ClientQuotesPage() {
           </div>
         ) : null}
         <QuoteList quotes={quotes} audience="client" loading={dataLoading} />
+        <Pagination
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          total={pagination.total}
+          onPageChange={setPage}
+        />
       </div>
-    </ClientDashboardShell>
   );
 }

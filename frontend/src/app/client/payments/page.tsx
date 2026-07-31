@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { FiCreditCard, FiDownload, FiEye, FiPrinter, FiRefreshCw, FiX } from "react-icons/fi";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
   ClientShellUser
 } from "@/components/client/ClientDashboardShell";
 import { apiUrl } from "@/lib/api";
@@ -328,10 +327,11 @@ export default function ClientPaymentsPage() {
     setError("");
 
     try {
-      // Pending payments reconcile while history loads, so read credit status afterward.
-      const topUpsResponse = await getClientPrepaidTopUps(businessAccountId);
-      const creditResponse = await getClientCreditAccount(businessAccountId);
-      const prepaidResponse = await getClientPrepaidAccount(businessAccountId);
+      const [topUpsResponse, creditResponse, prepaidResponse] = await Promise.all([
+        getClientPrepaidTopUps(businessAccountId),
+        getClientCreditAccount(businessAccountId),
+        getClientPrepaidAccount(businessAccountId)
+      ]);
 
       setTopUps(topUpsResponse.topUps);
       setCreditAccount(creditResponse.creditAccount);
@@ -524,7 +524,7 @@ export default function ClientPaymentsPage() {
   const paymentButtonLabel = paymentPurpose === "SECURITY_DEPOSIT" ? "Pay Security Deposit" : "Top Up With Razorpay";
 
   return (
-    <ClientDashboardShell user={user}>
+    <>
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -535,7 +535,7 @@ export default function ClientPaymentsPage() {
             type="button"
             onClick={() => selectedAccount && loadBalances(selectedAccount.account.id, false, paymentPurpose)}
             disabled={refreshing || !selectedAccount}
-            className="inline-flex h-10 items-center justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <FiRefreshCw aria-hidden="true" className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
@@ -574,9 +574,9 @@ export default function ClientPaymentsPage() {
             </section>
 
             <section className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <div className="border border-slate-200 bg-white p-5">
+              <div className="border border-slate-200 bg-white p-5 rounded-2xl">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center bg-blue-900 text-white">
+                  <div className="flex h-10 w-10 items-center justify-center bg-blue-900 rounded-3xl text-white">
                     <FiCreditCard aria-hidden="true" className="h-5 w-5" />
                   </div>
                   <div>
@@ -589,7 +589,7 @@ export default function ClientPaymentsPage() {
                   <label className="text-xs font-semibold uppercase tracking-wide text-slate-500" htmlFor="amountRupees">
                     Amount
                   </label>
-                  <div className="mt-2 flex h-12 border border-slate-300 bg-white focus-within:border-blue-900">
+                  <div className="mt-2 flex h-12 border border-slate-300 bg-white rounded focus-within:border-blue-900">
                     <span className="flex w-12 items-center justify-center border-r border-slate-200 text-sm font-semibold text-slate-500">
                       Rs.
                     </span>
@@ -602,7 +602,7 @@ export default function ClientPaymentsPage() {
                       value={amountRupees}
                       onChange={(event) => handleAmountChange(event.target.value)}
                       readOnly={paymentPurpose === "SECURITY_DEPOSIT"}
-                      className="min-w-0 flex-1 px-3 text-sm font-semibold text-slate-950 outline-none"
+                      className="min-w-0 flex-1  px-3 text-sm font-semibold text-slate-950 outline-none"
                     />
                   </div>
                   <p className="mt-2 text-xs font-medium text-slate-500">
@@ -633,7 +633,7 @@ export default function ClientPaymentsPage() {
                   ) : null} */}
                 </div>
 
-                <label className="mt-4 flex items-start gap-3 border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <label className="mt-4 flex items-start gap-3 border rounded border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                   <input
                     type="checkbox"
                     checked={termsAccepted}
@@ -652,14 +652,15 @@ export default function ClientPaymentsPage() {
                   type="button"
                   onClick={handleTopUp}
                   disabled={submitting || !termsAccepted || !paymentTerms}
-                  className="mt-5 inline-flex h-11 w-full items-center justify-center bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="mt-5 inline-flex rounded-4xl h-11 w-full items-center justify-center bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   {submitting ? "Starting Payment..." : paymentButtonLabel}
                 </button>
               </div>
 
-              <div className="border border-slate-200 bg-white p-5">
-                <h2 className="text-base font-semibold text-slate-950 bg-green-200 px-4 py-2 border border-green-800 w-fit">Recent Payments</h2>
+              <div className="border border-slate-200 bg-white p-5 rounded-2xl">
+                <h2 className="text-base font-semibold text-slate-950 ">Recent Payments</h2>
+                <hr className="my-4 text-slate-300" />
                 <div className="mt-4 divide-y divide-slate-200">
                   {topUps.length ? topUps.slice(0, 6).map((topUp) => {
                     const invoice = buildPaymentInvoice(topUp, selectedAccount.account, user);
@@ -689,7 +690,7 @@ export default function ClientPaymentsPage() {
       {previewInvoice ? (
         <PaymentInvoicePreview invoice={previewInvoice} onClose={() => setPreviewInvoice(null)} />
       ) : null}
-    </ClientDashboardShell>
+    </>
   );
 }
 
@@ -713,7 +714,7 @@ function BalanceTile({
   emphasis?: boolean;
 }) {
   return (
-    <div className={`border p-5 ${emphasis ? "border-blue-900 bg-blue-900 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
+    <div className={`border p-5 rounded-xl ${emphasis ? "border-blue-900 bg-blue-900 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
       <p className={`text-xs font-semibold uppercase tracking-wide ${emphasis ? "text-blue-100" : "text-slate-500"}`}>{label}</p>
       <p className="mt-3 text-2xl font-semibold">{formatMinorMoney(value, currency)}</p>
     </div>
@@ -770,7 +771,7 @@ function InvoiceActionButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-8 items-center justify-center gap-1.5 border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:border-blue-900 hover:text-blue-900"
+      className="inline-flex h-8 items-center justify-center rounded-4xl gap-1.5 border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:border-blue-900 hover:text-blue-900"
     >
       {icon}
       {label}

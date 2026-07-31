@@ -16,11 +16,27 @@ export const branchServiceValues = [
 export const shipmentCoverageValues = ["DOMESTIC", "INTERNATIONAL", "IMPORT", "EXPORT"] as const;
 export const workingDayValues = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const;
 export const branchStatusValues = ["DRAFT", "ACTIVE", "INACTIVE", "SUSPENDED", "CLOSED"] as const;
+export const branchDocumentTypeValues = ["PAN", "GST", "OTHER"] as const;
 
 export type BranchService = (typeof branchServiceValues)[number];
 export type ShipmentCoverage = (typeof shipmentCoverageValues)[number];
 export type WorkingDay = (typeof workingDayValues)[number];
 export type BranchStatus = (typeof branchStatusValues)[number];
+
+export type BranchDocumentType = "PAN" | "GST" | "OTHER";
+
+export interface IBranchDocument {
+  type: BranchDocumentType;
+  title: string;
+  fileName: string;
+  filePath: string;
+  uploadedAt: Date;
+}
+
+export interface IBranchPhoneNumber {
+  label: string;
+  number: string;
+}
 
 export interface IBranch extends mongoose.Document {
   name: string;
@@ -53,6 +69,9 @@ export interface IBranch extends mongoose.Document {
   // Set the first time a branch goes ACTIVE. Once set, code and labelCode are
   // frozen because they are baked into already-issued tracking numbers.
   activatedAt?: Date | null;
+  images: string[];
+  documents: IBranchDocument[];
+  phoneNumbers: IBranchPhoneNumber[];
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId | null;
   createdAt: Date;
@@ -102,6 +121,18 @@ const branchSchema = new mongoose.Schema<IBranch>(
     invoiceSacCode: { type: String, trim: true, default: "", maxlength: 12 },
     status: { type: String, enum: branchStatusValues, default: "DRAFT", index: true },
     activatedAt: { type: Date, default: null },
+    images: [{ type: String, trim: true }],
+    documents: [{
+      type: { type: String, enum: ["PAN", "GST", "OTHER"], required: true },
+      title: { type: String, trim: true, maxlength: 100, default: "" },
+      fileName: { type: String, trim: true, required: true },
+      filePath: { type: String, trim: true, required: true },
+      uploadedAt: { type: Date, default: Date.now }
+    }],
+    phoneNumbers: [{
+      label: { type: String, trim: true, maxlength: 50, default: "" },
+      number: { type: String, trim: true, default: "" }
+    }],
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
   },

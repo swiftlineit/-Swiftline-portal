@@ -22,8 +22,10 @@ import {
   FiTruck,
   FiUsers,
   FiXCircle,
-} from "react-icons/fi";
 
+
+} from "react-icons/fi";
+import { BsCurrencyRupee } from "react-icons/bs";
 export type SidebarNavItem = {
   label: string;
   href: string;
@@ -106,7 +108,7 @@ const navigationItems = [
   {
     label: "Country Rate Card",
     href: "/dashboard/country-rate-card",
-    icon: FiDollarSign,
+    icon: BsCurrencyRupee ,
     roles: ["admin"],
   },
   {
@@ -142,7 +144,8 @@ export default function Sidebar({
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const visibleNavigationItems: SidebarNavItem[] =
-    items ?? navigationItems.filter((item) => item.roles.includes(userRole ?? ""));
+    items ??
+    navigationItems.filter((item) => item.roles.includes(userRole ?? ""));
 
   return (
     <aside
@@ -157,6 +160,7 @@ export default function Sidebar({
       >
         {sidebarOpen ? (
           <div className="flex min-w-0 items-center gap-3">
+           <Link href="/dashboard">
             <Image
               src="/logo.svg"
               alt="Swiftline Cargo"
@@ -164,6 +168,7 @@ export default function Sidebar({
               height={214}
               className="h-102 w-102 rounded-2xl object-contain"
             />
+           </Link>
 
             {/*
             <span className="ml-5 truncate text-3xl font-bold tracking-wide text-[#0D1282]">
@@ -202,27 +207,27 @@ export default function Sidebar({
             <Link
               key={item.label}
               href={item.href}
-           className={`group flex h-11 items-center rounded-lg text-sm font-medium transition ${
-  isActive
-    ? "text-slate-900"
-    : "text-slate-600 hover:bg-[#0D1282]/8 hover:text-slate-900"
-} ${
-  sidebarOpen
-    ? "w-full justify-start gap-3 px-3"
-    : "mx-auto w-11 justify-center"
-}`}
+              className={`group flex h-11 items-center rounded-lg text-sm font-medium transition ${
+                isActive
+                  ? "text-slate-900"
+                  : "text-slate-600 hover:bg-[#0D1282]/8 hover:text-slate-900"
+              } ${
+                sidebarOpen
+                  ? "w-full justify-start gap-3 px-3"
+                  : "mx-auto w-11 justify-center"
+              }`}
               title={sidebarOpen ? undefined : item.label}
             >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center">
-  <Icon
-    aria-hidden="true"
-    className={`h-4 w-4 transition-colors ${
-      isActive
-        ? "text-[#0D1282]"
-        : "text-slate-500 group-hover:text-[#0D1282]"
-    }`}
-  />
-</span>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                <Icon
+                  aria-hidden="true"
+                  className={`h-4 w-4 transition-colors ${
+                    isActive
+                      ? "text-[#0D1282]"
+                      : "text-slate-500 group-hover:text-[#0D1282]"
+                  }`}
+                />
+              </span>
 
               {sidebarOpen ? (
                 <span className="truncate">{item.label}</span>

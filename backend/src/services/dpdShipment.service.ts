@@ -350,7 +350,8 @@ export async function createLabelForShipmentDraft(
   const pricing = await calculateShipmentPricingEstimate({
     countryCode: lockedDraft.consigneeEnteredAddress.countryCode,
     serviceType: lockedDraft.serviceType,
-    parcels: lockedDraft.parcelList
+    parcels: lockedDraft.parcelList,
+    csbType: lockedDraft.csbType
   });
   if (pricing.missingRate) {
     await transitionShipmentDraftBooking({

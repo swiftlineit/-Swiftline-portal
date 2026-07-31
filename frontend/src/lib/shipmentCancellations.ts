@@ -90,10 +90,17 @@ export async function requestAdminShipmentCancellation(draftId: string, reason: 
   return parse<{ success: true; cancellation: ShipmentCancellation }>(response);
 }
 
-export async function listShipmentCancellations(status = "") {
-  const query = status ? "?status=" + encodeURIComponent(status) : "";
-  const response = await fetchWithAuth(apiUrl("/api/v1/shipment-cancellations" + query));
-  return parse<{ success: true; cancellations: ShipmentCancellation[] }>(response);
+export async function listShipmentCancellations(input: { status?: string; date?: string; page?: number } = {}) {
+  const url = new URL(apiUrl("/api/v1/shipment-cancellations"));
+  if (input.status) url.searchParams.set("status", input.status);
+  if (input.date) url.searchParams.set("date", input.date);
+  url.searchParams.set("page", String(input.page ?? 1));
+  const response = await fetchWithAuth(url.toString());
+  return parse<{
+    success: true;
+    cancellations: ShipmentCancellation[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }>(response);
 }
 
 export async function approveShipmentCancellation(

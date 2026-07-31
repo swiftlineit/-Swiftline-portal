@@ -202,7 +202,7 @@ export default function ShipmentAmendmentPanel({
           type="button"
           onClick={() => setOpen((current) => !current)}
           disabled={!canAmend || busy}
-          className="h-10 rounded-lg bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="h-10 rounded-4xl bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
         >
           {open ? "Close" : "Request Amendment"}
         </button>

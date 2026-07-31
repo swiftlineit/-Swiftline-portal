@@ -14,6 +14,8 @@ import {
   shipmentServiceTypeValues,
   type IShipmentDraft
 } from "../models/shipmentDraft.model.js";
+import { normalizeCsbType } from "../services/csbType.service.js";
+import { normalizeParcelItems } from "../services/parcelItems.service.js";
 import {
   calculateShipmentPricingEstimate,
   type ShipmentPricingEstimate
@@ -29,6 +31,7 @@ import {
   previewAmendmentFunding
 } from "../services/amendmentBilling.service.js";
 import { regenerateSimulatedShipmentLabels } from "../services/dpdShipment.service.js";
+import { dayBounds } from "../utils/dateRangeFilter.js";
 import {
   buildRevisedShipmentSnapshot,
   readShipmentBookingSnapshot
@@ -99,7 +102,7 @@ type AppliedChange = {
 
 type ShipmentDraftForAmendment = Pick<
   IShipmentDraft,
-  "consigneeEnteredAddress" | "parcelList" | "serviceType" | "addressValidationStatus" | "status"
+  "consigneeEnteredAddress" | "parcelList" | "serviceType" | "csbType" | "addressValidationStatus" | "status"
 >;
 
 type AmendmentChanges = z.infer<typeof createShipmentAmendmentSchema>["changes"];
@@ -194,11 +197,17 @@ function snapshotDraft(draft: ShipmentDraftForAmendment) {
       widthCm: parcel.widthCm ?? null,
       heightCm: parcel.heightCm ?? null,
       shipmentContentType: parcel.shipmentContentType,
+      // Items carry the per-item HSN codes; contentsDescription stays the derived
+      // summary so an amendment round-trip cannot lose either one.
+      items: normalizeParcelItems(parcel),
       contentsDescription: parcel.contentsDescription,
       shipmentReference1: parcel.shipmentReference1 ?? "",
       shipmentReference2: parcel.shipmentReference2 ?? ""
     })),
     serviceType: draft.serviceType,
+    // Preserved so an amendment reprice keeps the shipment's original CSB route
+    // and its clearance charge.
+    csbType: normalizeCsbType(draft.csbType),
     addressValidationStatus: draft.addressValidationStatus,
     status: draft.status
   };
@@ -284,6 +293,7 @@ async function getPricingImpact(
       countryCode: current.consigneeEnteredAddress.countryCode,
       serviceType: current.serviceType,
       parcels: current.parcelList,
+      csbType: current.csbType,
       session
     });
   const requestedEstimate = repriceRequested
@@ -291,6 +301,7 @@ async function getPricingImpact(
         countryCode: requested.consigneeEnteredAddress.countryCode,
         serviceType: requested.serviceType,
         parcels: requested.parcelList,
+        csbType: requested.csbType,
         session
       })
     : currentEstimate;
@@ -317,7 +328,12 @@ function applyRequestedChanges(draft: IShipmentDraft, appliedChanges: AppliedCha
 
   // Amendments only touch consignee, parcel, and service fields. Shipments booked
   // before consignor capture existed must not be failed for missing consignor KYC.
-  draft.validationIssues = validateShipmentDraftFields(draft, { requireConsignorDetails: false });
+  // Amendments run against shipments booked before consignor capture and before
+  // per-item HSN codes existed, so neither is demanded retroactively here.
+  draft.validationIssues = validateShipmentDraftFields(draft, {
+    requireConsignorDetails: false,
+    requireItemHsnCodes: false
+  });
   draft.status = draft.validationIssues.length ? "VALIDATION_FAILED" : "READY_FOR_DPD";
 
   return requestedSnapshot;
@@ -614,13 +630,21 @@ export async function createAdminShipmentAmendment(request: Request, response: R
 export async function listShipmentAmendments(request: Request, response: Response): Promise<Response> {
   const limitValue = typeof request.query.limit === "string" ? Number(request.query.limit) : 50;
   const limit = Number.isFinite(limitValue) ? Math.min(Math.max(limitValue, 1), 100) : 50;
+  const pageValue = typeof request.query.page === "string" ? Number(request.query.page) : 1;
+  const requestedPage = Number.isFinite(pageValue) ? Math.max(1, pageValue) : 1;
   const status = typeof request.query.status === "string" ? request.query.status : "";
   const filters: Record<string, unknown> = {};
 
   if (status) filters.status = status;
+  const bounds = dayBounds(typeof request.query.date === "string" ? request.query.date : undefined);
+  if (bounds) filters.requestedAt = { $gte: bounds.start, $lte: bounds.end };
 
+  const total = await ShipmentAmendment.countDocuments(filters).exec();
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(requestedPage, totalPages);
   const amendments = await ShipmentAmendment.find(filters)
     .sort({ requestedAt: -1, createdAt: -1 })
+    .skip((page - 1) * limit)
     .limit(limit)
     .lean()
     .exec();
@@ -699,7 +723,8 @@ export async function listShipmentAmendments(request: Request, response: Respons
 
   return response.status(200).json({
     success: true,
-    amendments: amendmentRows
+    amendments: amendmentRows,
+    pagination: { page, limit, total, totalPages }
   });
 }
 

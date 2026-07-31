@@ -7,6 +7,8 @@ import { IoIosAirplane } from "react-icons/io";
 
 import { toast } from "react-toastify";
 import { formatDashboardDate } from "@/lib/dateFormat";
+import { formatCsbType } from "@/lib/csbType";
+import { normalizeQuoteDocuments, quoteDocumentLabels } from "@/lib/quoteDocuments";
 import { getVolumetricFormula } from "@/lib/shipmentPricing";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import {
@@ -185,6 +187,7 @@ export default function QuoteDetail({
               quote.request.serviceType === "COURIER" ? "Courier" : "Cargo"
             }
           />
+          <Info label="Shipment Type" value={formatCsbType(quote.request.csbType)} />
         </div>
       </section>
 
@@ -192,13 +195,14 @@ export default function QuoteDetail({
         <section className="overflow-hidden rounded-2xl border border-slate-300 bg-white">
           <Heading
             title="Package Breakdown"
-            subtitle={`${quote.request.parcels.length} box${quote.request.parcels.length === 1 ? "" : "es"} | ${quote.request.contents}`}
+            subtitle={`${quote.request.parcels.length} box${quote.request.parcels.length === 1 ? "" : "es"}`}
           />
           <div className="overflow-x-auto">
             <table className="w-full min-w-175 text-sm">
               <thead className="bg-slate-100 text-left text-xs uppercase text-slate-600">
                 <tr>
                   <th className="px-4 py-3">Box</th>
+                  <th className="px-4 py-3 ">Contents</th>
                   <th className="px-4 py-3 ">Actual KG</th>
                   <th className="px-4 py-3 ">
                     <span className="inline-flex items-center gap-1">
@@ -216,6 +220,9 @@ export default function QuoteDetail({
                   <tr key={parcel.sequence}>
                     <td className="px-4 py-4 font-semibold">
                       {parcel.sequence}
+                    </td>
+                    <td className="px-4 py-4 ">
+                      {quote.request.parcels.find((item) => item.sequence === parcel.sequence)?.contents || "-"}
                     </td>
                     <td className="px-4 py-4 ">
                       {parcel.actualWeightKg.toFixed(2)}
@@ -241,7 +248,7 @@ export default function QuoteDetail({
           </div>
           <div className="grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3">
             <Info
-              label="Shipment Type"
+              label="Content Type"
               value={quote.request.shipmentType.replaceAll("_", " ")}
             />
             <Info
@@ -255,6 +262,25 @@ export default function QuoteDetail({
               }
             />
           </div>
+
+          {/* Documents the customer declared they hold when requesting the quote. */}
+          {quote.request.availableDocuments?.length ? (
+            <div className="border-t border-slate-200 p-5">
+              <p className="text-xs font-semibold uppercase text-slate-500">
+                Available Documents
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {normalizeQuoteDocuments(quote.request.availableDocuments).map((code) => (
+                  <span
+                    key={code}
+                    className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700"
+                  >
+                    {quoteDocumentLabels[code]}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           
         </section>
@@ -276,6 +302,15 @@ export default function QuoteDetail({
                   displayedPricing?.freightMinor ?? quote.estimate.freightMinor
                 }
               />
+              {/* Flat charge for the whole shipment; absent on CSB-IV. Only shown
+                  against the rate-card estimate, since an approved quote's freight
+                  is priced by the branch as a single figure. */}
+              {!displayedPricing && quote.estimate.csbClearanceMinor > 0 ? (
+                <MoneyLine
+                  label="CSB-V Clearance Charge"
+                  value={quote.estimate.csbClearanceMinor}
+                />
+              ) : null}
               <MoneyLine
                 label="Fuel Surcharge"
                 value={displayedPricing?.fuelSurchargeMinor ?? null}

@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { FiSave, FiShield } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import { Branch, listBranches } from "@/lib/branches";
 import {
   DpdConfiguration,
@@ -157,7 +157,7 @@ export default function DpdConfigurationsPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-slate-950">DPD Configuration</h1>
         <p className="mt-1 text-sm text-slate-500">Test and production shipment settings</p>
@@ -303,6 +303,6 @@ export default function DpdConfigurationsPage() {
           </div>
         </aside>
       </div>
-    </DashboardShell>
+    </>
   );
 }

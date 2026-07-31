@@ -1,5 +1,6 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
+import type { CsbType } from "@/lib/csbType";
 
 export type ShipmentInvoiceParty = Record<string, string>;
 
@@ -57,6 +58,13 @@ export type ShipmentInvoice = {
   totalAmountMinor: number;
   advanceAppliedMinor: number;
   creditOutstandingMinor: number;
+  // Carries the freight / CSB-V clearance split behind the taxable value.
+  // Absent on invoices issued before CSB selection existed.
+  pricingSnapshot?: {
+    csbType?: CsbType;
+    csbClearanceAmount?: number;
+    freightAmount?: number;
+  } | null;
   reverseCharge: boolean;
   status: "DRAFT" | "ISSUED";
   validationWarnings: string[];

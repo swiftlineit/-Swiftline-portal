@@ -3,6 +3,7 @@ import {
   activateInvitation,
   getInvitation,
   login,
+  loginWithGoogle,
   logout,
   markWelcomeSeen,
   me,
@@ -16,6 +17,7 @@ import { loginLimiter } from "../middleware/rateLimit.middleware.js";
 export const authRouter = Router();
 
 authRouter.post("/login", loginLimiter, login);
+authRouter.post("/login/google", loginLimiter, loginWithGoogle);
 authRouter.post("/logout", logout);
 authRouter.post("/refresh", refresh);
 authRouter.post("/forgot-password", loginLimiter, requestPasswordReset);

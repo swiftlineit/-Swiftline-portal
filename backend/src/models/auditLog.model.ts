@@ -74,6 +74,7 @@ export type AuditAction =
   | "SUPPORT_TICKET_UPDATED"
   | "USER_PROFILE_UPDATED"
   | "USER_PASSWORD_CHANGED"
+  | "USER_GOOGLE_LOGIN_LINKED"
   | "BUSINESS_ACCOUNT_PROFILE_UPDATED";
 export type AuditEntityType =
   | "BRANCH"

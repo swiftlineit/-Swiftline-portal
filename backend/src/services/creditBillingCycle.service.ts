@@ -12,6 +12,7 @@ import { appendCreditLedgerEntry } from "./creditAccount.service.js";
 import { notifyBusinessFinancialMembers } from "./portalNotification.service.js";
 import { getCreditRestrictionState } from "./creditOverdue.service.js";
 import { formatIndiaDate } from "../utils/dateFormat.js";
+import { dayBounds } from "../utils/dateRangeFilter.js";
 
 export type ClosedBillingPeriod = {
   start: Date;
@@ -409,7 +410,17 @@ export async function closeDueCreditBillingCycles(input: {
   return { closed, statements };
 }
 
-export async function listCreditBillingStatements(businessAccountId: mongoose.Types.ObjectId) {
+export type CreditBillingStatementListFilter = {
+  status?: string;
+  date?: string;
+  page?: number;
+  limit?: number;
+};
+
+export async function listCreditBillingStatements(
+  businessAccountId: mongoose.Types.ObjectId,
+  filter: CreditBillingStatementListFilter = {}
+) {
   const account = await BusinessCreditAccount.findOne({ businessAccountId }).exec();
   if (account) {
     await getCreditRestrictionState({
@@ -418,11 +429,21 @@ export async function listCreditBillingStatements(businessAccountId: mongoose.Ty
       maxOverdueDays: account.maxOverdueDays
     });
   }
-  const statements = await CreditBillingStatement.find({ businessAccountId })
+  const query: Record<string, unknown> = { businessAccountId };
+  if (filter.status) query.status = filter.status;
+  const bounds = dayBounds(filter.date);
+  if (bounds) query.issuedAt = { $gte: bounds.start, $lte: bounds.end };
+
+  const limit = Math.min(100, Math.max(1, filter.limit ?? 100));
+  const total = await CreditBillingStatement.countDocuments(query).exec();
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(Math.max(1, filter.page ?? 1), totalPages);
+  const statements = await CreditBillingStatement.find(query)
     .sort({ issuedAt: -1 })
-    .limit(100)
+    .skip((page - 1) * limit)
+    .limit(limit)
     .exec();
-  return statements.map(serializeCreditBillingStatement);
+  return { statements: statements.map(serializeCreditBillingStatement), pagination: { page, limit, total, totalPages } };
 }
 
 export async function getCreditBillingStatement(

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { CountryRateCard } from "../models/countryRateCard.model.js";
 import type { ShipmentParcel, ShipmentServiceType } from "../models/shipmentDraft.model.js";
+import { getCsbClearanceCharge, normalizeCsbType, type CsbType } from "./csbType.service.js";
 
 export const defaultShipmentGstRate = 0.18;
 
@@ -24,6 +25,12 @@ export type ShipmentPricingEstimate = {
     baseAmount: number;
     exceedsMaxBoxKg: boolean;
   }>;
+  // Freight only: the sum of the per-parcel rate card amounts.
+  freightAmount: number;
+  // Flat CSB-V clearance charge, applied once for the whole shipment. Zero for CSB-IV.
+  csbType: CsbType;
+  csbClearanceAmount: number;
+  // Taxable base that GST is charged on: freight + CSB-V clearance charge.
   baseAmount: number;
   gstAmount: number;
   totalAmount: number;
@@ -58,11 +65,15 @@ export async function calculateShipmentPricingEstimate(input: {
   countryCode: string;
   serviceType: ShipmentServiceType;
   parcels: PricingParcelInput[];
+  // Omitted for shipments booked before CSB selection existed; those price as
+  // CSB-IV so no historical amount ever changes.
+  csbType?: CsbType | null;
   gstRate?: number;
   session?: mongoose.ClientSession;
 }): Promise<ShipmentPricingEstimate> {
   const countryCode = input.countryCode.trim().toUpperCase();
   const gstRate = input.gstRate ?? defaultShipmentGstRate;
+  const csbType = normalizeCsbType(input.csbType);
   const rateQuery = CountryRateCard.find({
     countryCode,
     service: input.serviceType
@@ -97,15 +108,23 @@ export async function calculateShipmentPricingEstimate(input: {
       exceedsMaxBoxKg: Boolean(rate && chargeableWeightKg > rate.maxBoxKg)
     };
   });
-  const baseAmount = roundShipmentMoney(parcels.reduce((total, parcel) => total + parcel.baseAmount, 0));
+  const freightAmount = roundShipmentMoney(parcels.reduce((total, parcel) => total + parcel.baseAmount, 0));
+  const missingRate = parcels.some((parcel) => parcel.chargesPerKg === null && parcel.chargeableWeightKg > 0);
+  // Charged once for the whole shipment regardless of parcel count or weight.
+  // Suppressed when no rate applies so an unpriceable route never quotes 1800 alone.
+  const csbClearanceAmount = missingRate ? 0 : getCsbClearanceCharge(csbType);
+  const baseAmount = roundShipmentMoney(freightAmount + csbClearanceAmount);
   const gstAmount = roundShipmentMoney(baseAmount * gstRate);
 
   return {
     parcels,
+    freightAmount,
+    csbType,
+    csbClearanceAmount,
     baseAmount,
     gstAmount,
     totalAmount: roundShipmentMoney(baseAmount + gstAmount),
-    missingRate: parcels.some((parcel) => parcel.chargesPerKg === null && parcel.chargeableWeightKg > 0),
+    missingRate,
     exceedsMaxBoxKg: parcels.some((parcel) => parcel.exceedsMaxBoxKg),
     gstRate
   };

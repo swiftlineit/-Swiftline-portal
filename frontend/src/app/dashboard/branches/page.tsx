@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { FiChevronDown } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { FiChevronDown, FiEdit2, FiExternalLink } from "react-icons/fi";
+import { DashboardLoading } from "@/components/DashboardShell";
 import {
   Branch,
   BranchStatus,
@@ -49,7 +48,6 @@ const statusActionLabels: Record<BranchStatus, string> = {
 };
 
 export default function BranchesPage() {
-  const router = useRouter();
   const { user, loading } = useAdminUser();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [search, setSearch] = useState("");
@@ -104,18 +102,8 @@ export default function BranchesPage() {
     }
   }
 
-  async function handleBranchMenuChange(branch: Branch, value: string) {
+  async function handleStatusMenuChange(branch: Branch, value: string) {
     if (!value || value.startsWith("current:")) return;
-
-    if (value === "view") {
-      router.push(`/dashboard/branches/${branch._id}`);
-      return;
-    }
-
-    if (value === "edit") {
-      router.push(`/dashboard/branches/${branch._id}/edit`);
-      return;
-    }
 
     if (value.startsWith("status:")) {
       await handleStatusChange(branch, value.replace("status:", "") as BranchStatus);
@@ -125,7 +113,6 @@ export default function BranchesPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
       <div className="min-h-full bg-[#EEEDED]/60 -m-6 p-6 lg:-m-8 lg:p-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -134,9 +121,9 @@ export default function BranchesPage() {
           </div>
           <Link
             href="/dashboard/branches/create"
-            className="inline-flex items-center gap-2 rounded-lg bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/40 focus:ring-offset-2"
+            className="inline-flex items-center gap-2 rounded-4xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/40 focus:ring-offset-2"
           >
-            <span className="text-base leading-none">+</span> Create Branch
+            <span className="text-base leading-none">+</span> Create New Branch
           </Link>
         </div>
 
@@ -164,7 +151,7 @@ export default function BranchesPage() {
                 }}
                 className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-10 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
               >
-                <option value="">All statuses</option>
+                <option value="">All Status</option>
                 <option value="DRAFT">Draft</option>
                 <option value="ACTIVE">Active</option>
                 <option value="INACTIVE">Inactive</option>
@@ -224,29 +211,41 @@ export default function BranchesPage() {
                     <td className="px-4 py-3.5 text-slate-700">{branch.baseCurrency || "Not set"}</td>
                     <td className="px-4 py-3.5 text-slate-600">{formatListValue(branch.operations.supportedServices)}</td>
                     <td className="px-4 py-3.5">
-                      <div className="relative w-44">
-                        <select
-                          value={`current:${branch.status}`}
-                          onChange={(event) => void handleBranchMenuChange(branch, event.target.value)}
-                          disabled={updatingBranchId === branch._id}
-                          aria-label={`Actions for ${branch.name}`}
-                          className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-10 text-sm font-semibold capitalize text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15 disabled:opacity-60"
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/dashboard/branches/${branch._id}`}
+                          className="inline-flex items-center gap-1 text-sm font-semibold text-blue-900 hover:text-blue-700"
                         >
-                          <option value={`current:${branch.status}`}>
-                            {updatingBranchId === branch._id ? "Updating..." : formatBranchLabel(branch.status)}
-                          </option>
-                          <option value="view">View</option>
-                          <option value="edit">Edit</option>
-                          {branchStatusTransitions[branch.status].map((nextStatus) => (
-                            <option key={nextStatus} value={`status:${nextStatus}`}>
-                              {statusActionLabels[nextStatus]}
+                          <FiExternalLink aria-hidden="true" className="h-4 w-4" />View
+                        </Link>
+                        <Link
+                          href={`/dashboard/branches/${branch._id}/edit`}
+                          className="inline-flex items-center gap-1 text-sm font-semibold text-blue-900 hover:text-blue-700"
+                        >
+                          <FiEdit2 aria-hidden="true" className="h-4 w-4" />Edit
+                        </Link>
+                        <div className="relative w-36">
+                          <select
+                            value={`current:${branch.status}`}
+                            onChange={(event) => void handleStatusMenuChange(branch, event.target.value)}
+                            disabled={updatingBranchId === branch._id}
+                            aria-label={`Change status for ${branch.name}`}
+                            className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-2.5 pr-8 text-xs font-semibold capitalize text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15 disabled:opacity-60"
+                          >
+                            <option value={`current:${branch.status}`}>
+                              {updatingBranchId === branch._id ? "Updating..." : formatBranchLabel(branch.status)}
                             </option>
-                          ))}
-                        </select>
-                        <FiChevronDown
-                          aria-hidden="true"
-                          className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#0D1282]"
-                        />
+                            {branchStatusTransitions[branch.status].map((nextStatus) => (
+                              <option key={nextStatus} value={`status:${nextStatus}`}>
+                                {statusActionLabels[nextStatus]}
+                              </option>
+                            ))}
+                          </select>
+                          <FiChevronDown
+                            aria-hidden="true"
+                            className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#0D1282]"
+                          />
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -284,6 +283,5 @@ export default function BranchesPage() {
           </div>
         ) : null}
       </div>
-    </DashboardShell>
   );
 }

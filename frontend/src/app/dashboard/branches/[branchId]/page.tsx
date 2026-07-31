@@ -2,11 +2,24 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { FiArrowLeft, FiChevronDown, FiEdit2 } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { useCallback, useEffect, useState } from "react";
+import {
+  FiArrowLeft,
+  FiChevronDown,
+  FiEdit2,
+  FiExternalLink,
+  FiRefreshCw,
+  FiSearch,
+} from "react-icons/fi";
+
+import { BiSolidEdit } from "react-icons/bi";
+import { DashboardLoading } from "@/components/DashboardShell";
 import { AssignBranchModal } from "@/components/business-accounts/AssignBranchModal";
-import { BusinessAccountsTable, getAssignedBranch } from "@/components/business-accounts/BusinessAccountsTable";
+import {
+  BusinessAccountsTable,
+  getAssignedBranch,
+} from "@/components/business-accounts/BusinessAccountsTable";
+import TicketTable from "@/components/tickets/TicketTable";
 import {
   Branch,
   BranchStatus,
@@ -14,7 +27,7 @@ import {
   formatBranchLabel,
   getBranch,
   listBranches,
-  updateBranchStatus
+  updateBranchStatus,
 } from "@/lib/branches";
 import {
   assignBusinessAccountBranch,
@@ -24,19 +37,35 @@ import {
   listBusinessAccounts,
   submitBusinessAccount,
   updateBusinessAccountOperationalAction,
-  updateBusinessAccountStatus
+  updateBusinessAccountStatus,
 } from "@/lib/businessAccounts";
-import { CreditAccount, listAdminCreditAccounts } from "@/lib/creditAccounts";
+import {
+  CreditAccount,
+  formatCreditMoney,
+  listAdminCreditAccounts,
+} from "@/lib/creditAccounts";
+import { formatDashboardDateTime } from "@/lib/dateFormat";
+import { listShipments, type ShipmentListItem } from "@/lib/shipmentsList";
+import {
+  listSupportTickets,
+  ticketCategories,
+  type SupportTicket,
+} from "@/lib/supportTickets";
 import { useAdminUser } from "@/lib/useAdminUser";
 
-type BranchTab = "overview" | "businessAccounts" | "shipments" | "finance" | "tickets";
+type BranchTab =
+  | "overview"
+  | "businessAccounts"
+  | "shipments"
+  | "finance"
+  | "tickets";
 
 const branchTabs: Array<{ id: BranchTab; label: string; enabled: boolean }> = [
   { id: "overview", label: "Overview", enabled: true },
   { id: "businessAccounts", label: "Business Accounts", enabled: true },
-  { id: "shipments", label: "Shipments", enabled: false },
-  { id: "finance", label: "Finance", enabled: false },
-  { id: "tickets", label: "Tickets", enabled: false }
+  { id: "shipments", label: "Shipments", enabled: true },
+  { id: "tickets", label: "Tickets", enabled: true },
+  { id: "finance", label: "Finance", enabled: true },
 ];
 
 // Human labels for the branch lifecycle actions offered per status.
@@ -45,7 +74,7 @@ const branchStatusActionLabels: Record<BranchStatus, string> = {
   ACTIVE: "Activate",
   INACTIVE: "Deactivate",
   SUSPENDED: "Suspend",
-  CLOSED: "Close"
+  CLOSED: "Close",
 };
 
 function getBranchStatusBadgeClasses(status: BranchStatus) {
@@ -67,19 +96,32 @@ function getBranchStatusBadgeClasses(status: BranchStatus) {
 function DetailRow({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="rounded-lg bg-[#EEEDED]/40 px-3.5 py-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-1 break-words text-sm font-medium text-slate-800">{value || "—"}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 break-words text-sm font-medium text-slate-800">
+        {value || "—"}
+      </p>
     </div>
   );
 }
 
-function SummaryTile({ label, value }: { label: string; value?: string | number | null }) {
+function SummaryTile({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | number | null;
+}) {
   // A numeric zero is a real value, so only null/undefined/"" fall back to the dash.
-  const display = value === null || value === undefined || value === "" ? "—" : value;
+  const display =
+    value === null || value === undefined || value === "" ? "—" : value;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {label}
+      </p>
       <p className="mt-2 text-lg font-bold text-[#0D1282]">{display}</p>
     </div>
   );
@@ -103,11 +145,14 @@ export default function BranchDetailPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchSearch, setBranchSearch] = useState("");
   const [selectedBranchId, setSelectedBranchId] = useState("");
-  const [assigningAccount, setAssigningAccount] = useState<BusinessAccount | null>(null);
+  const [assigningAccount, setAssigningAccount] =
+    useState<BusinessAccount | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
   // Credit facilities keyed by business account _id, so the linked-accounts table
   // can show available credit and outstanding alongside each account.
-  const [creditByBusinessId, setCreditByBusinessId] = useState<Map<string, CreditAccount>>(new Map());
+  const [creditByBusinessId, setCreditByBusinessId] = useState<
+    Map<string, CreditAccount>
+  >(new Map());
 
   useEffect(() => {
     if (!user || !params.branchId) return;
@@ -124,7 +169,7 @@ export default function BranchDetailPage() {
       try {
         const [branchData, accountsData] = await Promise.all([
           getBranch(params.branchId),
-          listBusinessAccounts("", params.branchId)
+          listBusinessAccounts("", params.branchId),
         ]);
 
         if (!active) return;
@@ -132,7 +177,11 @@ export default function BranchDetailPage() {
         setLinkedAccounts(accountsData.accounts);
       } catch (caughtError) {
         if (!active) return;
-        setError(caughtError instanceof Error ? caughtError.message : "Unable to load branch.");
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Unable to load branch.",
+        );
       } finally {
         if (active) setBranchLoading(false);
       }
@@ -144,7 +193,14 @@ export default function BranchDetailPage() {
     void listAdminCreditAccounts()
       .then((data) => {
         if (active) {
-          setCreditByBusinessId(new Map(data.creditAccounts.map((account) => [account.businessAccountId, account])));
+          setCreditByBusinessId(
+            new Map(
+              data.creditAccounts.map((account) => [
+                account.businessAccountId,
+                account,
+              ]),
+            ),
+          );
         }
       })
       .catch(() => {
@@ -166,13 +222,20 @@ export default function BranchDetailPage() {
       const data = await updateBranchStatus(branch._id, nextStatus);
       setBranch(data.branch);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to update branch status.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to update branch status.",
+      );
     } finally {
       setUpdatingBranchStatus(false);
     }
   }
 
-  async function refreshAccount(accountId: string, updater: () => Promise<{ account: BusinessAccount }>) {
+  async function refreshAccount(
+    accountId: string,
+    updater: () => Promise<{ account: BusinessAccount }>,
+  ) {
     setUpdatingAction(accountId);
     setError("");
 
@@ -184,10 +247,16 @@ export default function BranchDetailPage() {
           return current.filter((account) => account.accountId !== accountId);
         }
 
-        return current.map((account) => account.accountId === accountId ? data.account : account);
+        return current.map((account) =>
+          account.accountId === accountId ? data.account : account,
+        );
       });
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to update business account.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to update business account.",
+      );
     } finally {
       setUpdatingAction(null);
     }
@@ -206,7 +275,11 @@ export default function BranchDetailPage() {
       const data = await listBranches("", "ACTIVE");
       setBranches(data.branches);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to load branches.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to load branches.",
+      );
     } finally {
       setBranchesLoading(false);
     }
@@ -221,11 +294,16 @@ export default function BranchDetailPage() {
   async function handleAssignBranch() {
     if (!assigningAccount || !selectedBranchId) return;
 
-    await refreshAccount(assigningAccount.accountId, () => assignBusinessAccountBranch(assigningAccount.accountId, selectedBranchId));
+    await refreshAccount(assigningAccount.accountId, () =>
+      assignBusinessAccountBranch(assigningAccount.accountId, selectedBranchId),
+    );
     closeAssignBranchModal();
   }
 
-  async function handleAccountMenuChange(account: BusinessAccount, value: string) {
+  async function handleAccountMenuChange(
+    account: BusinessAccount,
+    value: string,
+  ) {
     if (!value || value.startsWith("current:")) return;
 
     if (value === "view" || value === "kyc") {
@@ -234,7 +312,9 @@ export default function BranchDetailPage() {
     }
 
     if (value === "submit") {
-      await refreshAccount(account.accountId, () => submitBusinessAccount(account.accountId));
+      await refreshAccount(account.accountId, () =>
+        submitBusinessAccount(account.accountId),
+      );
       return;
     }
 
@@ -244,12 +324,22 @@ export default function BranchDetailPage() {
     }
 
     if (value.startsWith("status:")) {
-      await refreshAccount(account.accountId, () => updateBusinessAccountStatus(account.accountId, value.replace("status:", "") as BusinessAccountStatus));
+      await refreshAccount(account.accountId, () =>
+        updateBusinessAccountStatus(
+          account.accountId,
+          value.replace("status:", "") as BusinessAccountStatus,
+        ),
+      );
       return;
     }
 
     if (value.startsWith("operation:")) {
-      await refreshAccount(account.accountId, () => updateBusinessAccountOperationalAction(account.accountId, value.replace("operation:", "") as BusinessAccountOperationalAction));
+      await refreshAccount(account.accountId, () =>
+        updateBusinessAccountOperationalAction(
+          account.accountId,
+          value.replace("operation:", "") as BusinessAccountOperationalAction,
+        ),
+      );
     }
   }
 
@@ -258,28 +348,37 @@ export default function BranchDetailPage() {
   const filteredBranches = branches.filter((item) =>
     `${item.name} ${item.code} ${item.address.city} ${item.address.countryName}`
       .toLowerCase()
-      .includes(branchSearch.toLowerCase())
+      .includes(branchSearch.toLowerCase()),
   );
 
   return (
-    <DashboardShell user={user}>
       <div className="min-h-full bg-[#EEEDED]/60 -m-6 p-6 lg:-m-8 lg:p-8">
         {/* Branch header and lifecycle actions */}
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <Link href="/dashboard/branches" className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 transition hover:text-[#0D1282]">
-                <FiArrowLeft aria-hidden="true" className="h-3.5 w-3.5" /> All Branches
+              <Link
+                href="/dashboard/branches"
+                className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 transition hover:text-[#0D1282]"
+              >
+                <FiArrowLeft aria-hidden="true" className="h-3.5 w-3.5" /> All
+                Branches
               </Link>
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-bold text-slate-950">{branch?.name ?? "Branch Details"}</h1>
+              {/* <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-bold text-slate-950">
+                  {branch?.name ?? "Branch Details"}
+                </h1>
                 {branch ? (
-                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getBranchStatusBadgeClasses(branch.status)}`}>
+                  <span
+                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${getBranchStatusBadgeClasses(branch.status)}`}
+                  >
                     {formatBranchLabel(branch.status)}
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1 text-sm font-semibold text-[#0D1282]">{branch?.code ?? "Review branch profile and operating setup."}</p>
+              <p className="mt-1 text-sm font-semibold text-[#0D1282]">
+                {branch?.code ?? "Review branch profile and operating setup."}
+              </p> */}
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -288,16 +387,25 @@ export default function BranchDetailPage() {
                   <select
                     value=""
                     onChange={(event) => {
-                      if (event.target.value) void handleBranchStatusChange(event.target.value as BranchStatus);
+                      if (event.target.value)
+                        void handleBranchStatusChange(
+                          event.target.value as BranchStatus,
+                        );
                     }}
                     disabled={updatingBranchStatus}
                     aria-label="Change branch status"
                     className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 pr-10 text-sm font-semibold text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15 disabled:opacity-60"
                   >
-                    <option value="">{updatingBranchStatus ? "Updating..." : "Change Status"}</option>
-                    {branchStatusTransitions[branch.status].map((nextStatus) => (
-                      <option key={nextStatus} value={nextStatus}>{branchStatusActionLabels[nextStatus]}</option>
-                    ))}
+                    <option value="">
+                      {updatingBranchStatus ? "Updating..." : "Change Status"}
+                    </option>
+                    {branchStatusTransitions[branch.status].map(
+                      (nextStatus) => (
+                        <option key={nextStatus} value={nextStatus}>
+                          {branchStatusActionLabels[nextStatus]}
+                        </option>
+                      ),
+                    )}
                   </select>
                   <FiChevronDown
                     aria-hidden="true"
@@ -308,9 +416,9 @@ export default function BranchDetailPage() {
               {branch ? (
                 <Link
                   href={`/dashboard/branches/${branch._id}/edit`}
-                  className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 px-4 py-2.5 text-sm font-semibold shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63]"
+                  className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 px-4 py-2.5 text-sm font-semibold shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] hover:text-white"
                 >
-                  <FiEdit2 aria-hidden="true" className="h-4 w-4" /> Edit Branch
+                  <BiSolidEdit  aria-hidden="true" className="h-4 w-4" /> Edit Branch
                 </Link>
               ) : null}
             </div>
@@ -357,19 +465,29 @@ export default function BranchDetailPage() {
             </div>
           ) : branch ? (
             <>
-              {activeTab === "overview" ? <BranchOverview branch={branch} accountCount={linkedAccounts.length} /> : null}
+              {activeTab === "overview" ? (
+                <BranchOverview
+                  branch={branch}
+                  accountCount={linkedAccounts.length}
+                />
+              ) : null}
               {activeTab === "businessAccounts" ? (
                 <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
                     <div>
-                      <h2 className="text-base font-bold text-[#0D1282]">Business Accounts</h2>
-                      <p className="mt-1 text-sm text-slate-500">{linkedAccounts.length} linked to this branch.</p>
+                      <h2 className="text-base font-bold text-[#0D1282]">
+                        Business Accounts
+                      </h2>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {linkedAccounts.length} linked to this branch.
+                      </p>
                     </div>
                     <Link
                       href="/dashboard/business-accounts/create"
                       className="inline-flex items-center gap-2 rounded-4xl border border-slate-200  px-4 py-2.5 text-sm font-semibold shadow-sm shadow-[#0D1282]/20 transition "
                     >
-                      <span className="text-base leading-none">+</span> Create Business Account
+                      <span className="text-base leading-none">+</span> Create
+                      Business Account
                     </Link>
                   </div>
                   <BusinessAccountsTable
@@ -380,12 +498,30 @@ export default function BranchDetailPage() {
                   />
                 </section>
               ) : null}
+              {activeTab === "shipments" && branch ? (
+                <BranchShipmentsSection branchId={branch._id} />
+              ) : null}
+              {activeTab === "tickets" && branch ? (
+                <BranchTicketsSection branchId={branch._id} />
+              ) : null}
+              {activeTab === "finance" && branch ? (
+                <BranchFinanceSection
+                  linkedAccounts={linkedAccounts}
+                  creditByBusinessId={creditByBusinessId}
+                />
+              ) : null}
             </>
           ) : (
             <div className="rounded-xl border border-[#D71313]/25 bg-[#D71313]/5 p-5">
-              <p className="text-sm font-semibold text-[#D71313]">Branch not found.</p>
-              <Link href="/dashboard/branches" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#0D1282] hover:underline">
-                <FiArrowLeft aria-hidden="true" className="h-4 w-4" /> Back to Branches
+              <p className="text-sm font-semibold text-[#D71313]">
+                Branch not found.
+              </p>
+              <Link
+                href="/dashboard/branches"
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#0D1282] hover:underline"
+              >
+                <FiArrowLeft aria-hidden="true" className="h-4 w-4" /> Back to
+                Branches
               </Link>
             </div>
           )}
@@ -406,62 +542,687 @@ export default function BranchDetailPage() {
           />
         ) : null}
       </div>
-    </DashboardShell>
   );
 }
 
-function BranchOverview({ branch, accountCount }: { branch: Branch; accountCount: number }) {
+/* ── Shipments tab ─────────────────────────────────────────────── */
+function BranchShipmentsSection({ branchId }: { branchId: string }) {
+  const [shipments, setShipments] = useState<ShipmentListItem[]>([]);
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await listShipments("admin", { branchId, page, status });
+      setShipments(data.shipments);
+      setTotalPages(data.pagination.totalPages);
+      setTotal(data.pagination.total);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to load shipments.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [branchId, page, status]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div>
+          <h2 className="text-base font-bold text-[#0D1282]">Shipments</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Booked shipments from this branch.
+          </p>
+        </div>
+        <label className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Status
+          </span>
+          <div className="relative">
+            <select
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value);
+                setPage(1);
+              }}
+              className="h-9 w-44 appearance-none rounded-lg border border-slate-200 bg-white pl-2.5 pr-8 text-xs font-semibold text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
+            >
+              <option value="">All Status</option>
+              <option value="SHIPMENT_BOOKED">Shipment Booked</option>
+              <option value="ON_HOLD">On Hold</option>
+              <option value="PARCEL_COLLECTED">Parcel Collected</option>
+              <option value="WAREHOUSE_SCAN_IN">Warehouse Scan In</option>
+              <option value="EXPORT_CUSTOMS_CLEARED">
+                Export Customs Cleared
+              </option>
+              <option value="FLIGHT_ASSIGNED">Flight Assigned</option>
+              <option value="FLIGHT_DEPARTED">Flight Departed</option>
+              <option value="DESTINATION_ARRIVED">Destination Arrived</option>
+              <option value="IMPORT_CUSTOMS_CLEARANCE">
+                Import Customs Clearance
+              </option>
+              <option value="IN_TRANSIT">In Transit</option>
+              <option value="OUT_FOR_DELIVERY">Out For Delivery</option>
+              <option value="DELIVERED">Delivered</option>
+              <option value="RETURNED">Returned</option>
+              <option value="SHIPMENT_CANCELLED">Cancelled</option>
+            </select>
+            <FiChevronDown
+              aria-hidden="true"
+              className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#0D1282]"
+            />
+          </div>
+        </label>
+      </div>
+
+      {error ? (
+        <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Shipment</th>
+              <th className="px-4 py-3">Consignee</th>
+              <th className="px-4 py-3">Route</th>
+              <th className="px-4 py-3">Chargeable Amount</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Created</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-4 py-10 text-center text-slate-500"
+                >
+                  Loading shipments...
+                </td>
+              </tr>
+            ) : !shipments.length ? (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-4 py-10 text-center text-slate-500"
+                >
+                  No booked shipments found for this branch.
+                </td>
+              </tr>
+            ) : (
+              shipments.map((shipment) => (
+                <tr
+                  key={shipment.id}
+                  className="border-b border-slate-100 last:border-b-0"
+                >
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-slate-950">
+                      {shipment.shipmentReference ||
+                        shipment.swiftlineTrackingNumber ||
+                        "Pending"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {shipment.invoiceNumber || shipment.serviceInfo}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-slate-800">
+                      {shipment.consignee || "Not set"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {shipment.destination || "Not set"}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-slate-800">
+                      {shipment.route}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {shipment.branch.name || shipment.branch.code}
+                    </p>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-950">
+                    {shipment.shipmentInvoice
+                      ? new Intl.NumberFormat("en-IN", {
+                          style: "currency",
+                          currency: shipment.shipmentInvoice.currency,
+                          minimumFractionDigits: 2,
+                        }).format(
+                          shipment.shipmentInvoice.chargeableAmountMinor / 100,
+                        )
+                      : "-"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex py-1 text-xs font-semibold text-slate-700">
+                      {shipment.statusLabel}
+                    </span>
+                    {shipment.manifest ? (
+                      <p className="mt-1 text-xs font-semibold text-[#0D1282]">
+                        Manifest {shipment.manifest.manifestNumber}
+                      </p>
+                    ) : null}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                    {formatDashboardDateTime(shipment.createdAt)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/dashboard/shipments/${shipment.id}`}
+                      className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700"
+                    >
+                      <FiExternalLink aria-hidden="true" className="h-4 w-4" />
+                      View Details
+                    </Link>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {totalPages > 1 ? (
+        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-3">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((value) => value - 1)}
+            className="h-8 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-[#0D1282] disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <span className="text-xs text-slate-600">
+            Page {page} of {totalPages} · {total} total
+          </span>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => setPage((value) => value + 1)}
+            className="h-8 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-[#0D1282] disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/* ── Tickets tab ───────────────────────────────────────────────── */
+function BranchTicketsSection({ branchId }: { branchId: string }) {
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [status, setStatus] = useState("");
+  const [priority, setPriority] = useState("");
+  const [category, setCategory] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await listSupportTickets("admin", {
+        page,
+        status,
+        priority,
+        category,
+        search,
+        branchId,
+      });
+      setTickets(result.tickets);
+      setTotalPages(result.pagination.totalPages);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Unable to load tickets.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [branchId, category, page, priority, search, status]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div>
+          <h2 className="text-base font-bold text-[#0D1282]">Tickets</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Support tickets from business accounts linked to this branch.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          title="Refresh"
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-[#0D1282]"
+        >
+          <FiRefreshCw
+            aria-hidden="true"
+            className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+          />
+        </button>
+      </div>
+
+      <div className="grid gap-3 border-b border-slate-100 p-4 lg:grid-cols-[1fr_160px_140px_180px]">
+        <label className="relative">
+          <span className="sr-only">Search tickets</span>
+          <FiSearch className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+          <input
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Ticket number or subject"
+            className="h-10 w-full rounded-lg border border-slate-200 pl-10 pr-3 text-sm outline-none focus:border-[#0D1282]"
+          />
+        </label>
+        <select
+          value={status}
+          onChange={(event) => {
+            setStatus(event.target.value);
+            setPage(1);
+          }}
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+        >
+          <option value="">All Status</option>
+          {[
+            "OPEN",
+            "IN_PROGRESS",
+            "WAITING_FOR_CUSTOMER",
+            "RESOLVED",
+            "CLOSED",
+          ].map((value) => (
+            <option key={value} value={value}>
+              {value.replaceAll("_", " ")}
+            </option>
+          ))}
+        </select>
+        <select
+          value={priority}
+          onChange={(event) => {
+            setPriority(event.target.value);
+            setPage(1);
+          }}
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+        >
+          <option value="">All priorities</option>
+          {["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <select
+          value={category}
+          onChange={(event) => {
+            setCategory(event.target.value);
+            setPage(1);
+          }}
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+        >
+          <option value="">All categories</option>
+          {ticketCategories.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {error ? (
+        <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <TicketTable tickets={tickets} audience="admin" loading={loading} />
+
+      {totalPages > 1 ? (
+        <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-3">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((value) => value - 1)}
+            className="h-8 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-[#0D1282] disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <span className="text-xs text-slate-600">
+            Page {page} of {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => setPage((value) => value + 1)}
+            className="h-8 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-[#0D1282] disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/* ── Finance tab ───────────────────────────────────────────────── */
+function BranchFinanceSection({
+  linkedAccounts,
+  creditByBusinessId,
+}: {
+  linkedAccounts: BusinessAccount[];
+  creditByBusinessId: Map<string, CreditAccount>;
+}) {
+  const branchCreditAccounts = linkedAccounts
+    .map((account) => creditByBusinessId.get(account._id))
+    .filter((credit): credit is CreditAccount => credit !== undefined);
+
+  const withCredit = branchCreditAccounts.filter(
+    (c) => c.status !== "NOT_REQUESTED",
+  );
+  const totalCreditLimit = withCredit.reduce(
+    (sum, c) => sum + (c.approvedCreditLimitMinor ?? 0),
+    0,
+  );
+  const totalOutstanding = withCredit.reduce(
+    (sum, c) => sum + (c.invoicedOutstandingMinor ?? 0),
+    0,
+  );
+  const totalAdvances = branchCreditAccounts.reduce(
+    (sum, c) => sum + (c.customerAdvanceBalanceMinor ?? 0),
+    0,
+  );
+  const totalUsed = withCredit.reduce(
+    (sum, c) => sum + (c.usedCreditMinor ?? 0),
+    0,
+  );
+
+  return (
+    <section className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryTile label="Business Accounts" value={linkedAccounts.length} />
+        <SummaryTile label="With Credit Account" value={withCredit.length} />
+        <SummaryTile
+          label="Total Credit Limit"
+          value={formatCreditMoney(totalCreditLimit)}
+        />
+        <SummaryTile
+          label="Total Outstanding"
+          value={formatCreditMoney(totalOutstanding)}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryTile
+          label="Total Used Credit"
+          value={formatCreditMoney(totalUsed)}
+        />
+        <SummaryTile
+          label="Total Advances"
+          value={formatCreditMoney(totalAdvances)}
+        />
+        <SummaryTile
+          label="Accounts Without Credit"
+          value={linkedAccounts.length - withCredit.length}
+        />
+        <SummaryTile
+          label="Credit Utilization"
+          value={
+            totalCreditLimit > 0
+              ? `${((totalUsed / totalCreditLimit) * 100).toFixed(1)}%`
+              : "0%"
+          }
+        />
+      </div>
+
+      {branchCreditAccounts.length ? (
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h2 className="text-base font-bold text-[#0D1282]">
+              Credit Accounts
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Credit accounts for business accounts linked to this branch.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Account</th>
+                  <th className="px-4 py-3">Company</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Credit Limit</th>
+                  <th className="px-4 py-3">Used</th>
+                  <th className="px-4 py-3">Outstanding</th>
+                  <th className="px-4 py-3">Available</th>
+                </tr>
+              </thead>
+              <tbody>
+                {branchCreditAccounts.map((credit) => {
+                  const account = linkedAccounts.find(
+                    (a) => a._id === credit.businessAccountId,
+                  );
+                  return (
+                    <tr
+                      key={credit.id}
+                      className="border-b border-slate-100 last:border-b-0"
+                    >
+                      <td className="px-4 py-3 font-semibold text-slate-950">
+                        {account?.accountId || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-800">
+                        {account?.company.companyName || "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold capitalize bg-slate-100 text-slate-700">
+                          {credit.status.replaceAll("_", " ").toLowerCase()}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-950">
+                        {formatCreditMoney(credit.approvedCreditLimitMinor)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {formatCreditMoney(credit.usedCreditMinor)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {formatCreditMoney(credit.invoicedOutstandingMinor)}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-[#0D1282]">
+                        {formatCreditMoney(credit.availableCreditMinor)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">
+          <p className="font-semibold text-slate-900">No credit accounts</p>
+          <p className="mt-1 text-sm text-slate-500">
+            No credit facilities have been set up for accounts linked to this
+            branch.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BranchOverview({
+  branch,
+  accountCount,
+}: {
+  branch: Branch;
+  accountCount: number;
+}) {
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryTile label="Status" value={formatBranchLabel(branch.status)} />
         <SummaryTile label="Base Currency" value={branch.baseCurrency} />
         <SummaryTile label="Linked Accounts" value={accountCount} />
-        <SummaryTile label="Opening Date" value={branch.openingDate ? new Date(branch.openingDate).toLocaleDateString() : ""} />
+        <SummaryTile
+          label="Opening Date"
+          value={
+            branch.openingDate
+              ? new Date(branch.openingDate).toLocaleDateString()
+              : ""
+          }
+        />
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-bold text-[#0D1282]">Branch Profile</h2>
-        <p className="mt-1 text-sm text-slate-500">{branch.description || "No branch description added."}</p>
+        <p className="mt-1 text-sm text-slate-500">
+          {branch.description || "No branch description added."}
+        </p>
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <DetailRow label="Branch Name" value={branch.name} />
           <DetailRow label="Branch Code" value={branch.code} />
           <DetailRow label="Station Code" value={branch.labelCode} />
-          <DetailRow label="Created By" value={branch.createdBy?.name || branch.createdBy?.email || ""} />
+          <DetailRow
+            label="Created By"
+            value={branch.createdBy?.name || branch.createdBy?.email || ""}
+          />
         </div>
       </section>
 
       <div className="grid gap-5 lg:grid-cols-2">
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-base font-bold text-[#0D1282]">Address and Contact</h2>
+          <h2 className="mb-4 text-base font-bold text-[#0D1282]">
+            Address and Contact
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2">
-            <DetailRow label="Country" value={branch.address.countryName || branch.address.countryCode} />
+            <DetailRow
+              label="Country"
+              value={branch.address.countryName || branch.address.countryCode}
+            />
             <DetailRow label="City" value={branch.address.city} />
             <DetailRow label="Postal Code" value={branch.address.postalCode} />
-            <DetailRow label="State or Province" value={branch.address.stateOrProvince} />
+            <DetailRow
+              label="State or Province"
+              value={branch.address.stateOrProvince}
+            />
             <DetailRow label="Email" value={branch.contact.email} />
             <DetailRow label="Phone" value={branch.contact.phone} />
             <div className="sm:col-span-2">
               <DetailRow label="Full Address" value={branch.address.address} />
             </div>
           </div>
+          {branch.phoneNumbers?.length ? (
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <h3 className="mb-3 text-sm font-bold text-[#0D1282]">Additional Contacts</h3>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {branch.phoneNumbers.map((phone, index) =>
+                  phone.label || phone.number ? (
+                    <DetailRow key={index} label={phone.label || `Phone ${index + 1}`} value={phone.number} />
+                  ) : null
+                )}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-base font-bold text-[#0D1282]">Operations and Tax</h2>
+          <h2 className="mb-4 text-base font-bold text-[#0D1282]">
+            Operations and Tax
+          </h2>
           <div className="grid gap-4">
-            <DetailRow label="Supported Services" value={formatValues(branch.operations.supportedServices)} />
-            <DetailRow label="Shipment Coverage" value={formatValues(branch.operations.shipmentCoverage)} />
-            <DetailRow label="Operating Countries" value={branch.operations.operatingCountries.join(", ")} />
-            <DetailRow label="Working Days" value={formatValues(branch.operations.workingDays)} />
+            <DetailRow
+              label="Supported Services"
+              value={formatValues(branch.operations.supportedServices)}
+            />
+            <DetailRow
+              label="Shipment Coverage"
+              value={formatValues(branch.operations.shipmentCoverage)}
+            />
+            <DetailRow
+              label="Operating Countries"
+              value={branch.operations.operatingCountries.join(", ")}
+            />
+            <DetailRow
+              label="Working Days"
+              value={formatValues(branch.operations.workingDays)}
+            />
             <div className="grid gap-4 sm:grid-cols-2">
               <DetailRow label="GSTIN" value={branch.gstin} />
-              <DetailRow label="Invoice SAC Code" value={branch.invoiceSacCode} />
+              <DetailRow
+                label="Invoice SAC Code"
+                value={branch.invoiceSacCode}
+              />
             </div>
           </div>
         </section>
       </div>
+
+      {branch.images?.length ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-base font-bold text-[#0D1282]">Branch Images</h2>
+          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            {branch.images.map((imagePath, index) => (
+              <div key={index} className="overflow-hidden rounded-lg border border-slate-200 bg-[#EEEDED]/40">
+                <img
+                  src={`/api/v1/files/${encodeURIComponent(imagePath.replace(/\\/g, "/"))}`}
+                  alt={`Branch image ${index + 1}`}
+                  className="h-32 w-full object-cover"
+                  onError={(event) => {
+                    (event.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {branch.documents?.length ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-base font-bold text-[#0D1282]">Branch Documents</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {branch.documents.map((doc, index) => (
+              <div key={index} className="flex items-center justify-between rounded-lg border border-slate-200 bg-[#EEEDED]/40 px-4 py-3">
+                <div>
+                  <a
+                    href={`/api/v1/files/${encodeURIComponent(doc.filePath.replace(/\\/g, "/"))}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-semibold text-[#0D1282] hover:underline"
+                  >
+                    {doc.title || doc.type}
+                  </a>
+                  <p className="mt-0.5 text-xs text-slate-500">{doc.fileName}</p>
+                </div>
+                <span className="inline-flex items-center rounded-full bg-[#0D1282]/8 px-2.5 py-0.5 text-xs font-semibold text-[#0D1282]">{doc.type}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

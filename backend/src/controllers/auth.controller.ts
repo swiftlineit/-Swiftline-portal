@@ -1,14 +1,23 @@
 import { Request, Response } from "express";
 import { z } from "zod";
+import { OAuth2Client } from "google-auth-library";
 import { User } from "../models/user.model.js";
 import { comparePassword, createAccessToken, createRefreshToken, hashPassword } from "../services/auth.service.js";
+import { verifyRecaptcha } from "../services/recaptcha.service.js";
 import { env } from "../config/env.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { AuditLog } from "../models/auditLog.model.js";
 import { BusinessAccountInvitation } from "../models/businessAccountInvitation.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { sendPasswordResetEmail } from "../services/mail.service.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
+
+const googleClient = env.GOOGLE_OAUTH_CLIENT_ID ? new OAuth2Client(env.GOOGLE_OAUTH_CLIENT_ID) : null;
+
+// Same message for "no such user", "invited but not activated", and "suspended/disabled"
+// so a failed Google sign-in can't be used to probe which emails exist in the system.
+const GOOGLE_LOGIN_GENERIC_ERROR = "Unable to sign in with Google for this account. Use your password, or contact your administrator.";
 
 // Cross-site delivery (frontend and API on different HTTPS origins, e.g. devtunnels)
 // requires SameSite=None; Secure, or the browser drops the refresh cookie. Same-origin
@@ -23,7 +32,11 @@ const refreshCookieOptions = () => ({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  termsAccepted: z.boolean().refine((v) => v === true, { message: "Terms must be accepted" })
+  termsAccepted: z.boolean().refine((v) => v === true, { message: "Terms must be accepted" }),
+  recaptchaToken: z.string().optional()
+});
+const googleLoginSchema = z.object({
+  credential: z.string().trim().min(20)
 });
 const activationSchema = z.object({
   token: z.string().trim().min(20),
@@ -96,7 +109,11 @@ export async function login(req: Request, res: Response): Promise<Response> {
     return res.status(400).json({ success: false, errors: parse.error.format() });
   }
 
-  const { email, password } = parse.data;
+  const { email, password, recaptchaToken } = parse.data;
+
+  if (!await verifyRecaptcha(recaptchaToken, req.ip)) {
+    return res.status(400).json({ success: false, message: "Captcha verification failed. Please try again." });
+  }
 
   const user = await User.findOne({ email }).exec();
 
@@ -160,6 +177,106 @@ export async function login(req: Request, res: Response): Promise<Response> {
       role,
       name: user.name,
       userStatus,
+      hasSeenWelcome: user.hasSeenWelcome
+    }
+  });
+}
+
+/**
+ * "Sign in with Google" for an EXISTING user only - it never creates a new account.
+ * A verified Google email is auto-linked (googleId set) to a matching active user on
+ * first use; invited/suspended/disabled/not-found accounts all get the same generic
+ * error so the response can't be used to enumerate which emails have accounts.
+ */
+export async function loginWithGoogle(req: Request, res: Response): Promise<Response> {
+  if (!googleClient || !env.GOOGLE_OAUTH_CLIENT_ID) {
+    return res.status(503).json({ success: false, message: "Google sign-in is not configured." });
+  }
+
+  const parsed = googleLoginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, errors: parsed.error.format() });
+  }
+
+  let googleEmail: string;
+  let googleSub: string;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: parsed.data.credential,
+      audience: env.GOOGLE_OAUTH_CLIENT_ID
+    });
+    const payload = ticket.getPayload();
+    if (!payload?.email || !payload.email_verified || !payload.sub) {
+      return res.status(401).json({ success: false, message: GOOGLE_LOGIN_GENERIC_ERROR });
+    }
+    googleEmail = payload.email.toLowerCase();
+    googleSub = payload.sub;
+  } catch {
+    return res.status(401).json({ success: false, message: GOOGLE_LOGIN_GENERIC_ERROR });
+  }
+
+  // A user already linked to this Google account can sign in directly; otherwise
+  // fall back to matching by email so a first-time Google sign-in can be linked below.
+  let user = await User.findOne({ googleId: googleSub }).exec();
+  const alreadyLinked = Boolean(user);
+  if (!user) user = await User.findOne({ email: googleEmail }).exec();
+
+  // Reject (same generic message either way): no matching account, the account
+  // isn't active yet (invited/suspended/disabled), or the email already belongs
+  // to a DIFFERENT linked Google account than the one signing in right now.
+  if (!user || user.userStatus !== "active" || (!alreadyLinked && user.googleId)) {
+    return res.status(401).json({ success: false, message: GOOGLE_LOGIN_GENERIC_ERROR });
+  }
+
+  if (user.googleId !== googleSub) {
+    const userId = user._id;
+    // Atomic + still guarded by the unique index, so a concurrent link attempt
+    // (from this same request racing itself, or a stale duplicate) can't corrupt state.
+    try {
+      const linked = await User.findOneAndUpdate(
+        { _id: userId, googleId: null },
+        { $set: { googleId: googleSub } },
+        { new: true }
+      ).exec();
+      user = linked ?? await User.findById(userId).exec();
+    } catch {
+      // Duplicate-key on googleId means another user already claimed this Google
+      // account - re-read rather than fail so a benign race doesn't 500.
+      user = await User.findById(userId).exec();
+    }
+    if (!user || user.googleId !== googleSub) {
+      return res.status(401).json({ success: false, message: GOOGLE_LOGIN_GENERIC_ERROR });
+    }
+    await AuditLog.create({
+      action: "USER_GOOGLE_LOGIN_LINKED",
+      entityType: "USER",
+      entityId: user._id,
+      performedBy: user._id,
+      performedAt: new Date(),
+      metadata: { email: user.email }
+    });
+  }
+
+  const role = normalizePortalRole(user.role);
+  if (user.role !== role) user.role = role;
+  user.lastLogin = new Date();
+  user.failedLoginAttempts = 0;
+  user.lockedUntil = null;
+  await user.save();
+
+  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email });
+  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email });
+  res.cookie("refreshToken", refreshToken, refreshCookieOptions());
+
+  return res.status(200).json({
+    success: true,
+    accessToken,
+    user: {
+      id: user._id,
+      email: user.email,
+      role,
+      name: user.name,
+      userStatus: user.userStatus,
       hasSeenWelcome: user.hasSeenWelcome
     }
   });

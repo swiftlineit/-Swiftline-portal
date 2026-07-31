@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { FiRefreshCw, FiX } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import CancellationReview from "@/components/shipments/CancellationReview";
+import DateFilterInput from "@/components/ui/DateFilterInput";
+import Pagination from "@/components/ui/Pagination";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import {
   listShipmentCancellations,
@@ -13,10 +15,14 @@ import {
 import { useAdminUser } from "@/lib/useAdminUser";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
+const emptyPagination = { page: 1, limit: 50, total: 0, totalPages: 1 };
 
 export default function CancellationsPage() {
   const { user, loading } = useAdminUser();
   const [status, setStatus] = useState("");
+  const [date, setDate] = useState("");
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState(emptyPagination);
   const [items, setItems] = useState<ShipmentCancellation[]>([]);
   const [selected, setSelected] = useState<ShipmentCancellation | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
@@ -26,13 +32,15 @@ export default function CancellationsPage() {
     setDataLoading(true);
     setError("");
     try {
-      setItems((await listShipmentCancellations(status)).cancellations);
+      const result = await listShipmentCancellations({ status, date, page });
+      setItems(result.cancellations);
+      setPagination(result.pagination);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to load cancellations.");
     } finally {
       setDataLoading(false);
     }
-  }, [status]);
+  }, [status, date, page]);
 
   useEffect(() => {
     if (!user) return;
@@ -48,15 +56,29 @@ export default function CancellationsPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-slate-950">Shipment Cancellations</h1>
           <p className="mt-1 text-sm text-slate-500">Review requests, confirm carrier cancellation, and apply refunds.</p>
         </div>
         <div className="flex gap-2">
-          <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900">
-            <option value="">All statuses</option>
+          <DateFilterInput
+            value={date}
+            onChange={(value) => {
+              setDate(value);
+              setPage(1);
+            }}
+          />
+          <select
+            value={status}
+            onChange={(event) => {
+              setStatus(event.target.value);
+              setPage(1);
+            }}
+            className="h-10 border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+          >
+            <option value="">All Status</option>
             <option value="REQUESTED">Requested</option>
             <option value="COMPLETED">Completed</option>
             <option value="REJECTED">Rejected</option>
@@ -107,8 +129,15 @@ export default function CancellationsPage() {
         </table>
       </div>
 
+      <Pagination
+        page={pagination.page}
+        totalPages={pagination.totalPages}
+        total={pagination.total}
+        onPageChange={setPage}
+      />
+
       {selected ? <CancellationModal cancellation={selected} onClose={() => setSelected(null)} onChanged={async () => { setSelected(null); await load(); }} /> : null}
-    </DashboardShell>
+    </>
   );
 }
 

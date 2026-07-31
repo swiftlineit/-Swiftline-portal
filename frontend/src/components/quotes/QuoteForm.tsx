@@ -8,8 +8,10 @@ import { BiMath } from "react-icons/bi";
 
 import { toast } from "react-toastify";
 import { countryOptions } from "@/lib/branches";
-import { getCountryFlag } from "@/lib/countryRateCards";
+import CountryFlag from "@/components/CountryFlag";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
+import { csbTypeOptions, type CsbType } from "@/lib/csbType";
+import { quoteDocumentOptions, type QuoteDocumentCode } from "@/lib/quoteDocuments";
 import { getVolumetricFormula } from "@/lib/shipmentPricing";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import {
@@ -38,12 +40,34 @@ const shipmentTypes: Array<{
   { value: "OTHER", label: "Other" },
 ];
 
+// Options for the per-box "Contents" dropdown.
+const boxContentOptions = [
+  "Documents",
+  "Parcel",
+  "Gifts",
+  "Clothes",
+  "Electronics",
+  "Cosmetics",
+  "Books",
+  "Samples",
+  "Spare Parts",
+  "Other",
+];
+
+// Placeholder transit-time estimates until real carrier SLAs are wired up.
+// Keyed by service type so the value can vary later without touching the UI.
+const transitTimeEstimates: Record<ShipmentQuoteInput["serviceType"], string> = {
+  COURIER: "3-5 days",
+  CARGO: "3-5 days",
+};
+
 const emptyParcel = (sequence: number): QuoteParcelInput => ({
   sequence,
   actualWeightKg: 0,
   lengthCm: 0,
   widthCm: 0,
   heightCm: 0,
+  contents: "",
 });
 
 export default function QuoteForm({
@@ -62,16 +86,19 @@ export default function QuoteForm({
   const [countryCode, setCountryCode] = useState("");
   const [shipmentType, setShipmentType] =
     useState<ShipmentQuoteInput["shipmentType"]>("PARCEL");
+  // Mandatory customs route. Left unset so the customer must choose deliberately
+  // rather than defaulting into (or out of) the CSB-V clearance charge.
+  const [csbType, setCsbType] = useState<CsbType | "">("");
+  const [availableDocuments, setAvailableDocuments] = useState<QuoteDocumentCode[]>([]);
   const [serviceType, setServiceType] =
     useState<ShipmentQuoteInput["serviceType"]>("COURIER");
   const [goodsValue, setGoodsValue] = useState("");
-  const [contents, setContents] = useState("");
   const [parcels, setParcels] = useState<QuoteParcelInput[]>([emptyParcel(1)]);
   const [estimate, setEstimate] = useState<QuoteEstimate | null>(null);
   const [busy, setBusy] = useState<"estimate" | "request" | "draft" | "">("");
   const [submitted, setSubmitted] = useState(false);
-  // Highlights the field as the customer types, before any submit is attempted.
-  const restrictedContents = findRestrictedCategories(contents);
+  // Highlights each box's contents field as the customer types, before any submit is attempted.
+  const restrictedContentsByParcel = parcels.map((parcel) => findRestrictedCategories(parcel.contents));
 
   const context =
     contexts.find((item) => item.businessAccountId === businessAccountId) ??
@@ -103,23 +130,26 @@ export default function QuoteForm({
     setSubmitted(true);
     // Same rule as the create-shipment contents field: restricted goods are
     // refused at entry rather than after a quote has been priced.
-    const restricted = findRestrictedCategories(contents);
+    const restricted = parcels.flatMap((parcel) => findRestrictedCategories(parcel.contents));
     if (restricted.length) {
       toast.error(`${restricted.join(", ")} is a restricted item and cannot be shipped.`);
+      return null;
+    }
+    if (!csbType) {
+      toast.error("Select the shipment type: CSB-IV or CSB-V.");
+      return null;
+    }
+    if (!availableDocuments.length) {
+      toast.error("Select at least one available document.");
       return null;
     }
     if (
       !context ||
       !country ||
-      !contents.trim() ||
+      !goodsValue.trim() ||
+      Number(goodsValue) <= 0 ||
       !parcels.length ||
-      parcels.some(
-        (item) =>
-          item.actualWeightKg <= 0 ||
-          item.lengthCm <= 0 ||
-          item.widthCm <= 0 ||
-          item.heightCm <= 0,
-      )
+      parcels.some((item) => item.actualWeightKg <= 0 || !item.contents.trim())
     ) {
       toast.error("Complete the required shipment and package details.");
       return null;
@@ -129,10 +159,11 @@ export default function QuoteForm({
       destinationCountryCode: country.code,
       destinationCountryName: country.name,
       shipmentType,
+      csbType,
       serviceType,
       goodsValueMinor: Math.max(0, Math.round((Number(goodsValue) || 0) * 100)),
-      contents: contents.trim(),
-      parcels,
+      availableDocuments,
+      parcels: parcels.map((parcel) => ({ ...parcel, contents: parcel.contents.trim() })),
     };
   }
 
@@ -210,7 +241,7 @@ export default function QuoteForm({
   function updateParcel(
     index: number,
     field: keyof QuoteParcelInput,
-    value: number,
+    value: number | string,
   ) {
     setParcels((current) =>
       current.map((parcel, parcelIndex) =>
@@ -234,16 +265,32 @@ export default function QuoteForm({
     setEstimate(null);
   }
 
-  const invalidParcel = (parcel: QuoteParcelInput) =>
-    submitted &&
-    (parcel.actualWeightKg <= 0 ||
-      parcel.lengthCm <= 0 ||
-      parcel.widthCm <= 0 ||
-      parcel.heightCm <= 0);
+  function removeAllParcels() {
+    setParcels([emptyParcel(1)]);
+    setEstimate(null);
+  }
 
  return (
     <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-5">
+        {/* Customs route. Kept at the top because CSB-V changes what is charged. */}
+        <section className="overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <SectionHeader
+            title="Shipment Type"
+            subtitle="Select the customs route for this shipment."
+          />
+          <div className="p-5">
+            <CsbTypeSelector
+              value={csbType}
+              onChange={(value) => {
+                setCsbType(value);
+                setEstimate(null);
+              }}
+              error={submitted && !csbType ? "Select CSB-IV or CSB-V." : ""}
+            />
+          </div>
+        </section>
+
         <section className="overflow-hidden rounded-2xl border border-slate-300 bg-white">
           <SectionHeader
             title="Shipment Details"
@@ -296,25 +343,32 @@ export default function QuoteForm({
               }
             >
               <div className="relative">
+                {/* Flag emoji don't render on Windows, so the selected flag is drawn
+                    as an inline SVG badge overlaid on a plain-text native select. */}
+                {countryCode ? (
+                  <span className="pointer-events-none absolute left-3 top-1/2 z-10 flex -translate-y-1/2 items-center">
+                    <CountryFlag code={countryCode} />
+                  </span>
+                ) : null}
                 <select
                   value={countryCode}
                   onChange={(event) => {
                     setCountryCode(event.target.value);
                     setEstimate(null);
                   }}
-                  className={`${controlClass} appearance-none pr-9 rounded-xl`}
+                  className={`${controlClass} appearance-none pr-9 rounded-xl ${countryCode ? "pl-11" : ""}`}
                 >
                   <option value="">Select destination country</option>
                   {countryOptions.map((item) => (
                     <option key={item.code} value={item.code}>
-                      {getCountryFlag(item.code)} {item.name}
+                      {item.name}
                     </option>
                   ))}
                 </select>
                 <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
             </Field>
-            <Field label="Shipment Type" required>
+            <Field label="Content Type" required>
               <div className="relative">
                 <select
                   value={shipmentType}
@@ -353,10 +407,18 @@ export default function QuoteForm({
                 <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
             </Field>
-            <Field label="Goods Value (INR)">
+            <Field
+              label="Goods Value (INR)"
+              required
+              error={
+                submitted && Number(goodsValue) <= 0
+                  ? "Enter the shipment's goods value."
+                  : ""
+              }
+            >
               <input
                 type="number"
-                min="0"
+                min="0.01"
                 step="0.01"
                 value={goodsValue}
                 onChange={(event) => setGoodsValue(event.target.value)}
@@ -364,36 +426,6 @@ export default function QuoteForm({
                 className={controlClass}
               />
             </Field>
-            <div className="md:col-span-2">
-              <Field
-                label="Contents"
-                required
-                tooltip="Items/product details"
-                error={
-                  restrictedContents.length
-                    ? `${restrictedContents.join(", ")} is a restricted item and cannot be shipped.`
-                    : submitted && !contents.trim()
-                      ? "Describe the shipment contents."
-                      : ""
-                }
-              >
-                <textarea
-                  value={contents}
-                  onChange={(event) => {
-                    setContents(event.target.value);
-                    setEstimate(null);
-                  }}
-                  onBlur={() => {
-                    if (restrictedContents.length) toast.error("This item is restricted.");
-                  }}
-                  rows={3}
-                  placeholder="Describe the goods being shipped"
-                  className={`${controlClass} h-auto py-3 ${
-                    restrictedContents.length ? "border-red-400 focus:border-red-500" : ""
-                  }`}
-                />
-              </Field>
-            </div>
           </div>
         </section>
 
@@ -405,16 +437,24 @@ export default function QuoteForm({
                 Add one row for every physical box.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={addParcel}
-              className="inline-flex h-10 items-center gap-2  pl-3 rounded-4xl border border-blue-900  text-sm font-semibold  text-blue-900 hover:bg-blue-800 hover:text-white"
-            >
-              <FiPlus /> Add Box  <span className="inline-flex mr-1 h-8 px-8 items-center justify-center rounded-4xl bg-blue-50 text-sm font-semibold text-slate-900">
-              {parcels.length}
-            </span>
-            </button>
-           
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={removeAllParcels}
+                className="inline-flex h-10 items-center gap-2 px-4 rounded-4xl border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-red-50 hover:border-red-300 hover:text-red-600"
+              >
+                <FiMinus /> Remove All
+              </button>
+              <button
+                type="button"
+                onClick={addParcel}
+                className="inline-flex h-10 items-center gap-2  pl-3 rounded-4xl border border-blue-900  text-sm font-semibold  text-blue-900 hover:bg-blue-800 hover:text-white"
+              >
+                <FiPlus /> Add Box  <span className="inline-flex mr-1 h-8 px-8 items-center justify-center rounded-4xl bg-blue-50 text-sm font-semibold text-slate-900">
+                {parcels.length}
+              </span>
+              </button>
+            </div>
           </div>
           <div className="divide-y divide-slate-200">
             {parcels.map((parcel, index) => (
@@ -433,6 +473,41 @@ export default function QuoteForm({
                       <FiMinus />
                     </button>
                   ) : null}
+                </div>
+                <div className="mb-4">
+                  <Field
+                    label="Contents"
+                    required
+                    tooltip="What's inside this box"
+                    error={
+                      restrictedContentsByParcel[index]?.length
+                        ? `${restrictedContentsByParcel[index].join(", ")} is a restricted item and cannot be shipped.`
+                        : submitted && !parcel.contents.trim()
+                          ? "Select this box's contents."
+                          : ""
+                    }
+                  >
+                    <div className="relative">
+                      <select
+                        value={parcel.contents}
+                        onChange={(event) => updateParcel(index, "contents", event.target.value)}
+                        onBlur={() => {
+                          if (restrictedContentsByParcel[index]?.length) toast.error("This item is restricted.");
+                        }}
+                        className={`${controlClass} appearance-none pr-9 rounded-xl ${
+                          restrictedContentsByParcel[index]?.length ? "border-red-400 focus:border-red-500" : ""
+                        }`}
+                      >
+                        <option value="">Select contents</option>
+                        {boxContentOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                      <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    </div>
+                  </Field>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   {(
@@ -453,28 +528,76 @@ export default function QuoteForm({
                           heightCm: "Height CM",
                         }[field]
                       }
-                      required
+                      required={field === "actualWeightKg"}
                     >
                       <input
                         type="number"
-                        min="0.01"
+                        min={field === "actualWeightKg" ? "0.01" : "0"}
                         step="0.01"
                         value={parcel[field] || ""}
                         onChange={(event) =>
                           updateParcel(index, field, Number(event.target.value))
                         }
-                        className={`${controlClass} ${invalidParcel(parcel) && parcel[field] <= 0 ? "border-red-400" : ""}`}
+                        className={`${controlClass} ${
+                          field === "actualWeightKg" && submitted && parcel.actualWeightKg <= 0
+                            ? "border-red-400"
+                            : ""
+                        }`}
                       />
                     </Field>
                   ))}
                 </div>
-                {invalidParcel(parcel) ? (
+                {submitted && parcel.actualWeightKg <= 0 ? (
                   <p className="mt-3 text-xs font-semibold text-red-600">
-                    Enter positive weight and dimensions for this box.
+                    Enter the actual weight for this box.
                   </p>
                 ) : null}
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* Declarations only — no uploads happen at the quote stage. */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <SectionHeader
+            title="Available Documents"
+            subtitle="Tick the export documents you already hold. At least one is required."
+          />
+          <div className="p-5">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {quoteDocumentOptions.map((option) => {
+                const checked = availableDocuments.includes(option.value);
+                return (
+                  <label
+                    key={option.value}
+                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm transition ${
+                      checked
+                        ? "border-blue-900 bg-blue-50 font-semibold text-blue-950"
+                        : "border-slate-300 bg-white text-slate-700 hover:border-blue-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() =>
+                        setAvailableDocuments((current) =>
+                          current.includes(option.value)
+                            ? current.filter((code) => code !== option.value)
+                            : [...current, option.value],
+                        )
+                      }
+                      className="h-4 w-4 shrink-0 accent-blue-900"
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {submitted && !availableDocuments.length ? (
+              <p className="mt-3 text-xs font-semibold text-red-600">
+                Select at least one available document.
+              </p>
+            ) : null}
           </div>
         </section>
       </div>
@@ -493,6 +616,11 @@ export default function QuoteForm({
               <span>{country.name}</span>
             </div>
           ) : null}
+
+          <Line
+            label="Estimated Transit Time"
+            value={transitTimeEstimates[serviceType]}
+          />
 
           <div className="grid grid-cols-3  border border-slate-200 rounded">
             <SummaryMetric
@@ -538,6 +666,14 @@ export default function QuoteForm({
               label="Freight"
               value={formatQuoteMoney(estimate?.freightMinor)}
             />
+            {/* Charged once for the whole shipment, so it sits outside the per-box
+                rows above. Hidden entirely on CSB-IV, which has no such charge. */}
+            {estimate && estimate.csbClearanceMinor > 0 ? (
+              <Line
+                label="CSB-V Clearance Charge"
+                value={formatQuoteMoney(estimate.csbClearanceMinor)}
+              />
+            ) : null}
             <Line
               label="Fuel Surcharge"
               value={estimate ? "Not configured" : "-"}
@@ -574,6 +710,13 @@ export default function QuoteForm({
             This is an estimate. Charges are recalculated during booking and
             final weight verification.
           </p>
+
+          {/* Sets expectations before a live quote is requested: the estimate
+              above comes from the rate card, but Swiftline prices the final rate. */}
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-900">
+            <span className="font-semibold">Note:</span> The final rate will be
+            decided based on the postal code, content and region.
+          </div>
 
           <button
             type="button"
@@ -628,6 +771,65 @@ export default function QuoteForm({
 
 const controlClass =
   "h-11 w-full border border-slate-300 rounded-xl bg-white px-3 pr-9 text-sm text-slate-950 outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-900";
+
+/**
+ * Mandatory CSB-IV / CSB-V choice, rendered as two selectable cards. Uses radio
+ * inputs so only one can ever be active and keyboard/screen-reader users get the
+ * grouped single-choice semantics.
+ */
+function CsbTypeSelector({
+  value,
+  onChange,
+  error,
+}: {
+  value: CsbType | "";
+  onChange: (value: CsbType) => void;
+  error?: string;
+}) {
+  return (
+    <div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {csbTypeOptions.map((option) => {
+          const checked = value === option.value;
+          return (
+            <label
+              key={option.value}
+              className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 transition ${
+                checked
+                  ? "border-blue-900 bg-blue-50"
+                  : error
+                    ? "border-red-400 bg-white hover:border-red-500"
+                    : "border-slate-300 bg-white hover:border-blue-300"
+              }`}
+            >
+              <input
+                type="radio"
+                name="csbType"
+                value={option.value}
+                checked={checked}
+                onChange={() => onChange(option.value)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-blue-900"
+              />
+              <span className="block">
+                <span
+                  className={`block text-sm font-semibold ${checked ? "text-blue-950" : "text-slate-900"}`}
+                >
+                  {option.label}
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-slate-500">
+                  {option.description}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {error ? (
+        <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>
+      ) : null}
+    </div>
+  );
+}
 
 function SectionHeader({
   title,

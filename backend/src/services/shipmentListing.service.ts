@@ -7,12 +7,14 @@ import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentManifest } from "../models/shipmentManifest.model.js";
+import { normalizeCsbType } from "./csbType.service.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 
 export type ShipmentListingFilter = {
   businessAccountIds?: mongoose.Types.ObjectId[];
   branchIds?: mongoose.Types.ObjectId[];
   status?: string;
+  date?: string;
   page: number;
   limit: number;
   /** Manifest assignments are per actor role, so eligibility is role-scoped. */
@@ -36,6 +38,16 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   const draftFilter: Record<string, unknown> = {};
   if (filter.businessAccountIds) draftFilter.businessAccountId = { $in: filter.businessAccountIds };
   if (filter.branchIds) draftFilter.branchId = { $in: filter.branchIds };
+  if (filter.date) {
+    const selectedDate = new Date(filter.date);
+    if (!Number.isNaN(selectedDate.getTime())) {
+      const start = new Date(selectedDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(selectedDate);
+      end.setHours(23, 59, 59, 999);
+      draftFilter.createdAt = { $gte: start, $lt: end };
+    }
+  }
 
   const bookedDraftIds = await DpdShipment.find({ status: "LABEL_RECEIVED" })
     .select("shipmentDraftId")
@@ -152,6 +164,8 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
       product: [...new Set(draft.parcelList.map((parcel) => parcel.shipmentContentType).filter(Boolean))].join(", "),
       // The Swiftline service the customer bought, as the manifest shows it.
       serviceInfo: draft.serviceType,
+      // Customs route, shown under the shipment reference in the list.
+      csbType: normalizeCsbType(draft.csbType),
       route: `${branch?.address?.city || branch?.name || "Origin Not Set"} to `
         + `${consignee?.townOrCity || consignee?.postcode || "Destination Not Set"}`,
       shipmentInvoice: (() => {

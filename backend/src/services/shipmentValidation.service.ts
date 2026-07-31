@@ -6,6 +6,7 @@ import {
   type ShipmentParcel
 } from "../models/shipmentDraft.model.js";
 import { isValidAadhaarNumber } from "./aadhaarValidation.service.js";
+import { isValidHsnCode, normalizeParcelItems } from "./parcelItems.service.js";
 import { findRestrictedCategories } from "./restrictedGoods.service.js";
 
 const ukPostcodePattern = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/;
@@ -125,7 +126,7 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
   return issues;
 }
 
-function validateParcel(parcel: ShipmentParcel, index: number): string[] {
+function validateParcel(parcel: ShipmentParcel, index: number, requireItemHsnCodes: boolean): string[] {
   const label = `Parcel ${index + 1}`;
   const issues: string[] = [];
 
@@ -147,14 +148,34 @@ function validateParcel(parcel: ShipmentParcel, index: number): string[] {
     }
   }
 
-  if (!hasText(parcel.contentsDescription)) {
-    issues.push(`${label}: contents description is required`);
-  } else {
-    const restricted = findRestrictedCategories(parcel.contentsDescription);
-    if (restricted.length) {
-      issues.push(`${label}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
-    }
+  // Each parcel declares its goods as individual items so customs gets an HSN code
+  // per item. Legacy parcels carry only contentsDescription and surface here as a
+  // single item, which keeps them checkable without a migration.
+  const items = normalizeParcelItems(parcel);
+  if (!items.length) {
+    issues.push(`${label}: at least one content item is required`);
   }
+
+  items.forEach((item, itemIndex) => {
+    const itemLabel = `${label} item ${itemIndex + 1}`;
+    if (!hasText(item.description)) {
+      issues.push(`${itemLabel}: description is required`);
+    } else {
+      const restricted = findRestrictedCategories(item.description);
+      if (restricted.length) {
+        issues.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
+      }
+    }
+    // A blank HSN code is only an issue where the code is required. Shipments
+    // booked before HSN capture existed have none, and an amendment to one of
+    // those must not be blocked by a field that did not exist at booking time.
+    if (!hasText(item.hsnCode)) {
+      if (requireItemHsnCodes) issues.push(`${itemLabel}: HSN code is required`);
+    } else if (!isValidHsnCode(item.hsnCode)) {
+      // A present but malformed code is always rejected, legacy or not.
+      issues.push(`${itemLabel}: enter a valid 4, 6 or 8 digit HSN code`);
+    }
+  });
 
   if (!shipmentContentTypeValues.includes(parcel.shipmentContentType)) {
     issues.push(`${label}: shipment content type is required`);
@@ -165,7 +186,11 @@ function validateParcel(parcel: ShipmentParcel, index: number): string[] {
 
 export function validateShipmentDraftFields(
   draft: IShipmentDraft,
-  options: { requireValidatedAddress?: boolean; requireConsignorDetails?: boolean } = {}
+  options: {
+    requireValidatedAddress?: boolean;
+    requireConsignorDetails?: boolean;
+    requireItemHsnCodes?: boolean;
+  } = {}
 ): string[] {
   const issues: string[] = [];
   const address = draft.consigneeEnteredAddress;
@@ -228,7 +253,7 @@ export function validateShipmentDraftFields(
   });
 
   draft.parcelList.forEach((parcel, index) => {
-    issues.push(...validateParcel(parcel, index));
+    issues.push(...validateParcel(parcel, index, options.requireItemHsnCodes !== false));
   });
 
   if (options.requireValidatedAddress && draft.addressValidationStatus !== "VALIDATED") {

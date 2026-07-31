@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiClock, FiFileText, FiMapPin, FiPackage, FiTruck, FiChevronDown  } from "react-icons/fi";
 import { toast } from "react-toastify";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import ShipmentAmendmentPanel from "@/components/shipments/ShipmentAmendmentPanel";
 import ShipmentCancellationPanel from "@/components/shipments/ShipmentCancellationPanel";
 import ShipmentChargeVerificationPanel from "@/components/shipments/ShipmentChargeVerificationPanel";
@@ -31,6 +31,7 @@ import {
   updateDpdShipmentOperationalStatus
 } from "@/lib/dpdLabels";
 import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
+import { formatCsbType } from "@/lib/csbType";
 import {
   getAdminShipmentCancellation,
   requestAdminShipmentCancellation,
@@ -332,7 +333,6 @@ export default function AdminShipmentDetailsPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -354,7 +354,7 @@ export default function AdminShipmentDetailsPage() {
                       setActionMode("status");
                       setActionNote("");
                     }}
-                    className="h-10 border border-blue-900 px-4 rounded-xl text-sm font-semibold text-blue-900 hover:bg-blue-50"
+                    className="h-10 border border-blue-900 px-4 rounded-4xl text-sm font-semibold text-blue-900 hover:bg-blue-50"
                   >
                     Update Status
                   </button>
@@ -377,7 +377,7 @@ export default function AdminShipmentDetailsPage() {
                       setActionMode("hold");
                       setActionNote("");
                     }}
-                    className="h-10 border border-amber-700 px-4 rounded-xl text-sm font-semibold text-amber-700 hover:bg-amber-50"
+                    className="h-10 border border-amber-700 px-4 rounded-4xl text-sm font-semibold text-amber-700 hover:bg-amber-50"
                   >
                     Put On Hold
                   </button>
@@ -526,6 +526,7 @@ export default function AdminShipmentDetailsPage() {
                   <DetailRow label="Parcel Count" value={String(draft.parcelCount || draft.parcelList.length)} />
                   <DetailRow label="Total Weight" value={`${totalWeight.toFixed(2)} kg`} />
                   <DetailRow label="Service" value={draft.serviceCode || formatLabel(draft.serviceType)} />
+                  <DetailRow label="Shipment Type" value={formatCsbType(draft.csbType)} />
                 </DetailPanel>
               </div>
             </section>
@@ -606,8 +607,8 @@ export default function AdminShipmentDetailsPage() {
 
           <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
               {/* Destination card */}
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-4">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ">
+                <div className="flex items-center gap-2.5 border-b border-slate-100 px-5 py-4 rounded-2xl">
                   <span
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
                     style={{ backgroundColor: "#E8E9F6" }}
@@ -674,7 +675,24 @@ export default function AdminShipmentDetailsPage() {
                     {draft.parcelList.map((parcel) => (
                       <tr key={parcel.sequence}>
                         <td className="px-5 py-3 font-semibold text-slate-950">#{parcel.sequence}</td>
-                        <td className="px-5 py-3 text-slate-700">{parcel.contentsDescription || "Not available"}</td>
+                        {/* Per-item goods with their HSN codes. Parcels booked
+                            before HSN capture show the description alone. */}
+                        <td className="px-5 py-3 text-slate-700">
+                          {parcel.items?.length ? (
+                            <ul className="space-y-1">
+                              {parcel.items.map((item, itemIndex) => (
+                                <li key={itemIndex}>
+                                  {item.description}
+                                  {item.hsnCode ? (
+                                    <span className="ml-2 text-xs text-slate-500">HSN {item.hsnCode}</span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            parcel.contentsDescription || "Not available"
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-slate-700">{parcel.weightKg} kg</td>
                         <td className="px-5 py-3 text-slate-700">
                           {[parcel.lengthCm, parcel.widthCm, parcel.heightCm].filter(Boolean).join(" x ") || "Not available"}
@@ -689,7 +707,6 @@ export default function AdminShipmentDetailsPage() {
           </>
         )}
       </div>
-    </DashboardShell>
   );
 }
 
@@ -704,12 +721,12 @@ function ConfirmationValue({ label, value, emphasis = false }: { label: string; 
 
 function StatusPill({ label, tone }: { label: string; tone: "success" | "neutral" | "warning" }) {
   const classes = tone === "success"
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-700 "
     : tone === "warning"
       ? "border-amber-200 bg-amber-50 text-amber-700"
       : "border-slate-200 bg-slate-50 text-slate-700";
 
-  return <span className={`border px-3 py-3 rounded-xl text-xs font-semibold uppercase tracking-wide ${classes}`}>{label}</span>;
+  return <span className={`border px-3 py-3 rounded-4xl text-xs font-semibold uppercase tracking-wide ${classes}`}>{label}</span>;
 }
 
 function DetailPanel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {

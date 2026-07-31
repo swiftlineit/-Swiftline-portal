@@ -34,6 +34,8 @@ import {
   createLabelForShipmentDraft
 } from "../services/dpdShipment.service.js";
 import { buildDpdInvoiceTemplateBuffer } from "../services/invoiceTemplate.service.js";
+import { normalizeCsbType } from "../services/csbType.service.js";
+import { normalizeParcelItems } from "../services/parcelItems.service.js";
 import { clientCanAccessShipmentDraft } from "../services/shipmentDraftPolicy.service.js";
 import {
   readShipmentBookingSnapshot,
@@ -967,6 +969,12 @@ function serializeClientShipmentDetails(params: {
         widthCm: typeof parcel.widthCm === "number" ? parcel.widthCm : null,
         heightCm: typeof parcel.heightCm === "number" ? parcel.heightCm : null,
         shipmentContentType: typeof parcel.shipmentContentType === "string" ? parcel.shipmentContentType : "PARCEL",
+        // Booked snapshots predate per-item capture, so items are rebuilt from
+        // the description they did record.
+        items: normalizeParcelItems({
+          items: Array.isArray(parcel.items) ? parcel.items : null,
+          contentsDescription: parcel.contentsDescription
+        }),
         contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : "",
         shipmentReference1: typeof parcel.reference === "string" ? parcel.reference : "",
         shipmentReference2: ""
@@ -981,6 +989,8 @@ function serializeClientShipmentDetails(params: {
       addressValidationStatus: draft.addressValidationStatus,
       serviceType: currentShipmentSnapshot?.service.type ?? draft.serviceType,
       serviceCode: currentShipmentSnapshot?.service.code ?? draft.serviceCode,
+      // Shown on the shipment detail page and in the shipment list.
+      csbType: normalizeCsbType(draft.csbType),
       parcelCount: parcelList.length,
       parcelList,
       consignee: currentShipmentSnapshot?.consignee ?? draft.consigneeEnteredAddress,

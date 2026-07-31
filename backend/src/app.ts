@@ -1,3 +1,4 @@
+import path from "path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
@@ -5,6 +6,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 
 import { env } from "./config/env.js";
+import { attachUser } from "./middleware/auth.middleware.js";
 import {
   errorHandler,
   notFoundHandler
@@ -107,6 +109,9 @@ app.use("/api/v1/tax-invoices", taxInvoiceRouter);
 app.use("/api/v1/credit-accounts", creditAccountRouter);
 app.use("/api/v1/credit-agreements", creditAgreementRouter);
 app.use("/api/v1/notifications", notificationRouter);
+
+const privateUploadRoot = path.resolve(process.cwd(), "private_uploads");
+app.use("/api/v1/files", attachUser, express.static(privateUploadRoot));
 
 app.use(notFoundHandler);
 app.use(errorHandler);

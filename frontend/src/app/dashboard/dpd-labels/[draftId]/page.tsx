@@ -5,8 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiExternalLink, FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import {
+  ParcelItemsEditor,
+  ShipmentCsbTypeField,
   ShipmentFieldLabel,
   ShipmentPhoneCodeField,
   ShipmentSelectField,
@@ -27,6 +29,13 @@ import {
 } from "@/lib/shipmentConsignor";
 import { CountryRateCard, formatCountryRateService, listCountryRateCards } from "@/lib/countryRateCards";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
+import { normalizeCsbType, type CsbType } from "@/lib/csbType";
+import {
+  composeContentsDescription,
+  getHsnCodeError,
+  normalizeParcelItems,
+  type ParcelItem
+} from "@/lib/parcelItems";
 import {
   getPostcodeError,
   getShipmentEmailError,
@@ -93,6 +102,9 @@ type ParcelForm = {
   widthCm: string;
   heightCm: string;
   shipmentContentType: ShipmentContentType;
+  // One row per distinct good, each with its own HSN code. The joined
+  // descriptions become contentsDescription on save.
+  items: ParcelItem[];
   contentsDescription: string;
   shipmentReference1: string;
   shipmentReference2: string;
@@ -134,6 +146,7 @@ function createEmptyParcelForm(sequence: number): ParcelForm {
     widthCm: "",
     heightCm: "",
     shipmentContentType: "PARCEL",
+    items: [{ description: "", hsnCode: "" }],
     contentsDescription: "",
     shipmentReference1: "",
     shipmentReference2: "",
@@ -194,17 +207,24 @@ function getReviewFormIssues(addressForm: AddressForm, draftCorrectionForm: Draf
       }
     }
     if (!parcel.shipmentContentType) issues.push(`${label}: shipment content type is required`);
-   if (!parcel.contentsDescription.trim()) {
-  issues.push(`${label}: contents description is required`);
-} else {
-  const restricted = findRestrictedCategories(parcel.contentsDescription);
-
-  if (restricted.length) {
-    issues.push(
-      `${label}: contents description - ${restricted.join(", ")} is a restricted item and cannot be shipped`
-    );
-  }
-}
+    // Every declared item needs a description and a valid HSN code for customs.
+    const items = parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim());
+    if (!items.length) {
+      issues.push(`${label}: contents are required`);
+    }
+    items.forEach((item, itemIndex) => {
+      const itemLabel = `${label} item ${itemIndex + 1}`;
+      if (!item.description.trim()) {
+        issues.push(`${itemLabel}: description is required`);
+      } else {
+        const restricted = findRestrictedCategories(item.description);
+        if (restricted.length) {
+          issues.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
+        }
+      }
+      const hsnError = getHsnCodeError(item.hsnCode);
+      if (hsnError) issues.push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
+    });
   });
   return issues;
 }
@@ -221,6 +241,9 @@ function normalizeParcelForms(parcels: ShipmentDraft["parcelList"]): ParcelForm[
     widthCm: parcel.widthCm ? String(parcel.widthCm) : "",
     heightCm: parcel.heightCm ? String(parcel.heightCm) : "",
     shipmentContentType: parcel.shipmentContentType ?? "PARCEL",
+    // Drafts saved before per-item capture surface as a single item seeded from
+    // their existing description, so they open without a migration.
+    items: normalizeParcelItems(parcel),
     contentsDescription: parcel.contentsDescription ?? "",
     shipmentReference1: parcel.shipmentReference1 ?? "",
     shipmentReference2: parcel.shipmentReference2 ?? "",
@@ -306,6 +329,9 @@ export default function DpdLabelDraftPage() {
   const [kycDocuments, setKycDocuments] = useState<ShipmentKycDocuments>({});
   const [parcelKyc, setParcelKyc] = useState<Record<number, ShipmentKycDocuments>>({});
   const [parcelForms, setParcelForms] = useState<ParcelForm[]>([createEmptyParcelForm(1)]);
+  // Customs route for the shipment. Drafts saved before CSB selection existed
+  // read as CSB-IV, matching how the backend prices them.
+  const [csbType, setCsbType] = useState<CsbType>("CSB_IV");
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   const [busy, setBusy] = useState(false);
@@ -346,12 +372,15 @@ export default function DpdLabelDraftPage() {
     );
   }, [addressForm, draft]);
 
+  // Recalculates when the CSB type is toggled so the panel always reflects the
+  // clearance charge the backend will apply at booking.
   const chargeEstimate = useMemo(() => calculateShipmentEstimate({
     parcels: parcelForms,
     rates,
     countryCode: addressForm.countryCode,
-    serviceType: draftCorrectionForm.serviceType
-  }), [addressForm.countryCode, draftCorrectionForm.serviceType, parcelForms, rates]);
+    serviceType: draftCorrectionForm.serviceType,
+    csbType
+  }), [addressForm.countryCode, csbType, draftCorrectionForm.serviceType, parcelForms, rates]);
 
   const consignorChanged = useMemo(
     () => (draft
@@ -452,6 +481,7 @@ export default function DpdLabelDraftPage() {
       serviceCode: nextDraft.serviceCode ?? ""
     });
     setParcelForms(normalizeParcelForms(nextDraft.parcelList));
+    setCsbType(normalizeCsbType(nextDraft.csbType));
   }
 
   function syncConsignorForm(nextDraft: ShipmentDraft) {
@@ -555,6 +585,17 @@ export default function DpdLabelDraftPage() {
     };
   }
 
+  // contentsDescription is kept in step with the items so the value sent on save
+  // always matches what is on screen.
+  function handleParcelItemsChange(index: number, items: ParcelItem[]) {
+    setParcelForms((current) => current.map((parcel, parcelIndex) => (
+      parcelIndex === index
+        ? { ...parcel, items, contentsDescription: composeContentsDescription(items) }
+        : parcel
+    )));
+    setReviewIssues([]);
+  }
+
   function handleParcelCountChange(event: ChangeEvent<HTMLInputElement>) {
     const nextCount = Number(event.target.value);
     if (!Number.isInteger(nextCount) || nextCount < 1 || nextCount > maxParcelCount) return;
@@ -610,11 +651,16 @@ export default function DpdLabelDraftPage() {
         widthCm: parcel.widthCm ? Number(parcel.widthCm) : undefined,
         heightCm: parcel.heightCm ? Number(parcel.heightCm) : undefined,
         shipmentContentType: parcel.shipmentContentType,
-        contentsDescription: parcel.contentsDescription,
+        // Blank rows are dropped so an untouched extra row never blocks a save.
+        items: parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim()),
+        // Recomputed from the items so the value the EDI export, manifest, carrier
+        // payload and labels read always matches what was entered.
+        contentsDescription: composeContentsDescription(parcel.items),
         shipmentReference1: parcel.shipmentReference1,
         shipmentReference2: parcel.shipmentReference2,
         aadhaarNumber: parcel.aadhaarNumber
       })),
+      csbType,
       serviceType: draftCorrectionForm.serviceType,
       serviceCode: draftCorrectionForm.serviceCode
     });
@@ -850,7 +896,7 @@ export default function DpdLabelDraftPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
+    <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Review Shipment</h1>
@@ -872,6 +918,28 @@ export default function DpdLabelDraftPage() {
       ) : (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-6">
+            {/* Customs route, first because CSB-V changes what is charged. */}
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Type</h2>
+                <button
+                  type="button"
+                  onClick={handleSaveCorrections}
+                  disabled={busy || !draftChanged}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  <FiSave aria-hidden="true" className="h-4 w-4" />
+                  Save
+                </button>
+              </div>
+              <div className="p-4">
+                <ShipmentCsbTypeField
+                  value={csbType}
+                  onChange={(next: CsbType) => { setCsbType(next); setReviewIssues([]); }}
+                />
+              </div>
+            </section>
+
             <ConsignorKycSection
               shipmentDraftId={draft._id}
               form={consignorForm}
@@ -1088,10 +1156,15 @@ export default function DpdLabelDraftPage() {
                             </option>
                           ))}
                       </ShipmentSelectField>
-                      <div className="md:col-span-2">
-                        <ShipmentTextField label="Contents Description" tooltip="Items/product details" required value={parcel.contentsDescription} onChange={handleParcelFieldChange(index, "contentsDescription")} error={getParcelFieldIssue(index, ["contents description"])} revealError={submitAttempted} />
-                      </div>
                       <ShipmentTextField label="Reference (Optional)" tooltip="Can be a company name or a unique identifier of the shipment" value={parcel.shipmentReference1} onChange={handleParcelFieldChange(index, "shipmentReference1")} />
+                      {/* One row per distinct good, each with its own HSN code. */}
+                      <div className="md:col-span-4">
+                        <ParcelItemsEditor
+                          items={parcel.items}
+                          onChange={(items: ParcelItem[]) => handleParcelItemsChange(index, items)}
+                          revealError={submitAttempted}
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1163,7 +1236,25 @@ export default function DpdLabelDraftPage() {
                   ))}
                 </div>
                 <div className="mt-3 border-t border-slate-200 pt-3">
-                  <div className="flex items-center justify-between gap-3">
+                  {/* Flat charge for the whole shipment, not per box. Shown with the
+                      freight it is added to so the taxable base is auditable. */}
+                  {chargeEstimate.csbClearanceAmount > 0 ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-semibold text-slate-600">Freight</span>
+                        <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.freightAmount)}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <span className="font-semibold text-slate-600">CSB-V Clearance Charge</span>
+                        <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.csbClearanceAmount)}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <span className="font-semibold text-slate-600">Subtotal</span>
+                        <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.baseAmount)}</span>
+                      </div>
+                    </>
+                  ) : null}
+                  <div className="mt-2 flex items-center justify-between gap-3">
                     <span className="font-semibold text-slate-600">GST 18%</span>
                     <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.gstAmount)}</span>
                   </div>
@@ -1251,7 +1342,7 @@ export default function DpdLabelDraftPage() {
           </aside>
         </div>
       )}
-    </DashboardShell>
+    </>
   );
 }
 

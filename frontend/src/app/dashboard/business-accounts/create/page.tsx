@@ -1,7 +1,7 @@
 "use client";
 
 import BusinessAccountForm from "@/components/business-accounts/BusinessAccountForm";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 export default function CreateBusinessAccountPage() {
@@ -9,9 +9,5 @@ export default function CreateBusinessAccountPage() {
 
   if (loading || !user) return <DashboardLoading />;
 
-  return (
-    <DashboardShell user={user}>
-      <BusinessAccountForm />
-    </DashboardShell>
-  );
+  return <BusinessAccountForm />;
 }

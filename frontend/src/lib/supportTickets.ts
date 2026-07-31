@@ -45,7 +45,7 @@ export type SupportTicket = {
   messages: Array<{ id: string; authorId: string; authorType: "CLIENT" | "ADMIN"; authorName: string; message: string; internal: boolean; createdAt: string }>;
 };
 
-export type TicketListInput = { page?: number; limit?: number; status?: string; priority?: string; category?: string; search?: string };
+export type TicketListInput = { page?: number; limit?: number; status?: string; priority?: string; category?: string; search?: string; branchId?: string };
 
 function root(audience: TicketAudience) { return audience === "client" ? "/api/v1/client/support-tickets" : "/api/v1/support-tickets"; }
 function json(method: string, body?: unknown): RequestInit {

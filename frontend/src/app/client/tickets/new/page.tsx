@@ -7,7 +7,6 @@ import { FiArrowLeft, FiChevronDown, FiSend } from "react-icons/fi";
 import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
 } from "@/components/client/ClientDashboardShell";
 import {
   getClientDashboard,
@@ -138,7 +137,6 @@ export default function NewSupportTicketPage() {
 
   if (loading || !user) return <ClientDashboardLoading />;
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-5xl">
         <Link
           href="/client/tickets"
@@ -325,7 +323,6 @@ export default function NewSupportTicketPage() {
           </div>
         </form>
       </div>
-    </ClientDashboardShell>
   );
 }
 

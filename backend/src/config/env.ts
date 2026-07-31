@@ -62,7 +62,12 @@ const environmentSchema = z.object({
   // How long an unpaid order still counts against the daily total. Without this
   // an abandoned checkout would hold its share of the allowance until midnight.
   RAZORPAY_TOPUP_PENDING_TTL_MINUTES: z.coerce.number().int().positive().default(30),
-  CLIENT_DPD_LABEL_CHARGE_MINOR: z.coerce.number().int().nonnegative().default(0)
+  CLIENT_DPD_LABEL_CHARGE_MINOR: z.coerce.number().int().nonnegative().default(0),
+  // "Sign in with Google" verifies the ID token's audience against this client ID.
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  // reCAPTCHA v3 siteverify secret for the email/password login form.
+  RECAPTCHA_SECRET_KEY: z.string().optional(),
+  RECAPTCHA_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.5)
 });
 
 const result = environmentSchema.safeParse(process.env);

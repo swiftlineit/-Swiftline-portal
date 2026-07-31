@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import { csbTypeValues, type CsbType } from "../services/csbType.service.js";
+import { composeContentsDescription, normalizeParcelItems } from "../services/parcelItems.service.js";
 
 export const addressValidationStatusValues = [
   "NOT_VALIDATED",
@@ -93,6 +95,12 @@ export interface ShipmentKycDocument {
   uploadedBy?: mongoose.Types.ObjectId | null;
 }
 
+// One distinct good inside a parcel, with the HSN code customs requires for it.
+export interface ShipmentParcelItem {
+  description: string;
+  hsnCode: string;
+}
+
 export interface ShipmentParcel {
   sequence: number;
   weightKg: number;
@@ -100,6 +108,12 @@ export interface ShipmentParcel {
   widthCm?: number;
   heightCm?: number;
   shipmentContentType: ShipmentContentType;
+  // Individual goods with their HSN codes. `contentsDescription` below is the
+  // derived single-line summary of these, kept so the EDI export, operations
+  // manifest, DPD payload and labels keep reading the same field as before.
+  // Optional on the type because parcels stored before items existed have none;
+  // the pre-validate hook backfills them from contentsDescription on save.
+  items?: ShipmentParcelItem[];
   contentsDescription: string;
   shipmentReference1?: string;
   shipmentReference2?: string;
@@ -128,6 +142,9 @@ export interface IShipmentDraft extends mongoose.Document {
   addressValidationResult: Record<string, unknown>;
   parcelCount: number;
   parcelList: ShipmentParcel[];
+  // Customs route for the whole shipment. CSB-V attracts a flat clearance charge
+  // once per shipment (see csbType.service.ts).
+  csbType: CsbType;
   serviceType: ShipmentServiceType;
   serviceCode: string;
   validationIssues: string[];
@@ -196,6 +213,16 @@ const kycDocumentSchema = new mongoose.Schema<ShipmentKycDocument>(
   { _id: false }
 );
 
+const parcelItemSchema = new mongoose.Schema<ShipmentParcelItem>(
+  {
+    description: { type: String, trim: true, maxlength: 120, default: "" },
+    // 4, 6 or 8 digit Indian HSN code. Format is enforced in validation rather
+    // than here so partially completed drafts can still be saved.
+    hsnCode: { type: String, trim: true, maxlength: 8, default: "" }
+  },
+  { _id: false }
+);
+
 const parcelSchema = new mongoose.Schema<ShipmentParcel>(
   {
     sequence: { type: Number, required: true, min: 1 },
@@ -209,6 +236,7 @@ const parcelSchema = new mongoose.Schema<ShipmentParcel>(
       default: "PARCEL",
       required: true
     },
+    items: { type: [parcelItemSchema], default: [] },
     contentsDescription: { type: String, trim: true, maxlength: 120, default: "" },
     shipmentReference1: { type: String, trim: true, maxlength: 120, default: "" },
     shipmentReference2: { type: String, trim: true, maxlength: 120, default: "" },
@@ -263,6 +291,9 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
     addressValidationResult: { type: mongoose.Schema.Types.Mixed, default: {} },
     parcelCount: { type: Number, required: true, min: 1, default: 1 },
     parcelList: { type: [parcelSchema], default: [] },
+    // Drafts created before CSB selection existed default to CSB-IV so their
+    // pricing is unchanged on any later reprice.
+    csbType: { type: String, enum: csbTypeValues, default: "CSB_IV", required: true, index: true },
     serviceType: { type: String, enum: shipmentServiceTypeValues, default: "COURIER", index: true },
     serviceCode: { type: String, trim: true, maxlength: 40, default: "" },
     validationIssues: [{ type: String, trim: true, maxlength: 500 }],
@@ -294,11 +325,21 @@ shipmentDraftSchema.pre("validate", function pinConsignorCountry() {
 });
 
 shipmentDraftSchema.pre("validate", function syncParcelSummary() {
-  this.parcelList = this.parcelList.map((parcel, index) => ({
-    ...parcel,
-    sequence: parcel.sequence ?? index + 1,
-    shipmentContentType: parcel.shipmentContentType ?? "PARCEL"
-  }));
+  this.parcelList = this.parcelList.map((parcel, index) => {
+    const items = normalizeParcelItems(parcel);
+    return {
+      ...parcel,
+      sequence: parcel.sequence ?? index + 1,
+      shipmentContentType: parcel.shipmentContentType ?? "PARCEL",
+      items,
+      // Derived from the items so every existing consumer of contentsDescription
+      // (EDI, manifest, DPD payload, labels, invoices) keeps working unchanged.
+      // Parcels with no items keep whatever description they already had.
+      contentsDescription: items.length
+        ? composeContentsDescription(items)
+        : parcel.contentsDescription ?? ""
+    };
+  });
   this.parcelCount = this.parcelList.length || 1;
 });
 

@@ -11,6 +11,7 @@ import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { CancellationFeeInvoice } from "../models/cancellationFeeInvoice.model.js";
 import { appendCreditLedgerEntry } from "./creditAccount.service.js";
 import { notifyBusinessFinancialMembers } from "./portalNotification.service.js";
+import { dayBounds } from "../utils/dateRangeFilter.js";
 
 export class CreditPaymentError extends Error {
   constructor(public readonly statusCode: number, message: string) {
@@ -427,10 +428,30 @@ export async function applyVerifiedCreditPayment(input: {
   }
 }
 
-export async function listCreditPayments(businessAccountId: mongoose.Types.ObjectId) {
-  const payments = await CreditPayment.find({ businessAccountId })
+export type CreditPaymentListFilter = {
+  status?: string;
+  date?: string;
+  page?: number;
+  limit?: number;
+};
+
+export async function listCreditPayments(
+  businessAccountId: mongoose.Types.ObjectId,
+  filter: CreditPaymentListFilter = {}
+) {
+  const query: Record<string, unknown> = { businessAccountId };
+  if (filter.status) query.status = filter.status;
+  const bounds = dayBounds(filter.date);
+  if (bounds) query.createdAt = { $gte: bounds.start, $lte: bounds.end };
+
+  const limit = Math.min(100, Math.max(1, filter.limit ?? 100));
+  const total = await CreditPayment.countDocuments(query).exec();
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(Math.max(1, filter.page ?? 1), totalPages);
+  const payments = await CreditPayment.find(query)
     .sort({ createdAt: -1 })
-    .limit(100)
+    .skip((page - 1) * limit)
+    .limit(limit)
     .exec();
-  return payments.map(serializeCreditPayment);
+  return { payments: payments.map(serializeCreditPayment), pagination: { page, limit, total, totalPages } };
 }

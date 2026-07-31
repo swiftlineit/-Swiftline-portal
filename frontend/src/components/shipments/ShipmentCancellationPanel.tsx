@@ -56,18 +56,18 @@ export default function ShipmentCancellationPanel({
         ? "border-red-200 bg-red-50 text-red-700"
         : "border-amber-200 bg-amber-50 text-amber-800";
     return (
-      <section className="border border-slate-200 bg-white">
+      <section className="border border-slate-200 bg-white rounded-2xl">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div>
             <h2 className="font-semibold text-slate-950">Shipment Cancellation</h2>
             <p className="mt-1 text-sm text-slate-500">Swiftline review, refund, and financial document history.</p>
           </div>
-          <span className={"border px-2.5 py-1 text-xs font-semibold uppercase " + statusTone}>
+          <span className={"border px-2.5 py-1 text-xs rounded-4xl font-semibold uppercase " + statusTone}>
             {cancellation.status}
           </span>
         </div>
         <div className="grid gap-5 p-5 md:grid-cols-3">
-          <Value label="Reason" value={cancellation.reason} />
+          <Value  label="Reason " value={cancellation.reason} />
           <Value
             label="Cancellation Fee"
             value={cancellation.feeTotalMinor === null ? "Pending review" : currency.format(cancellation.feeTotalMinor / 100)}
@@ -158,7 +158,7 @@ export default function ShipmentCancellationPanel({
           <button
             type="button"
             onClick={() => setFormOpen(true)}
-            className="h-10 border border-red-300 rounded-xl px-4 text-sm font-semibold text-red-700 hover:bg-red-50"
+            className="h-10 border border-red-300 rounded-4xl px-4 text-sm font-semibold text-red-700 hover:bg-red-50"
           >
             Request Cancellation
           </button>
@@ -261,7 +261,7 @@ function DocumentActions({
             type="button"
             disabled={Boolean(busy)}
             onClick={() => void onAction(type, action)}
-            className="inline-flex h-9 items-center gap-2 border border-slate-300 px-3 rounded-2xl  text-sm font-semibold text-blue-900 hover:bg-slate-50 disabled:opacity-50"
+            className="inline-flex h-9 items-center gap-2 border border-slate-300 px-3 rounded-4xl  text-sm font-semibold text-blue-900 hover:bg-slate-50 disabled:opacity-50"
           >
             <Icon className="h-4 w-4" aria-hidden="true" />
             {label}

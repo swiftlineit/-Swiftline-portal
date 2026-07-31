@@ -16,7 +16,6 @@ import {
 import { FaWhatsapp } from "react-icons/fa";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
 } from "@/components/client/ClientDashboardShell";
 import TicketTable from "@/components/tickets/TicketTable";
 import {
@@ -82,7 +81,6 @@ export default function ClientTicketsPage() {
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -175,7 +173,7 @@ export default function ClientTicketsPage() {
               }}
               className="h-10 w-full appearance-none border border-slate-300 bg-white px-3 pr-9 rounded-xl text-sm"
             >
-              <option value="">All statuses</option>
+              <option value="">All Status</option>
               {[
                 "OPEN",
                 "IN_PROGRESS",
@@ -231,7 +229,6 @@ export default function ClientTicketsPage() {
           <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         ) : null}
       </div>
-    </ClientDashboardShell>
   );
 }
 

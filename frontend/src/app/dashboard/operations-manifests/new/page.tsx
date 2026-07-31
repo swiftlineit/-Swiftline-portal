@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { FiChevronDown } from "react-icons/fi";
 import { toast } from "react-toastify";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import CountryFlag from "@/components/CountryFlag";
 import { countryOptions } from "@/lib/branches";
 import {
@@ -207,7 +207,6 @@ export default function NewOperationsManifestPage() {
   }
 
   return (
-    <DashboardShell user={user}>
       <form onSubmit={submit} className="mx-auto max-w-5xl">
         <div className="mb-6 rounded-xl border border-[#EEEDED] bg-white p-5 shadow-sm">
           <Link
@@ -380,6 +379,5 @@ export default function NewOperationsManifestPage() {
           </button>
         </div>
       </form>
-    </DashboardShell>
   );
 }

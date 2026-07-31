@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { formatDashboardDate } from "@/lib/dateFormat";
+import { formatCsbType } from "@/lib/csbType";
 import {
   formatQuoteMoney,
   type QuoteAudience,
@@ -27,7 +28,7 @@ export default function QuoteList({
             <th className="px-5 py-4">Quote</th>
             <th className="px-5 py-4">Customer</th>
             <th className="px-5 py-4">Route</th>
-            <th className="px-5 py-4">Service</th>
+            <th className="px-5 py-4">Service / Type</th>
             <th className="px-5 py-4 text-right">Amount</th>
             <th className="px-5 py-4">Valid Until</th>
             <th className="px-5 py-4">Status</th>
@@ -72,10 +73,16 @@ export default function QuoteList({
                     {quote.request.originCity} to{" "}
                     {quote.request.destinationCountryName}
                   </td>
+                  {/* Service type with the customs route beneath it. */}
                   <td className="px-5 py-4">
-                    {quote.request.serviceType === "COURIER"
-                      ? "Courier"
-                      : "Cargo"}
+                    <p className="font-semibold text-slate-900">
+                      {quote.request.serviceType === "COURIER"
+                        ? "Courier"
+                        : "Cargo"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {formatCsbType(quote.request.csbType)}
+                    </p>
                   </td>
                   <td className="px-5 py-4 text-right font-semibold">
                     {quote.finalPricing

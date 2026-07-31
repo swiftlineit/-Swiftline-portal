@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { FiDownload, FiEye, FiRefreshCw,FiPlus } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
+import DateFilterInput from "@/components/ui/DateFilterInput";
+import Pagination from "@/components/ui/Pagination";
 import {
   downloadShipmentManifest,
   listShipmentManifests,
@@ -25,6 +27,7 @@ export default function ManifestsListPage({
     totalPages: 1,
   });
   const [page, setPage] = useState(1);
+  const [date, setDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
@@ -33,7 +36,7 @@ export default function ManifestsListPage({
     setLoading(true);
     setError("");
     try {
-      const data = await listShipmentManifests(audience, { page });
+      const data = await listShipmentManifests(audience, { page, date });
       setManifests(data.manifests);
       setPagination(data.pagination);
     } catch (caught) {
@@ -43,7 +46,7 @@ export default function ManifestsListPage({
     } finally {
       setLoading(false);
     }
-  }, [audience, page]);
+  }, [audience, date, page]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -79,6 +82,13 @@ export default function ManifestsListPage({
         </div>
         {/* create manifest button */}
       <div className="flex items-center gap-2">
+      <DateFilterInput
+        value={date}
+        onChange={(value) => {
+          setDate(value);
+          setPage(1);
+        }}
+      />
       <Link
   href={
     audience === "client"
@@ -198,28 +208,12 @@ export default function ManifestsListPage({
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          disabled={pagination.page <= 1}
-          onClick={() => setPage((value) => Math.max(1, value - 1))}
-          className="h-9 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-[#0D1282] disabled:opacity-40"
-        >
-          Previous
-        </button>
-        <span className="text-sm text-slate-600">
-          Page {pagination.page} of {pagination.totalPages} · {pagination.total}{" "}
-          total
-        </span>
-        <button
-          type="button"
-          disabled={pagination.page >= pagination.totalPages}
-          onClick={() => setPage((value) => value + 1)}
-          className="h-9 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-[#0D1282] disabled:opacity-40"
-        >
-          Next
-        </button>
-      </div>
+      <Pagination
+        page={pagination.page}
+        totalPages={pagination.totalPages}
+        total={pagination.total}
+        onPageChange={setPage}
+      />
     </div>
   );
 }

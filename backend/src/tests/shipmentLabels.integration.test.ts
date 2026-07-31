@@ -263,8 +263,9 @@ describe("Swiftline tracking sequence", () => {
       addressValidationStatus: "VALIDATED",
       addressValidationResult: { outcome: "VALID" },
       parcelList: [
-        { sequence: 1, weightKg: 7, lengthCm: 30, widthCm: 20, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "Clothing", shipmentReference1: "BOX-A" },
-        { sequence: 2, weightKg: 11, lengthCm: 40, widthCm: 30, heightCm: 20, shipmentContentType: "PARCEL", contentsDescription: "Shoes", shipmentReference1: "BOX-B" }
+        // Booking requires an HSN code per declared item.
+        { sequence: 1, weightKg: 7, lengthCm: 30, widthCm: 20, heightCm: 10, shipmentContentType: "PARCEL", items: [{ description: "Clothing", hsnCode: "62034200" }], contentsDescription: "Clothing", shipmentReference1: "BOX-A" },
+        { sequence: 2, weightKg: 11, lengthCm: 40, widthCm: 30, heightCm: 20, shipmentContentType: "PARCEL", items: [{ description: "Shoes", hsnCode: "64039900" }], contentsDescription: "Shoes", shipmentReference1: "BOX-B" }
       ],
       serviceType: "COURIER",
       status: "READY_FOR_DPD",

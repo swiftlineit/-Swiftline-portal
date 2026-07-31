@@ -27,6 +27,7 @@ import {
   serializeCreditPayment
 } from "../services/creditPayment.service.js";
 import { createRazorpayOrder, fetchRazorpayPayment, captureRazorpayPayment, getRazorpayPublicConfig } from "../services/razorpay/client.js";
+import { dayBounds } from "../utils/dateRangeFilter.js";
 import { verifyRazorpayCheckoutSignature } from "../services/razorpay/signatures.js";
 import { notifyActiveAdmins } from "../services/portalNotification.service.js";
 import {
@@ -67,6 +68,21 @@ function objectId(value: unknown) {
 
 function adminBusinessAccountId(request: Request) {
   return objectId(request.params.businessAccountId);
+}
+
+function listFilter(request: Request) {
+  return {
+    status: typeof request.query.status === "string" ? request.query.status : "",
+    date: typeof request.query.date === "string" ? request.query.date : "",
+    page: Math.max(1, Number.parseInt(String(request.query.page ?? "1"), 10) || 1),
+    // Undefined (rather than a hardcoded default) when the caller doesn't ask for a
+    // specific page size, so callers that still expect "the full recent history in
+    // one call" (e.g. the client account-statement pages) keep that behavior and
+    // only pages with real pagination UI need to pass an explicit limit.
+    limit: typeof request.query.limit === "string"
+      ? Math.min(100, Math.max(1, Number.parseInt(request.query.limit, 10) || 20))
+      : undefined
+  };
 }
 
 function clientBusinessAccountId(request: Request) {
@@ -137,7 +153,8 @@ async function writeStatementDownloadAudit(
 export async function listAdminStatements(request: Request, response: Response): Promise<Response> {
   const businessAccountId = adminBusinessAccountId(request);
   if (!businessAccountId) return response.status(400).json({ success: false, message: "Business account is invalid." });
-  return response.status(200).json({ success: true, statements: await listCreditBillingStatements(businessAccountId) });
+  const result = await listCreditBillingStatements(businessAccountId, listFilter(request));
+  return response.status(200).json({ success: true, ...result });
 }
 
 export async function getAdminStatement(request: Request, response: Response): Promise<Response> {
@@ -200,7 +217,8 @@ export async function listClientStatements(request: Request, response: Response)
   if (!businessAccountId || !await financialMembership(request, businessAccountId)) {
     return response.status(403).json({ success: false, message: "Financial statement access is not available for this account." });
   }
-  return response.status(200).json({ success: true, statements: await listCreditBillingStatements(businessAccountId) });
+  const result = await listCreditBillingStatements(businessAccountId, listFilter(request));
+  return response.status(200).json({ success: true, ...result });
 }
 
 export async function getClientStatement(request: Request, response: Response): Promise<Response> {
@@ -450,7 +468,8 @@ export async function verifyAdminOfflinePayment(request: Request, response: Resp
 export async function listAdminPayments(request: Request, response: Response): Promise<Response> {
   const businessAccountId = adminBusinessAccountId(request);
   if (!businessAccountId) return response.status(400).json({ success: false, message: "Business account is invalid." });
-  return response.status(200).json({ success: true, payments: await listCreditPayments(businessAccountId) });
+  const result = await listCreditPayments(businessAccountId, listFilter(request));
+  return response.status(200).json({ success: true, ...result });
 }
 
 export async function listClientPayments(request: Request, response: Response): Promise<Response> {
@@ -458,7 +477,8 @@ export async function listClientPayments(request: Request, response: Response): 
   if (!businessAccountId || !await financialMembership(request, businessAccountId)) {
     return response.status(403).json({ success: false, message: "Payment history access is not available for this account." });
   }
-  return response.status(200).json({ success: true, payments: await listCreditPayments(businessAccountId) });
+  const result = await listCreditPayments(businessAccountId, listFilter(request));
+  return response.status(200).json({ success: true, ...result });
 }
 
 function serializeLedgerEntry(entry: InstanceType<typeof CreditLedgerEntry>) {
@@ -475,14 +495,28 @@ function serializeLedgerEntry(entry: InstanceType<typeof CreditLedgerEntry>) {
   };
 }
 
-async function ledgerEntries(businessAccountId: mongoose.Types.ObjectId) {
-  return CreditLedgerEntry.find({ businessAccountId }).sort({ createdAt: -1 }).limit(500).exec();
+async function ledgerEntries(businessAccountId: mongoose.Types.ObjectId, filter: { date?: string; page?: number; limit?: number } = {}) {
+  const query: Record<string, unknown> = { businessAccountId };
+  const bounds = dayBounds(filter.date);
+  if (bounds) query.createdAt = { $gte: bounds.start, $lte: bounds.end };
+
+  const limit = Math.min(500, Math.max(1, filter.limit ?? 500));
+  const total = await CreditLedgerEntry.countDocuments(query).exec();
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(Math.max(1, filter.page ?? 1), totalPages);
+  const entries = await CreditLedgerEntry.find(query)
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .exec();
+  return { entries, pagination: { page, limit, total, totalPages } };
 }
 
 export async function getAdminLedger(request: Request, response: Response): Promise<Response> {
   const businessAccountId = adminBusinessAccountId(request);
   if (!businessAccountId) return response.status(400).json({ success: false, message: "Business account is invalid." });
-  return response.status(200).json({ success: true, entries: (await ledgerEntries(businessAccountId)).map(serializeLedgerEntry) });
+  const result = await ledgerEntries(businessAccountId, listFilter(request));
+  return response.status(200).json({ success: true, entries: result.entries.map(serializeLedgerEntry), pagination: result.pagination });
 }
 
 export async function getClientLedger(request: Request, response: Response): Promise<Response> {
@@ -490,7 +524,8 @@ export async function getClientLedger(request: Request, response: Response): Pro
   if (!businessAccountId || !await financialMembership(request, businessAccountId)) {
     return response.status(403).json({ success: false, message: "Account statement access is not available for this account." });
   }
-  return response.status(200).json({ success: true, entries: (await ledgerEntries(businessAccountId)).map(serializeLedgerEntry) });
+  const result = await ledgerEntries(businessAccountId, listFilter(request));
+  return response.status(200).json({ success: true, entries: result.entries.map(serializeLedgerEntry), pagination: result.pagination });
 }
 
 function csvCell(value: string | number) {
@@ -499,7 +534,8 @@ function csvCell(value: string | number) {
 }
 
 async function exportLedger(response: Response, businessAccountId: mongoose.Types.ObjectId) {
-  const entries = await ledgerEntries(businessAccountId);
+  // The export is a full statement, not a page of it, so request the max cap.
+  const { entries } = await ledgerEntries(businessAccountId, { limit: 500 });
   const rows = [
     ["Date", "Type", "Reference", "Description", "Amount INR", "Available Credit INR", "Customer Advance INR"],
     ...entries.map((entry) => [

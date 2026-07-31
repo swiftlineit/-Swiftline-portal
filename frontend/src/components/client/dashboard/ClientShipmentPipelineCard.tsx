@@ -3,7 +3,7 @@
 import { FiPackage } from "react-icons/fi";
 import { StagePipelineChart } from "@/components/dashboard/DashboardCharts";
 import { EmptyState, SectionCard } from "@/components/dashboard/DashboardWidgets";
-import { buildCompletionMeters, buildShipmentPipeline, type ClientMeter } from "@/lib/clientDashboardOverview";
+import { buildShipmentPipeline, type ClientMeter } from "@/lib/clientDashboardOverview";
 import type { ClientShipmentSummary } from "@/lib/clientDashboard";
 
 export default function ClientShipmentPipelineCard({
@@ -14,7 +14,7 @@ export default function ClientShipmentPipelineCard({
   refreshing: boolean;
 }) {
   const pipeline = buildShipmentPipeline(summary);
-  const meters = buildCompletionMeters(summary);
+  // const meters = buildCompletionMeters(summary);
 
   return (
     <SectionCard
@@ -26,9 +26,9 @@ export default function ClientShipmentPipelineCard({
       {summary.totalShipments ? (
         <>
           <StagePipelineChart stages={pipeline} unitLabel="shipments" dimmed={refreshing} />
-          <div className="mt-5 grid gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2">
+          {/* <div className="mt-5 grid gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2">
             {meters.map((meter) => <Meter key={meter.key} meter={meter} />)}
-          </div>
+          </div> */}
         </>
       ) : (
         <EmptyState

@@ -6,7 +6,6 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiClock, FiFileText, FiMapPin, FiPackage, FiTruck } from "react-icons/fi";
 import {
   ClientDashboardLoading,
-  ClientDashboardShell,
   ClientShellUser
 } from "@/components/client/ClientDashboardShell";
 import ShipmentAmendmentPanel from "@/components/shipments/ShipmentAmendmentPanel";
@@ -24,6 +23,7 @@ import {
   previewClientShipmentAmendment
 } from "@/lib/clientDashboard";
 import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
+import { formatCsbType } from "@/lib/csbType";
 import { ShipmentAmendmentInput } from "@/lib/dpdLabels";
 import {
   getClientShipmentCancellation,
@@ -281,7 +281,6 @@ export default function ClientShipmentDetailsPage() {
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -290,7 +289,7 @@ export default function ClientShipmentDetailsPage() {
               Dashboard
             </Link>
             <h1 className="mt-3 text-2xl font-semibold text-slate-950">Shipment Details</h1>
-            <p className="mt-1 text-sm text-slate-500">Read-only shipment and label information.</p>
+            <p className="mt-1 text-sm text-slate-500">Shipment Details | Invoices | Labels | Amendments | Cancellations | Timeline</p>
           </div>
           {shipment?.dpdShipment ? (
             <StatusPill
@@ -314,7 +313,7 @@ export default function ClientShipmentDetailsPage() {
                 <p className="mt-1 text-sm text-amber-800">Do not submit it again. Your account allocation remains protected while carrier documents are finalized.</p>
               </section>
             ) : null}
-            <section className="border border-slate-200 bg-white">
+            <section className="border border-slate-200 bg-white rounded-2xl">
               <div className="grid gap-0 lg:grid-cols-3">
                 <DetailPanel title="Shipment" icon={<FiTruck aria-hidden="true" className="h-4 w-4" />}>
                   <DetailRow label="Shipment Reference" value={shipment.invoiceUpload?.shipmentReference} />
@@ -335,6 +334,7 @@ export default function ClientShipmentDetailsPage() {
                   <DetailRow label="Parcel Count" value={String(shipment.shipmentDraft.parcelCount || shipment.shipmentDraft.parcelList.length)} />
                   <DetailRow label="Total Weight" value={`${totalWeight.toFixed(2)} kg`} />
                   <DetailRow label="Service" value={shipment.shipmentDraft.serviceCode || formatLabel(shipment.shipmentDraft.serviceType)} />
+                  <DetailRow label="Shipment Type" value={formatCsbType(shipment.shipmentDraft.csbType)} />
                 </DetailPanel>
               </div>
             </section>
@@ -412,7 +412,7 @@ export default function ClientShipmentDetailsPage() {
             />
 
             <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="border border-slate-200 bg-white p-5">
+              <div className="border border-slate-200 bg-white p-5 rounded-2xl">
                 <div className="flex items-center gap-2 text-slate-500">
                   <FiMapPin aria-hidden="true" className="h-4 w-4" />
                   <h2 className="text-sm font-semibold uppercase tracking-wide">Destination</h2>
@@ -442,7 +442,7 @@ export default function ClientShipmentDetailsPage() {
               </div>
             </section>
 
-            <section className="border border-slate-200 bg-white">
+            <section className="border border-slate-200 bg-white rounded-2xl">
               <div className="border-b border-slate-200 px-5 py-4">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Parcel Details</h2>
               </div>
@@ -461,7 +461,24 @@ export default function ClientShipmentDetailsPage() {
                     {shipment.shipmentDraft.parcelList.map((parcel) => (
                       <tr key={parcel.sequence}>
                         <td className="px-5 py-3 font-semibold text-slate-950">#{parcel.sequence}</td>
-                        <td className="px-5 py-3 text-slate-700">{parcel.contentsDescription || "Not available"}</td>
+                        {/* Per-item goods with their HSN codes. Parcels booked
+                            before HSN capture show the description alone. */}
+                        <td className="px-5 py-3 text-slate-700">
+                          {parcel.items?.length ? (
+                            <ul className="space-y-1">
+                              {parcel.items.map((item, itemIndex) => (
+                                <li key={itemIndex}>
+                                  {item.description}
+                                  {item.hsnCode ? (
+                                    <span className="ml-2 text-xs text-slate-500">HSN {item.hsnCode}</span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            parcel.contentsDescription || "Not available"
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-slate-700">{parcel.weightKg} kg</td>
                         <td className="px-5 py-3 text-slate-700">
                           {[parcel.lengthCm, parcel.widthCm, parcel.heightCm].filter(Boolean).join(" x ") || "Not available"}
@@ -476,7 +493,6 @@ export default function ClientShipmentDetailsPage() {
           </>
         )}
       </div>
-    </ClientDashboardShell>
   );
 }
 
@@ -494,7 +510,7 @@ function StatusPill({ label, tone }: { label: string; tone: "success" | "neutral
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : "border-slate-200 bg-slate-50 text-slate-700";
 
-  return <span className={`border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${classes}`}>{label}</span>;
+  return <span className={`border px-3 py-1 text-xs rounded-4xl font-semibold uppercase tracking-wide ${classes}`}>{label}</span>;
 }
 
 function DetailPanel({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
@@ -513,7 +529,7 @@ function DetailRow({ label, value }: { label: string; value?: string | number | 
   return (
     <div>
       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-slate-800">{value || "Not available"}</dd>
+      <dd className="mt-1 wrap-break text-sm p-4 bg-slate-50 font-medium text-slate-800">{value || "Not available"}</dd>
     </div>
   );
 }

@@ -7,6 +7,8 @@ import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { ShipmentDraft, type ShipmentContentType, type ShipmentServiceType } from "../models/shipmentDraft.model.js";
 import { ShipmentQuote, type IShipmentQuote, type ShipmentQuoteSource, type ShipmentQuoteStatus } from "../models/shipmentQuote.model.js";
 import { ShipmentQuoteCounter } from "../models/shipmentQuoteCounter.model.js";
+import { normalizeCsbType, type CsbType } from "./csbType.service.js";
+import { normalizeQuoteDocuments, type QuoteDocumentCode } from "./quoteDocuments.service.js";
 import { createBlankShipmentDraft } from "./manualShipmentDraft.service.js";
 import { notifyActiveAdmins, notifyBusinessQuoteMembers } from "./portalNotification.service.js";
 import { calculateShipmentPricingEstimate, defaultShipmentGstRate } from "./shipmentPricing.service.js";
@@ -19,11 +21,16 @@ export type ShipmentQuoteRequestInput = {
   businessAccountId?: string;
   destinationCountryCode: string;
   destinationCountryName: string;
+  // What is inside the boxes. Labelled "Content Type" in the UI.
   shipmentType: ShipmentContentType;
+  // Customs route for the shipment; CSB-V adds a flat clearance charge.
+  csbType: CsbType;
   serviceType: ShipmentServiceType;
   goodsValueMinor: number;
-  contents: string;
-  parcels: Array<{ sequence: number; actualWeightKg: number; lengthCm: number; widthCm: number; heightCm: number }>;
+  // Export documents the customer already holds. Recorded on the request so the
+  // branch can see what is in place when pricing the quote.
+  availableDocuments: QuoteDocumentCode[];
+  parcels: Array<{ sequence: number; actualWeightKg: number; lengthCm: number; widthCm: number; heightCm: number; contents: string }>;
 };
 
 export type QuoteContext = {
@@ -118,6 +125,7 @@ export async function calculateQuoteEstimate(context: QuoteContext, input: Shipm
   const pricing = await calculateShipmentPricingEstimate({
     countryCode: input.destinationCountryCode,
     serviceType: input.serviceType,
+    csbType: input.csbType,
     parcels: input.parcels.map((parcel) => ({
       sequence: parcel.sequence,
       weightKg: parcel.actualWeightKg,
@@ -134,7 +142,10 @@ export async function calculateQuoteEstimate(context: QuoteContext, input: Shipm
     destinationCountryName: input.destinationCountryName,
     serviceType: input.serviceType,
     parcels: pricing.parcels.map((parcel) => ({ ...parcel, baseAmountMinor: minor(parcel.baseAmount) })),
-    freightMinor: minor(pricing.baseAmount),
+    freightMinor: minor(pricing.freightAmount),
+    // Flat CSB-V clearance charge for the whole shipment; zero on CSB-IV.
+    csbType: pricing.csbType,
+    csbClearanceMinor: minor(pricing.csbClearanceAmount),
     fuelSurchargeMinor: null,
     taxableAddOnsMinor: null,
     gstRate: pricing.gstRate,
@@ -151,9 +162,10 @@ function snapshot(context: QuoteContext, input: ShipmentQuoteRequestInput) {
     destinationCountryCode: input.destinationCountryCode,
     destinationCountryName: input.destinationCountryName,
     shipmentType: input.shipmentType,
+    csbType: normalizeCsbType(input.csbType),
     serviceType: input.serviceType,
     goodsValueMinor: input.goodsValueMinor,
-    contents: input.contents,
+    availableDocuments: normalizeQuoteDocuments(input.availableDocuments),
     parcels: input.parcels.map((parcel) => ({ ...parcel }))
   };
 }
@@ -325,11 +337,17 @@ export async function createShipmentDraftFromEstimate(input: {
   draft.consigneeEnteredAddress.countryCode = input.request.destinationCountryCode;
   draft.consigneeEnteredAddress.countryName = input.request.destinationCountryName;
   draft.serviceType = input.request.serviceType;
+  // Carried across so the booked shipment prices on the same CSB route the
+  // customer was quoted for.
+  draft.csbType = normalizeCsbType(input.request.csbType);
   draft.parcelList = input.request.parcels.map((parcel) => ({
     sequence: parcel.sequence, weightKg: parcel.actualWeightKg,
     lengthCm: parcel.lengthCm, widthCm: parcel.widthCm, heightCm: parcel.heightCm,
     shipmentContentType: input.request.shipmentType,
-    contentsDescription: input.request.contents,
+    // The quote captures a single contents label per box; the HSN code is
+    // collected per item later, on the shipment review form.
+    items: [{ description: parcel.contents, hsnCode: "" }],
+    contentsDescription: parcel.contents,
     shipmentReference1: "", shipmentReference2: ""
   }));
   draft.validationIssues = validateShipmentDraftFields(draft);
@@ -364,10 +382,15 @@ export async function convertShipmentQuoteToDraft(input: {
     draft.consigneeEnteredAddress.countryCode = request.destinationCountryCode;
     draft.consigneeEnteredAddress.countryName = request.destinationCountryName;
     draft.serviceType = request.serviceType;
+    // Preserved from the published quote so the draft prices identically.
+    draft.csbType = normalizeCsbType(request.csbType);
     draft.parcelList = request.parcels.map((parcel) => ({
       sequence: parcel.sequence, weightKg: parcel.actualWeightKg,
       lengthCm: parcel.lengthCm, widthCm: parcel.widthCm, heightCm: parcel.heightCm,
-      shipmentContentType: request.shipmentType, contentsDescription: request.contents,
+      shipmentContentType: request.shipmentType,
+      // HSN codes are collected per item on the shipment review form.
+      items: [{ description: parcel.contents, hsnCode: "" }],
+      contentsDescription: parcel.contents,
       shipmentReference1: input.quote.quoteNumber, shipmentReference2: ""
     }));
     draft.validationIssues = validateShipmentDraftFields(draft);

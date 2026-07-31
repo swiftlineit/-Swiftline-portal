@@ -29,6 +29,7 @@ import {
   type SealedSnapshot
 } from "./manifestDocument.service.js";
 import { readShipmentBookingSnapshot, type ShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
+import { dayBounds } from "../utils/dateRangeFilter.js";
 
 export class OperationsManifestServiceError extends Error {
   constructor(message: string, public readonly statusCode = 400) {
@@ -222,6 +223,7 @@ export async function listOperationsManifests(input: {
   limit: number;
   status?: string;
   branchId?: string;
+  date?: string;
   allowedBranchIds?: string[] | null;
 }) {
   const filter: Record<string, unknown> = {};
@@ -231,6 +233,8 @@ export async function listOperationsManifests(input: {
   } else if (input.allowedBranchIds !== null && input.allowedBranchIds !== undefined) {
     filter.branchId = { $in: input.allowedBranchIds };
   }
+  const bounds = dayBounds(input.date);
+  if (bounds) filter.createdAt = { $gte: bounds.start, $lte: bounds.end };
   const skip = (input.page - 1) * input.limit;
   const [items, total] = await Promise.all([
     OperationsManifest.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(input.limit).lean().exec(),

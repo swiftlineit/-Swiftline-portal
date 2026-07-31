@@ -164,6 +164,7 @@ async function calculateVerificationPricing(
     countryCode: draft.consigneeEnteredAddress.countryCode,
     serviceType: draft.serviceType,
     parcels,
+    csbType: draft.csbType,
     session
   });
   if (pricing.missingRate) {

@@ -13,6 +13,7 @@ import {
 } from "../models/shipmentCancellation.model.js";
 import { ShipmentCreditNote } from "../models/shipmentCreditNote.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
+import { dayBounds } from "../utils/dateRangeFilter.js";
 import {
   approveShipmentCancellation,
   getShipmentCancellation,
@@ -152,10 +153,22 @@ export async function requestAdminShipmentCancellation(request: Request, respons
 
 export async function listShipmentCancellations(request: Request, response: Response): Promise<Response> {
   const status = typeof request.query.status === "string" ? request.query.status.toUpperCase() : "";
-  const filter = shipmentCancellationStatusValues.includes(status as ShipmentCancellationStatus)
+  const filter: Record<string, unknown> = shipmentCancellationStatusValues.includes(status as ShipmentCancellationStatus)
     ? { status: status as ShipmentCancellationStatus }
     : {};
-  const cancellations = await ShipmentCancellation.find(filter).sort({ requestedAt: -1 }).limit(250).exec();
+  const bounds = dayBounds(typeof request.query.date === "string" ? request.query.date : undefined);
+  if (bounds) filter.requestedAt = { $gte: bounds.start, $lte: bounds.end };
+
+  const limit = Math.min(100, Math.max(1, Number.parseInt(String(request.query.limit ?? "50"), 10) || 50));
+  const requestedPage = Math.max(1, Number.parseInt(String(request.query.page ?? "1"), 10) || 1);
+  const total = await ShipmentCancellation.countDocuments(filter).exec();
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(requestedPage, totalPages);
+  const cancellations = await ShipmentCancellation.find(filter)
+    .sort({ requestedAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .exec();
   const draftIds = cancellations.map((item) => item.shipmentDraftId);
   const [drafts, shipments, branches, accounts] = await Promise.all([
     ShipmentDraft.find({ _id: { $in: draftIds } }).select("consigneeEnteredAddress businessAccountId branchId").lean().exec(),
@@ -187,7 +200,8 @@ export async function listShipmentCancellations(request: Request, response: Resp
           companyName: account.company.companyName
         } : null
       };
-    })
+    }),
+    pagination: { page, limit, total, totalPages }
   });
 }
 

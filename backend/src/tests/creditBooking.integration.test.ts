@@ -51,6 +51,10 @@ function bookingInput(businessAccountId: mongoose.Types.ObjectId, amountMinor: n
 function pricing(totalAmountMinor: number) {
   return {
     parcels: [],
+    // CSB-IV, so freight is the whole taxable base and no clearance charge applies.
+    freightAmount: totalAmountMinor / 118,
+    csbType: "CSB_IV" as const,
+    csbClearanceAmount: 0,
     baseAmount: totalAmountMinor / 118,
     gstAmount: totalAmountMinor / 100 - totalAmountMinor / 118,
     totalAmount: totalAmountMinor / 100,

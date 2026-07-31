@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FiDownload, FiPrinter, FiRefreshCw } from "react-icons/fi";
-import { ClientDashboardLoading, ClientDashboardShell } from "@/components/client/ClientDashboardShell";
+import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
 import {
   createClientOnlinePayment,
@@ -186,7 +186,6 @@ export default function ClientCreditStatementDetailPage() {
     : "";
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-6xl space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -261,6 +260,5 @@ export default function ClientCreditStatementDetailPage() {
           </>
         ) : null}
       </div>
-    </ClientDashboardShell>
   );
 }

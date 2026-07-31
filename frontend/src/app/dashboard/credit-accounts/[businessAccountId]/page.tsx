@@ -4,9 +4,11 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FiDownload, FiRefreshCw,FiChevronDown  } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import CreditSummaryCards from "@/components/credit/CreditSummaryCards";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
+import DateFilterInput from "@/components/ui/DateFilterInput";
+import Pagination from "@/components/ui/Pagination";
 import {
   closeAdminCycle,
   listAdminCreditPayments,
@@ -17,6 +19,7 @@ import {
   verifyAdminOfflinePayment,
   writeOffAdminStatement,
   type CreditLedgerEntry,
+  type CreditListPagination,
   type CreditPayment,
   type CreditStatement
 } from "@/lib/creditBilling";
@@ -48,6 +51,10 @@ function title(value: string) {
     .join(" ");
 }
 
+const emptyListPagination: CreditListPagination = { page: 1, limit: 20, total: 0, totalPages: 1 };
+const statementStatuses = ["ISSUED", "PARTIALLY_PAID", "PAID", "OVERDUE", "VOID"];
+const paymentStatuses = ["CREATED", "PENDING_VERIFICATION", "PROCESSING", "VERIFIED", "FAILED"];
+
 export default function AdminCreditAccountDetailPage() {
   const { user, loading: userLoading } = useAdminUser();
   const params = useParams<{ businessAccountId: string }>();
@@ -58,6 +65,19 @@ export default function AdminCreditAccountDetailPage() {
   const [statements, setStatements] = useState<CreditStatement[]>([]);
   const [payments, setPayments] = useState<CreditPayment[]>([]);
   const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
+
+  // Independent filter + pagination state for each of the three tables below.
+  const [statementStatus, setStatementStatus] = useState("");
+  const [statementDate, setStatementDate] = useState("");
+  const [statementPage, setStatementPage] = useState(1);
+  const [statementPagination, setStatementPagination] = useState(emptyListPagination);
+  const [paymentStatus, setPaymentStatus] = useState("");
+  const [paymentDate, setPaymentDate] = useState("");
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [paymentPagination, setPaymentPagination] = useState(emptyListPagination);
+  const [ledgerDate, setLedgerDate] = useState("");
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerPagination, setLedgerPagination] = useState(emptyListPagination);
 
   // "Record Offline Payment" form state.
   const [statementId, setStatementId] = useState("");
@@ -77,22 +97,25 @@ export default function AdminCreditAccountDetailPage() {
   const load = useCallback(async () => {
     const [accountResult, statementResult, paymentResult, ledgerResult] = await Promise.all([
       getAdminCreditAccount(accountId),
-      listAdminStatements(accountId),
-      listAdminCreditPayments(accountId),
-      listAdminLedger(accountId)
+      listAdminStatements(accountId, { status: statementStatus, date: statementDate, page: statementPage, limit: 10 }),
+      listAdminCreditPayments(accountId, { status: paymentStatus, date: paymentDate, page: paymentPage, limit: 10 }),
+      listAdminLedger(accountId, { date: ledgerDate, page: ledgerPage, limit: 20 })
     ]);
 
     setAccount(accountResult.creditAccount);
     setStatements(statementResult.statements);
+    setStatementPagination(statementResult.pagination);
     setPayments(paymentResult.payments);
+    setPaymentPagination(paymentResult.pagination);
     setLedger(ledgerResult.entries);
+    setLedgerPagination(ledgerResult.pagination);
 
     const unpaid = statementResult.statements.find((item) => item.outstandingAmountMinor > 0);
     setStatementId((current) => current || unpaid?.id || "");
     setAmountRupees((current) => current || (unpaid ? String(unpaid.outstandingAmountMinor / 100) : ""));
-  }, [accountId]);
+  }, [accountId, statementStatus, statementDate, statementPage, paymentStatus, paymentDate, paymentPage, ledgerDate, ledgerPage]);
 
-  // Initial load, deferred slightly so it doesn't block first paint.
+  // Initial load and any re-fetch triggered by a filter or page change below.
   useEffect(() => {
     if (!user) return;
 
@@ -234,9 +257,8 @@ export default function AdminCreditAccountDetailPage() {
   if (userLoading || !user) return <DashboardLoading />;
 
   return (
-    <DashboardShell user={user}>
-      <div className="mx-auto max-w-[1500px] space-y-5">
-        {/* Page header: account identity + lifecycle actions */}
+    <div className="mx-auto max-w-[1500px] space-y-5">
+      {/* Page header: account identity + lifecycle actions */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <Link href="/dashboard/credit-accounts" className="text-sm font-semibold text-blue-900">
@@ -323,9 +345,36 @@ export default function AdminCreditAccountDetailPage() {
 
         {/* Billing statements table */}
         <section className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
-          <div className="border-b border-slate-200 p-5">
-            <h2 className="font-semibold text-slate-950">Billing Statements</h2>
-            <p className="mt-1 text-sm text-slate-500">Finalized shipment invoices grouped by completed billing period.</p>
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 p-5">
+            <div>
+              <h2 className="font-semibold text-slate-950">Billing Statements</h2>
+              <p className="mt-1 text-sm text-slate-500">Finalized shipment invoices grouped by completed billing period.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <DateFilterInput
+                value={statementDate}
+                onChange={(value) => {
+                  setStatementDate(value);
+                  setStatementPage(1);
+                }}
+              />
+              <div className="relative">
+                <select
+                  value={statementStatus}
+                  onChange={(event) => {
+                    setStatementStatus(event.target.value);
+                    setStatementPage(1);
+                  }}
+                  className="h-10 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+                >
+                  <option value="">All Status</option>
+                  {statementStatuses.map((item) => (
+                    <option key={item} value={item}>{title(item)}</option>
+                  ))}
+                </select>
+                <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              </div>
+            </div>
           </div>
           <table className="min-w-full text-left text-sm">
             <thead className=" text-xs uppercase text-slate-900 bg-gray-100">
@@ -373,14 +422,49 @@ export default function AdminCreditAccountDetailPage() {
             </tbody>
           </table>
           {!statements.length && !loading ? <p className="p-8 text-center text-sm text-slate-500">No billing statements yet.</p> : null}
+          <div className="border-t border-slate-200 px-5 py-3">
+            <Pagination
+              page={statementPagination.page}
+              totalPages={statementPagination.totalPages}
+              total={statementPagination.total}
+              onPageChange={setStatementPage}
+            />
+          </div>
         </section>
 
         {/* Payment reconciliation table + offline payment form */}
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
-            <div className="border-b border-slate-200 p-5">
-              <h2 className="font-semibold text-slate-950">Payment Reconciliation</h2>
-              <p className="mt-1 text-sm text-slate-500">Verify submitted offline payments and review applied payments.</p>
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 p-5">
+              <div>
+                <h2 className="font-semibold text-slate-950">Payment Reconciliation</h2>
+                <p className="mt-1 text-sm text-slate-500">Verify submitted offline payments and review applied payments.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <DateFilterInput
+                  value={paymentDate}
+                  onChange={(value) => {
+                    setPaymentDate(value);
+                    setPaymentPage(1);
+                  }}
+                />
+                <div className="relative">
+                  <select
+                    value={paymentStatus}
+                    onChange={(event) => {
+                      setPaymentStatus(event.target.value);
+                      setPaymentPage(1);
+                    }}
+                    className="h-10 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+                  >
+                    <option value="">All Status</option>
+                    {paymentStatuses.map((item) => (
+                      <option key={item} value={item}>{title(item)}</option>
+                    ))}
+                  </select>
+                  <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+              </div>
             </div>
             <table className="min-w-full text- text-sm">
               <thead className="text-xs uppercase text-left text-slate-900 bg-gray-100">
@@ -422,6 +506,14 @@ export default function AdminCreditAccountDetailPage() {
               </tbody>
             </table>
             {!payments.length ? <p className="p-8 text-center text-sm text-slate-500">No statement payments recorded.</p> : null}
+            <div className="border-t border-slate-200 px-5 py-3">
+              <Pagination
+                page={paymentPagination.page}
+                totalPages={paymentPagination.totalPages}
+                total={paymentPagination.total}
+                onPageChange={setPaymentPage}
+              />
+            </div>
           </div>
 
          <form onSubmit={recordPayment} className="h-fit border border-slate-400 bg-white p-5 rounded-2xl">
@@ -516,9 +608,18 @@ export default function AdminCreditAccountDetailPage() {
 
         {/* Credit ledger table */}
         <section className="overflow-x-auto border border-slate-200 bg-white rounded-xl">
-          <div className="border-b border-slate-200 p-5">
-            <h2 className="font-semibold text-slate-950">Credit Ledger</h2>
-            <p className="mt-1 text-sm text-slate-500">Latest financial movements and resulting balances.</p>
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 p-5">
+            <div>
+              <h2 className="font-semibold text-slate-950">Credit Ledger</h2>
+              <p className="mt-1 text-sm text-slate-500">Latest financial movements and resulting balances.</p>
+            </div>
+            <DateFilterInput
+              value={ledgerDate}
+              onChange={(value) => {
+                setLedgerDate(value);
+                setLedgerPage(1);
+              }}
+            />
           </div>
           <table className="min-w-full text-left text-sm">
             <thead className=" text-xs uppercase text-slate-900 bg-gray-100">
@@ -532,7 +633,7 @@ export default function AdminCreditAccountDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {ledger.slice(0, 50).map((entry) => (
+              {ledger.map((entry) => (
                 <tr key={entry.id} className="border-t border-slate-100">
                   <td className="whitespace-nowrap px-4 py-4">{formatDashboardDateTime(entry.createdAt)}</td>
                   <td className="px-4 py-4">
@@ -547,8 +648,15 @@ export default function AdminCreditAccountDetailPage() {
               ))}
             </tbody>
           </table>
+          <div className="border-t border-slate-200 px-5 py-3">
+            <Pagination
+              page={ledgerPagination.page}
+              totalPages={ledgerPagination.totalPages}
+              total={ledgerPagination.total}
+              onPageChange={setLedgerPage}
+            />
+          </div>
         </section>
-      </div>
-    </DashboardShell>
+    </div>
   );
 }

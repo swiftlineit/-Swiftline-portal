@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FiAlertCircle, FiArrowLeft, FiCheckCircle, FiDownload, FiPrinter } from "react-icons/fi";
-import { ClientDashboardLoading, ClientDashboardShell } from "@/components/client/ClientDashboardShell";
+import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import {
   CreditAgreement,
   getClientCreditAgreement,
@@ -109,7 +109,6 @@ export default function ClientCreditAgreementPage() {
   const isSigned = agreement?.status === "SIGNED";
 
   return (
-    <ClientDashboardShell user={user}>
       <div className="mx-auto max-w-7xl space-y-4">
         <Link href="/client/credit" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-900 hover:text-blue-700"><FiArrowLeft /> Credit Account</Link>
 
@@ -164,6 +163,5 @@ export default function ClientCreditAgreementPage() {
           </aside>
         </div>
       </div>
-    </ClientDashboardShell>
   );
 }

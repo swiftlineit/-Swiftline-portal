@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { FiRefreshCw, FiSearch } from "react-icons/fi";
-import DashboardShell, { DashboardLoading } from "@/components/DashboardShell";
+import { DashboardLoading } from "@/components/DashboardShell";
 import TicketTable from "@/components/tickets/TicketTable";
 import {
   listSupportTickets,
@@ -50,7 +50,6 @@ export default function AdminTicketsPage() {
   }, [load, user]);
   if (loading || !user) return <DashboardLoading />;
   return (
-    <DashboardShell user={user}>
       <div className="mx-auto max-w-7xl">
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-slate-950">
@@ -82,7 +81,7 @@ export default function AdminTicketsPage() {
             }}
             className="h-10 border rounded-xl border-slate-300 bg-white px-3 pr-9 text-sm"
           >
-            <option value="">All statuses</option>
+            <option value="">All Status</option>
             {[
               "OPEN",
               "IN_PROGRESS",
@@ -162,6 +161,5 @@ export default function AdminTicketsPage() {
           </div>
         ) : null}
       </div>
-    </DashboardShell>
   );
 }
