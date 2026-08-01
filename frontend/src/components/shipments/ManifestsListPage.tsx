@@ -70,7 +70,7 @@ export default function ManifestsListPage({
   }
 
   return (
-    <div className="mx-auto max-w-[1500px]">
+    <div className="mx-auto max-w-375">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div>
           <h1 className="text-2xl font-semibold text-[#0D1282]">Manifests</h1>
