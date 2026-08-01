@@ -189,6 +189,12 @@ function validateParcel(parcel: ShipmentParcel, index: number, requireItemHsnCod
     issues.push(`${label}: shipment content type is required`);
   }
 
+  // The customer's own reference is required for new bookings; it is skipped on
+  // the legacy amendment path alongside HS codes, quantity and unit rate.
+  if (requireItemHsnCodes && !hasText(parcel.shipmentReference1)) {
+    issues.push(`${label}: reference is required`);
+  }
+
   return issues;
 }
 

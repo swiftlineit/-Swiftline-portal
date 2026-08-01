@@ -6,10 +6,11 @@ import { useParams } from "next/navigation";
 import { DashboardLoading } from "@/components/DashboardShell";
 import QuoteDetail from "@/components/quotes/QuoteDetail";
 import { getShipmentQuote, type ShipmentQuote } from "@/lib/shipmentQuotes";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 export default function AdminQuoteDetailPage() {
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const params = useParams<{ quoteId: string }>();
   const [quote, setQuote] = useState<ShipmentQuote | null>(null);
   const [error, setError] = useState("");

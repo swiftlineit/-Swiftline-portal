@@ -43,8 +43,8 @@ export function SectionCard({
             </span>
           ) : null}
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold tracking-tight ">{title}</h2>
-            {subtitle ? <p className="mt-0.5 text-xs leading-5 ">{subtitle}</p> : null}
+            <h2 className="truncate text-sm font-semibold tracking-tight text-slate-900">{title}</h2>
+            {subtitle ? <p className="mt-0.5 text-xs leading-5 text-slate-500">{subtitle}</p> : null}
           </div>
         </div>
         {action}
@@ -53,7 +53,7 @@ export function SectionCard({
       <div className={`min-w-0 flex-1 px-5 py-4 ${bodyClassName}`}>{children}</div>
 
       {footnote ? (
-        <p className="border-t border-white/10 px-5 py-2.5 text-[11px] leading-5 ">{footnote}</p>
+        <p className="border-t border-white/10 px-5 py-2.5 text-[11px] leading-5 text-slate-500">{footnote}</p>
       ) : null}
     </section>
   );
@@ -154,16 +154,16 @@ export function SeverityChip({ tone, children }: { tone: keyof typeof severitySt
   );
 }
 
-// Most call sites sit inside a dark panelSurface card, but a couple render
-// straight on the light page plane (e.g. the client dashboard's "no account
-// linked" state), so the tone is a prop rather than a fixed choice.
+// Cards sit on a light panelSurface now, so empty states default to the light
+// (dark-text) tone. The dark tone remains available for any genuinely dark
+// surface, but none currently exist.
 export function EmptyState({
   icon: Icon,
   title,
   message,
   actionLabel,
   actionHref,
-  surface = "dark"
+  surface = "light"
 }: {
   icon: IconType;
   title: string;

@@ -22,7 +22,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const creditAccountRouter = Router();
 
 creditAccountRouter.use(attachUser);
-creditAccountRouter.use(requireRole("admin"));
+creditAccountRouter.use(requireRole("admin", "finance"));
 creditAccountRouter.get("/", listAdminCreditAccounts);
 creditAccountRouter.get("/:businessAccountId/statements", listAdminStatements);
 creditAccountRouter.post("/:businessAccountId/close-cycle", closeAdminBillingCycle);

@@ -9,10 +9,11 @@ import {
   ticketCategories,
   type SupportTicket,
 } from "@/lib/supportTickets";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 export default function AdminTicketsPage() {
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");

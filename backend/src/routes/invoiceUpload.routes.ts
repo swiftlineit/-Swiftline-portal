@@ -10,7 +10,7 @@ import { invoiceUpload } from "../middleware/invoiceUpload.middleware.js";
 export const invoiceUploadRouter = Router();
 
 invoiceUploadRouter.use(attachUser);
-invoiceUploadRouter.use(requireRole("admin"));
+invoiceUploadRouter.use(requireRole("admin", "operations"));
 
 invoiceUploadRouter.post("/", invoiceUpload, createInvoiceUpload);
 invoiceUploadRouter.post("/:id/process", processInvoiceUpload);

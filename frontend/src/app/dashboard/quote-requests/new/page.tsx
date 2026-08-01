@@ -4,10 +4,11 @@ import { useEffect, useState } from "react";
 import { DashboardLoading } from "@/components/DashboardShell";
 import QuoteForm from "@/components/quotes/QuoteForm";
 import { getQuoteContext, type QuoteContext } from "@/lib/shipmentQuotes";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 export default function NewAdminQuotePage() {
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [contexts, setContexts] = useState<QuoteContext[]>([]);
   const [error, setError] = useState("");
 

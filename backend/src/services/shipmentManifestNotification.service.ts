@@ -1,9 +1,7 @@
+import mongoose from "mongoose";
 import { env } from "../config/env.js";
 import type { IShipmentManifest } from "../models/shipmentManifest.model.js";
-import { User } from "../models/user.model.js";
-import { sendManifestGeneratedEmail } from "./mail.service.js";
 import { notifyActiveAdmins } from "./portalNotification.service.js";
-import { buildShipmentManifestPdf } from "./shipmentManifestPdf.service.js";
 
 type ManifestNotificationInput = {
   manifest: IShipmentManifest;
@@ -19,8 +17,9 @@ function manifestHref(manifest: IShipmentManifest) {
 
 /**
  * Tells staff a client sealed a manifest: an in-portal notification plus an email
- * carrying the manifest PDF. Both are best effort — the manifest is already
- * committed by the time this runs, so a mail or PDF failure is logged, not thrown.
+ * carrying the manifest PDF, both raised by the same call. Best effort — the
+ * manifest is already committed by the time this runs, so a failure here is
+ * logged rather than thrown.
  */
 export async function notifyAdminsOfClientManifest(input: ManifestNotificationInput) {
   const { manifest } = input;
@@ -41,28 +40,26 @@ export async function notifyAdminsOfClientManifest(input: ManifestNotificationIn
         shipmentCount,
         totalPieces: manifest.totalPieces,
         totalWeightKg: manifest.totalWeightKg
+      },
+      email: {
+        payload: {
+          generatedBy: input.generatedBy,
+          generatedAt: manifest.generatedAt
+        },
+        attachmentRefs: [{
+          kind: "SHIPMENT_MANIFEST_PDF",
+          refId: manifest._id as mongoose.Types.ObjectId,
+          revision: null,
+          filename: `MANIFEST-${manifest.manifestNumber}.pdf`
+        }],
+        // Keeps the shared operations inbox on the distribution list; it has no
+        // portal user behind it and so resolves to no in-app notification.
+        extraRecipients: env.ADMIN_EMAIL
+          ? [{ userId: null, email: env.ADMIN_EMAIL, name: "Swiftline Operations" }]
+          : []
       }
     });
   } catch (error) {
     console.error("Manifest admin notification failed.", { manifestNumber: manifest.manifestNumber, error });
-  }
-
-  try {
-    const admins = await User.find({ role: "admin", userStatus: "active" }).select("email").lean().exec();
-    const recipients = [...admins.map((admin) => admin.email), env.ADMIN_EMAIL ?? ""];
-    await sendManifestGeneratedEmail({
-      to: recipients,
-      manifestNumber: manifest.manifestNumber,
-      businessAccountName: input.businessAccountName,
-      generatedBy: input.generatedBy,
-      generatedAt: manifest.generatedAt,
-      shipmentCount,
-      totalPieces: manifest.totalPieces,
-      totalWeightKg: manifest.totalWeightKg,
-      manifestUrl: `${env.CLIENT_URL}${manifestHref(manifest)}`,
-      pdf: await buildShipmentManifestPdf(manifest)
-    });
-  } catch (error) {
-    console.error("Manifest admin email failed.", { manifestNumber: manifest.manifestNumber, error });
   }
 }

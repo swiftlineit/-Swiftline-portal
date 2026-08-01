@@ -242,6 +242,7 @@ function getReviewIssues(addressForm: AddressForm, contactForm: ContactForm, par
       }
     }
     if (!parcel.shipmentContentType) issues.push(`${label}: shipment content type is required`);
+    if (!parcel.shipmentReference1.trim()) issues.push(`${label}: reference is required`);
     // Every declared item needs a description and a valid HSN code for customs.
     const items = parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim());
     if (!items.length) {
@@ -915,7 +916,7 @@ export default function ClientDpdDraftReviewPage() {
                   </div> : null}
 
                   {predictions.length ? (
-                    <div className="max-h-[340px] overflow-y-auto border border-slate-200 [scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400">
+                    <div className="max-h-85 overflow-y-auto border border-slate-200 scrollbar-thin [scrollbar-color:#94a3b8_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400">
                       {predictions.map((prediction) => (
                         <button
                           key={prediction.placeId}
@@ -1006,7 +1007,7 @@ export default function ClientDpdDraftReviewPage() {
                               </option>
                             ))}
                         </ShipmentSelectField>
-                        <ShipmentTextField label="Reference (Optional)" tooltip="Can be a company name or a unique identifier of the shipment" value={parcel.shipmentReference1} onChange={handleParcelChange(index, "shipmentReference1")} />
+                        <ShipmentTextField label="Reference" required tooltip="Can be a company name or a unique identifier of the shipment" value={parcel.shipmentReference1} onChange={handleParcelChange(index, "shipmentReference1")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "reference"])} revealError={submitAttempted} />
                         {/* One row per distinct good, each with its own HSN code. */}
                         <div className="md:col-span-4">
                           <ParcelItemsEditor
@@ -1033,7 +1034,7 @@ export default function ClientDpdDraftReviewPage() {
               </section>
             </div>
 
-            <aside className="space-y-4">
+            <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
               <section className="border border-slate-200 bg-white p-4 rounded-2xl">
                 <button
                   type="button"

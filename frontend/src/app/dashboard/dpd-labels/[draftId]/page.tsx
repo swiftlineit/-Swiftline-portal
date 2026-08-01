@@ -78,6 +78,7 @@ import {
 } from "@/lib/dpdLabels";
 import { calculateShipmentEstimate, formatMoney, getVolumetricFormula } from "@/lib/shipmentPricing";
 import InfoTooltip from "@/components/ui/InfoTooltip";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 type DpdShipmentResult = Awaited<ReturnType<typeof createDpdLabel>>;
@@ -212,6 +213,7 @@ function getReviewFormIssues(addressForm: AddressForm, draftCorrectionForm: Draf
       }
     }
     if (!parcel.shipmentContentType) issues.push(`${label}: shipment content type is required`);
+    if (!parcel.shipmentReference1.trim()) issues.push(`${label}: reference is required`);
     // Every declared item needs a description and a valid HSN code for customs.
     const items = parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim());
     if (!items.length) {
@@ -310,7 +312,7 @@ function shipmentHistoryToResult(item: DpdShipmentHistoryItem): DpdShipmentResul
 export default function DpdLabelDraftPage() {
   const params = useParams<{ draftId: string }>();
   const router = useRouter();
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [draft, setDraft] = useState<ShipmentDraft | null>(null);
   const [result, setResult] = useState<DpdShipmentResult | null>(null);
   const [rates, setRates] = useState<CountryRateCard[]>([]);
@@ -1195,7 +1197,7 @@ export default function DpdLabelDraftPage() {
                             </option>
                           ))}
                       </ShipmentSelectField>
-                      <ShipmentTextField label="Reference (Optional)" tooltip="Can be a company name or a unique identifier of the shipment" value={parcel.shipmentReference1} onChange={handleParcelFieldChange(index, "shipmentReference1")} />
+                      <ShipmentTextField label="Reference" required tooltip="Can be a company name or a unique identifier of the shipment" value={parcel.shipmentReference1} onChange={handleParcelFieldChange(index, "shipmentReference1")} error={getParcelFieldIssue(index, ["reference"])} revealError={submitAttempted} />
                       {/* One row per distinct good, each with its own HSN code. */}
                       <div className="md:col-span-4">
                         <ParcelItemsEditor

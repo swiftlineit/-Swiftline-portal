@@ -27,7 +27,7 @@ import { invoiceUploadRouter } from "./routes/invoiceUpload.routes.js";
 import { shipmentDraftRouter } from "./routes/shipmentDraft.routes.js";
 import { shipmentAmendmentRouter } from "./routes/shipmentAmendment.routes.js";
 import { razorpayWebhookRouter } from "./routes/razorpayWebhook.routes.js";
-import { taxInvoiceRouter } from "./routes/taxInvoice.routes.js";
+import { sesWebhookRouter } from "./routes/sesWebhook.routes.js";
 import { creditAccountRouter } from "./routes/creditAccount.routes.js";
 import { creditAgreementRouter } from "./routes/creditAgreement.routes.js";
 import { notificationRouter } from "./routes/notification.routes.js";
@@ -75,6 +75,8 @@ app.use(
 );
 
 app.use("/api/v1/webhooks/razorpay", express.raw({ type: "application/json", limit: "2mb" }), razorpayWebhookRouter);
+// SNS posts its envelope as text/plain, so this must parse ahead of express.json.
+app.use("/api/v1/webhooks/ses", express.text({ type: "*/*", limit: "1mb" }), sesWebhookRouter);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(cookieParser());
@@ -112,7 +114,6 @@ app.use("/api/v1/shipments", shipmentRouter);
 app.use("/api/v1/quote-requests", shipmentQuoteRouter);
 app.use("/api/v1/support-tickets", supportTicketRouter);
 app.use("/api/v1/operations-manifests", operationsManifestRouter);
-app.use("/api/v1/tax-invoices", taxInvoiceRouter);
 app.use("/api/v1/credit-accounts", creditAccountRouter);
 app.use("/api/v1/credit-agreements", creditAgreementRouter);
 app.use("/api/v1/notifications", notificationRouter);

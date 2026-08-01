@@ -140,7 +140,7 @@ export function ClientDashboardShell({
 </div>
             </div>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">{children}</div>
           <DeepLinkTarget />
         </main>
       </div>
@@ -150,7 +150,7 @@ export function ClientDashboardShell({
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Contact support on WhatsApp"
-        className="fixed bottom-5 right-5 z-[60] flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow transition hover:scale-105 hover:bg-[#1ea952]"
+        className="fixed bottom-5 right-5 z-60 flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow transition hover:scale-105 hover:bg-[#1ea952]"
       >
         <BsWhatsapp  className="h-5 w-5" />
         <span className="hidden sm:inline"> WhatsApp Support</span>

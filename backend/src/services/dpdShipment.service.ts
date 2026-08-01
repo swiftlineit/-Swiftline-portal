@@ -34,6 +34,7 @@ import {
   renderSwiftlineLabelPdf
 } from "./shipmentLabelPdf.service.js";
 import { ensureShipmentInvoiceForDraft } from "./shipmentInvoice.service.js";
+import { notifyShipmentBooked } from "./shipmentBookedNotification.service.js";
 import {
   allocateSwiftlineTrackingNumber,
   resolveStationCode
@@ -626,6 +627,16 @@ export async function createLabelForShipmentDraft(
       shipmentDraftId: lockedDraft._id as mongoose.Types.ObjectId,
       bookingAttemptId,
       bookingState: "BOOKED"
+    });
+
+    // Queues the client and operations emails with the invoice and labels
+    // attached. Swallows its own errors: the booking is complete and must not be
+    // undone or retried because a notification could not be raised.
+    await notifyShipmentBooked({
+      draft: lockedDraft,
+      dpdShipment,
+      shipmentInvoice,
+      bookedBy: userId
     });
 
     return {

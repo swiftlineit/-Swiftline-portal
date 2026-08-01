@@ -7,6 +7,25 @@ import { User } from "../models/user.model.js";
 import { getCreditBalances } from "./creditAccount.service.js";
 import { getCreditRestrictionState } from "./creditOverdue.service.js";
 import { formatIndiaDate } from "../utils/dateFormat.js";
+import type { IEmailAttachmentRef } from "../models/emailOutbox.model.js";
+import { enqueueEmails, resolveUserRecipients, type EmailRecipient } from "./email/enqueue.js";
+
+/**
+ * Optional per-event email shaping. Without it a notification still emails,
+ * rendered from its own title/message/href by the generic template. Supply this
+ * only when the email needs to say more than the in-app card does.
+ */
+type NotificationEmailOptions = {
+  templateKey?: string;
+  subject?: string;
+  payload?: Record<string, unknown>;
+  attachmentRefs?: IEmailAttachmentRef[];
+  /**
+   * Addresses with no portal user behind them — a shared operations inbox, for
+   * example. They receive the email but get no in-app notification.
+   */
+  extraRecipients?: EmailRecipient[];
+};
 
 type NotificationInput = {
   type: PortalNotificationType;
@@ -16,6 +35,7 @@ type NotificationInput = {
   idempotencyKey: string;
   businessAccountId?: mongoose.Types.ObjectId | null;
   metadata?: Record<string, unknown>;
+  email?: NotificationEmailOptions;
 };
 
 async function insertNotifications(
@@ -48,6 +68,40 @@ async function insertNotifications(
   }));
 
   await PortalNotification.bulkWrite(operations, { ordered: false, session });
+
+  // Email is a delivery channel on the notification, not a parallel system: one
+  // audience resolution feeds both. Every notify* helper therefore emails too,
+  // for whichever types the email catalogue enables.
+  try {
+    const recipients = [
+      ...await resolveUserRecipients(uniqueRecipients, session),
+      ...(input.email?.extraRecipients ?? [])
+    ];
+    await enqueueEmails({
+      notificationType: input.type,
+      idempotencyKey: input.idempotencyKey,
+      recipients,
+      businessAccountId: input.businessAccountId ?? null,
+      subject: input.email?.subject ?? input.title,
+      templateKey: input.email?.templateKey,
+      payload: {
+        title: input.title,
+        message: input.message,
+        href: input.href,
+        ...(input.metadata ?? {}),
+        ...(input.email?.payload ?? {})
+      },
+      attachmentRefs: input.email?.attachmentRefs ?? []
+    }, session);
+  } catch (error) {
+    // The in-app notification is already written and is the source of truth.
+    // A queueing failure must not roll back the caller's domain transaction.
+    console.error("Notification email could not be queued.", {
+      type: input.type,
+      idempotencyKey: input.idempotencyKey,
+      message: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
 }
 
 export async function notifyPortalUsers(
@@ -140,6 +194,17 @@ export async function notifyActiveAdmins(input: NotificationInput, session?: mon
     .lean()
     .exec();
   await insertNotifications(admins.map((admin) => admin._id), input, session);
+}
+
+// Shipment floor news reaches the people who work the shipments, not just the
+// admins: booking, label and exception events are operations' job first.
+export async function notifyOperationsStaff(input: NotificationInput, session?: mongoose.ClientSession) {
+  const staff = await User.find({ role: { $in: ["admin", "operations"] }, userStatus: "active" })
+    .select("_id")
+    .session(session ?? null)
+    .lean()
+    .exec();
+  await insertNotifications(staff.map((member) => member._id), input, session);
 }
 
 export function serializePortalNotification(notification: InstanceType<typeof PortalNotification>) {

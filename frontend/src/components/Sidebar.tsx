@@ -12,7 +12,6 @@ import {
   FiChevronRight,
   FiClipboard,
   FiCreditCard,
-  FiDollarSign,
   FiEdit3,
   FiFileText,
   FiGrid,
@@ -26,18 +25,29 @@ import {
 
 } from "react-icons/fi";
 import { BsCurrencyRupee } from "react-icons/bs";
+import {
+  ALL_STAFF_AREA,
+  FINANCE_AREA,
+  OPERATIONS_AREA,
+  SHIPMENT_VIEW_AREA,
+  STAFF_DIRECTORY_AREA,
+  withAdmin
+} from "@/lib/roles";
 export type SidebarNavItem = {
   label: string;
   href: string;
   icon: IconType;
 };
 
+// `roles` reuses the access bundles from `@/lib/roles`, which the matching page
+// also passes to `useAdminUser` — a link is never shown to a role the page would
+// turn away.
 const navigationItems = [
   {
     label: "Dashboard",
     href: "/dashboard",
     icon: FiGrid,
-    roles: ["admin", "operations", "accounts", "delivery", "hr"],
+    roles: withAdmin(ALL_STAFF_AREA),
   },
   {
     label: "Business Accounts",
@@ -49,7 +59,7 @@ const navigationItems = [
     label: "Credit Accounts",
     href: "/dashboard/credit-accounts",
     icon: FiCreditCard,
-    roles: ["admin"],
+    roles: withAdmin(FINANCE_AREA),
   },
   {
     label: "Branches",
@@ -67,67 +77,61 @@ const navigationItems = [
     label: "Shipments",
     href: "/dashboard/shipments",
     icon: FiPackage,
-    roles: ["admin"],
+    roles: withAdmin(SHIPMENT_VIEW_AREA),
   },
   {
     label: "Tracking",
     href: "/dashboard/tracking",
     icon: FiTruck,
-    roles: ["admin"],
+    roles: withAdmin(SHIPMENT_VIEW_AREA),
   },
   {
     label: "Shipment Manifests",
     href: "/dashboard/shipment-manifests",
     icon: FiFileText,
-    roles: ["admin"],
+    roles: withAdmin(OPERATIONS_AREA),
   },
   {
     label: "Operations Manifests",
     href: "/dashboard/operations-manifests",
     icon: FiArchive,
-    roles: ["admin", "operations"],
+    roles: withAdmin(OPERATIONS_AREA),
   },
   {
     label: "Amendments",
     href: "/dashboard/amendments",
     icon: FiEdit3,
-    roles: ["admin"],
+    roles: withAdmin(OPERATIONS_AREA),
   },
   {
     label: "Cancellations",
     href: "/dashboard/cancellations",
     icon: FiXCircle,
-    roles: ["admin"],
+    roles: withAdmin(OPERATIONS_AREA),
   },
   {
     label: "Quote Requests",
     href: "/dashboard/quote-requests",
     icon: FiClipboard,
-    roles: ["admin"],
+    roles: withAdmin(OPERATIONS_AREA),
   },
   {
     label: "Country Rate Card",
     href: "/dashboard/country-rate-card",
     icon: BsCurrencyRupee ,
-    roles: ["admin"],
-  },
-  {
-    label: "Tax Invoices",
-    href: "/dashboard/tax-invoices",
-    icon: FiFileText,
-    roles: ["admin"],
+    roles: withAdmin(FINANCE_AREA),
   },
   {
     label: "Users",
     href: "/dashboard/users",
     icon: FiUsers,
-    roles: ["admin"],
+    roles: withAdmin(STAFF_DIRECTORY_AREA),
   },
   {
     label: "Help Desk",
     href: "/dashboard/tickets",
     icon: FiHelpCircle,
-    roles: ["admin"],
+    roles: withAdmin(OPERATIONS_AREA),
   },
 ];
 
@@ -192,7 +196,7 @@ export default function Sidebar({
         </button>
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-6 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {visibleNavigationItems.map((item) => {
           const Icon = item.icon;
 

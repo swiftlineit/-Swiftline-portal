@@ -12,13 +12,14 @@ import {
   listShipmentCancellations,
   type ShipmentCancellation
 } from "@/lib/shipmentCancellations";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" });
 const emptyPagination = { page: 1, limit: 50, total: 0, totalPages: 1 };
 
 export default function CancellationsPage() {
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [status, setStatus] = useState("");
   const [date, setDate] = useState("");
   const [page, setPage] = useState(1);

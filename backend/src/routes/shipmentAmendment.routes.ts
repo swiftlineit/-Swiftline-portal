@@ -9,7 +9,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const shipmentAmendmentRouter = Router();
 
 shipmentAmendmentRouter.use(attachUser);
-shipmentAmendmentRouter.use(requireRole("admin"));
+shipmentAmendmentRouter.use(requireRole("admin", "operations"));
 
 shipmentAmendmentRouter.get("/", listShipmentAmendments);
 shipmentAmendmentRouter.post("/:id/approve", approveShipmentAmendment);

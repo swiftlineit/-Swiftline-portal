@@ -16,9 +16,9 @@ export default function WelcomeModal({ onClose }: { onClose: () => void }) {
             <h3 id="welcome-modal-title" className="text-xl font-semibold text-slate-900">
               Welcome to the Dashboard
             </h3>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Welcome! This is your dashboard. Click continue to proceed.
-            </p>
+           <p className="mt-2 text-sm leading-6 text-slate-600">
+  Welcome back! Everything you need to manage your logistics operations is available here.
+</p>
           </div>
 
           <button

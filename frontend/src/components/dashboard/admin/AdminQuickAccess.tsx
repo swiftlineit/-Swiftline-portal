@@ -2,7 +2,7 @@
 
 import type { ComponentType } from "react";
 import Link from "next/link";
-import { FiArchive, FiArrowRight, FiBriefcase, FiCreditCard, FiFileText, FiGrid, FiInbox, FiMapPin, FiPackage, FiTruck } from "react-icons/fi";
+import { FiArchive, FiArrowRight, FiBriefcase, FiCreditCard, FiGrid, FiInbox, FiMapPin, FiPackage, FiTruck } from "react-icons/fi";
 import { panelLift, panelSurface } from "@/components/dashboard/DashboardWidgets";
 import type { QuickLink } from "@/lib/dashboardOverview";
 
@@ -15,7 +15,6 @@ const quickLinkIcons: Record<string, IconType> = {
   "/dashboard/business-accounts": FiBriefcase,
   "/dashboard/credit-accounts": FiCreditCard,
   "/dashboard/branches": FiMapPin,
-  "/dashboard/tax-invoices": FiFileText,
   "/dashboard/tickets": FiInbox
 };
 

@@ -29,6 +29,7 @@ import {
 } from "@/lib/dpdLabels";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { downloadShipmentInvoicePdf, shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { RiMenuAddLine } from "react-icons/ri";
 
@@ -70,7 +71,7 @@ function getRouteLabel(item: DpdShipmentHistoryItem) {
 
 export default function DpdLabelsPage() {
   const router = useRouter();
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [accounts, setAccounts] = useState<BusinessAccount[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [businessAccountId, setBusinessAccountId] = useState("");

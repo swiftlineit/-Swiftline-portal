@@ -1,15 +1,27 @@
 import { Router } from "express";
 import { listUsers, createUser, listUserBranchOptions, unlockUser, updateUserAccess, updateUserStatus } from "../controllers/user.controller.js";
+import { createStaffUser, getStaffUser, updateStaffUser, viewStaffDocument } from "../controllers/staff.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
+import { staffDocumentUpload } from "../middleware/staffDocumentUpload.middleware.js";
 
 export const userRouter = Router();
 
 userRouter.use(attachUser);
-userRouter.use(requireRole("admin"));
+// HR owns the staff directory: it may read the list and add staff members. Every
+// route that changes an existing user's role, branches, or login status stays
+// admin-only, so HR cannot promote anyone (including itself) to admin.
+userRouter.use(requireRole("admin", "hr"));
+
+const requireAdmin = requireRole("admin");
 
 userRouter.get("/", listUsers);
+// Two static segments, so this cannot be captured by the "/:id" route below.
 userRouter.get("/branches/options", listUserBranchOptions);
-userRouter.post("/", createUser);
-userRouter.patch("/:id/unlock", unlockUser);
-userRouter.patch("/:id/status", updateUserStatus);
-userRouter.patch("/:id/access", updateUserAccess);
+userRouter.post("/staff", staffDocumentUpload, createStaffUser);
+userRouter.get("/:id/documents/:documentType", viewStaffDocument);
+userRouter.get("/:id", getStaffUser);
+userRouter.patch("/:id/staff", requireAdmin, staffDocumentUpload, updateStaffUser);
+userRouter.post("/", requireAdmin, createUser);
+userRouter.patch("/:id/unlock", requireAdmin, unlockUser);
+userRouter.patch("/:id/status", requireAdmin, updateUserStatus);
+userRouter.patch("/:id/access", requireAdmin, updateUserAccess);

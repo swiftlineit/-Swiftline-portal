@@ -15,6 +15,7 @@ import {
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatMoney, getVolumetricFormula } from "@/lib/shipmentPricing";
 import InfoTooltip from "@/components/ui/InfoTooltip";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { FiChevronDown } from "react-icons/fi";
 
@@ -313,7 +314,7 @@ function formatRateSlab(parcel?: ShipmentAmendmentPricingEstimate["parcels"][num
 }
 
 export default function AmendmentsPage() {
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [amendments, setAmendments] = useState<ShipmentAmendment[]>([]);
   const [pagination, setPagination] = useState(emptyPagination);
   const [status, setStatus] = useState("");

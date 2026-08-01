@@ -222,7 +222,15 @@ export default function ProfilePage() {
   const [editingUser, setEditingUser] = useState(false);
   const [editingAccountId, setEditingAccountId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [userForm, setUserForm] = useState({ firstName: "", lastName: "", phone: "" });
+  const [userForm, setUserForm] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    // Staff-only contact fields. Sent as undefined for users without a staff
+    // record, so the server leaves the sub-document alone.
+    address: { line1: "", city: "", state: "", postalCode: "" },
+    emergencyContact: { name: "", phone: "" }
+  });
   const [accountForm, setAccountForm] = useState<{ company: EditableCompany; contact: ProfileContact } | null>(null);
   const [passwordForm, setPasswordForm] = useState(emptyPassword);
   // Inline messages keyed by field, cleared whenever an edit starts.
@@ -251,7 +259,17 @@ export default function ProfilePage() {
     setUserForm({
       firstName: profile.user.firstName,
       lastName: profile.user.lastName,
-      phone: profile.user.phone
+      phone: profile.user.phone,
+      address: {
+        line1: profile.user.staffProfile?.address.line1 ?? "",
+        city: profile.user.staffProfile?.address.city ?? "",
+        state: profile.user.staffProfile?.address.state ?? "",
+        postalCode: profile.user.staffProfile?.address.postalCode ?? ""
+      },
+      emergencyContact: {
+        name: profile.user.staffProfile?.emergencyContact.name ?? "",
+        phone: profile.user.staffProfile?.emergencyContact.phone ?? ""
+      }
     });
     setFieldErrors({});
     setEditingUser(true);
@@ -283,7 +301,11 @@ export default function ProfilePage() {
 
     setBusy(true);
     try {
-      const data = await updateProfileDetails(userForm);
+      const data = await updateProfileDetails(
+        profile?.user.staffProfile
+          ? userForm
+          : { firstName: userForm.firstName, lastName: userForm.lastName, phone: userForm.phone }
+      );
       setProfile({ user: data.user, businessAccounts: data.businessAccounts });
       setEditingUser(false);
       toast.success(data.message);
@@ -387,6 +409,23 @@ export default function ProfilePage() {
               <ReadOnlyField label="Role" value={formatProfileRole(user.role)} locked />
               <ReadOnlyField label="Status" value={user.userStatus} locked />
             </div>
+
+            {/* Staff keep their own address and emergency contact current; every
+                other part of the staff record is maintained by HR or an admin. */}
+            {user.staffProfile ? (
+              <div className="space-y-5 border-t border-slate-100 pt-5">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Address and emergency contact</h3>
+                <div className={grid}>
+                  <InputField label="Address" maxLength={160} value={userForm.address.line1} onChange={(value) => setUserForm((current) => ({ ...current, address: { ...current.address, line1: value } }))} />
+                  <InputField label="City" maxLength={80} value={userForm.address.city} onChange={(value) => setUserForm((current) => ({ ...current, address: { ...current.address, city: value } }))} />
+                  <InputField label="State" maxLength={80} value={userForm.address.state} onChange={(value) => setUserForm((current) => ({ ...current, address: { ...current.address, state: value } }))} />
+                  <InputField label="PIN Code" maxLength={6} error={fieldErrors.postalCode} value={userForm.address.postalCode} onChange={(value) => setUserForm((current) => ({ ...current, address: { ...current.address, postalCode: value } }))} />
+                  <InputField label="Emergency Contact Name" maxLength={80} value={userForm.emergencyContact.name} onChange={(value) => setUserForm((current) => ({ ...current, emergencyContact: { ...current.emergencyContact, name: value } }))} />
+                  <InputField label="Emergency Contact Phone" maxLength={20} error={fieldErrors.emergencyContactPhone} value={userForm.emergencyContact.phone} onChange={(value) => setUserForm((current) => ({ ...current, emergencyContact: { ...current.emergencyContact, phone: value } }))} />
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex justify-end">
               <EditActions busy={busy} onCancel={() => setEditingUser(false)} />
             </div>
@@ -410,6 +449,40 @@ export default function ProfilePage() {
           </dl>
         )}
       </Section>
+
+      {user.staffProfile ? (
+        <>
+          <Section
+            icon={FiBriefcase}
+            title="Employment"
+            subtitle="Maintained by HR and administrators"
+          >
+            <dl className={grid}>
+              <ReadOnlyField label="Designation" value={user.staffProfile.designation} locked />
+              <ReadOnlyField label="Employee Code" value={user.staffProfile.employeeCode} locked />
+              <ReadOnlyField label="Date of Joining" value={formatDashboardDate(user.staffProfile.dateOfJoining)} locked />
+              <ReadOnlyField label="Date of Birth" value={formatDashboardDate(user.staffProfile.dateOfBirth)} locked />
+              <ReadOnlyField label="Aadhaar Number" value={user.staffProfile.aadhaarNumber} locked />
+              <ReadOnlyField label="PAN Number" value={user.staffProfile.panNumber} locked />
+            </dl>
+          </Section>
+
+          <Section
+            icon={FiMapPin}
+            title="Address & Emergency Contact"
+            subtitle="Yours to keep current - use Edit under My Details"
+          >
+            <dl className={grid}>
+              <ReadOnlyField label="Address" value={user.staffProfile.address.line1} />
+              <ReadOnlyField label="City" value={user.staffProfile.address.city} />
+              <ReadOnlyField label="State" value={user.staffProfile.address.state} />
+              <ReadOnlyField label="PIN Code" value={user.staffProfile.address.postalCode} />
+              <ReadOnlyField label="Emergency Contact Name" value={user.staffProfile.emergencyContact.name} />
+              <ReadOnlyField label="Emergency Contact Phone" value={user.staffProfile.emergencyContact.phone} />
+            </dl>
+          </Section>
+        </>
+      ) : null}
 
       {businessAccounts.map((account) => {
         const editing = editingAccountId === account.id;

@@ -10,6 +10,7 @@ import {
   type ManifestStatus,
   type OperationsManifest,
 } from "@/lib/operationsManifests";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 const statuses: ManifestStatus[] = [
@@ -22,7 +23,7 @@ const statuses: ManifestStatus[] = [
 ];
 
 export default function OperationsManifestListPage() {
-  const { user, loading } = useAdminUser(true);
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [items, setItems] = useState<OperationsManifest[]>([]);
   const [status, setStatus] = useState("");
   const [date, setDate] = useState("");

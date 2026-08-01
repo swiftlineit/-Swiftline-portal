@@ -6,7 +6,13 @@ import { listOperationsManifests, type ManifestStatus, type OperationsManifest }
 import { listShipmentCancellations } from "@/lib/shipmentCancellations";
 import { listShipmentQuotes } from "@/lib/shipmentQuotes";
 import { listSupportTickets, type SupportTicket } from "@/lib/supportTickets";
-import { listTaxInvoices } from "@/lib/taxInvoices";
+import {
+  FINANCE_AREA,
+  OPERATIONS_AREA,
+  SHIPMENT_VIEW_AREA,
+  STAFF_DIRECTORY_AREA,
+  withAdmin
+} from "@/lib/roles";
 import type { AuthenticatedUser } from "@/lib/useAdminUser";
 
 // The admin shipment history endpoint caps at 100 rows and reports no grand
@@ -24,26 +30,21 @@ export type DashboardRole = AuthenticatedUser["role"];
 // to every signed-in role — so asking for anything else would only collect 403s.
 export type DashboardCapability = "shipments" | "accounts" | "finance" | "approvals" | "manifests";
 
+// Operations is deliberately left off "shipments": that flag also selects the
+// summary form of the manifest panel, and operations wants the full lifecycle
+// breakdown it gets today. HR has no reporting scope, so it sees the scope card.
 const roleCapabilities: Record<string, DashboardCapability[]> = {
   admin: ["shipments", "accounts", "finance", "approvals", "manifests"],
-  operations: ["manifests"]
+  operations: ["manifests"],
+  finance: ["finance"],
+  delivery: ["shipments"]
 };
 
 export function getDashboardCapabilities(role?: string): DashboardCapability[] {
   return roleCapabilities[role ?? ""] ?? [];
 }
 
-export function describeRole(role?: string) {
-  const labels: Record<string, string> = {
-    admin: "Administrator",
-    operations: "Operations",
-    accounts: "Accounts",
-    delivery: "Delivery",
-    hr: "Human Resources",
-    client: "Client"
-  };
-  return labels[role ?? ""] ?? "Team member";
-}
+export { describeRole } from "@/lib/roles";
 
 // ── shaped results ────────────────────────────────────────────────────────────
 
@@ -130,7 +131,6 @@ export type FinanceOverview = {
   approvedLimitMinor: number;
   activeFacilities: number;
   restrictedFacilities: number;
-  draftTaxInvoices: number;
 };
 
 export type ApprovalOverview = {
@@ -479,14 +479,15 @@ export type QuickLink = { label: string; description: string; href: string; role
 // owns navigation; this is a shorter, described list, so the two are deliberately
 // separate.
 export const quickLinks: QuickLink[] = [
-  { label: "Shipments", description: "Upload invoices, book labels, and manage drafts", href: "/dashboard/dpd-labels", roles: ["admin"] },
-  { label: "Tracking", description: "Look up any Swiftline, carrier, or parcel number", href: "/dashboard/tracking", roles: ["admin"] },
-  { label: "Manifests", description: "Pack bags, scan parcels, seal, and dispatch", href: "/dashboard/operations-manifests", roles: ["admin", "operations"] },
+  { label: "Shipments", description: "Upload invoices, book labels, and manage drafts", href: "/dashboard/dpd-labels", roles: withAdmin(OPERATIONS_AREA) },
+  { label: "Tracking", description: "Look up any Swiftline, carrier, or parcel number", href: "/dashboard/tracking", roles: withAdmin(SHIPMENT_VIEW_AREA) },
+  { label: "Manifests", description: "Pack bags, scan parcels, seal, and dispatch", href: "/dashboard/operations-manifests", roles: withAdmin(OPERATIONS_AREA) },
   { label: "Business Accounts", description: "Onboard clients and review KYC", href: "/dashboard/business-accounts", roles: ["admin"] },
-  { label: "Credit Accounts", description: "Limits, statements, and payments", href: "/dashboard/credit-accounts", roles: ["admin"] },
+  { label: "Credit Accounts", description: "Limits, statements, and payments", href: "/dashboard/credit-accounts", roles: withAdmin(FINANCE_AREA) },
+  { label: "Country Rate Card", description: "Lane pricing and weight slabs", href: "/dashboard/country-rate-card", roles: withAdmin(FINANCE_AREA) },
   { label: "Branches", description: "Locations, codes, and assignments", href: "/dashboard/branches", roles: ["admin"] },
-  { label: "Tax Invoices", description: "Raise and finalise GST invoices", href: "/dashboard/tax-invoices", roles: ["admin"] },
-  { label: "Support Tickets", description: "Answer client queries", href: "/dashboard/tickets", roles: ["admin"] }
+  { label: "Staff", description: "Add internal staff and review the directory", href: "/dashboard/users", roles: withAdmin(STAFF_DIRECTORY_AREA) },
+  { label: "Support Tickets", description: "Answer client queries", href: "/dashboard/tickets", roles: withAdmin(OPERATIONS_AREA) }
 ];
 
 export function quickLinksForRole(role?: string) {
@@ -510,8 +511,7 @@ export async function loadDashboardOverview(role?: string): Promise<DashboardOve
     cancellations,
     quotes,
     tickets,
-    creditAccounts,
-    draftTaxInvoices
+    creditAccounts
   ] = await Promise.all([
     can("shipments") ? load("Shipments", () => listDpdShipments(SHIPMENT_WINDOW)) : null,
     can("accounts") ? load("Business accounts", () => listBusinessAccounts("", "", 1, 5)) : null,
@@ -523,13 +523,12 @@ export async function loadDashboardOverview(role?: string): Promise<DashboardOve
     can("approvals") ? load("Cancellations", () => listShipmentCancellations({ status: "REQUESTED" })) : null,
     can("approvals") ? load("Quote requests", () => listShipmentQuotes("admin", { status: "REQUESTED" })) : null,
     can("approvals") ? load("Support tickets", () => listSupportTickets("admin", { status: "OPEN", limit: 5 })) : null,
-    can("finance") ? load("Credit accounts", () => listAdminCreditAccounts()) : null,
-    can("finance") ? load("Tax invoices", () => listTaxInvoices("", "DRAFT")) : null
+    can("finance") ? load("Credit accounts", () => listAdminCreditAccounts()) : null
   ]);
 
   const unavailable = [
     shipmentHistory, accountsPage, activeAccounts, pendingAccounts, activeBranches,
-    manifests, amendments, cancellations, quotes, tickets, creditAccounts, draftTaxInvoices
+    manifests, amendments, cancellations, quotes, tickets, creditAccounts
   ]
     .map((result) => result?.failed)
     .filter((label): label is string => Boolean(label));
@@ -556,8 +555,7 @@ export async function loadDashboardOverview(role?: string): Promise<DashboardOve
       unbilledMinor: credit.reduce((sum, account) => sum + (account.unbilledCreditMinor ?? 0), 0),
       approvedLimitMinor: credit.reduce((sum, account) => sum + (account.approvedCreditLimitMinor ?? 0), 0),
       activeFacilities: credit.filter((account) => account.status === "ACTIVE").length,
-      restrictedFacilities: credit.filter((account) => account.restriction && account.restriction.level !== "NONE").length,
-      draftTaxInvoices: draftTaxInvoices?.value?.invoices.length ?? 0
+      restrictedFacilities: credit.filter((account) => account.restriction && account.restriction.level !== "NONE").length
     }
     : null;
 
@@ -705,17 +703,6 @@ function buildTasks(input: {
       count: finance.restrictedFacilities,
       href: "/dashboard/credit-accounts",
       tone: "critical"
-    });
-  }
-
-  if (finance?.draftTaxInvoices) {
-    tasks.push({
-      id: "tax-invoices",
-      label: "Draft tax invoices to finalise",
-      detail: "Finalise to lock the invoice number",
-      count: finance.draftTaxInvoices,
-      href: "/dashboard/tax-invoices",
-      tone: "info"
     });
   }
 

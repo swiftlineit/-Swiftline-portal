@@ -38,6 +38,7 @@ import {
   requestAdminShipmentCancellation,
   type ShipmentCancellation
 } from "@/lib/shipmentCancellations";
+import { SHIPMENT_VIEW_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 function formatDateTime(value?: string | null) {
@@ -168,7 +169,7 @@ function hasReachedWarehouse(history: DpdShipmentHistoryItem | null) {
 
 export default function AdminShipmentDetailsPage() {
   const params = useParams<{ draftId: string }>();
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(SHIPMENT_VIEW_AREA);
   const [draft, setDraft] = useState<ShipmentDraft | null>(null);
   const [history, setHistory] = useState<DpdShipmentHistoryItem | null>(null);
   const [cancellation, setCancellation] = useState<ShipmentCancellation | null>(null);

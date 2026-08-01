@@ -24,19 +24,24 @@ import { shipmentKycUpload } from "../middleware/shipmentKycUpload.middleware.js
 export const shipmentDraftRouter = Router();
 
 shipmentDraftRouter.use(attachUser);
-shipmentDraftRouter.use(requireRole("admin"));
+// Delivery may open a shipment to see what it is carrying, so the router-wide
+// floor admits it. Everything that edits a draft, books it, or reads consignor
+// KYC re-checks with `requireOperations` below.
+shipmentDraftRouter.use(requireRole("admin", "operations", "delivery"));
 
-shipmentDraftRouter.post("/manual", createManualShipmentDraft);
+const requireOperations = requireRole("admin", "operations");
+
+shipmentDraftRouter.post("/manual", requireOperations, createManualShipmentDraft);
 shipmentDraftRouter.get("/:id", getShipmentDraft);
-shipmentDraftRouter.patch("/:id", updateShipmentDraft);
-shipmentDraftRouter.post("/:id/amendments/preview", previewShipmentAmendment);
-shipmentDraftRouter.post("/:id/amendments", createAdminShipmentAmendment);
-shipmentDraftRouter.post("/:id/kyc-documents/:type", shipmentKycUpload, uploadShipmentKycDocument);
-shipmentDraftRouter.delete("/:id/kyc-documents/:type", deleteShipmentKycDocument);
-shipmentDraftRouter.get("/:id/kyc-documents/:type", downloadShipmentKycDocument);
-shipmentDraftRouter.post("/:id/parcels/:sequence/kyc-documents/:type", shipmentKycUpload, uploadShipmentParcelKycDocument);
-shipmentDraftRouter.delete("/:id/parcels/:sequence/kyc-documents/:type", deleteShipmentParcelKycDocument);
-shipmentDraftRouter.get("/:id/parcels/:sequence/kyc-documents/:type", downloadShipmentParcelKycDocument);
-shipmentDraftRouter.post("/:id/validate", validateShipmentDraft);
-shipmentDraftRouter.post("/:id/create-dpd-label", createDpdLabel);
-shipmentDraftRouter.post("/:id/create-swiftline-shipment", createSwiftlineShipment);
+shipmentDraftRouter.patch("/:id", requireOperations, updateShipmentDraft);
+shipmentDraftRouter.post("/:id/amendments/preview", requireOperations, previewShipmentAmendment);
+shipmentDraftRouter.post("/:id/amendments", requireOperations, createAdminShipmentAmendment);
+shipmentDraftRouter.post("/:id/kyc-documents/:type", requireOperations, shipmentKycUpload, uploadShipmentKycDocument);
+shipmentDraftRouter.delete("/:id/kyc-documents/:type", requireOperations, deleteShipmentKycDocument);
+shipmentDraftRouter.get("/:id/kyc-documents/:type", requireOperations, downloadShipmentKycDocument);
+shipmentDraftRouter.post("/:id/parcels/:sequence/kyc-documents/:type", requireOperations, shipmentKycUpload, uploadShipmentParcelKycDocument);
+shipmentDraftRouter.delete("/:id/parcels/:sequence/kyc-documents/:type", requireOperations, deleteShipmentParcelKycDocument);
+shipmentDraftRouter.get("/:id/parcels/:sequence/kyc-documents/:type", requireOperations, downloadShipmentParcelKycDocument);
+shipmentDraftRouter.post("/:id/validate", requireOperations, validateShipmentDraft);
+shipmentDraftRouter.post("/:id/create-dpd-label", requireOperations, createDpdLabel);
+shipmentDraftRouter.post("/:id/create-swiftline-shipment", requireOperations, createSwiftlineShipment);

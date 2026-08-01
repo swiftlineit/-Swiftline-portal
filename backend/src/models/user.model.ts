@@ -1,9 +1,60 @@
 import mongoose from "mongoose";
 
-export const roleValues = ["admin", "operations", "accounts", "delivery", "hr", "client"] as const;
-export const assignableRoleValues = ["operations", "accounts", "delivery", "hr", "client"] as const;
+export const roleValues = ["admin", "operations", "finance", "delivery", "hr", "client"] as const;
+export const assignableRoleValues = ["operations", "finance", "delivery", "hr", "client"] as const;
+// Internal roles below admin. Clients are onboarded through the business-account
+// flow instead, so `client` is not a staff role.
+export const staffRoleValues = ["operations", "finance", "delivery", "hr"] as const;
+// Every internal role a staff record may hold, admin included. The list stays
+// permissive on purpose: who may *grant* admin is enforced in the staff
+// controller, which only lets an existing admin do it.
+export const internalRoleValues = ["admin", ...staffRoleValues] as const;
 export type Role = (typeof roleValues)[number];
+export type StaffRole = (typeof staffRoleValues)[number];
+export type InternalRole = (typeof internalRoleValues)[number];
 export type UserStatus = "invited" | "active" | "suspended" | "disabled";
+
+// Role names the product has retired. Documents written before a rename still
+// carry the old value, so each stays a valid enum member and is translated on
+// write (the schema setter below) and on read (`normalizePortalRole`).
+export const legacyRoleReplacements: Record<string, Role> = {
+  staff: "operations",
+  accounts: "finance"
+};
+
+export const staffDocumentTypes = ["aadhaar", "pan", "other"] as const;
+export type StaffDocumentType = (typeof staffDocumentTypes)[number];
+
+export interface IStaffDocument {
+  type: StaffDocumentType;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  size: number;
+  path: string;
+  uploadedAt: Date;
+}
+
+export interface IStaffProfile {
+  employeeCode?: string;
+  designation?: string;
+  dateOfJoining: Date;
+  dateOfBirth?: Date | null;
+  aadhaarNumber: string;
+  panNumber?: string;
+  address?: {
+    line1?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+  };
+  emergencyContact?: {
+    name?: string;
+    phone?: string;
+  };
+  documents: Partial<Record<StaffDocumentType, IStaffDocument>>;
+  createdBy?: mongoose.Types.ObjectId | null;
+}
 
 export interface IUser extends mongoose.Document {
   firstName?: string;
@@ -25,7 +76,52 @@ export interface IUser extends mongoose.Document {
   lastLogin?: Date | null;
   passwordResetTokenHash?: string;
   passwordResetExpiresAt?: Date | null;
+  staffProfile?: IStaffProfile | null;
 }
+
+const staffDocumentSchema = new mongoose.Schema<IStaffDocument>(
+  {
+    type: { type: String, enum: staffDocumentTypes, required: true },
+    originalName: { type: String, required: true },
+    storedName: { type: String, required: true },
+    mimeType: { type: String, required: true },
+    size: { type: Number, required: true },
+    path: { type: String, required: true },
+    uploadedAt: { type: Date, default: Date.now }
+  },
+  { _id: false }
+);
+
+// Employment details captured when an admin adds an internal staff member. It is
+// absent on clients and on the accounts that predate the Add Staff form, so every
+// reader must treat it as optional.
+const staffProfileSchema = new mongoose.Schema<IStaffProfile>(
+  {
+    employeeCode: { type: String, trim: true, default: "" },
+    designation: { type: String, trim: true, default: "" },
+    dateOfJoining: { type: Date, required: true },
+    dateOfBirth: { type: Date, default: null },
+    aadhaarNumber: { type: String, required: true, trim: true },
+    panNumber: { type: String, trim: true, uppercase: true, default: "" },
+    address: {
+      line1: { type: String, trim: true, default: "" },
+      city: { type: String, trim: true, default: "" },
+      state: { type: String, trim: true, default: "" },
+      postalCode: { type: String, trim: true, default: "" }
+    },
+    emergencyContact: {
+      name: { type: String, trim: true, default: "" },
+      phone: { type: String, trim: true, default: "" }
+    },
+    documents: {
+      aadhaar: { type: staffDocumentSchema },
+      pan: { type: staffDocumentSchema },
+      other: { type: staffDocumentSchema }
+    },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
+  },
+  { _id: false }
+);
 
 const userSchema = new mongoose.Schema<IUser>(
   {
@@ -43,9 +139,9 @@ const userSchema = new mongoose.Schema<IUser>(
     name: { type: String, trim: true, default: "" },
     role: {
       type: String,
-      enum: [...roleValues, "staff"],
+      enum: [...roleValues, ...Object.keys(legacyRoleReplacements)],
       default: "client",
-      set: (value: string) => value === "staff" ? "operations" : value
+      set: (value: string) => legacyRoleReplacements[value] ?? value
     },
     assignedBranches: [{ type: mongoose.Schema.Types.ObjectId, ref: "Branch" }],
     userStatus: { type: String, enum: ["invited", "active", "suspended", "disabled"], default: "active", index: true },
@@ -57,7 +153,8 @@ const userSchema = new mongoose.Schema<IUser>(
     lockedUntil: { type: Date, default: null },
     lastLogin: { type: Date, default: null },
     passwordResetTokenHash: { type: String, default: "", select: false },
-    passwordResetExpiresAt: { type: Date, default: null, select: false }
+    passwordResetExpiresAt: { type: Date, default: null, select: false },
+    staffProfile: { type: staffProfileSchema, default: null }
   },
   { timestamps: true }
 );

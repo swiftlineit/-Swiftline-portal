@@ -287,7 +287,7 @@ async function refreshDuplicateInvoiceDraft(
     invoiceNumber: parsedInvoice.invoiceNumber,
     // The customer's own REFERENCE line is optional, but booking requires a
     // shipment reference, so the invoice number stands in when none is given.
-    shipmentReference: parsedInvoice.shipmentReference || parsedInvoice.invoiceNumber,
+    shipmentReference: parsedInvoice.shipmentReference?.trim() || parsedInvoice.invoiceNumber,
     extractedData: parsedInvoice,
     status: "PARSED",
     processingErrors: []

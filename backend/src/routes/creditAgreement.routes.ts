@@ -11,7 +11,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const creditAgreementRouter = Router();
 
 creditAgreementRouter.use(attachUser);
-creditAgreementRouter.use(requireRole("admin"));
+creditAgreementRouter.use(requireRole("admin", "finance"));
 creditAgreementRouter.get("/", listAdminCreditAgreements);
 creditAgreementRouter.post("/business-accounts/:businessAccountId/drafts", createAdminCreditAgreementDraft);
 creditAgreementRouter.post("/:agreementId/generate", generateAdminCreditAgreement);

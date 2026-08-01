@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, readJsonSafely, refreshAccessToken } from "@/lib/auth";
+import type { PortalRole } from "@/lib/roles";
 
 export type AuthenticatedUser = {
   name?: string;
   email: string;
-  role: "admin" | "operations" | "accounts" | "delivery" | "hr" | "client";
+  role: PortalRole;
   hasSeenWelcome?: boolean;
 };
 
@@ -17,14 +18,30 @@ function signInWithReturnPath() {
   return current === "/" ? "/" : `/?next=${encodeURIComponent(current)}`;
 }
 
-export function useAdminUser(allowInternalStaff = false) {
+// A shared empty default: a `[]` literal would be a new value on every render.
+const ADMIN_ONLY: readonly PortalRole[] = [];
+
+/**
+ * Confirms the signed-in user may be on this page, redirecting when not.
+ *
+ * Admin always passes. `additionalRoles` names the other roles allowed here —
+ * pass one of the area bundles from `@/lib/roles` so the page and the sidebar
+ * link that leads to it stay in agreement.
+ */
+export function useAdminUser(additionalRoles: readonly PortalRole[] = ADMIN_ONLY) {
   const router = useRouter();
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState("");
 
+  // The effect keys off a stable string rather than the array itself, so a caller
+  // passing an inline list cannot restart the identity check on every render.
+  const additionalRolesKey = [...additionalRoles].sort().join(",");
+
   useEffect(() => {
+    const allowedRoles = new Set<string>(["admin", ...additionalRolesKey.split(",").filter(Boolean)]);
+
     // "retry" covers throttling, server faults, and dropped connections. Those must
     // never end a signed-in shift, so only a rejected identity clears the session.
     async function attempt(): Promise<"done" | "signed-out" | "retry"> {
@@ -48,7 +65,7 @@ export function useAdminUser(allowInternalStaff = false) {
       const data = await readJsonSafely(response) as { success?: boolean; user?: AuthenticatedUser };
       if (!response.ok || !data.success || !data.user) return "retry";
 
-      if (data.user.role !== "admin" && !(allowInternalStaff && data.user.role === "operations")) {
+      if (!allowedRoles.has(data.user.role)) {
         setForbidden(true);
         router.replace("/dashboard");
         return "done";
@@ -82,7 +99,7 @@ export function useAdminUser(allowInternalStaff = false) {
     }
 
     void loadUser();
-  }, [allowInternalStaff, router]);
+  }, [additionalRolesKey, router]);
 
   return { user, loading, forbidden, error };
 }

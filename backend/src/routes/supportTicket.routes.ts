@@ -6,7 +6,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 
 export const supportTicketRouter = Router();
 supportTicketRouter.use(attachUser);
-supportTicketRouter.use(requireRole("admin"));
+supportTicketRouter.use(requireRole("admin", "operations"));
 supportTicketRouter.get("/context", getSupportTicketContext);
 supportTicketRouter.get("/", listAdminTickets);
 supportTicketRouter.get("/:ticketId", getAdminTicket);

@@ -1,0 +1,66 @@
+// Single source of truth for portal roles and who may reach each area.
+//
+// The bundles below are consumed twice: the sidebar filters its links with them
+// and each page passes the same constant to `useAdminUser`. Sharing the constant
+// is what keeps a link from appearing for a role the page itself would bounce.
+// They mirror the `requireRole` guards on the matching backend routers — the
+// server remains the authority, this only decides what the UI offers.
+
+export const portalRoles = ["admin", "operations", "finance", "delivery", "hr", "client"] as const;
+export type PortalRole = (typeof portalRoles)[number];
+
+/** Internal roles below admin. Clients are onboarded elsewhere. */
+export const staffRoles = ["operations", "finance", "delivery", "hr"] as const;
+export type StaffRole = (typeof staffRoles)[number];
+
+/**
+ * Every internal role a staff record may hold. Only an admin may grant `admin`,
+ * so the forms offer this list to admins and `staffRoles` to HR — the server
+ * enforces the same rule regardless of what the UI sends.
+ */
+export const internalRoles = ["admin", ...staffRoles] as const;
+export type InternalRole = (typeof internalRoles)[number];
+
+/** Admins reach every branch, so they carry no branch assignment. */
+export function isBranchScopedRole(role: string) {
+  return role !== "admin" && role !== "client";
+}
+
+export const roleLabels: Record<PortalRole, string> = {
+  admin: "Administrator",
+  operations: "Operations",
+  finance: "Finance",
+  delivery: "Delivery",
+  hr: "Human Resources",
+  client: "Client"
+};
+
+export function describeRole(role?: string) {
+  return roleLabels[role as PortalRole] ?? "Team member";
+}
+
+// ── access bundles ────────────────────────────────────────────────────────────
+// Each lists the roles allowed *in addition to* admin, which reaches everything.
+
+/** Booking, manifests, amendments, cancellations, quotes, and tickets. */
+export const OPERATIONS_AREA: readonly PortalRole[] = ["operations"];
+
+/** Credit, rate cards, and tax invoices. */
+export const FINANCE_AREA: readonly PortalRole[] = ["finance"];
+
+/** Shipment lists, shipment detail, and tracking. */
+export const SHIPMENT_VIEW_AREA: readonly PortalRole[] = ["operations", "delivery"];
+
+/** The GST invoice on a shipment: operational context plus the money side. */
+export const SHIPMENT_BILLING_AREA: readonly PortalRole[] = ["operations", "finance"];
+
+/** The staff directory. HR may read it and add staff; only admin edits access. */
+export const STAFF_DIRECTORY_AREA: readonly PortalRole[] = ["hr"];
+
+/** Pages every internal role owns, such as their own profile. */
+export const ALL_STAFF_AREA: readonly PortalRole[] = staffRoles;
+
+/** Sidebar/nav helper: the bundle plus admin, which sees everything. */
+export function withAdmin(area: readonly PortalRole[]): string[] {
+  return ["admin", ...area];
+}

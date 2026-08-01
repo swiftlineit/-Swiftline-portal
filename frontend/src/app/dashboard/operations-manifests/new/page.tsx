@@ -13,6 +13,7 @@ import {
   listManifestBranches,
   type ManifestHeader,
 } from "@/lib/operationsManifests";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 // Almost every flight clears through the UK agent, so the TO block starts filled in
@@ -166,7 +167,7 @@ function CountrySelect({
 }
 
 export default function NewOperationsManifestPage() {
-  const { user, loading } = useAdminUser(true);
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const router = useRouter();
   const [branches, setBranches] = useState<
     Array<{ id: string; name: string; code: string }>

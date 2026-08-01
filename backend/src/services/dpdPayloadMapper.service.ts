@@ -24,7 +24,7 @@ export interface DpdShipmentPayload {
   };
   references: {
     invoiceNumber: string;
-    shipmentReference: string;
+    shipmentReference?: string;
     reference1?: string;
     reference2?: string;
   };
@@ -63,6 +63,9 @@ export function mapShipmentDraftToDpdPayload(
 ): DpdShipmentPayload {
   const address = getConsigneeAddress(draft);
   const firstParcel = draft.parcelList[0];
+  // The customer's reference entered on the shipment form stands in for the DPD
+  // shipment reference when the invoice upload carries none.
+  const customerReference = firstParcel?.shipmentReference1?.trim() || undefined;
 
   return {
     mode: "printed",
@@ -77,8 +80,8 @@ export function mapShipmentDraftToDpdPayload(
     },
     references: {
       invoiceNumber: invoiceUpload.invoiceNumber,
-      shipmentReference: invoiceUpload.shipmentReference,
-      reference1: firstParcel?.shipmentReference1 || undefined,
+      shipmentReference: (invoiceUpload.shipmentReference ?? "").trim() || customerReference || undefined,
+      reference1: customerReference,
       reference2: undefined
     },
     consignee: {

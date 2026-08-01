@@ -257,11 +257,12 @@ describe("operations manifest safeguards", () => {
     assert.equal(purgeIndex?.[1].expireAfterSeconds, 0);
   });
 
-  it("maps legacy staff to operations and scopes operations users to assigned branches", () => {
+  it("maps legacy roles to current ones and scopes operations users to assigned branches", () => {
     const firstBranch = new mongoose.Types.ObjectId();
     const secondBranch = new mongoose.Types.ObjectId();
     assert.equal(normalizePortalRole("staff"), "operations");
-    assert.equal(normalizePortalRole("accounts"), "accounts");
+    assert.equal(normalizePortalRole("accounts"), "finance");
+    assert.equal(normalizePortalRole("finance"), "finance");
     assert.deepEqual(operationsBranchIds({
       user: { _id: new mongoose.Types.ObjectId(), role: "operations", assignedBranches: [firstBranch, secondBranch] }
     } as never), [String(firstBranch), String(secondBranch)]);

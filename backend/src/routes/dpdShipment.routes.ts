@@ -30,24 +30,33 @@ export const dpdShipmentRouter = Router();
 dpdShipmentRouter.get("/:id/label-file", downloadDpdLabelWithToken);
 
 dpdShipmentRouter.use(attachUser);
-dpdShipmentRouter.use(requireRole("admin"));
+// Three tiers share this router. The floor covers the read-only tracking views
+// every internal role needs; operational actions and the money-side charge
+// verification each re-check with a narrower guard below.
+dpdShipmentRouter.use(requireRole("admin", "operations", "finance", "delivery"));
+
+const requireOperations = requireRole("admin", "operations");
+const requireFinance = requireRole("admin", "finance");
+// The GST invoice is a billing document, so delivery is left out of it. The
+// customs invoice below stays on the floor: it declares the goods being carried.
+const requireBilling = requireRole("admin", "operations", "finance");
 
 dpdShipmentRouter.get("/", listDpdShipments);
-dpdShipmentRouter.get("/drafts/:draftId/invoice", getShipmentInvoice);
-dpdShipmentRouter.get("/drafts/:draftId/invoice/pdf", downloadShipmentInvoicePdf);
+dpdShipmentRouter.get("/drafts/:draftId/invoice", requireBilling, getShipmentInvoice);
+dpdShipmentRouter.get("/drafts/:draftId/invoice/pdf", requireBilling, downloadShipmentInvoicePdf);
 // Customs ("shipment") invoice: the goods declaration, separate from the GST invoice above.
 dpdShipmentRouter.get("/drafts/:draftId/shipment-invoice", getCustomsInvoice);
 dpdShipmentRouter.get("/drafts/:draftId/shipment-invoice/pdf", downloadCustomsInvoicePdf);
 dpdShipmentRouter.get("/drafts/:draftId/shipment-invoice/xlsx", downloadCustomsInvoiceWorkbook);
-dpdShipmentRouter.get("/drafts/:draftId/audit", listDpdShipmentAudit);
-dpdShipmentRouter.post("/drafts/:draftId/reset-development-booking", resetDevelopmentShipmentBooking);
+dpdShipmentRouter.get("/drafts/:draftId/audit", requireOperations, listDpdShipmentAudit);
+dpdShipmentRouter.post("/drafts/:draftId/reset-development-booking", requireOperations, resetDevelopmentShipmentBooking);
 dpdShipmentRouter.get("/:id", getDpdShipment);
-dpdShipmentRouter.get("/:id/charge-verification", getShipmentChargeVerification);
-dpdShipmentRouter.post("/:id/charge-verification/preview", previewFinalShipmentCharge);
-dpdShipmentRouter.post("/:id/charge-verification/finalize", finalizeFinalShipmentCharge);
-dpdShipmentRouter.post("/:id/hold", holdDpdShipment);
-dpdShipmentRouter.post("/:id/release", releaseDpdShipment);
-dpdShipmentRouter.post("/:id/reconcile-documents", reconcileDpdShipmentDocuments);
-dpdShipmentRouter.post("/:id/status-events", updateDpdShipmentOperationalStatus);
-dpdShipmentRouter.get("/:id/label-access", createDpdLabelAccessUrl);
-dpdShipmentRouter.get("/:id/label", downloadDpdLabel);
+dpdShipmentRouter.get("/:id/charge-verification", requireFinance, getShipmentChargeVerification);
+dpdShipmentRouter.post("/:id/charge-verification/preview", requireFinance, previewFinalShipmentCharge);
+dpdShipmentRouter.post("/:id/charge-verification/finalize", requireFinance, finalizeFinalShipmentCharge);
+dpdShipmentRouter.post("/:id/hold", requireOperations, holdDpdShipment);
+dpdShipmentRouter.post("/:id/release", requireOperations, releaseDpdShipment);
+dpdShipmentRouter.post("/:id/reconcile-documents", requireOperations, reconcileDpdShipmentDocuments);
+dpdShipmentRouter.post("/:id/status-events", requireOperations, updateDpdShipmentOperationalStatus);
+dpdShipmentRouter.get("/:id/label-access", requireOperations, createDpdLabelAccessUrl);
+dpdShipmentRouter.get("/:id/label", requireOperations, downloadDpdLabel);

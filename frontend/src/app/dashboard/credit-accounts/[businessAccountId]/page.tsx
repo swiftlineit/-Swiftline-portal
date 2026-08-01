@@ -31,6 +31,7 @@ import {
   type CreditAccount
 } from "@/lib/creditAccounts";
 import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
+import { FINANCE_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 // Formats a minor-unit (paise) integer as an INR currency string.
@@ -56,7 +57,7 @@ const statementStatuses = ["ISSUED", "PARTIALLY_PAID", "PAID", "OVERDUE", "VOID"
 const paymentStatuses = ["CREATED", "PENDING_VERIFICATION", "PROCESSING", "VERIFIED", "FAILED"];
 
 export default function AdminCreditAccountDetailPage() {
-  const { user, loading: userLoading } = useAdminUser();
+  const { user, loading: userLoading } = useAdminUser(FINANCE_AREA);
   const params = useParams<{ businessAccountId: string }>();
   const accountId = params.businessAccountId;
 

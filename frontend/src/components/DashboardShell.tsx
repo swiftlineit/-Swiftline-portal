@@ -89,7 +89,7 @@ export default function DashboardShell({
               </div>
             </div>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {children}
           </div>
           <DeepLinkTarget />

@@ -23,6 +23,7 @@ import {
   listAdminCreditAccounts,
   rejectCreditAccount
 } from "@/lib/creditAccounts";
+import { FINANCE_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 const creditAccountStatuses: CreditAccountStatus[] = [
@@ -38,7 +39,7 @@ const creditAccountStatuses: CreditAccountStatus[] = [
 ];
 
 export default function AdminCreditAccountsPage() {
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(FINANCE_AREA);
   const [accounts, setAccounts] = useState<CreditAccount[]>([]);
   const [agreements, setAgreements] = useState<CreditAgreement[]>([]);
   const [status, setStatus] = useState<CreditAccountStatus | "">("");

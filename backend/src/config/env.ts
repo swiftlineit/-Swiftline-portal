@@ -33,6 +33,28 @@ const environmentSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   MAIL_FROM: z.string().optional(),
+  // Selects the outbound transport. "ses" in production, "smtp" for a local
+  // Mailhog, "noop" for tests and for any environment that must never send.
+  MAIL_DRIVER: z.enum(["ses", "smtp", "noop"]).default("smtp"),
+  MAIL_REPLY_TO: z.string().optional(),
+  // Outside production the dispatcher refuses to deliver to anything not listed
+  // here. Comma-separated addresses or "@domain.com" suffixes. Enforced in code
+  // rather than by configuration discipline: staging must not be one typo away
+  // from emailing real clients.
+  MAIL_SAFELIST: z.string().optional(),
+  AWS_REGION: z.string().default("ap-south-1"),
+  // Omit both on EC2/ECS so the SDK falls back to the instance role.
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  SES_CONFIGURATION_SET: z.string().optional(),
+  // Shared secret appended to the SNS subscription URL as ?token=. SNS cannot
+  // send custom headers, so the query string is the only channel available.
+  SES_WEBHOOK_SECRET: z.string().optional(),
+  // SES caps a message at 10 MB after base64 encoding. Staying under it means
+  // budgeting for the ~33% encoding overhead on the raw attachment bytes.
+  EMAIL_MAX_ATTACHMENT_BYTES: z.coerce.number().int().positive().default(7 * 1024 * 1024),
+  EMAIL_DRAIN_BATCH_SIZE: z.coerce.number().int().positive().default(25),
+  EMAIL_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   IDEAL_POSTCODES_API_KEY: z.string().optional(),
   GOOGLE_PLACES_API_KEY: z.string().optional(),
   GOOGLE_ADDRESS_VALIDATION_API_KEY: z.string().optional(),

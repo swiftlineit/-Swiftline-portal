@@ -8,7 +8,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 
 export const shipmentQuoteRouter = Router();
 shipmentQuoteRouter.use(attachUser);
-shipmentQuoteRouter.use(requireRole("admin"));
+shipmentQuoteRouter.use(requireRole("admin", "operations"));
 shipmentQuoteRouter.get("/context", getAdminQuoteContext);
 shipmentQuoteRouter.post("/estimate", estimateAdminShipmentQuote);
 shipmentQuoteRouter.post("/draft", createAdminQuoteShipmentDraft);

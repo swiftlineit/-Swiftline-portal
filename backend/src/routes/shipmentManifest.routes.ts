@@ -12,7 +12,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const shipmentManifestRouter = Router();
 
 shipmentManifestRouter.use(attachUser);
-shipmentManifestRouter.use(requireRole("admin"));
+shipmentManifestRouter.use(requireRole("admin", "operations"));
 shipmentManifestRouter.get("/", listAdminShipmentManifests);
 shipmentManifestRouter.get("/drafts/:draftId/context", getAdminShipmentManifestContext);
 shipmentManifestRouter.post("/", createAdminShipmentManifest);

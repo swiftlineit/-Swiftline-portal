@@ -40,6 +40,7 @@ import {
   type OperationsConsignment,
   type OperationsScanSession,
 } from "@/lib/operationsManifests";
+import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { IoMdSend } from "react-icons/io";
 
@@ -60,7 +61,7 @@ type PendingReason = {
 
 export default function OperationsManifestWorkspace() {
   const { manifestId } = useParams<{ manifestId: string }>();
-  const { user, loading } = useAdminUser(true);
+  const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [data, setData] = useState<ManifestDetail | null>(null);
   const [busy, setBusy] = useState(true);
   const [activeBagId, setActiveBagId] = useState("");

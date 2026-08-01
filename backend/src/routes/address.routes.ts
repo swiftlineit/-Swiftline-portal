@@ -12,7 +12,8 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const addressRouter = Router();
 
 addressRouter.use(attachUser);
-addressRouter.use(requireRole("admin"));
+// Address lookup backs the shipment booking forms operations works in.
+addressRouter.use(requireRole("admin", "operations"));
 
 addressRouter.post("/autocomplete", autocompleteAddress);
 addressRouter.post("/consignor/autocomplete", autocompleteConsignorAddress);

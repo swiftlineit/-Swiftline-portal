@@ -5,5 +5,6 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const shipmentRouter = Router();
 
 shipmentRouter.use(attachUser);
-shipmentRouter.use(requireRole("admin"));
+// Delivery works the booked-shipment list alongside operations.
+shipmentRouter.use(requireRole("admin", "operations", "delivery"));
 shipmentRouter.get("/", listAdminBookedShipments);

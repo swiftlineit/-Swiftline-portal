@@ -1,10 +1,11 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import mongoose from "mongoose";
 import { Branch } from "../models/branch.model.js";
 import { assignableRoleValues, roleValues, User } from "../models/user.model.js";
 import { hashPassword } from "../services/auth.service.js";
+import { validateAssignedBranches } from "../utils/assignedBranches.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
+import { serializeStaffProfile } from "./staff.controller.js";
 
 const createUserSchema = z.object({
   email: z.string().email(),
@@ -16,7 +17,7 @@ const createUserSchema = z.object({
 
 export async function listUsers(_req: Request, res: Response): Promise<Response> {
   const users = await User.find()
-    .select("email role name isVerified userStatus hasSeenWelcome lockedUntil assignedBranches")
+    .select("email role name firstName lastName phone isVerified userStatus hasSeenWelcome lockedUntil assignedBranches staffProfile")
     .populate("assignedBranches", "name code status")
     .lean()
     .exec();
@@ -25,7 +26,10 @@ export async function listUsers(_req: Request, res: Response): Promise<Response>
     users: users.map((user) => ({
       ...user,
       role: normalizePortalRole(user.role),
-      assignedBranches: user.assignedBranches ?? []
+      assignedBranches: user.assignedBranches ?? [],
+      // Serialized rather than passed through: it masks the Aadhaar number and
+      // drops the on-disk document paths.
+      staffProfile: serializeStaffProfile(user.staffProfile)
     }))
   });
 }
@@ -79,6 +83,17 @@ export async function updateUserStatus(req: Request, res: Response): Promise<Res
   const user = await User.findById(id).exec();
   if (!user) return res.status(404).json({ success: false });
 
+  // Suspending or disabling your own login could lock the portal's last
+  // administrator out, so the change is refused on your own record.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const requesterId = (req as any).user?._id;
+  if (requesterId && String(requesterId) === String(user._id) && parsed.data.status !== user.userStatus) {
+    return res.status(400).json({
+      success: false,
+      message: "You cannot change your own login status. Ask another administrator to do it."
+    });
+  }
+
   user.userStatus = parsed.data.status;
   if (parsed.data.status === "active") {
     user.lockedUntil = null;
@@ -107,14 +122,6 @@ const accessSchema = z.object({
   role: z.enum(roleValues),
   assignedBranches: z.array(z.string()).default([])
 });
-
-async function validateAssignedBranches(values: string[]) {
-  const uniqueValues = [...new Set(values)];
-  if (uniqueValues.some((value) => !mongoose.Types.ObjectId.isValid(value))) return null;
-  if (!uniqueValues.length) return [];
-  const branches = await Branch.find({ _id: { $in: uniqueValues }, status: "ACTIVE" }).select("_id").lean().exec();
-  return branches.length === uniqueValues.length ? branches.map((branch) => branch._id) : null;
-}
 
 export async function listUserBranchOptions(_req: Request, res: Response): Promise<Response> {
   const branches = await Branch.find({ status: "ACTIVE" }).select("name code").sort({ name: 1 }).lean().exec();

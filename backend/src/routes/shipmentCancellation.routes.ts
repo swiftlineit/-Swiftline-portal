@@ -13,7 +13,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const shipmentCancellationRouter = Router();
 
 shipmentCancellationRouter.use(attachUser);
-shipmentCancellationRouter.use(requireRole("admin"));
+shipmentCancellationRouter.use(requireRole("admin", "operations"));
 
 shipmentCancellationRouter.get("/", listShipmentCancellations);
 shipmentCancellationRouter.get("/drafts/:draftId", getAdminShipmentCancellation);

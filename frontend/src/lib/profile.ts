@@ -10,6 +10,7 @@ import {
   getPostalCodeValidationMessage,
   isValidPostalCodeForCountry
 } from "@/lib/businessAccountPostalCodes";
+import type { StaffProfile } from "@/lib/users";
 
 export type ProfileBranch = { id: string; name: string; code: string };
 
@@ -27,6 +28,8 @@ export type ProfileUser = {
   lastLogin: string | null;
   createdAt: string | null;
   assignedBranches: ProfileBranch[];
+  /** Present for internal staff; null for clients and pre-staff-form accounts. */
+  staffProfile: StaffProfile | null;
 };
 
 export type ProfileCompany = {
@@ -111,7 +114,18 @@ export function getProfile() {
   return request<{ success: true } & Profile>("/api/v1/profile");
 }
 
-export function updateProfileDetails(input: { firstName: string; lastName: string; phone: string }) {
+/**
+ * `address` and `emergencyContact` are only written when the signed-in user has
+ * a staff record; the server ignores them otherwise. Job details, role, branches
+ * and documents are HR/admin-owned and are not accepted here.
+ */
+export function updateProfileDetails(input: {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  address?: { line1: string; city: string; state: string; postalCode: string };
+  emergencyContact?: { name: string; phone: string };
+}) {
   return request<{ success: true; message: string } & Profile>("/api/v1/profile", {
     method: "PATCH",
     body: JSON.stringify(input)
@@ -153,7 +167,13 @@ export const contactTitles = ["mr.", "mrs.", "ms.", "dr.", "prof."];
  *
  * KEEP IN SYNC with portal/backend/src/controllers/profile.controller.ts
  */
-export function validateProfileUser(input: { firstName: string; lastName: string; phone: string }) {
+export function validateProfileUser(input: {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  address?: { postalCode: string };
+  emergencyContact?: { phone: string };
+}) {
   const errors: Record<string, string> = {};
   if (input.firstName.trim().length < 2) errors.firstName = "First name must be at least 2 characters.";
   if (input.firstName.trim().length > 22) errors.firstName = "First name must be 22 characters or fewer.";
@@ -161,6 +181,15 @@ export function validateProfileUser(input: { firstName: string; lastName: string
   if (input.phone.trim() && !/^\+?\d{6,15}$/.test(input.phone.trim())) {
     errors.phone = "Enter a valid phone number, 6 to 15 digits.";
   }
+
+  const postalCode = input.address?.postalCode.trim();
+  if (postalCode && !/^\d{6}$/.test(postalCode)) errors.postalCode = "Enter a valid 6-digit PIN code.";
+
+  const emergencyPhone = input.emergencyContact?.phone.trim();
+  if (emergencyPhone && !/^\+?\d{6,15}$/.test(emergencyPhone)) {
+    errors.emergencyContactPhone = "Enter a valid phone number, 6 to 15 digits.";
+  }
+
   return errors;
 }
 

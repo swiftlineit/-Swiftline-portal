@@ -24,6 +24,7 @@ import {
   listCountryRateCards,
   saveCountryRateCard,
 } from "@/lib/countryRateCards";
+import { FINANCE_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 type FormState = {
@@ -68,7 +69,7 @@ function toPayload(form: FormState): CountryRateCardInput {
 }
 
 export default function CountryRateCardPage() {
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(FINANCE_AREA);
   const [rates, setRates] = useState<CountryRateCard[]>([]);
   const [form, setForm] = useState<FormState>(defaultForm);
   const [editingRateId, setEditingRateId] = useState("");

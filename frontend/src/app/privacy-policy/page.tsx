@@ -69,7 +69,7 @@ function Section({ id, children }: { id: SectionId; children: ReactNode }) {
 
 function SubHeading({ children }: { children: ReactNode }) {
   return (
-    <h3 className="pt-2 text-xs font-semibold uppercase tracking-[0.1em] text-[#0D1282]">{children}</h3>
+    <h3 className="pt-2 text-xs font-semibold uppercase tracking-widest text-[#0D1282]">{children}</h3>
   );
 }
 
@@ -89,7 +89,7 @@ function List({ items }: { items: ReactNode[] }) {
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#0D1282]">{title}</p>
+      <p className="text-xs font-semibold uppercase tracking-widest text-[#0D1282]">{title}</p>
       <div className="mt-3 space-y-3 text-sm leading-7 text-slate-600">{children}</div>
     </div>
   );
@@ -102,11 +102,11 @@ function DetailRow({ label, value, href }: { label: string; value: string; href?
         {label}
       </span>
       {href ? (
-        <a href={href} className="break-words text-sm text-[#0D1282] hover:underline">
+        <a href={href} className="wrap-break-word text-sm text-[#0D1282] hover:underline">
           {value}
         </a>
       ) : (
-        <span className="break-words text-sm text-slate-700">{value}</span>
+        <span className="wrap-break-words text-sm text-slate-700">{value}</span>
       )}
     </div>
   );
@@ -769,7 +769,7 @@ export default function PrivacyPolicyPage() {
             <Section id="contact-details">
               <div className="grid gap-4">
                 <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#0D1282]">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-[#0D1282]">
                     Swiftline Cargo Ltd&reg;
                   </p>
                   <div className="mt-3">
@@ -787,7 +787,7 @@ export default function PrivacyPolicyPage() {
                 </div>
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#0D1282]">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-[#0D1282]">
                     Swiftline Cargo &amp; Express Logistics Private Limited
                   </p>
                   <div className="mt-3">

@@ -5,8 +5,9 @@ import { AuditLog } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccount, type IBusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
-import { User } from "../models/user.model.js";
+import { type IStaffProfile, User } from "../models/user.model.js";
 import { comparePassword, hashPassword } from "../services/auth.service.js";
+import { serializeStaffProfile } from "./staff.controller.js";
 import {
   emailValidationMessage,
   getPostalCodeValidationMessage,
@@ -25,7 +26,24 @@ const accountEditorRoles = new Set(["account_owner", "account_admin"]);
 const userDetailsSchema = z.object({
   firstName: z.string().trim().min(2, "First name must be at least 2 characters.").max(22),
   lastName: z.string().trim().max(22).default(""),
-  phone: z.string().trim().max(20).regex(/^$|^\+?\d{6,15}$/, "Enter a valid phone number, 6 to 15 digits.").default("")
+  phone: z.string().trim().max(20).regex(/^$|^\+?\d{6,15}$/, "Enter a valid phone number, 6 to 15 digits.").default(""),
+  // Contact details a staff member maintains for themselves. Everything else on
+  // the staff record (designation, dates, role, branches, documents, Aadhaar) is
+  // HR/admin-owned and is only editable from the staff detail page.
+  address: z.object({
+    line1: z.string().trim().max(160).default(""),
+    city: z.string().trim().max(80).default(""),
+    state: z.string().trim().max(80).default(""),
+    postalCode: z.string().trim().max(20)
+      .refine((value) => !value || /^[0-9]{6}$/.test(value), "Enter a valid 6-digit PIN code.")
+      .default("")
+  }).optional(),
+  emergencyContact: z.object({
+    name: z.string().trim().max(80).default(""),
+    phone: z.string().trim().max(20)
+      .refine((value) => !value || /^\+?\d{6,15}$/.test(value), "Enter a valid emergency contact number.")
+      .default("")
+  }).optional()
 });
 
 /**
@@ -104,6 +122,7 @@ type ProfileUser = {
   lastLogin?: Date | null;
   createdAt?: Date | null;
   assignedBranches?: mongoose.Types.ObjectId[];
+  staffProfile?: IStaffProfile | null;
 };
 
 function serializeBranches(branches: BranchSummary[]) {
@@ -160,7 +179,7 @@ function serializeAccount(account: IBusinessAccount, membershipRole: string, joi
 
 async function loadProfile(userId: mongoose.Types.ObjectId) {
   const user = await User.findById(userId)
-    .select("firstName lastName name email phone role userStatus isVerified emailVerifiedAt lastLogin assignedBranches createdAt")
+    .select("firstName lastName name email phone role userStatus isVerified emailVerifiedAt lastLogin assignedBranches createdAt staffProfile")
     .lean<ProfileUser>()
     .exec();
   if (!user) return null;
@@ -208,7 +227,9 @@ async function loadProfile(userId: mongoose.Types.ObjectId) {
       emailVerifiedAt: user.emailVerifiedAt ?? null,
       lastLogin: user.lastLogin ?? null,
       createdAt: user.createdAt ?? null,
-      assignedBranches: serializeBranches(resolveBranches(user.assignedBranches ?? []))
+      assignedBranches: serializeBranches(resolveBranches(user.assignedBranches ?? [])),
+      // Null for clients and for internal accounts created before the staff form.
+      staffProfile: serializeStaffProfile(user.staffProfile)
     },
     businessAccounts: memberships.flatMap((membership) => {
       const account = accountById.get(String(membership.businessAccount));
@@ -237,11 +258,27 @@ export async function updateProfileDetails(request: Request, response: Response)
   const parsed = userDetailsSchema.safeParse(request.body);
   if (!parsed.success) return response.status(400).json({ success: false, message: firstIssue(parsed.error) });
 
-  const { firstName, lastName, phone } = parsed.data;
+  const { firstName, lastName, phone, address, emergencyContact } = parsed.data;
+  // `name` is the display name the portal chrome shows, so it tracks the parts.
+  const changes: Record<string, unknown> = {
+    firstName,
+    lastName,
+    phone,
+    name: [firstName, lastName].filter(Boolean).join(" ")
+  };
+
+  // The staff sub-document only exists for internal staff, and a positional
+  // "staffProfile.address" write would create a partial record on users without
+  // one. Both keys are therefore only set when a staff record is already there.
+  const existing = await User.findById(userId).select("staffProfile").lean().exec();
+  if (existing?.staffProfile) {
+    if (address) changes["staffProfile.address"] = address;
+    if (emergencyContact) changes["staffProfile.emergencyContact"] = emergencyContact;
+  }
+
   const updated = await User.findByIdAndUpdate(
     userId,
-    // `name` is the display name the portal chrome shows, so it tracks the parts.
-    { $set: { firstName, lastName, phone, name: [firstName, lastName].filter(Boolean).join(" ") } },
+    { $set: changes },
     { returnDocument: "after", runValidators: true }
   ).exec();
   if (!updated) return response.status(404).json({ success: false, message: "Profile not found." });
@@ -252,7 +289,7 @@ export async function updateProfileDetails(request: Request, response: Response)
     entityId: userId,
     performedBy: userId,
     performedAt: new Date(),
-    metadata: { fields: ["firstName", "lastName", "phone"] }
+    metadata: { fields: Object.keys(changes) }
   });
 
   const profile = await loadProfile(userId);

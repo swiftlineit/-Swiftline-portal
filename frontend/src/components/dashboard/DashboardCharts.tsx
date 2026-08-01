@@ -159,9 +159,9 @@ export function DailyTrendChart({
     return (
       <div>
         <TableToggle asTable onToggle={() => setAsTable(false)} />
-        <div className="mt-3 max-h-[13.5rem] overflow-y-auto rounded-xl ring-1 ring-white/15">
+        <div className="mt-3 max-h-[13.5rem] overflow-y-auto rounded-xl ring-1 ring-slate-200">
           <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-[#0D1282] text-[11px] uppercase tracking-wide ">
+            <thead className="sticky top-0 bg-[#0D1282] text-[11px] uppercase tracking-wide text-white">
               <tr>
                 <th scope="col" className="px-3 py-2 font-semibold">Date</th>
                 <th scope="col" className="px-3 py-2 text-right font-semibold">{unitLabel}</th>
@@ -190,7 +190,7 @@ export function DailyTrendChart({
           {scale.ticks.map((tick) => (
             <span
               key={tick}
-              className="absolute right-0 -translate-y-1/2 text-[10px] leading-none tabular-nums text-blue-200"
+              className="absolute right-0 -translate-y-1/2 text-[10px] leading-none tabular-nums text-slate-500"
               style={{ top: `${((scale.top - tick) / scale.top) * 100}%` }}
             >
               {tick}
@@ -203,7 +203,7 @@ export function DailyTrendChart({
             {scale.gridTicks.map((tick) => (
               <span
                 key={tick}
-                className="absolute inset-x-0 h-px bg-white/10"
+                className="absolute inset-x-0 h-px bg-slate-200/80"
                 style={{ top: `${((scale.top - tick) / scale.top) * 100}%` }}
               />
             ))}
@@ -219,11 +219,11 @@ export function DailyTrendChart({
                 onPointerLeave={() => setActiveIndex(null)}
                 onFocus={() => setActiveIndex(index)}
                 onBlur={() => setActiveIndex(null)}
-                className="relative flex h-full min-w-0 flex-1 items-end justify-center rounded-t-md outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                className="relative flex h-full min-w-0 flex-1 items-end justify-center rounded-t-md outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40"
               >
                 {index === peakIndex ? (
                   <span
-                    className="absolute inset-x-0 text-center text-[10px] font-semibold leading-none tabular-nums text-slate-100"
+                    className="absolute inset-x-0 text-center text-[10px] font-semibold leading-none tabular-nums text-slate-700"
                     style={{ bottom: `calc(${(point.count / scale.top) * 100}% + 5px)` }}
                   >
                     {point.count}
@@ -242,14 +242,14 @@ export function DailyTrendChart({
             ))}
           </div>
 
-          <div aria-hidden="true" className="h-px w-full bg-white/25" />
+          <div aria-hidden="true" className="h-px w-full bg-slate-300" />
 
           <div className="mt-1.5 flex gap-1">
             {points.map((point, index) => (
               <span
                 key={point.key}
                 className={`min-w-0 flex-1 text-center text-[10px] tabular-nums ${
-                  index === points.length - 1 ? "font-semibold text-white" : "text-blue-200"
+                  index === points.length - 1 ? "font-semibold text-slate-700" : "text-slate-600"
                 }`}
               >
                 {point.label}
@@ -267,8 +267,8 @@ export function DailyTrendChart({
               }}
             >
               <div className="min-w-[8.5rem] rounded-xl bg-slate-900 px-3 py-2 shadow-lg shadow-black/40 ring-1 ring-white/10">
-                <p className="text-sm font-semibold leading-5 ">{activePoint.count} {unitLabel}</p>
-                <p className="mt-0.5 text-[11px] leading-4 ">{activePoint.caption}</p>
+                <p className="text-sm font-semibold leading-5 text-white">{activePoint.count} {unitLabel}</p>
+                <p className="mt-0.5 text-[11px] leading-4 text-slate-300">{activePoint.caption}</p>
               </div>
             </div>
           ) : null}
