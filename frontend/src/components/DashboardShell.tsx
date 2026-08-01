@@ -27,7 +27,7 @@ export default function DashboardShell({
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#EEEDED]/60">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#EEEDED]/60">
       <div className="h-1 shrink-0 bg-[#0D1282]" />
       <div className="flex min-h-0 flex-1">
         <Sidebar userRole={user.role} />
@@ -104,8 +104,10 @@ export function DashboardLoading({
 }: {
   message?: string;
 }) {
+  // Fills the shell's content area. `min-h-screen` here was a full viewport
+  // inside an area already shorter than one, which overflowed the scroller.
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#EEEDED]/60">
+    <div className="flex h-full items-center justify-center bg-[#EEEDED]/60">
       <p className="text-sm font-semibold text-[#0D1282]">{message}</p>
     </div>
   );

@@ -123,7 +123,18 @@ function ActivateClientAccountContent() {
                   onChange={(event) => setTermsAccepted(event.target.checked)}
                   className="mt-1 h-4 w-4"
                 />
-                <span>I accept Swiftline terms and conditions.</span>
+                <span>
+                  I accept Swiftline terms and conditions.{" "}
+                  <Link
+                    href="/privacy-policy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-900 hover:underline"
+                  >
+                    Read here
+                  </Link>
+                  .
+                </span>
               </label>
               <button
                 type="submit"

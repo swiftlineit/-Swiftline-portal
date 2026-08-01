@@ -80,7 +80,7 @@ export function ReviewStep({
     I understand and acknowledge that by requesting a Swiftline business
     account, I have also read, understood and accepted Swiftline&apos;s{" "}
     <Link
-      href="/legal/terms-of-use"
+      href="/privacy-policy"
       target="_blank"
       rel="noopener noreferrer"
       className="text-blue-600 hover:underline"
@@ -89,7 +89,7 @@ export function ReviewStep({
     </Link>
     ,{" "}
     <Link
-      href="/legal/privacy-notice"
+      href="/privacy-policy"
       target="_blank"
       rel="noopener noreferrer"
       className="text-blue-600 hover:underline"
@@ -98,7 +98,7 @@ export function ReviewStep({
     </Link>{" "}
     and{" "}
     <Link
-      href="/legal/data-privacy-policy"
+      href="/privacy-policy"
       target="_blank"
       rel="noopener noreferrer"
       className="text-blue-600 hover:underline"

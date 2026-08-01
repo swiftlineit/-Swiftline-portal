@@ -43,6 +43,13 @@ export const app = express();
 
 app.disable("x-powered-by");
 
+// One hop: nginx terminating TLS on the same instance. Without this every request
+// carries the proxy's IP, so the rate limiters below collapse into a single shared
+// bucket and five bad logins lock out every user at once. Raise to 2 if an ALB or
+// CloudFront is ever put in front of nginx — setting it higher than the real hop
+// count lets clients spoof X-Forwarded-For and walk past the limiters entirely.
+app.set("trust proxy", 1);
+
 app.use(helmet());
 
 const allowedCorsOrigins = new Set(

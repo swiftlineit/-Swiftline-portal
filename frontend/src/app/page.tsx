@@ -278,6 +278,8 @@ export default function Home() {
                 I accept the privacy policy and terms.{" "}
                 <Link
                   href="/privacy-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="text-[#0D1282] hover:underline"
                 >
                   Read here
