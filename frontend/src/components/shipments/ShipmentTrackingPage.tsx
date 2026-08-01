@@ -390,7 +390,7 @@ export default function ShipmentTrackingPage({
 
       {error ? (
         <div className="mt-5 flex rounded-2xl items-start  der border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <FiAlertCircle className=" shrink-0" />
+          <FiAlertCircle className=" shrink-0 mr-2 mt-0.5" />
           <div>
             <p className="font-semibold">
               Unable to find shipment {""}

@@ -10,6 +10,7 @@
     "seed:demo-shipment": "tsx src/scripts/createDemoShipment.ts",
     "backfill:shipment-invoices": "tsx src/scripts/backfillShipmentInvoices.ts",
     "migrate:shipment-manifest-indexes": "tsx src/scripts/migrateShipmentManifestIndexes.ts",
+    "migrate:user-googleid-index": "tsx src/scripts/migrateUserGoogleIdIndex.ts",
     "backfill:manifest-party-snapshots": "tsx src/scripts/backfillManifestPartySnapshots.ts",
     "credit:migration:dry-run": "tsx src/scripts/creditMigrationDryRun.ts",
     "job:credit:close-billing": "tsx src/scripts/closeBillingCycles.ts",
@@ -43,6 +44,7 @@
     "test:support-tickets": "tsx --test src/tests/supportTicket.integration.test.ts",
     "test:operations-manifests": "tsx --test src/tests/operationsManifest.test.ts",
     "test:profile": "tsx --test src/tests/profileValidation.test.ts",
+    "test:profile:password": "tsx --test src/tests/profilePassword.integration.test.ts",
     "test:prepaid:daily-limit": "tsx --test src/tests/dailyTopUpLimit.integration.test.ts",
     "test:business-accounts": "tsx --test src/tests/businessAccount.test.ts",
     "test:business-accounts:integration": "tsx --test src/tests/businessAccount.integration.test.ts",
@@ -72,7 +74,6 @@
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
     "pdfkit": "^0.19.1",
-    "redis": "^6.1.0",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },

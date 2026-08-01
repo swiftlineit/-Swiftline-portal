@@ -106,7 +106,7 @@ export default function CancellationsPage() {
             ) : items.length === 0 ? (
               <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">No cancellation requests found.</td></tr>
             ) : items.map((item) => (
-              <tr key={item.id} className="border-b border-slate-100 last:border-0">
+              <tr key={item.id} id={`cancellation-${item.id}`} className="border-b border-slate-100 last:border-0">
                 <td className="px-4 py-4">
                   <Link href={"/dashboard/shipments/" + item.shipmentDraftId} className="font-semibold text-blue-900 hover:text-blue-700">{item.shipmentReference || item.dpdShipmentId}</Link>
                   <p className="mt-1 text-xs capitalize text-slate-500">{item.requesterType.toLowerCase()} request</p>

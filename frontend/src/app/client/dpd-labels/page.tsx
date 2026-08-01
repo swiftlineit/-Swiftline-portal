@@ -205,7 +205,7 @@ export default function ClientDpdLabelsPage() {
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "swiftline-client-dpd-invoice-template.xlsx";
+      anchor.download = "swiftline-shipment-invoice-template.xlsx";
       anchor.click();
       window.URL.revokeObjectURL(url);
     } catch (caughtError) {

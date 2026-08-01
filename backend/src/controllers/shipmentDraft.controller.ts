@@ -11,10 +11,14 @@ import {
   DpdProviderConfigurationError,
   getDpdProviderConfiguration
 } from "../services/dpdProviderConfiguration.service.js";
-import { parseDpdInvoiceWorkbook } from "../services/invoiceParser.service.js";
+import { parseCustomsInvoiceWorkbook } from "../services/customsInvoice/customsInvoiceParser.service.js";
 import { maskAadhaarNumber, normalizeAadhaarNumber } from "../services/aadhaarValidation.service.js";
 import { csbTypeValues } from "../services/csbType.service.js";
-import { maxParcelItems, normalizeParcelItems } from "../services/parcelItems.service.js";
+import {
+  defaultParcelItemUnitType,
+  maxParcelItems,
+  normalizeParcelItems
+} from "../services/parcelItems.service.js";
 import { validateShipmentDraftFields } from "../services/shipmentValidation.service.js";
 import {
   assertShipmentDraftMutationAllowed,
@@ -75,7 +79,11 @@ const parcelPatchSchema = z.object({
   // validateShipmentDraftFields before booking.
   items: z.array(z.object({
     description: z.string().trim().max(120),
-    hsnCode: z.string().trim().max(8)
+    // 4, 6, 8 or 10 digits; exact format is enforced by validateShipmentDraftFields.
+    hsnCode: z.string().trim().max(10),
+    unitType: z.string().trim().max(12).default(defaultParcelItemUnitType),
+    quantity: z.coerce.number().min(0).max(1_000_000).default(0),
+    unitRate: z.coerce.number().min(0).max(10_000_000).default(0)
   })).max(maxParcelItems).optional(),
   contentsDescription: z.string().trim().max(120),
   shipmentReference1: z.string().trim().max(120).optional(),
@@ -92,6 +100,8 @@ const draftPatchSchema = z.object({
   parcelList: z.array(parcelPatchSchema).min(1).max(10).optional(),
   // Customs route for the shipment; drives the CSB-V clearance charge.
   csbType: z.enum(csbTypeValues).optional(),
+  // Printed as the NOTE block on the customs (shipment) invoice.
+  declarationNote: z.string().trim().max(500).optional(),
   serviceType: z.enum(shipmentServiceTypeValues).optional(),
   serviceCode: z.string().trim().max(40).optional()
 });
@@ -209,7 +219,13 @@ async function backfillDraftPhoneFromInvoice(shipmentDraft: IShipmentDraft) {
   const invoiceUpload = await InvoiceUpload.findById(shipmentDraft.invoiceUploadId).lean().exec();
   if (!invoiceUpload?.storagePath || !fs.existsSync(invoiceUpload.storagePath)) return;
 
-  const parsedInvoice = parseDpdInvoiceWorkbook(invoiceUpload.storagePath);
+  // Best effort: an unreadable or superseded file must not break opening a draft.
+  let parsedInvoice: Awaited<ReturnType<typeof parseCustomsInvoiceWorkbook>>;
+  try {
+    parsedInvoice = await parseCustomsInvoiceWorkbook(invoiceUpload.storagePath);
+  } catch {
+    return;
+  }
   if (!parsedInvoice.consignee.mobileCountryCode || !parsedInvoice.consignee.mobileNumber) return;
 
   shipmentDraft.consigneeEnteredAddress = {
@@ -246,7 +262,33 @@ export async function getShipmentDraft(request: Request, response: Response): Pr
     // Keep loading the draft even if the original invoice is no longer parseable.
   }
 
-  return response.status(200).json({ success: true, shipmentDraft });
+  return response.status(200).json({
+    success: true,
+    shipmentDraft,
+    // Lets the review form show the "prefilled from your invoice" banner and any
+    // fields the import could not fill.
+    invoiceImport: await getInvoiceImportSummary(shipmentDraft)
+  });
+}
+
+/**
+ * Where the draft came from, and what the import could not fill.
+ * Null for manually created drafts, so the banner only shows where it is relevant.
+ */
+async function getInvoiceImportSummary(shipmentDraft: IShipmentDraft) {
+  if (!shipmentDraft.invoiceUploadId) return null;
+
+  const upload = await InvoiceUpload.findById(shipmentDraft.invoiceUploadId)
+    .select("extractedData originalFilename")
+    .lean()
+    .exec();
+  const extracted = upload?.extractedData as Record<string, unknown> | undefined;
+  if (!extracted || extracted.creationSource) return null;
+
+  return {
+    originalFilename: upload?.originalFilename ?? "",
+    warnings: Array.isArray(extracted.warnings) ? extracted.warnings as string[] : []
+  };
 }
 
 export async function createManualShipmentDraft(request: Request, response: Response): Promise<Response> {
@@ -475,6 +517,10 @@ export async function updateShipmentDraft(request: Request, response: Response):
       changedAt
     );
     shipmentDraft.csbType = parsed.data.csbType;
+  }
+
+  if (parsed.data.declarationNote !== undefined) {
+    shipmentDraft.declarationNote = parsed.data.declarationNote;
   }
 
   shipmentDraft.validationIssues = validateShipmentDraftFields(shipmentDraft);

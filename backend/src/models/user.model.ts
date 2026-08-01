@@ -35,7 +35,11 @@ const userSchema = new mongoose.Schema<IUser>(
     phone: { type: String, trim: true, default: "" },
     passwordHash: { type: String, default: "" },
     // Set the first time this user successfully links a Google sign-in; null until then.
-    googleId: { type: String, default: null, unique: true, sparse: true },
+    // Uniqueness is declared below as a partial index rather than `unique: true`
+    // here: a sparse index only skips documents missing the field, but the
+    // `default: null` means password users store an explicit null, which a sparse
+    // unique index treats as a real value and rejects after the first one.
+    googleId: { type: String, default: null },
     name: { type: String, trim: true, default: "" },
     role: {
       type: String,
@@ -56,6 +60,14 @@ const userSchema = new mongoose.Schema<IUser>(
     passwordResetExpiresAt: { type: Date, default: null, select: false }
   },
   { timestamps: true }
+);
+
+// Only real Google subject ids have to be unique. Restricting the index to string
+// values leaves every unlinked account (googleId null or absent) out of it, so any
+// number of password-based users can coexist and be saved.
+userSchema.index(
+  { googleId: 1 },
+  { unique: true, partialFilterExpression: { googleId: { $type: "string" } } }
 );
 
 export const User = mongoose.model<IUser>("User", userSchema);

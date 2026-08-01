@@ -9,6 +9,7 @@ import { ShipmentQuote, type IShipmentQuote, type ShipmentQuoteSource, type Ship
 import { ShipmentQuoteCounter } from "../models/shipmentQuoteCounter.model.js";
 import { normalizeCsbType, type CsbType } from "./csbType.service.js";
 import { normalizeQuoteDocuments, type QuoteDocumentCode } from "./quoteDocuments.service.js";
+import { defaultParcelItemUnitType } from "./parcelItems.service.js";
 import { createBlankShipmentDraft } from "./manualShipmentDraft.service.js";
 import { notifyActiveAdmins, notifyBusinessQuoteMembers } from "./portalNotification.service.js";
 import { calculateShipmentPricingEstimate, defaultShipmentGstRate } from "./shipmentPricing.service.js";
@@ -346,7 +347,7 @@ export async function createShipmentDraftFromEstimate(input: {
     shipmentContentType: input.request.shipmentType,
     // The quote captures a single contents label per box; the HSN code is
     // collected per item later, on the shipment review form.
-    items: [{ description: parcel.contents, hsnCode: "" }],
+    items: [{ description: parcel.contents, hsnCode: "", unitType: defaultParcelItemUnitType, quantity: 0, unitRate: 0 }],
     contentsDescription: parcel.contents,
     shipmentReference1: "", shipmentReference2: ""
   }));
@@ -389,7 +390,7 @@ export async function convertShipmentQuoteToDraft(input: {
       lengthCm: parcel.lengthCm, widthCm: parcel.widthCm, heightCm: parcel.heightCm,
       shipmentContentType: request.shipmentType,
       // HSN codes are collected per item on the shipment review form.
-      items: [{ description: parcel.contents, hsnCode: "" }],
+      items: [{ description: parcel.contents, hsnCode: "", unitType: defaultParcelItemUnitType, quantity: 0, unitRate: 0 }],
       contentsDescription: parcel.contents,
       shipmentReference1: input.quote.quoteNumber, shipmentReference2: ""
     }));

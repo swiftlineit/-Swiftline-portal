@@ -6,7 +6,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 
 import { env } from "./config/env.js";
-import { attachUser } from "./middleware/auth.middleware.js";
+import { attachUser, requireAuthenticated } from "./middleware/auth.middleware.js";
 import {
   errorHandler,
   notFoundHandler
@@ -110,8 +110,11 @@ app.use("/api/v1/credit-accounts", creditAccountRouter);
 app.use("/api/v1/credit-agreements", creditAgreementRouter);
 app.use("/api/v1/notifications", notificationRouter);
 
+// attachUser only populates req.user when a valid token is present; it does not
+// reject anonymous requests. Without an explicit gate every private upload
+// (KYC documents, invoices, credit agreements) would be world-readable.
 const privateUploadRoot = path.resolve(process.cwd(), "private_uploads");
-app.use("/api/v1/files", attachUser, express.static(privateUploadRoot));
+app.use("/api/v1/files", attachUser, requireAuthenticated, express.static(privateUploadRoot));
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -3,13 +3,11 @@ import mongoose from "mongoose";
 import { app } from "./app.js";
 import { connectDatabase } from "./config/database.js";
 import { ensureAdminSeeded } from "./config/admin.js";
-import { connectRedis, disconnectRedis } from "./config/redis.js";
 import { env } from "./config/env.js";
 
 async function bootstrap(): Promise<void> {
   await connectDatabase();
   await ensureAdminSeeded();
-  await connectRedis();
 
   const server = app.listen(env.PORT, () => {
     console.log(`API running on http://localhost:${env.PORT}`);
@@ -23,7 +21,6 @@ async function bootstrap(): Promise<void> {
 
     server.close(async () => {
       try {
-        await disconnectRedis();
         await mongoose.disconnect();
 
         console.log("Services closed successfully");

@@ -6,16 +6,47 @@
 // export, operations manifest, DPD payload and labels all read, so none of those
 // formats change.
 
-// Indian HSN codes are declared at 4, 6 or 8 digit precision.
-const hsnCodePattern = /^\d{4}(?:\d{2}(?:\d{2})?)?$/;
+// HS codes are declared at 4, 6, 8 or 10 digit precision.
+const hsnCodePattern = /^\d{4}(?:\d{2}(?:\d{2}(?:\d{2})?)?)?$/;
 
 export const contentsDescriptionMaxLength = 120;
 export const maxParcelItems = 20;
 
+// Unit of measure per item line on the customs (shipment) invoice.
+export const parcelItemUnitTypeValues = ["Pkt", "Pcs", "Set", "Box", "Kg", "Pair"] as const;
+export type ParcelItemUnitType = (typeof parcelItemUnitTypeValues)[number];
+export const defaultParcelItemUnitType: ParcelItemUnitType = "Pkt";
+
 export type ParcelItem = {
   description: string;
   hsnCode: string;
+  unitType: string;
+  // Held as strings so a partially typed value does not fight the input.
+  quantity: string;
+  unitRate: string;
 };
+
+function numeric(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+export function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+/** Line amount for an item row: quantity x unit rate. Always derived. */
+export function getParcelItemAmount(item: { quantity: string; unitRate: string }): number {
+  return roundMoney(numeric(item.quantity) * numeric(item.unitRate));
+}
+
+/** Declared goods value across every parcel, shown as the invoice total. */
+export function getDeclaredGoodsValue(parcels: Array<{ items: ParcelItem[] }>): number {
+  return roundMoney(parcels.reduce(
+    (total, parcel) => total + parcel.items.reduce((sum, item) => sum + getParcelItemAmount(item), 0),
+    0
+  ));
+}
 
 export function isValidHsnCode(value: unknown): boolean {
   return typeof value === "string" && hsnCodePattern.test(value.trim());
@@ -27,8 +58,17 @@ export function isValidHsnCode(value: unknown): boolean {
  */
 export function getHsnCodeError(value: string, required = true): string {
   const trimmed = value.trim();
-  if (!trimmed) return required ? "HSN code is required." : "";
-  return isValidHsnCode(trimmed) ? "" : "Enter a valid 4, 6 or 8 digit HSN code.";
+  if (!trimmed) return required ? "HS code is required." : "";
+  return isValidHsnCode(trimmed) ? "" : "Enter a valid 4, 6, 8 or 10 digit HS code.";
+}
+
+/** Validation message for a quantity or unit rate, or "" when acceptable. */
+export function getPositiveNumberError(value: string, label: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return `${label} is required.`;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed <= 0) return `${label} must be greater than zero.`;
+  return "";
 }
 
 /**
@@ -55,19 +95,34 @@ export function composeContentsDescription(items: ParcelItem[]): string {
  * items existed carry only `contentsDescription` and surface as a single item
  * with a blank HSN code, so old drafts open without a migration.
  */
+export function createEmptyParcelItem(): ParcelItem {
+  return { description: "", hsnCode: "", unitType: defaultParcelItemUnitType, quantity: "", unitRate: "" };
+}
+
 export function normalizeParcelItems(parcel: {
-  items?: Array<{ description?: string | null; hsnCode?: string | null }> | null;
+  items?: Array<{
+    description?: string | null;
+    hsnCode?: string | null;
+    unitType?: string | null;
+    quantity?: number | string | null;
+    unitRate?: number | string | null;
+  }> | null;
   contentsDescription?: string | null;
 }): ParcelItem[] {
   const items = (Array.isArray(parcel.items) ? parcel.items : [])
     .map((item) => ({
       description: (item.description ?? "").trim(),
-      hsnCode: (item.hsnCode ?? "").trim()
+      hsnCode: (item.hsnCode ?? "").trim(),
+      unitType: (item.unitType ?? "").trim() || defaultParcelItemUnitType,
+      // Zero reads as blank so an untouched legacy row shows an empty input.
+      quantity: item.quantity ? String(item.quantity) : "",
+      unitRate: item.unitRate ? String(item.unitRate) : ""
     }))
     .filter((item) => item.description || item.hsnCode);
 
   if (items.length) return items;
 
   const legacy = (parcel.contentsDescription ?? "").trim();
-  return legacy ? [{ description: legacy, hsnCode: "" }] : [{ description: "", hsnCode: "" }];
+  const empty = createEmptyParcelItem();
+  return legacy ? [{ ...empty, description: legacy }] : [empty];
 }

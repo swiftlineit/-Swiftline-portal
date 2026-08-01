@@ -274,7 +274,7 @@ export default function AdminCreditAccountDetailPage() {
             <button
               type="button"
               onClick={() => void openAuthenticatedFile(`/api/v1/credit-accounts/${accountId}/ledger/export`, "credit-account-statement.csv")}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900"
+              className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900"
             >
               <FiDownload /> Export Ledger
             </button>
@@ -283,7 +283,7 @@ export default function AdminCreditAccountDetailPage() {
               type="button"
               onClick={() => void closeCycle()}
               disabled={busy === "cycle"}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 disabled:opacity-60"
+              className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 disabled:opacity-60"
             >
               <FiRefreshCw className={busy === "cycle" ? "animate-spin" : ""} /> Close Completed Cycle
             </button>
@@ -294,7 +294,7 @@ export default function AdminCreditAccountDetailPage() {
                 type="button"
                 onClick={() => void runLifecycle("suspend")}
                 disabled={busy === "suspend"}
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-800 disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-2 rounded-4xl border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-800 disabled:opacity-60"
               >
                 {busy === "suspend" ? "Suspending..." : "Suspend"}
               </button>
@@ -305,7 +305,7 @@ export default function AdminCreditAccountDetailPage() {
                 type="button"
                 onClick={() => void runLifecycle("reactivate")}
                 disabled={busy === "reactivate"}
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700 disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-2 rounded-4xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700 disabled:opacity-60"
               >
                 {busy === "reactivate" ? "Reactivating..." : "Reactivate"}
               </button>
@@ -316,7 +316,7 @@ export default function AdminCreditAccountDetailPage() {
                 type="button"
                 onClick={() => void runLifecycle("close")}
                 disabled={busy === "close"}
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 text-sm font-semibold text-red-700 disabled:opacity-60"
+                className="inline-flex h-10 items-center gap-2 rounded-4xl border border-red-300 bg-red-50 px-4 text-sm font-semibold text-red-700 disabled:opacity-60"
               >
                 {busy === "close" ? "Closing..." : "Close"}
               </button>
@@ -433,7 +433,7 @@ export default function AdminCreditAccountDetailPage() {
         </section>
 
         {/* Payment reconciliation table + offline payment form */}
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <section id="payment-verification" className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 p-5">
               <div>
@@ -516,7 +516,7 @@ export default function AdminCreditAccountDetailPage() {
             </div>
           </div>
 
-         <form onSubmit={recordPayment} className="h-fit border border-slate-400 bg-white p-5 rounded-2xl">
+         <form onSubmit={recordPayment} className="h-fit border border-slate-200 bg-white p-5 rounded-2xl">
             <h2 className="font-semibold text-slate-950">Record Offline Payment</h2>
             <p className="mt-3 text-sm ">Admin-recorded payments are verified and allocated immediately.</p>
 
@@ -599,7 +599,7 @@ export default function AdminCreditAccountDetailPage() {
 
             <button
               disabled={busy === "payment"}
-              className="mt-4 h-10 bg-green-600 px-5 text-sm font-semibold rounded-2xl text-white disabled:opacity-60"
+              className="mt-4 h-10 bg-green-500 px-5 text-sm font-semibold rounded-4xl text-white disabled:opacity-60"
             >
               {busy === "payment" ? "Applying..." : "Record and Apply"}
             </button>

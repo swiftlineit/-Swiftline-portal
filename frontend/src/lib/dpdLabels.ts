@@ -1,7 +1,6 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
-import type { ParcelItem } from "@/lib/parcelItems";
 
 export type InvoiceUpload = {
   id: string;
@@ -100,9 +99,16 @@ export type ShipmentDraft = {
     widthCm?: number;
     heightCm?: number;
     shipmentContentType: ShipmentContentType;
-    // Per-item goods with HSN codes. Absent on parcels stored before items
-    // existed, which fall back to contentsDescription.
-    items?: ParcelItem[];
+    // Per-item goods with HS codes and customs-invoice values. Absent on parcels
+    // stored before items existed, which fall back to contentsDescription.
+    // Numeric over the wire; the forms hold these as strings while editing.
+    items?: Array<{
+      description: string;
+      hsnCode: string;
+      unitType?: string;
+      quantity?: number;
+      unitRate?: number;
+    }>;
     contentsDescription: string;
     shipmentReference1?: string;
     shipmentReference2?: string;
@@ -111,6 +117,8 @@ export type ShipmentDraft = {
   }>;
   // Customs route. Absent on drafts created before CSB selection existed.
   csbType?: CsbType;
+  // Printed as the NOTE block on the customs (shipment) invoice.
+  declarationNote?: string;
   serviceType?: ShipmentServiceType;
   serviceCode: string;
   validationIssues: string[];
@@ -120,6 +128,12 @@ export type ShipmentDraft = {
   lockedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+/** Where an uploaded-invoice draft came from, and what the import could not fill. */
+export type InvoiceImportSummary = {
+  originalFilename: string;
+  warnings: string[];
 };
 
 export type ShipmentDraftPatch = {
@@ -133,13 +147,14 @@ export type ShipmentDraftPatch = {
     widthCm?: number;
     heightCm?: number;
     shipmentContentType: ShipmentContentType;
-    items?: ParcelItem[];
+    items?: Array<{ description: string; hsnCode: string; unitType?: string; quantity?: number; unitRate?: number }>;
     contentsDescription: string;
     shipmentReference1?: string;
     shipmentReference2?: string;
     aadhaarNumber?: string;
   }>;
   csbType?: CsbType;
+  declarationNote?: string;
   serviceType?: ShipmentServiceType;
   serviceCode?: string;
 };
@@ -595,6 +610,7 @@ export async function getShipmentDraft(shipmentDraftId: string) {
   return parseApiResponse<{
     success: true;
     shipmentDraft: ShipmentDraft;
+    invoiceImport?: InvoiceImportSummary | null;
   }>(response);
 }
 

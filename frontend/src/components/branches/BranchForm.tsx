@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { FiChevronDown, FiTrash2, FiUpload, FiX } from "react-icons/fi";
+import { BranchFileLink, BranchImage } from "@/components/branches/BranchFileView";
 import {
   BranchDocument,
   BranchDocumentType,
@@ -697,23 +698,43 @@ export default function BranchForm({
         }
       }
 
-      // Upload images if any were selected.
-      if (imageFiles.length) {
-        await uploadBranchImages(branch._id, imageFiles);
-      }
+      // The branch record itself is saved. File uploads are separate requests, so
+      // a failure there must not be reported as "the branch could not be saved".
+      try {
+        if (imageFiles.length) {
+          branch = (await uploadBranchImages(branch._id, imageFiles)).branch;
+        }
 
-      // Upload documents if any were selected.
-      const docUploads: Promise<unknown>[] = [];
-      if (documentFiles.pan) {
-        docUploads.push(uploadBranchDocument(branch._id, "PAN", "PAN Card", documentFiles.pan));
+        // Each upload is a read-modify-write of the same documents array on the
+        // server, so they run in sequence; in parallel they overwrite each other
+        // and only the last one to save would survive.
+        if (documentFiles.pan) {
+          branch = (await uploadBranchDocument(branch._id, "PAN", "PAN Card", documentFiles.pan)).branch;
+        }
+        if (documentFiles.gst) {
+          branch = (await uploadBranchDocument(branch._id, "GST", "GST Certificate", documentFiles.gst)).branch;
+        }
+        if (documentFiles.other) {
+          branch = (await uploadBranchDocument(branch._id, "OTHER", documentFiles.other.title, documentFiles.other.file)).branch;
+        }
+      } catch (uploadError) {
+        // Clear what was already persisted so a retry does not re-upload it, and
+        // keep the user on the form to fix the offending file.
+        setImageFiles([]);
+        setImagePreviews((previews) => {
+          previews.forEach((url) => URL.revokeObjectURL(url));
+          return [];
+        });
+        setDocumentFiles({});
+        setExistingImages(branch.images ?? []);
+        setExistingDocuments(branch.documents ?? []);
+        toast.error(
+          uploadError instanceof Error
+            ? `Branch saved, but a file upload failed: ${uploadError.message}`
+            : "Branch saved, but a file upload failed."
+        );
+        return;
       }
-      if (documentFiles.gst) {
-        docUploads.push(uploadBranchDocument(branch._id, "GST", "GST Certificate", documentFiles.gst));
-      }
-      if (documentFiles.other) {
-        docUploads.push(uploadBranchDocument(branch._id, "OTHER", documentFiles.other.title, documentFiles.other.file));
-      }
-      await Promise.all(docUploads);
 
       toast.success(mode === "draft" ? "Branch saved as draft." : "Branch saved successfully.");
       router.push(`/dashboard/branches/${branch._id}`);
@@ -999,8 +1020,8 @@ export default function BranchForm({
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
               {existingImages.map((imagePath, index) => (
                 <div key={`existing-${index}`} className="group relative overflow-hidden rounded-xl border border-[#EEEDED] bg-[#EEEDED]/40">
-                  <img
-                    src={`/api/v1/files/${encodeURIComponent(imagePath.replace(/\\/g, "/"))}`}
+                  <BranchImage
+                    storedPath={imagePath}
                     alt={`Existing branch image ${index + 1}`}
                     className="h-32 w-full object-cover"
                   />
@@ -1070,7 +1091,7 @@ export default function BranchForm({
                 <p className="mb-3 text-sm font-semibold text-slate-700">PAN Card <span className="text-[#D71313]">*</span></p>
                 <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
                   <div className="min-w-0 flex-1">
-                    <a href={`/api/v1/files/${encodeURIComponent(doc.filePath.replace(/\\/g, "/"))}`} target="_blank" rel="noopener noreferrer" className="truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</a>
+                    <BranchFileLink storedPath={doc.filePath} className="block truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</BranchFileLink>
                   </div>
                   <button
                     type="button"
@@ -1134,7 +1155,7 @@ export default function BranchForm({
                 <p className="mb-3 text-sm font-semibold text-slate-700">GST Certificate <span className="text-[#D71313]">*</span></p>
                 <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
                   <div className="min-w-0 flex-1">
-                    <a href={`/api/v1/files/${encodeURIComponent(doc.filePath.replace(/\\/g, "/"))}`} target="_blank" rel="noopener noreferrer" className="truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</a>
+                    <BranchFileLink storedPath={doc.filePath} className="block truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</BranchFileLink>
                   </div>
                   <button
                     type="button"
@@ -1198,7 +1219,7 @@ export default function BranchForm({
                 <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-slate-700">{doc.title || doc.type}</p>
-                    <a href={`/api/v1/files/${encodeURIComponent(doc.filePath.replace(/\\/g, "/"))}`} target="_blank" rel="noopener noreferrer" className="truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</a>
+                    <BranchFileLink storedPath={doc.filePath} className="block truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</BranchFileLink>
                   </div>
                   <button
                     type="button"

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
+import { BusinessAccountMember, type BusinessAccountMemberRole } from "../models/businessAccountMember.model.js";
 import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js";
 import { CreditBillingStatement } from "../models/creditBillingStatement.model.js";
 import { PortalNotification, type PortalNotificationType } from "../models/portalNotification.model.js";
@@ -58,15 +58,16 @@ export async function notifyPortalUsers(
   await insertNotifications(recipientUserIds, input, session);
 }
 
-export async function notifyBusinessFinancialMembers(
+async function notifyBusinessMembersWithRole(
   businessAccountId: mongoose.Types.ObjectId,
+  roles: BusinessAccountMemberRole[],
   input: NotificationInput,
   session?: mongoose.ClientSession
 ) {
   const members = await BusinessAccountMember.find({
     businessAccount: businessAccountId,
     status: "active",
-    role: { $in: ["account_owner", "account_admin", "finance"] }
+    role: { $in: roles }
   }).select("user").session(session ?? null).lean().exec();
 
   await insertNotifications(
@@ -76,20 +77,58 @@ export async function notifyBusinessFinancialMembers(
   );
 }
 
+export async function notifyBusinessFinancialMembers(
+  businessAccountId: mongoose.Types.ObjectId,
+  input: NotificationInput,
+  session?: mongoose.ClientSession
+) {
+  await notifyBusinessMembersWithRole(
+    businessAccountId,
+    ["account_owner", "account_admin", "finance"],
+    input,
+    session
+  );
+}
+
 export async function notifyBusinessQuoteMembers(
   businessAccountId: mongoose.Types.ObjectId,
   input: NotificationInput,
   session?: mongoose.ClientSession
 ) {
-  const members = await BusinessAccountMember.find({
-    businessAccount: businessAccountId,
-    status: "active",
-    role: { $in: ["account_owner", "account_admin", "operations", "finance"] }
-  }).select("user").session(session ?? null).lean().exec();
+  await notifyBusinessMembersWithRole(
+    businessAccountId,
+    ["account_owner", "account_admin", "operations", "finance"],
+    input,
+    session
+  );
+}
 
-  await insertNotifications(
-    members.map((member) => member.user),
-    { ...input, businessAccountId },
+// Account lifecycle news (approval, KYC, suspension) only reaches the members who
+// can act on it.
+export async function notifyBusinessAccountManagers(
+  businessAccountId: mongoose.Types.ObjectId,
+  input: NotificationInput,
+  session?: mongoose.ClientSession
+) {
+  await notifyBusinessMembersWithRole(
+    businessAccountId,
+    ["account_owner", "account_admin"],
+    input,
+    session
+  );
+}
+
+// Shipment-level news (amendments, verified charges) reaches the members who book
+// and pay for shipments.
+export async function notifyBusinessShipmentMembers(
+  businessAccountId: mongoose.Types.ObjectId,
+  input: NotificationInput,
+  session?: mongoose.ClientSession
+) {
+  await notifyBusinessMembersWithRole(
+    businessAccountId,
+    ["account_owner", "account_admin", "operations", "finance"],
+    input,
     session
   );
 }
@@ -168,7 +207,7 @@ export async function refreshCreditNotificationsForUser(recipientUserId: mongoos
     }).select("statementNumber dueAt status").exec();
 
     for (const statement of statements) {
-      const href = `/client/credit/statements/${String(statement._id)}?businessAccountId=${String(membership.businessAccount)}`;
+      const href = `/client/credit/statements/${String(statement._id)}?businessAccountId=${String(membership.businessAccount)}#statement-payment`;
       if (statement.status === "OVERDUE") {
         await notifyBusinessFinancialMembers(membership.businessAccount, {
           type: "PAYMENT_OVERDUE",
@@ -198,7 +237,7 @@ export async function refreshCreditNotificationsForUser(recipientUserId: mongoos
           type: "LOW_BOOKING_CAPACITY",
           title: "Credit capacity running low",
           message: `${usedPercent}% of the approved credit limit is currently used.`,
-          href: "/client/credit",
+          href: "/client/credit#credit-summary",
           idempotencyKey: `LOW_BOOKING_CAPACITY:${String(account._id)}:${account.creditWarningThresholdPercent}`,
           metadata: { usedPercent, availableCreditMinor: balances.availableCreditMinor }
         });

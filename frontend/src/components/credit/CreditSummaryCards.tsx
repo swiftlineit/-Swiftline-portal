@@ -16,7 +16,7 @@ export default function CreditSummaryCards({ account }: { account: CreditAccount
       : "Advance plus available credit";
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <section id="credit-summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {metrics.map((metric, index) => (
         <div key={metric.key} className={`border p-4 rounded-xl  border-slate-300 bg-linear-to-r from-blue-500 via-blue-400 to-blue-400  text-white`}>
           <p className={`text-xs font-semibold uppercase `}>{metric.label}</p>

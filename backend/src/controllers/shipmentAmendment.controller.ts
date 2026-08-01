@@ -31,6 +31,7 @@ import {
   previewAmendmentFunding
 } from "../services/amendmentBilling.service.js";
 import { regenerateSimulatedShipmentLabels } from "../services/dpdShipment.service.js";
+import { notifyActiveAdmins, notifyBusinessShipmentMembers } from "../services/portalNotification.service.js";
 import { dayBounds } from "../utils/dateRangeFilter.js";
 import {
   buildRevisedShipmentSnapshot,
@@ -74,6 +75,15 @@ const amendmentParcelSchema = z.object({
   widthCm: z.coerce.number().nonnegative().optional().nullable(),
   heightCm: z.coerce.number().nonnegative().optional().nullable(),
   shipmentContentType: z.enum(shipmentContentTypeValues).default("PARCEL"),
+  // Item rows carry the per-item HS code, unit and value that print on the
+  // customs invoice, so an amendment can correct them.
+  items: z.array(z.object({
+    description: z.string().trim().max(120),
+    hsnCode: z.string().trim().max(10),
+    unitType: z.string().trim().max(12).default("Pkt"),
+    quantity: z.coerce.number().min(0).max(1_000_000).default(0),
+    unitRate: z.coerce.number().min(0).max(10_000_000).default(0)
+  })).max(20).optional(),
   contentsDescription: z.string().trim().min(1).max(120),
   shipmentReference1: z.string().trim().max(120).optional(),
   shipmentReference2: z.string().trim().max(120).optional()
@@ -617,6 +627,21 @@ export async function createShipmentAmendment(
     }
   });
 
+  // An admin raising the amendment is already in the review queue, so only a
+  // client-raised request needs to reach the operations team.
+  if (actorRole === "client") {
+    await notifyActiveAdmins({
+      type: "SHIPMENT_AMENDMENT_REQUESTED",
+      title: "Shipment amendment requested",
+      message: `A client requested ${preview.requestedChanges.length} change(s) to shipment `
+        + `${amendmentGate.dpdShipment.swiftlineTrackingNumber || String(shipmentDraft._id)}.`,
+      href: `/dashboard/amendments#amendment-${String(amendment._id)}`,
+      idempotencyKey: `SHIPMENT_AMENDMENT_REQUESTED:${String(amendment._id)}`,
+      businessAccountId: shipmentDraft.businessAccountId,
+      metadata: { amendmentId: amendment._id, shipmentDraftId: shipmentDraft._id }
+    });
+  }
+
   return response.status(200).json({
     success: true,
     amendment
@@ -911,6 +936,16 @@ export async function approveShipmentAmendment(request: Request, response: Respo
         }
       }], { session });
 
+      await notifyBusinessShipmentMembers(amendment.businessAccountId, {
+        type: "SHIPMENT_AMENDMENT_APPROVED",
+        title: "Shipment amendment approved",
+        message: `${changePreview.length} change(s) were applied to your shipment. `
+          + `Revised invoice ${revisedInvoice.invoiceNumber} is available.`,
+        href: `/client/shipments/${String(shipmentDraft._id)}#shipment-amendments`,
+        idempotencyKey: `SHIPMENT_AMENDMENT_APPROVED:${String(amendment._id)}`,
+        metadata: { amendmentId: amendment._id, shipmentDraftId: shipmentDraft._id }
+      }, session);
+
       result = {
         amendment,
         shipmentDraft,
@@ -982,6 +1017,17 @@ export async function rejectShipmentAmendment(request: Request, response: Respon
       shipmentDraftId: amendment.shipmentDraftId,
       dpdShipmentId: amendment.dpdShipmentId
     }
+  });
+
+  await notifyBusinessShipmentMembers(amendment.businessAccountId, {
+    type: "SHIPMENT_AMENDMENT_REJECTED",
+    title: "Shipment amendment rejected",
+    message: amendment.reviewNote
+      ? `Your amendment request was not approved. Reason: ${amendment.reviewNote}`
+      : "Your amendment request was not approved. Contact your Swiftline branch for details.",
+    href: `/client/shipments/${String(amendment.shipmentDraftId)}#shipment-amendments`,
+    idempotencyKey: `SHIPMENT_AMENDMENT_REJECTED:${String(amendment._id)}`,
+    metadata: { amendmentId: amendment._id, shipmentDraftId: amendment.shipmentDraftId }
   });
 
   return response.status(200).json({ success: true, amendment });

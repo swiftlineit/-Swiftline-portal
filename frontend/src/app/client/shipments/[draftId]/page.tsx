@@ -10,6 +10,7 @@ import {
 } from "@/components/client/ClientDashboardShell";
 import ShipmentAmendmentPanel from "@/components/shipments/ShipmentAmendmentPanel";
 import ShipmentInvoiceHistory from "@/components/shipments/ShipmentInvoiceHistory";
+import CustomsInvoiceCard from "@/components/shipments/CustomsInvoiceCard";
 import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel";
 import ShipmentCancellationPanel from "@/components/shipments/ShipmentCancellationPanel";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
@@ -366,10 +367,12 @@ export default function ClientShipmentDetailsPage() {
             {shipment.dpdShipment ? (
               <>
                 <ShipmentInvoiceHistory draftId={params.draftId} audience="client" />
+                <div className="mt-4"><CustomsInvoiceCard draftId={params.draftId} audience="client" /></div>
                 <ShipmentManifestPanel draftId={params.draftId} audience="client" />
               </>
             ) : null}
 
+            <div id="shipment-cancellation">
             <ShipmentCancellationPanel
               cancellation={cancellation}
               canRequest={cancellationCanRequest && Boolean(shipment.dpdShipment) && !hasBeenCollected(shipment)}
@@ -385,7 +388,9 @@ export default function ClientShipmentDetailsPage() {
               error={cancellationError}
               onRequest={handleCancellation}
             />
+            </div>
 
+            <div id="shipment-amendments">
             <ShipmentAmendmentPanel
               key={shipment.shipmentDraft.updatedAt ?? shipment.shipmentDraft.id}
               address={shipment.shipmentDraft.consignee}
@@ -410,6 +415,7 @@ export default function ClientShipmentDetailsPage() {
               onPreview={handleAmendmentPreview}
               onSubmit={handleAmendment}
             />
+            </div>
 
             <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
               <div className="border border-slate-200 bg-white p-5 rounded-2xl">
@@ -529,7 +535,7 @@ function DetailRow({ label, value }: { label: string; value?: string | number | 
   return (
     <div>
       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-1 wrap-break text-sm p-4 bg-slate-50 font-medium text-slate-800">{value || "Not available"}</dd>
+      <dd className="mt-1 wrap-break text-sm p-3 rounded bg-slate-50 font-medium text-slate-800">{value || "Not available"}</dd>
     </div>
   );
 }

@@ -198,7 +198,7 @@ export default function TicketDetail({
       </section>
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="border border-slate-300 bg-white rounded-2xl  ">
+        <section id="ticket-conversation" className="border border-slate-300 bg-white rounded-2xl  ">
           <div className="border-b border-slate-200 px-5 py-4">
             <h2 className="flex items-center gap-2 font-semibold text-slate-950">
               <FiMessageSquare />

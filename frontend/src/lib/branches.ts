@@ -294,6 +294,25 @@ export async function updateBranchStatus(branchId: string, status: BranchStatus)
   return parseApiResponse<{ success: true; branch: Branch }>(response);
 }
 
+// Branch images and documents live under private_uploads and are served by
+// /api/v1/files, which requires a Bearer token. A plain <img src> or <a href>
+// cannot send that header, so the bytes are fetched with auth and handed to the
+// browser as an object URL instead.
+export async function fetchBranchFileObjectUrl(storedPath: string) {
+  // Stored paths are relative and may use Windows separators. Each segment is
+  // encoded individually so the "/" separators survive.
+  const encodedPath = storedPath
+    .replace(/\\/g, "/")
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/");
+
+  const response = await fetchWithAuth(apiUrl(`/api/v1/files/${encodedPath}`));
+  if (!response.ok) throw new Error("Unable to load file");
+
+  return URL.createObjectURL(await response.blob());
+}
+
 export async function uploadBranchImages(branchId: string, files: File[]) {
   const formData = new FormData();
   files.forEach((file) => formData.append("images", file));

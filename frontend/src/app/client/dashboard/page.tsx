@@ -8,6 +8,7 @@ import {
   ClientShellUser
 } from "@/components/client/ClientDashboardShell";
 import ClientAccessBlocked from "@/components/client/dashboard/ClientAccessBlocked";
+import ClientBookingCapacityNotice from "@/components/client/dashboard/ClientBookingCapacityNotice";
 import ClientDashboardHeader from "@/components/client/dashboard/ClientDashboardHeader";
 import ClientKpiGrid from "@/components/client/dashboard/ClientKpiGrid";
 import ClientQuickAccess from "@/components/client/dashboard/ClientQuickAccess";
@@ -254,6 +255,12 @@ export default function ClientDashboardPage() {
           <ClientAccessBlocked account={selectedAccount} />
         ) : (
           <>
+            <ClientBookingCapacityNotice
+              credit={extras.credit}
+              permissions={extras.creditPermissions}
+              wallet={selectedWallet}
+            />
+
             <ClientKpiGrid
               summary={selectedSummary}
               wallet={selectedWallet}

@@ -15,6 +15,11 @@ import {
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { downloadShipmentInvoicePdf, getShipmentInvoice } from "../controllers/shipmentInvoice.controller.js";
 import {
+  downloadCustomsInvoicePdf,
+  downloadCustomsInvoiceWorkbook,
+  getCustomsInvoice
+} from "../controllers/customsInvoice.controller.js";
+import {
   finalizeFinalShipmentCharge,
   getShipmentChargeVerification,
   previewFinalShipmentCharge
@@ -30,6 +35,10 @@ dpdShipmentRouter.use(requireRole("admin"));
 dpdShipmentRouter.get("/", listDpdShipments);
 dpdShipmentRouter.get("/drafts/:draftId/invoice", getShipmentInvoice);
 dpdShipmentRouter.get("/drafts/:draftId/invoice/pdf", downloadShipmentInvoicePdf);
+// Customs ("shipment") invoice: the goods declaration, separate from the GST invoice above.
+dpdShipmentRouter.get("/drafts/:draftId/shipment-invoice", getCustomsInvoice);
+dpdShipmentRouter.get("/drafts/:draftId/shipment-invoice/pdf", downloadCustomsInvoicePdf);
+dpdShipmentRouter.get("/drafts/:draftId/shipment-invoice/xlsx", downloadCustomsInvoiceWorkbook);
 dpdShipmentRouter.get("/drafts/:draftId/audit", listDpdShipmentAudit);
 dpdShipmentRouter.post("/drafts/:draftId/reset-development-booking", resetDevelopmentShipmentBooking);
 dpdShipmentRouter.get("/:id", getDpdShipment);

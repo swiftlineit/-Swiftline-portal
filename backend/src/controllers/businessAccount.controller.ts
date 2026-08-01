@@ -12,10 +12,12 @@ import {
   BusinessKycOverallStatus,
   BusinessAccountStatus,
   DocumentType,
+  IBusinessAccount,
   IBusinessDocument,
   IBusinessKycReview
 } from "../models/businessAccount.model.js";
 import { Branch } from "../models/branch.model.js";
+import { notifyActiveAdmins, notifyBusinessAccountManagers } from "../services/portalNotification.service.js";
 import {
   BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX,
   compactRegistrationId,
@@ -253,6 +255,27 @@ const statusActionMessages: Record<BusinessAccountStatus, string> = {
   rejected: "Business account rejected.",
   active: "Business account activated.",
   suspended: "Business account suspended."
+};
+
+// Lifecycle decisions the client is told about. Statuses absent from this map
+// (draft, pending_review) are internal steps and stay silent.
+const clientVisibleStatusNotices: Partial<Record<BusinessAccountStatus, { title: string; message: string }>> = {
+  approved: {
+    title: "Business account approved",
+    message: "Your business account passed review. Complete the remaining activation steps to start booking."
+  },
+  rejected: {
+    title: "Business account rejected",
+    message: "Your business account was not approved. Contact your Swiftline branch for the next steps."
+  },
+  active: {
+    title: "Business account activated",
+    message: "Your business account is now active and ready for bookings."
+  },
+  suspended: {
+    title: "Business account suspended",
+    message: "Your business account has been suspended. Contact your Swiftline branch to restore access."
+  }
 };
 
 const operationalActionMessages: Record<z.infer<typeof businessAccountOperationalActionSchema>, string> = {
@@ -993,6 +1016,16 @@ export async function submitBusinessAccount(request: Request, response: Response
   account.kycReview = applyDerivedKycStatus(account);
   await account.save();
 
+  await notifyActiveAdmins({
+    type: "BUSINESS_ACCOUNT_SUBMITTED",
+    title: "Business account submitted for review",
+    message: `${account.company.companyName || account.accountId} submitted its onboarding documents for KYC review.`,
+    href: `/dashboard/business-accounts/${account.accountId}#kyc`,
+    idempotencyKey: `BUSINESS_ACCOUNT_SUBMITTED:${String(account._id)}:${account.submittedAt.getTime()}`,
+    businessAccountId: account._id as mongoose.Types.ObjectId,
+    metadata: { accountId: account.accountId }
+  });
+
   const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
 
   return response.status(200).json({
@@ -1051,6 +1084,20 @@ export async function updateBusinessAccountStatus(request: Request, response: Re
   account.updatedBy = userId;
   account.kycReview = applyDerivedKycStatus(account);
   await account.save();
+
+  // Only lifecycle decisions the client can act on are worth a notification;
+  // moving an account back to draft or into review is internal housekeeping.
+  if (targetStatus !== currentStatus && clientVisibleStatusNotices[targetStatus]) {
+    const notice = clientVisibleStatusNotices[targetStatus];
+    await notifyBusinessAccountManagers(account._id as mongoose.Types.ObjectId, {
+      type: "BUSINESS_ACCOUNT_STATUS_CHANGED",
+      title: notice.title,
+      message: notice.message,
+      href: "/client/dashboard#business-accounts",
+      idempotencyKey: `BUSINESS_ACCOUNT_STATUS:${String(account._id)}:${targetStatus}:${account.updatedAt.getTime()}`,
+      metadata: { accountId: account.accountId, fromStatus: currentStatus, toStatus: targetStatus }
+    });
+  }
 
   const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
 
@@ -1169,6 +1216,7 @@ export async function updateBusinessAccountKycReview(request: Request, response:
   const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
   if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
 
+  let reviewedAccount: IBusinessAccount | null = null;
   try {
     const nextReview = applyKycReviewUpdate(account.kycReview, parsed.data, userId);
     nextReview.overallStatus = deriveKycOverallStatus(account.documents ?? {}, nextReview);
@@ -1190,11 +1238,34 @@ export async function updateBusinessAccountKycReview(request: Request, response:
         message: "This KYC review was just updated by someone else. Reload and try again."
       });
     }
+
+    // Only a settled outcome is worth telling the client about — intermediate
+    // per-document edits would otherwise generate noise on every save.
+    if (
+      nextReview.overallStatus !== account.kycReview?.overallStatus
+      && ["verified", "rejected"].includes(nextReview.overallStatus)
+    ) {
+      reviewedAccount = updated;
+    }
   } catch (error) {
     console.error("KYC review update failed:", error);
     return response.status(400).json({
       success: false,
       message: error instanceof Error ? error.message : "Unable to update KYC review"
+    });
+  }
+
+  if (reviewedAccount) {
+    const verified = reviewedAccount.kycReview.overallStatus === "verified";
+    await notifyBusinessAccountManagers(reviewedAccount._id as mongoose.Types.ObjectId, {
+      type: "BUSINESS_ACCOUNT_KYC_REVIEWED",
+      title: verified ? "KYC verified" : "KYC rejected",
+      message: verified
+        ? "Your KYC documents have been verified by Swiftline."
+        : "One or more KYC documents were rejected. Re-upload the corrected documents to continue.",
+      href: "/client/dashboard#business-accounts",
+      idempotencyKey: `BUSINESS_ACCOUNT_KYC:${String(reviewedAccount._id)}:${reviewedAccount.kycReview.overallStatus}:${reviewedAccount.updatedAt.getTime()}`,
+      metadata: { accountId: reviewedAccount.accountId, overallStatus: reviewedAccount.kycReview.overallStatus }
     });
   }
 

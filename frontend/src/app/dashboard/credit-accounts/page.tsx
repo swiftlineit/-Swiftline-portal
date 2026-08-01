@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FiCheck, FiEdit2, FiEye, FiFileText, FiRefreshCw, FiX } from "react-icons/fi";
+import { GrDocumentConfig } from "react-icons/gr";
+
 import { DashboardLoading } from "@/components/DashboardShell";
 import CreditAgreementPreviewDialog from "@/components/credit/CreditAgreementPreviewDialog";
 import CreditApprovalDialog from "@/components/credit/CreditApprovalDialog";
@@ -151,7 +153,7 @@ export default function AdminCreditAccountsPage() {
 
   return (
     <>
-      <div className="mx-auto max-w-[1500px] space-y-6" style={{ backgroundColor: "#EEEDED" }}>
+      <div className="mx-auto max-w-375 space-y-6" style={{ backgroundColor: "#EEEDED" }}>
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-black/5">
           <div>
@@ -162,17 +164,31 @@ export default function AdminCreditAccountsPage() {
             <p className="mt-1 text-sm text-slate-500">Review, approve, and manage business credit facilities.</p>
           </div>
           <div className="flex items-center gap-2">
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value as CreditAccountStatus | "")}
-              className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-[#0D1282]"
-            >
-              <option value="">All Status</option>
-              {creditAccountStatuses.map((item) => (
-                <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
-              ))}
-            </select>
-            <button
+            <div className="relative">
+  <select
+    value={status}
+    onChange={(event) => setStatus(event.target.value as CreditAccountStatus | "")}
+    className="h-10 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3 pr-8 text-sm font-semibold text-slate-700 outline-none focus:border-[#0D1282]"
+  >
+    <option value="">All Status</option>
+    {creditAccountStatuses.map((item) => (
+      <option key={item} value={item}>{item.replaceAll("_", " ")}</option>
+    ))}
+  </select>
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+  >
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+</div>
+            {/* <button
               type="button"
               onClick={() => void loadData()}
               disabled={dataLoading}
@@ -181,7 +197,7 @@ export default function AdminCreditAccountsPage() {
             >
               <FiRefreshCw className={dataLoading ? "animate-spin" : ""} />
               Refresh
-            </button>
+            </button> */}
           </div>
         </div>
 
@@ -231,6 +247,7 @@ export default function AdminCreditAccountsPage() {
                   return (
                     <tr
                       key={account.businessAccountId}
+                      id={`credit-account-${account.businessAccountId}`}
                       className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50"
                       style={{ backgroundColor: index % 2 === 0 ? "#FFFFFF" : "#FAFAFA" }}
                     >
@@ -262,85 +279,85 @@ export default function AdminCreditAccountsPage() {
                       <td className="px-4 py-4 text-left">
                         {agreement ? (
                           <>
-                            <p className="font-medium text-slate-800">{agreement.status.replaceAll("_", " ")}</p>
+                            <p className="font-medium text-slate-800 capitalize">{agreement.status.replaceAll("_", " ")}</p>
                             {/* <p className="mt-0.5 text-xs text-slate-400">{agreement.agreementNumber}</p> */}
                           </>
                         ) : (
                           <span
-                            className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-red-400 text-white"
-                            
+                            className="text-sm  "                    
                           >
-                            Not generated
+                            Not Generated
                           </span>
                         )}
                       </td>
                       <td className="px-4 py-4 text-left">
-                        <div className="flex min-w-max flex-wrap gap-1.5">
-                          <Link
-                            href={`/dashboard/credit-accounts/${account.businessAccountId}`}
-                            title="Account"
-                            className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
-                            style={{ borderColor: "#0D1282", color: "#0D1282" }}
-                          >
-                            <FiEye size={12} /> Account
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => setSelected(account)}
-                            title="Configure"
-                            className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
-                            style={{ borderColor: "#0D1282", color: "#0D1282" }}
-                          >
-                            <FiEdit2 size={12} /> Configure
-                          </button>
-                          {canGenerate ? (
-                            <button
-                              type="button"
-                              onClick={() => void generateAgreement(account, agreement)}
-                              disabled={isBusy}
-                              title="Generate Agreement"
-                              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-semibold text-slate-900 shadow-sm transition hover:opacity-90 disabled:opacity-50"
-                              style={{ backgroundColor: "#F0DE36" }}
-                            >
-                              <FiFileText size={12} /> {isBusy ? "..." : "Generate"}
-                            </button>
-                          ) : null}
-                          {agreement?.generatedDocument ? (
-                            <button
-                              type="button"
-                              onClick={() => setPreviewAgreement(agreement)}
-                              title="View Agreement"
-                              className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
-                              style={{ borderColor: "#0D1282", color: "#0D1282" }}
-                            >
-                              <FiEye size={12} /> View
-                            </button>
-                          ) : null}
-                          {account.status === "APPROVED" ? (
-                            <button
-                              type="button"
-                              onClick={() => void activate(account)}
-                              disabled={isBusy}
-                              title="Activate"
-                              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
-                              style={{ backgroundColor: "#0D1282" }}
-                            >
-                              <FiCheck size={12} /> Activate
-                            </button>
-                          ) : null}
-                          {['PENDING_REVIEW', 'APPROVED'].includes(account.status) ? (
-                            <button
-                              type="button"
-                              onClick={() => void reject(account)}
-                              disabled={isBusy}
-                              title="Reject"
-                              className="inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-semibold transition hover:bg-red-50 disabled:opacity-50"
-                              style={{ borderColor: "#D71313", color: "#D71313" }}
-                            >
-                              <FiX size={12} /> Reject
-                            </button>
-                          ) : null}
-                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+  <Link
+    href={`/dashboard/credit-accounts/${account.businessAccountId}`}
+    title="Account"
+    className="inline-flex h-7 items-center gap-1 rounded-4xl border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
+    style={{ borderColor: "#0D1282", color: "#0D1282" }}
+  >
+    <FiEye size={12} /> Account
+  </Link>
+  <button
+    type="button"
+    onClick={() => setSelected(account)}
+    title="Configure"
+    className="inline-flex h-7 items-center gap-1 rounded-4xl border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
+    style={{ borderColor: "#0D1282", color: "#0D1282" }}
+  >Configure
+    <GrDocumentConfig
+ size={12} /> 
+  </button>
+  {canGenerate ? (
+    <button
+      type="button"
+      onClick={() => void generateAgreement(account, agreement)}
+      disabled={isBusy}
+      title="Generate Agreement"
+      className="inline-flex h-7 items-center gap-1 rounded-4xl px-2 text-[11px] font-semibold text-slate-900 shadow-sm transition hover:opacity-90 disabled:opacity-50"
+      style={{ backgroundColor: "#F0DE36" }}
+    >
+      <FiFileText size={12} /> {isBusy ? "..." : "Generate"}
+    </button>
+  ) : null}
+  {agreement?.generatedDocument ? (
+    <button
+      type="button"
+      onClick={() => setPreviewAgreement(agreement)}
+      title="View Agreement"
+      className="inline-flex h-7 items-center gap-1 rounded-4xl border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
+      style={{ borderColor: "#0D1282", color: "#0D1282" }}
+    >
+      <FiEye size={12} /> View
+    </button>
+  ) : null}
+  {account.status === "APPROVED" ? (
+    <button
+      type="button"
+      onClick={() => void activate(account)}
+      disabled={isBusy}
+      title="Activate"
+      className="inline-flex h-7 items-center gap-1 rounded-4xl px-2 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
+      style={{ backgroundColor: "#0D1282" }}
+    >
+      <FiCheck size={12} /> Activate
+    </button>
+  ) : null}
+  {['PENDING_REVIEW', 'APPROVED'].includes(account.status) ? (
+    <button
+      type="button"
+      onClick={() => void reject(account)}
+      disabled={isBusy}
+      title="Reject"
+      className="inline-flex h-7 items-center gap-1 rounded-4xl border px-2 text-[11px] font-semibold transition hover:bg-red-50 disabled:opacity-50"
+      style={{ borderColor: "#D71313", color: "#D71313" }}
+    >
+      <FiX size={12} /> Reject
+    </button>
+  ) : null}
+</div>
                       </td>
                     </tr>
                   );

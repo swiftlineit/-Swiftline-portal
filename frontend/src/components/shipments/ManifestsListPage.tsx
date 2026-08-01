@@ -140,7 +140,7 @@ export default function ManifestsListPage({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {manifests.map((manifest) => (
-                <tr key={manifest.id} className="hover:bg-slate-50">
+                <tr key={manifest.id} id={`manifest-${manifest.id}`} className="hover:bg-slate-50">
                   <td className="px-4 py-3 font-semibold text-[#0D1282]">
                     {manifest.manifestNumber}
                   </td>

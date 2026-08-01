@@ -2,12 +2,10 @@
 
 import { ChangeEvent, ReactNode, useEffect, useState } from "react";
 import { CountrySelector, FlagImage } from "react-international-phone";
-import { FiChevronDown, FiMinus, FiPlus } from "react-icons/fi";
+import { FiChevronDown } from "react-icons/fi";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { toast } from "react-toastify";
 import { csbTypeOptions, type CsbType } from "@/lib/csbType";
-import { getHsnCodeError, maxParcelItems, type ParcelItem } from "@/lib/parcelItems";
-import { findRestrictedCategories } from "@/lib/restrictedGoods";
 import {
   getPhoneCountryByDialCode,
   preferredPhoneCountries
@@ -274,134 +272,6 @@ export function ShipmentCsbTypeField({
           </label>
         );
       })}
-    </div>
-  );
-}
-
-/**
- * Per-parcel contents: one row per distinct good, each with its own mandatory
- * HSN code. Restricted descriptions highlight red and raise a toast on blur,
- * matching how the single contents field behaved before.
- *
- * The joined descriptions become the parcel's contentsDescription on save, which
- * is what the EDI export, manifest, carrier payload and labels keep reading.
- */
-export function ParcelItemsEditor({
-  items,
-  onChange,
-  revealError = false,
-  maxItems = maxParcelItems
-}: {
-  items: ParcelItem[];
-  onChange: (items: ParcelItem[]) => void;
-  revealError?: boolean;
-  maxItems?: number;
-}) {
-  function updateItem(index: number, field: keyof ParcelItem, value: string) {
-    onChange(items.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item)));
-  }
-
-  function addItem() {
-    if (items.length >= maxItems) return;
-    onChange([...items, { description: "", hsnCode: "" }]);
-  }
-
-  function removeItem(index: number) {
-    // Always leave one row so the parcel never renders with no contents input.
-    if (items.length <= 1) {
-      onChange([{ description: "", hsnCode: "" }]);
-      return;
-    }
-    onChange(items.filter((_, itemIndex) => itemIndex !== index));
-  }
-
-  return (
-    <div className="min-w-0">
-      <div className="flex items-center justify-between gap-3">
-        <ShipmentFieldLabel required tooltip="Each distinct item in this box, with its HSN code">
-          Contents
-        </ShipmentFieldLabel>
-        <button
-          type="button"
-          onClick={addItem}
-          disabled={items.length >= maxItems}
-          className="inline-flex items-center gap-1 rounded-full border border-blue-900 px-3 py-1 text-xs font-semibold text-blue-900 transition hover:bg-blue-900 hover:text-white disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400 disabled:hover:bg-transparent"
-        >
-          <FiPlus aria-hidden="true" /> Add Item
-        </button>
-      </div>
-
-      <div className="mt-2 space-y-2">
-        {items.map((item, index) => {
-          const restricted = findRestrictedCategories(item.description);
-          const hsnError = getHsnCodeError(item.hsnCode);
-          const showDescriptionError = restricted.length > 0;
-          const showHsnError = Boolean(hsnError) && (revealError || item.hsnCode.trim().length > 0);
-
-          return (
-            <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px_auto] sm:items-start">
-              <input
-                type="text"
-                value={item.description}
-                onChange={(event) => updateItem(index, "description", event.target.value)}
-                onBlur={() => {
-                  if (restricted.length) {
-                    toast.error(`${restricted.join(", ")} is a restricted item and cannot be shipped.`, {
-                      toastId: `restricted-${restricted.join("-")}`
-                    });
-                  }
-                }}
-                placeholder={`Item ${index + 1} description`}
-                maxLength={120}
-                aria-label={`Item ${index + 1} description`}
-                aria-invalid={showDescriptionError}
-                className={`h-11 w-full min-w-0 rounded-xl border px-3.5 text-sm outline-none transition focus:ring-2 ${
-                  showDescriptionError
-                    ? "border-red-400 bg-red-50 focus:border-red-500 focus:ring-red-100"
-                    : revealError && !item.description.trim()
-                      ? "border-red-400 bg-white focus:border-red-500 focus:ring-red-100"
-                      : "border-slate-300 bg-white focus:border-blue-900 focus:ring-blue-100"
-                }`}
-              />
-              <input
-                type="text"
-                inputMode="numeric"
-                value={item.hsnCode}
-                // Digits only: an HSN code is 4, 6 or 8 numerals.
-                onChange={(event) => updateItem(index, "hsnCode", event.target.value.replace(/\D/g, "").slice(0, 8))}
-                onBlur={() => {
-                  if (hsnError && item.hsnCode.trim()) toast.error(hsnError, { toastId: hsnError });
-                }}
-                placeholder="HSN code"
-                aria-label={`Item ${index + 1} HSN code`}
-                aria-invalid={showHsnError}
-                className={`h-11 w-full min-w-0 rounded-xl border px-3.5 text-sm outline-none transition focus:ring-2 ${
-                  showHsnError
-                    ? "border-red-400 bg-white focus:border-red-500 focus:ring-red-100"
-                    : "border-slate-300 bg-white focus:border-blue-900 focus:ring-blue-100"
-                }`}
-              />
-              <button
-                type="button"
-                onClick={() => removeItem(index)}
-                disabled={items.length <= 1 && !item.description && !item.hsnCode}
-                aria-label={`Remove item ${index + 1}`}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-red-600 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:border-slate-300 disabled:hover:bg-transparent"
-              >
-                <FiMinus aria-hidden="true" />
-              </button>
-
-              {showDescriptionError ? (
-                <p className="text-xs font-semibold text-red-600 sm:col-span-3">
-                  {restricted.join(", ")} is a restricted item and cannot be shipped.
-                </p>
-              ) : showHsnError ? (
-                <p className="text-xs font-semibold text-red-600 sm:col-span-3">{hsnError}</p>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

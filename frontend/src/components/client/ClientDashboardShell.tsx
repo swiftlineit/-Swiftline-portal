@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Sidebar, { SidebarNavItem } from "@/components/Sidebar";
 import { logout } from "@/lib/auth";
+import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
 import { getClientDashboard } from "@/lib/clientDashboard";
 import { BsWhatsapp,BsCurrencyRupee } from "react-icons/bs";
@@ -139,7 +140,8 @@ export function ClientDashboardShell({
 </div>
             </div>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">{children}</div>
+          <DeepLinkTarget />
         </main>
       </div>
 

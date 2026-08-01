@@ -33,8 +33,13 @@ import {
   DpdShipmentServiceError,
   createLabelForShipmentDraft
 } from "../services/dpdShipment.service.js";
-import { buildDpdInvoiceTemplateBuffer } from "../services/invoiceTemplate.service.js";
+import { buildCustomsInvoiceTemplateWorkbook } from "../services/customsInvoice/customsInvoice.service.js";
 import { normalizeCsbType } from "../services/csbType.service.js";
+import {
+  downloadCustomsInvoicePdf,
+  downloadCustomsInvoiceWorkbook,
+  getCustomsInvoice
+} from "./customsInvoice.controller.js";
 import { normalizeParcelItems } from "../services/parcelItems.service.js";
 import { clientCanAccessShipmentDraft } from "../services/shipmentDraftPolicy.service.js";
 import {
@@ -605,11 +610,11 @@ export async function listClientShipments(request: Request, response: Response):
   });
 }
 
-export function downloadClientDpdInvoiceTemplate(_request: Request, response: Response): Response {
-  const buffer = buildDpdInvoiceTemplateBuffer();
+export async function downloadClientDpdInvoiceTemplate(_request: Request, response: Response): Promise<Response> {
+  const buffer = await buildCustomsInvoiceTemplateWorkbook();
 
   response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  response.setHeader("Content-Disposition", "attachment; filename=\"swiftline-client-dpd-invoice-template.xlsx\"");
+  response.setHeader("Content-Disposition", "attachment; filename=\"swiftline-shipment-invoice-template.xlsx\"");
 
   return response.status(200).send(buffer);
 }
@@ -1143,6 +1148,33 @@ export async function downloadClientShipmentInvoicePdf(request: Request, respons
     return response.status(404).json({ success: false, message: "Shipment invoice not found" });
   }
   return downloadShipmentInvoicePdf(request, response);
+}
+
+// Customs ("shipment") invoice. Each wrapper re-checks that the caller's account
+// owns the shipment before delegating to the shared handler.
+async function guardClientDraft(request: Request, response: Response) {
+  const userId = getAuthenticatedUserId(request);
+  const draftId = typeof request.params.draftId === "string" ? request.params.draftId : "";
+  if (!userId || !await clientCanAccessDraft(userId, draftId)) {
+    response.status(404).json({ success: false, message: "Shipment invoice not found" });
+    return false;
+  }
+  return true;
+}
+
+export async function getClientCustomsInvoice(request: Request, response: Response): Promise<Response | void> {
+  if (!await guardClientDraft(request, response)) return;
+  return getCustomsInvoice(request, response);
+}
+
+export async function downloadClientCustomsInvoicePdf(request: Request, response: Response): Promise<Response | void> {
+  if (!await guardClientDraft(request, response)) return;
+  return downloadCustomsInvoicePdf(request, response);
+}
+
+export async function downloadClientCustomsInvoiceWorkbook(request: Request, response: Response): Promise<Response | void> {
+  if (!await guardClientDraft(request, response)) return;
+  return downloadCustomsInvoiceWorkbook(request, response);
 }
 
 async function createClientShipment(

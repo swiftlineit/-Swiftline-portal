@@ -7,6 +7,7 @@ import { CreditAgreementCounter } from "../models/creditAgreementCounter.model.j
 import { getCurrentPaymentTerms } from "./creditAccount.service.js";
 import { renderCreditAgreementPdf } from "./creditAgreementPdf.service.js";
 import { removeCreditAgreementPdf, saveCreditAgreementPdf } from "./creditAgreementStorage.service.js";
+import { notifyActiveAdmins, notifyBusinessFinancialMembers } from "./portalNotification.service.js";
 
 export type CreditAgreementErrorCode =
   | "BUSINESS_NOT_FOUND"
@@ -263,7 +264,18 @@ export async function generateCreditAgreement(input: {
     });
     transactionCommitted = true;
 
-    if (generatedAgreement) return generatedAgreement as ICreditAgreement;
+    if (generatedAgreement) {
+      const agreementDocument = generatedAgreement as ICreditAgreement;
+      await notifyBusinessFinancialMembers(agreementDocument.businessAccountId, {
+        type: "CREDIT_AGREEMENT_READY",
+        title: "Credit agreement ready to sign",
+        message: `${agreementDocument.agreementNumber} is ready. Review and sign it to activate your credit facility.`,
+        href: `/client/credit/agreements/${String(agreementDocument._id)}`,
+        idempotencyKey: `CREDIT_AGREEMENT_READY:${String(agreementDocument._id)}`,
+        metadata: { agreementId: agreementDocument._id, agreementNumber: agreementDocument.agreementNumber }
+      });
+      return agreementDocument;
+    }
 
     // A concurrent request may have completed generation first. Keep its document and discard this duplicate.
     await removeCreditAgreementPdf(storedDocument.storageKey, input.storageRoot);
@@ -352,7 +364,19 @@ export async function signCreditAgreement(input: {
     });
     transactionCommitted = true;
 
-    if (signedAgreement) return signedAgreement as ICreditAgreement;
+    if (signedAgreement) {
+      const agreementDocument = signedAgreement as ICreditAgreement;
+      await notifyActiveAdmins({
+        type: "CREDIT_AGREEMENT_SIGNED",
+        title: "Credit agreement signed",
+        message: `${agreementDocument.agreementNumber} was signed by ${input.signer.name}. The credit facility can now be activated.`,
+        href: `/dashboard/credit-accounts#credit-account-${String(agreementDocument.businessAccountId)}`,
+        idempotencyKey: `CREDIT_AGREEMENT_SIGNED:${String(agreementDocument._id)}`,
+        businessAccountId: agreementDocument.businessAccountId,
+        metadata: { agreementId: agreementDocument._id, agreementNumber: agreementDocument.agreementNumber }
+      });
+      return agreementDocument;
+    }
     await removeCreditAgreementPdf(signedDocument.storageKey, input.storageRoot);
     const current = await CreditAgreement.findById(agreement._id).exec();
     if (current?.status === "SIGNED" && current.signedDocument) return current;

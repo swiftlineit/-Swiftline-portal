@@ -7,6 +7,7 @@ import Script from "next/script";
 import { apiUrl } from "@/lib/api";
 import { loginWithGoogle, setAccessToken } from "@/lib/auth";
 import Link from "next/link";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "";
@@ -35,6 +36,7 @@ export default function Home() {
   const [acceptedPolicy, setAcceptedPolicy] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [googleReady, setGoogleReady] = useState(false);
   const googleButtonRef = useRef<HTMLDivElement>(null);
 
@@ -240,16 +242,27 @@ export default function Home() {
                   Forgot password?
                 </Link>
               </div>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="mt-2 block w-full border-0 border-b-2 border-gray-200 bg-transparent px-1 py-2.5 text-sm text-gray-900 outline-none transition focus:border-[#F5B942]"
-              />
+              <div className="relative mt-2">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="block w-full border-0 border-b-2 border-gray-200 bg-transparent px-1 py-2.5 pr-8 text-sm text-gray-900 outline-none transition focus:border-[#F5B942]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-1 text-gray-400 outline-none transition hover:text-gray-600 focus-visible:text-[#0D1282]"
+                >
+                  {showPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+                </button>
+              </div>
             </div>
 
             <div className="flex items-start gap-3">

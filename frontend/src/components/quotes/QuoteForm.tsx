@@ -617,11 +617,6 @@ export default function QuoteForm({
             </div>
           ) : null}
 
-          <Line
-            label="Estimated Transit Time"
-            value={transitTimeEstimates[serviceType]}
-          />
-
           <div className="grid grid-cols-3  border border-slate-200 rounded">
             <SummaryMetric
               label="Actual"
@@ -698,6 +693,14 @@ export default function QuoteForm({
                   : "-"}
               </span>
             </div>
+            {/* Only meaningful once an estimate has been calculated, so it stays
+                hidden until the customer clicks Calculate Estimate. */}
+            {estimate ? (
+              <Line
+                label="Estimated Transit Time"
+                value={transitTimeEstimates[serviceType]}
+              />
+            ) : null}
           </div>
 
           {estimate?.missingRate ? (

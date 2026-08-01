@@ -94,15 +94,16 @@ describe("frontend/backend pricing parity rule", () => {
   });
 });
 
-describe("HSN codes", () => {
-  test("accepts 4, 6 and 8 digit codes", () => {
-    for (const code of ["1905", "190531", "19053100"]) {
+describe("HS codes", () => {
+  test("accepts 4, 6, 8 and 10 digit codes", () => {
+    // Ten digits appear on the customs invoice for fuller tariff classifications.
+    for (const code of ["1905", "190531", "19053100", "6117102030"]) {
       assert.ok(isValidHsnCode(code), `expected ${code} to be valid`);
     }
   });
 
   test("rejects malformed codes", () => {
-    for (const code of ["", "190", "12345", "1234567", "123456789", "1905AB", "19 05", null, undefined]) {
+    for (const code of ["", "190", "12345", "1234567", "123456789", "11223344556", "1905AB", "19 05", null, undefined]) {
       assert.ok(!isValidHsnCode(code), `expected ${JSON.stringify(code)} to be invalid`);
     }
   });
@@ -143,16 +144,22 @@ describe("parcel items", () => {
   });
 
   test("rebuilds items for legacy parcels that only have a description", () => {
+    // Parcels stored before the customs-invoice fields existed read as one unit
+    // of zero value, so the document can still render them.
     const items = normalizeParcelItems({ contentsDescription: "Handicrafts" });
-    assert.deepEqual(items, [{ description: "Handicrafts", hsnCode: "" }]);
+    assert.deepEqual(items, [
+      { description: "Handicrafts", hsnCode: "", unitType: "Pkt", quantity: 0, unitRate: 0 }
+    ]);
   });
 
   test("prefers stored items over the legacy description", () => {
     const items = normalizeParcelItems({
-      items: [{ description: "Cookies", hsnCode: "19053100" }],
+      items: [{ description: "Cookies", hsnCode: "19053100", unitType: "Pcs", quantity: 3, unitRate: 25 }],
       contentsDescription: "Cookies"
     });
-    assert.deepEqual(items, [{ description: "Cookies", hsnCode: "19053100" }]);
+    assert.deepEqual(items, [
+      { description: "Cookies", hsnCode: "19053100", unitType: "Pcs", quantity: 3, unitRate: 25 }
+    ]);
   });
 
   test("returns nothing for a parcel with neither", () => {

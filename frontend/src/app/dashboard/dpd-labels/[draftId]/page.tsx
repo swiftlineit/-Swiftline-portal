@@ -7,13 +7,14 @@ import { FiArrowLeft, FiCheckCircle, FiExternalLink, FiMapPin, FiSave, FiSearch,
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
 import {
-  ParcelItemsEditor,
   ShipmentCsbTypeField,
   ShipmentFieldLabel,
   ShipmentPhoneCodeField,
   ShipmentSelectField,
   ShipmentTextField
 } from "@/components/shipments/ShipmentFormControls";
+import { ParcelItemsEditor } from "@/components/shipments/ParcelItemsEditor";
+import InvoiceImportBanner from "@/components/shipments/InvoiceImportBanner";
 import { ConsignorKycSection } from "@/components/shipments/ConsignorKycSection";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import {
@@ -30,9 +31,12 @@ import {
 import { CountryRateCard, formatCountryRateService, listCountryRateCards } from "@/lib/countryRateCards";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
 import { normalizeCsbType, type CsbType } from "@/lib/csbType";
+import { defaultDeclarationNote } from "@/lib/customsInvoice";
 import {
   composeContentsDescription,
+  createEmptyParcelItem,
   getHsnCodeError,
+  getPositiveNumberError,
   normalizeParcelItems,
   type ParcelItem
 } from "@/lib/parcelItems";
@@ -69,7 +73,8 @@ import {
   uploadShipmentKycDocument,
   uploadShipmentParcelKycDocument,
   validateAddress,
-  validateShipmentDraft
+  validateShipmentDraft,
+  type InvoiceImportSummary
 } from "@/lib/dpdLabels";
 import { calculateShipmentEstimate, formatMoney, getVolumetricFormula } from "@/lib/shipmentPricing";
 import InfoTooltip from "@/components/ui/InfoTooltip";
@@ -146,7 +151,7 @@ function createEmptyParcelForm(sequence: number): ParcelForm {
     widthCm: "",
     heightCm: "",
     shipmentContentType: "PARCEL",
-    items: [{ description: "", hsnCode: "" }],
+    items: [createEmptyParcelItem()],
     contentsDescription: "",
     shipmentReference1: "",
     shipmentReference2: "",
@@ -224,6 +229,11 @@ function getReviewFormIssues(addressForm: AddressForm, draftCorrectionForm: Draf
       }
       const hsnError = getHsnCodeError(item.hsnCode);
       if (hsnError) issues.push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
+      // Quantity and unit rate print on the customs invoice, so both are required.
+      const quantityError = getPositiveNumberError(item.quantity, "Quantity");
+      if (quantityError) issues.push(`${itemLabel}: ${quantityError.replace(/\.$/, "").toLowerCase()}`);
+      const unitRateError = getPositiveNumberError(item.unitRate, "Unit rate");
+      if (unitRateError) issues.push(`${itemLabel}: ${unitRateError.replace(/\.$/, "").toLowerCase()}`);
     });
   });
   return issues;
@@ -332,6 +342,10 @@ export default function DpdLabelDraftPage() {
   // Customs route for the shipment. Drafts saved before CSB selection existed
   // read as CSB-IV, matching how the backend prices them.
   const [csbType, setCsbType] = useState<CsbType>("CSB_IV");
+  // Present only on drafts created from an uploaded invoice.
+  const [invoiceImport, setInvoiceImport] = useState<InvoiceImportSummary | null>(null);
+  // Printed as the NOTE block on the shipment (customs) invoice.
+  const [declarationNote, setDeclarationNote] = useState(defaultDeclarationNote);
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   const [busy, setBusy] = useState(false);
@@ -482,6 +496,7 @@ export default function DpdLabelDraftPage() {
     });
     setParcelForms(normalizeParcelForms(nextDraft.parcelList));
     setCsbType(normalizeCsbType(nextDraft.csbType));
+    setDeclarationNote(nextDraft.declarationNote ?? defaultDeclarationNote);
   }
 
   function syncConsignorForm(nextDraft: ShipmentDraft) {
@@ -526,6 +541,7 @@ export default function DpdLabelDraftPage() {
           return;
         }
         setRates(rateData.rates);
+        setInvoiceImport(data.invoiceImport ?? null);
         setDraft(data.shipmentDraft);
         syncDraftCorrectionForm(data.shipmentDraft);
         syncConsignorForm(data.shipmentDraft);
@@ -652,7 +668,16 @@ export default function DpdLabelDraftPage() {
         heightCm: parcel.heightCm ? Number(parcel.heightCm) : undefined,
         shipmentContentType: parcel.shipmentContentType,
         // Blank rows are dropped so an untouched extra row never blocks a save.
-        items: parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim()),
+        // Blank rows are dropped; quantity and rate go over the wire as numbers.
+        items: parcel.items
+          .filter((item) => item.description.trim() || item.hsnCode.trim())
+          .map((item) => ({
+            description: item.description,
+            hsnCode: item.hsnCode,
+            unitType: item.unitType,
+            quantity: Number(item.quantity) || 0,
+            unitRate: Number(item.unitRate) || 0
+          })),
         // Recomputed from the items so the value the EDI export, manifest, carrier
         // payload and labels read always matches what was entered.
         contentsDescription: composeContentsDescription(parcel.items),
@@ -661,6 +686,7 @@ export default function DpdLabelDraftPage() {
         aadhaarNumber: parcel.aadhaarNumber
       })),
       csbType,
+      declarationNote,
       serviceType: draftCorrectionForm.serviceType,
       serviceCode: draftCorrectionForm.serviceCode
     });
@@ -918,7 +944,9 @@ export default function DpdLabelDraftPage() {
       ) : (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-6">
-            {/* Customs route, first because CSB-V changes what is charged. */}
+            <InvoiceImportBanner summary={invoiceImport} />
+
+              {/* Customs route, first because CSB-V changes what is charged. */}
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Type</h2>
@@ -937,6 +965,17 @@ export default function DpdLabelDraftPage() {
                   value={csbType}
                   onChange={(next: CsbType) => { setCsbType(next); setReviewIssues([]); }}
                 />
+                {/* Printed as the NOTE block on the shipment (customs) invoice. */}
+                <div className="mt-4">
+                  <ShipmentTextField
+                    label="Declaration Note"
+                    placeholder="Optional note printed on the shipment invoice"
+                    tooltip="Printed on the shipment invoice sent with the goods"
+                    value={declarationNote}
+                    onChange={(event) => { setDeclarationNote(event.target.value); setReviewIssues([]); }}
+                    maxLength={500}
+                  />
+                </div>
               </div>
             </section>
 

@@ -29,6 +29,15 @@ export async function attachUser(req: Request, res: Response, next: NextFunction
   return next();
 }
 
+// Rejects anonymous requests without constraining the role. Use after attachUser
+// on resources any signed-in user may read.
+export function requireAuthenticated(req: Request, res: Response, next: NextFunction) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (!(req as any).user) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+  return next();
+}
+
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

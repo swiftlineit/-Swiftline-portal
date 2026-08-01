@@ -10,8 +10,14 @@
 // formats change. The per-item HSN codes are stored for the shipment (customs)
 // invoice that will be built on top of them later.
 
-// Indian HSN codes are declared at 4, 6 or 8 digit precision.
-const hsnCodePattern = /^\d{4}(?:\d{2}(?:\d{2})?)?$/;
+// HS codes are declared at 4, 6, 8 or 10 digit precision. Ten digits appear on
+// the customs invoice for tariff lines that need the fuller classification.
+const hsnCodePattern = /^\d{4}(?:\d{2}(?:\d{2}(?:\d{2})?)?)?$/;
+
+// Unit of measure per item line on the customs invoice. "Pkt" is the common case.
+export const parcelItemUnitTypeValues = ["Pkt", "Pcs", "Set", "Box", "Kg", "Pair"] as const;
+export type ParcelItemUnitType = (typeof parcelItemUnitTypeValues)[number];
+export const defaultParcelItemUnitType: ParcelItemUnitType = "Pkt";
 
 // Must stay <= the `contentsDescription` maxlength in shipmentDraft.model.ts and
 // the length the DPD payload validator enforces.
@@ -21,10 +27,41 @@ export const maxParcelItems = 20;
 export type ParcelItemInput = {
   description?: unknown;
   hsnCode?: unknown;
+  unitType?: unknown;
+  quantity?: unknown;
+  unitRate?: unknown;
 };
 
 export function isValidHsnCode(value: unknown): boolean {
   return typeof value === "string" && hsnCodePattern.test(value.trim());
+}
+
+function numeric(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+export function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Line amount for a customs invoice row: quantity x unit rate.
+ * Always derived, never stored, so it cannot drift from its inputs.
+ */
+export function getParcelItemAmount(item: { quantity?: unknown; unitRate?: unknown }): number {
+  return roundMoney(numeric(item.quantity) * numeric(item.unitRate));
+}
+
+/** Declared goods value for the whole shipment: every item line summed. */
+export function getDeclaredGoodsValue(
+  parcels: Array<{ items?: Array<{ quantity?: unknown; unitRate?: unknown }> | null }>
+): number {
+  const total = parcels.reduce((sum, parcel) => (
+    sum + (Array.isArray(parcel.items) ? parcel.items : [])
+      .reduce((parcelSum, item) => parcelSum + getParcelItemAmount(item), 0)
+  ), 0);
+  return roundMoney(total);
 }
 
 /**
@@ -57,19 +94,28 @@ export function composeContentsDescription(items: ParcelItemInput[]): string {
  * an empty HSN code — no migration required.
  */
 export function normalizeParcelItems(parcel: {
-  items?: Array<{ description?: unknown; hsnCode?: unknown }> | null;
+  items?: ParcelItemInput[] | null;
   contentsDescription?: unknown;
-}): Array<{ description: string; hsnCode: string }> {
+}): Array<{ description: string; hsnCode: string; unitType: string; quantity: number; unitRate: number }> {
   const stored = Array.isArray(parcel.items) ? parcel.items : [];
   const items = stored
     .map((item) => ({
       description: typeof item.description === "string" ? item.description.trim() : "",
-      hsnCode: typeof item.hsnCode === "string" ? item.hsnCode.trim() : ""
+      hsnCode: typeof item.hsnCode === "string" ? item.hsnCode.trim() : "",
+      // Older items carry no unit fields; they read as one unit of zero value so
+      // the customs invoice can still render them.
+      unitType: typeof item.unitType === "string" && item.unitType.trim()
+        ? item.unitType.trim()
+        : defaultParcelItemUnitType,
+      quantity: numeric(item.quantity),
+      unitRate: numeric(item.unitRate)
     }))
     .filter((item) => item.description || item.hsnCode);
 
   if (items.length) return items;
 
   const legacy = typeof parcel.contentsDescription === "string" ? parcel.contentsDescription.trim() : "";
-  return legacy ? [{ description: legacy, hsnCode: "" }] : [];
+  return legacy
+    ? [{ description: legacy, hsnCode: "", unitType: defaultParcelItemUnitType, quantity: 0, unitRate: 0 }]
+    : [];
 }

@@ -7,6 +7,8 @@ import { PaymentTopUp } from "../../models/paymentTopUp.model.js";
 import { PrepaidAccount } from "../../models/prepaidAccount.model.js";
 import type { PrepaidCurrency } from "../../models/financialTypes.js";
 import { appendCreditLedgerEntry, ensureCreditAccount } from "../creditAccount.service.js";
+import { notifyActiveAdmins, notifyBusinessFinancialMembers } from "../portalNotification.service.js";
+import { formatMinorRupees } from "./dailyTopUpLimit.service.js";
 import { createLedgerEntry, findLedgerEntryByIdempotencyKey } from "./ledger.service.js";
 
 type EnsureAccountInput = {
@@ -240,6 +242,17 @@ export async function creditCapturedTopUp(input: CreditCapturedTopUpInput) {
           }
         }], { session });
 
+        await notifyActiveAdmins({
+          type: "SECURITY_DEPOSIT_RECEIVED",
+          title: "Security deposit received",
+          message: `${business.company.companyName || business.accountId} paid its `
+            + `${formatMinorRupees(topUp.amountMinor)} security deposit. The credit facility can now be activated.`,
+          href: `/dashboard/credit-accounts#credit-account-${String(business._id)}`,
+          idempotencyKey: `SECURITY_DEPOSIT_RECEIVED:${String(topUp._id)}`,
+          businessAccountId: business._id as mongoose.Types.ObjectId,
+          metadata: { paymentTopUpId: topUp._id, amountMinor: topUp.amountMinor }
+        }, session);
+
         result = { credited: true as const, ledgerEntry: null };
         return;
       }
@@ -263,6 +276,15 @@ export async function creditCapturedTopUp(input: CreditCapturedTopUpInput) {
         metadata: { paymentTopUpId: topUp._id },
         session
       });
+
+      await notifyBusinessFinancialMembers(topUp.businessAccountId, {
+        type: "CUSTOMER_ADVANCE_CREDITED",
+        title: "Customer Advance credited",
+        message: `${formatMinorRupees(topUp.amountMinor)} was received and added to your Customer Advance balance.`,
+        href: "/client/payments#payment-history",
+        idempotencyKey: `CUSTOMER_ADVANCE_CREDITED:${String(topUp._id)}`,
+        metadata: { paymentTopUpId: topUp._id, amountMinor: topUp.amountMinor }
+      }, session);
 
       result = { credited: true as const, ledgerEntry };
     });

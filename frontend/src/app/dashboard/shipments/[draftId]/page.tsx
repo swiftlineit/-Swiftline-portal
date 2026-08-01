@@ -10,6 +10,7 @@ import ShipmentAmendmentPanel from "@/components/shipments/ShipmentAmendmentPane
 import ShipmentCancellationPanel from "@/components/shipments/ShipmentCancellationPanel";
 import ShipmentChargeVerificationPanel from "@/components/shipments/ShipmentChargeVerificationPanel";
 import ShipmentInvoiceHistory from "@/components/shipments/ShipmentInvoiceHistory";
+import CustomsInvoiceCard from "@/components/shipments/CustomsInvoiceCard";
 import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import {
@@ -558,6 +559,7 @@ export default function AdminShipmentDetailsPage() {
             {history?.dpdShipment ? (
               <>
                 <ShipmentInvoiceHistory draftId={draft._id} audience="admin" />
+                <div className="mt-4"><CustomsInvoiceCard draftId={draft._id} audience="admin" /></div>
                 <ShipmentManifestPanel draftId={draft._id} audience="admin" />
               </>
             ) : null}
@@ -745,7 +747,7 @@ function DetailRow({ label, value }: { label: string; value?: string | number | 
   return (
     <div>
       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-slate-800">{value || "Not available"}</dd>
+      <dd className="mt-1 wrap-break-word text-sm p-3 rounded bg-slate-50  font-medium text-slate-800">{value || "Not available"}</dd>
     </div>
   );
 }

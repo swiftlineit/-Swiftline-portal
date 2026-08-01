@@ -34,7 +34,7 @@ If Next.js selects another port, use that actual port in the steps below.
 4. Keep the frontend private if the phone is signed into the tunnel provider,
    or make it public temporarily for a simpler scanner test.
 5. Copy both generated HTTPS URLs.
-6. Do not forward MongoDB, Redis, or any database-management port.
+6. Do not forward MongoDB or any database-management port.
 
 If private tunnel authentication is enabled for the frontend, open its
 forwarded URL on the phone once and complete the tunnel sign-in before testing

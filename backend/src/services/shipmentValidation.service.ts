@@ -166,14 +166,22 @@ function validateParcel(parcel: ShipmentParcel, index: number, requireItemHsnCod
         issues.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
       }
     }
-    // A blank HSN code is only an issue where the code is required. Shipments
-    // booked before HSN capture existed have none, and an amendment to one of
+    // A blank HS code is only an issue where the code is required. Shipments
+    // booked before HS capture existed have none, and an amendment to one of
     // those must not be blocked by a field that did not exist at booking time.
     if (!hasText(item.hsnCode)) {
-      if (requireItemHsnCodes) issues.push(`${itemLabel}: HSN code is required`);
+      if (requireItemHsnCodes) issues.push(`${itemLabel}: HS code is required`);
     } else if (!isValidHsnCode(item.hsnCode)) {
       // A present but malformed code is always rejected, legacy or not.
-      issues.push(`${itemLabel}: enter a valid 4, 6 or 8 digit HSN code`);
+      issues.push(`${itemLabel}: enter a valid 4, 6, 8 or 10 digit HS code`);
+    }
+
+    // Quantity and unit rate print on the customs invoice, so they are demanded
+    // alongside the HS code and skipped on the same legacy path.
+    if (requireItemHsnCodes) {
+      if (!(item.quantity > 0)) issues.push(`${itemLabel}: quantity must be greater than zero`);
+      if (!(item.unitRate > 0)) issues.push(`${itemLabel}: unit rate must be greater than zero`);
+      if (!hasText(item.unitType)) issues.push(`${itemLabel}: unit type is required`);
     }
   });
 

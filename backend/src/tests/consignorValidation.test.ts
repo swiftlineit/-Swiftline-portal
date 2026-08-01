@@ -148,48 +148,76 @@ describe("consignor draft validation", () => {
     assert.equal(issues.some((issue) => issue.toLowerCase().includes("restricted")), false);
   });
 
-  test("requires an HSN code on every declared item", () => {
+  // A fully specified item, so tests can vary one field at a time.
+  const completeItem = { description: "Cookies", hsnCode: "19053100", unitType: "Pkt", quantity: 2, unitRate: 50 };
+
+  test("requires an HS code on every declared item", () => {
     const issues = validateShipmentDraftFields(draftWith({
       parcels: [{
         sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
-        items: [{ description: "Cookies", hsnCode: "19053100" }, { description: "Clothes", hsnCode: "" }],
+        items: [completeItem, { ...completeItem, description: "Clothes", hsnCode: "" }],
         contentsDescription: "Cookies, Clothes"
       }]
     }));
-    assert.ok(issues.includes("Parcel 1 item 2: HSN code is required"));
+    assert.ok(issues.includes("Parcel 1 item 2: HS code is required"));
     // The complete item raises nothing.
     assert.equal(issues.some((issue) => issue.startsWith("Parcel 1 item 1")), false);
   });
 
-  test("rejects a malformed HSN code", () => {
+  test("accepts a 10 digit HS code", () => {
     const issues = validateShipmentDraftFields(draftWith({
       parcels: [{
         sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
-        items: [{ description: "Cookies", hsnCode: "190" }],
+        items: [{ ...completeItem, hsnCode: "6117102030" }],
         contentsDescription: "Cookies"
       }]
     }));
-    assert.ok(issues.includes("Parcel 1 item 1: enter a valid 4, 6 or 8 digit HSN code"));
+    assert.equal(issues.some((issue) => issue.includes("HS code")), false);
   });
 
-  test("does not demand HSN codes on the amendment path, but still rejects malformed ones", () => {
-    // Shipments booked before HSN capture existed must stay amendable.
+  test("rejects a malformed HS code", () => {
+    const issues = validateShipmentDraftFields(draftWith({
+      parcels: [{
+        sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
+        items: [{ ...completeItem, hsnCode: "190" }],
+        contentsDescription: "Cookies"
+      }]
+    }));
+    assert.ok(issues.includes("Parcel 1 item 1: enter a valid 4, 6, 8 or 10 digit HS code"));
+  });
+
+  test("requires a quantity and unit rate for the customs invoice", () => {
+    const issues = validateShipmentDraftFields(draftWith({
+      parcels: [{
+        sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
+        items: [{ ...completeItem, quantity: 0, unitRate: 0 }],
+        contentsDescription: "Cookies"
+      }]
+    }));
+    assert.ok(issues.includes("Parcel 1 item 1: quantity must be greater than zero"));
+    assert.ok(issues.includes("Parcel 1 item 1: unit rate must be greater than zero"));
+  });
+
+  test("does not demand HS codes or values on the amendment path, but still rejects malformed codes", () => {
+    // Shipments booked before these fields existed must stay amendable.
     const legacy = validateShipmentDraftFields(draftWith({
       parcels: [{
         sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
         contentsDescription: "Handicrafts"
       }]
     }), { requireConsignorDetails: false, requireItemHsnCodes: false });
-    assert.equal(legacy.some((issue) => issue.includes("HSN code is required")), false);
+    assert.equal(legacy.some((issue) => issue.includes("HS code is required")), false);
+    assert.equal(legacy.some((issue) => issue.includes("quantity must be")), false);
+    assert.equal(legacy.some((issue) => issue.includes("unit rate must be")), false);
 
     const malformed = validateShipmentDraftFields(draftWith({
       parcels: [{
         sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
-        items: [{ description: "Handicrafts", hsnCode: "12" }],
+        items: [{ ...completeItem, description: "Handicrafts", hsnCode: "12" }],
         contentsDescription: "Handicrafts"
       }]
     }), { requireConsignorDetails: false, requireItemHsnCodes: false });
-    assert.ok(malformed.includes("Parcel 1 item 1: enter a valid 4, 6 or 8 digit HSN code"));
+    assert.ok(malformed.includes("Parcel 1 item 1: enter a valid 4, 6, 8 or 10 digit HS code"));
   });
 
   test("skips consignor checks when the caller opts out (amendment path)", () => {

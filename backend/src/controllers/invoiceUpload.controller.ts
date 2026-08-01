@@ -9,8 +9,13 @@ import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
-import { buildDpdInvoiceTemplateBuffer } from "../services/invoiceTemplate.service.js";
-import { InvoiceParserError, ParsedDpdInvoice, parseDpdInvoiceWorkbook } from "../services/invoiceParser.service.js";
+import {
+  CustomsInvoiceParseError,
+  parseCustomsInvoiceWorkbook,
+  type ParsedCustomsInvoice
+} from "../services/customsInvoice/customsInvoiceParser.service.js";
+import { buildCustomsInvoiceTemplateWorkbook } from "../services/customsInvoice/customsInvoice.service.js";
+import { shipmentDataTemplateVersion } from "../services/customsInvoice/customsInvoiceSheet.js";
 import { resolveDraftBookingState } from "../services/shipmentDraftPolicy.service.js";
 
 const uploadPayloadSchema = z.object({
@@ -122,7 +127,7 @@ async function createOrUpdateShipmentDraft(
   businessAccountId: mongoose.Types.ObjectId,
   branchId: mongoose.Types.ObjectId,
   branch: Awaited<ReturnType<typeof resolveBranch>>,
-  parsedInvoice: ParsedDpdInvoice,
+  parsedInvoice: ParsedCustomsInvoice,
   userId: mongoose.Types.ObjectId
 ): Promise<InstanceType<typeof ShipmentDraft>> {
   const existingDraft = await ShipmentDraft.findOne({ invoiceUploadId }).exec();
@@ -131,25 +136,40 @@ async function createOrUpdateShipmentDraft(
   }
 
   const serviceCode = getDefaultServiceCode();
+  const consignor = parsedInvoice.consignor;
   const draftValues = {
       invoiceUploadId,
       businessAccountId,
       branchId,
       sender: getSenderSnapshot(branch),
+      // Sender details come from the workbook's import sheet. The Aadhaar CARD
+      // itself is never in a spreadsheet, so KYC uploads stay manual.
+      consignorAddress: {
+        companyName: consignor.companyName,
+        contactName: consignor.contactName,
+        email: consignor.email,
+        mobileNumber: consignor.mobileNumber,
+        aadhaarNumber: consignor.aadhaarNumber,
+        postcode: consignor.postcode,
+        addressLine1: consignor.addressLine1,
+        addressLine2: consignor.addressLine2,
+        townOrCity: consignor.townOrCity,
+        county: consignor.county
+      },
       consigneeEnteredAddress: {
-        companyName: parsedInvoice.consignee.companyName ?? "",
-        contactName: parsedInvoice.consignee.contactPerson,
-        email: parsedInvoice.consignee.email ?? "",
+        companyName: parsedInvoice.consignee.companyName,
+        contactName: parsedInvoice.consignee.contactName,
+        email: parsedInvoice.consignee.email,
         mobileCountryCode: parsedInvoice.consignee.mobileCountryCode,
         mobileNumber: parsedInvoice.consignee.mobileNumber,
         countryCode: parsedInvoice.consignee.countryCode,
         countryName: parsedInvoice.consignee.countryName,
         postcode: parsedInvoice.consignee.postcode,
         addressLine1: parsedInvoice.consignee.addressLine1,
-        addressLine2: parsedInvoice.consignee.addressLine2 ?? "",
+        addressLine2: parsedInvoice.consignee.addressLine2,
         townOrCity: parsedInvoice.consignee.townOrCity,
-        county: parsedInvoice.consignee.county ?? "",
-        deliveryInstructions: parsedInvoice.consignee.deliveryInstructions ?? ""
+        county: parsedInvoice.consignee.county,
+        deliveryInstructions: ""
       },
       consigneeSelectedAddress: null,
       consigneeValidatedAddress: null,
@@ -157,18 +177,27 @@ async function createOrUpdateShipmentDraft(
       addressValidationStatus: "NOT_VALIDATED" as const,
       addressValidationResult: {},
       // Parcel rows are the source of truth; PCS is stored as a quick summary for list/review screens.
-      parcelCount: parsedInvoice.parcelList.length,
-      parcelList: parsedInvoice.parcelList.map((parcel) => ({
+      parcelCount: parsedInvoice.parcels.length,
+      parcelList: parsedInvoice.parcels.map((parcel) => ({
         sequence: parcel.sequence,
         weightKg: parcel.weightKg,
-        lengthCm: parcel.lengthCm,
-        widthCm: parcel.widthCm,
-        heightCm: parcel.heightCm,
-        shipmentContentType: parcel.shipmentContentType,
-        contentsDescription: parcel.contentsDescription,
-        shipmentReference1: parcel.shipmentReference1 ?? "",
-        shipmentReference2: parcel.shipmentReference2 ?? ""
+        lengthCm: parcel.lengthCm ?? undefined,
+        widthCm: parcel.widthCm ?? undefined,
+        heightCm: parcel.heightCm ?? undefined,
+        shipmentContentType: "PARCEL" as const,
+        // contentsDescription is recomposed from these by the model's hook.
+        items: parcel.items,
+        contentsDescription: "",
+        // Genuinely optional on the form, so it stays blank when the invoice
+        // carries no customer reference.
+        shipmentReference1: parsedInvoice.shipmentReference,
+        shipmentReference2: ""
       })),
+      // Both default safely when the import sheet is absent: CSB-IV carries no
+      // clearance charge, so a missing value can never silently overcharge.
+      csbType: parsedInvoice.csbType ?? "CSB_IV",
+      serviceType: parsedInvoice.serviceType ?? "COURIER",
+      declarationNote: parsedInvoice.declarationNote,
       serviceCode,
       validationIssues: [] as string[],
       status: "NEEDS_REVIEW" as const,
@@ -252,23 +281,13 @@ async function refreshDuplicateInvoiceDraft(
     return ShipmentDraft.findOne({ invoiceUploadId: invoiceUpload?._id }).exec();
   }
 
-  const parsedInvoice = parseDpdInvoiceWorkbook(invoiceUpload.storagePath);
-  const mismatchIssues: string[] = [];
-
-  if (parsedInvoice.businessAccountCode !== businessAccount.accountId) {
-    mismatchIssues.push("Business Account Code does not match the selected business account");
-  }
-
-  if (parsedInvoice.branchCode.toUpperCase() !== branch.code) {
-    mismatchIssues.push("Branch Code does not match the selected branch");
-  }
-
-  if (mismatchIssues.length) throw new InvoiceParserError(mismatchIssues);
-
+  const parsedInvoice = await parseCustomsInvoiceWorkbook(invoiceUpload.storagePath);
   invoiceUpload.set({
-    templateVersion: parsedInvoice.templateVersion,
+    templateVersion: shipmentDataTemplateVersion,
     invoiceNumber: parsedInvoice.invoiceNumber,
-    shipmentReference: parsedInvoice.shipmentReference,
+    // The customer's own REFERENCE line is optional, but booking requires a
+    // shipment reference, so the invoice number stands in when none is given.
+    shipmentReference: parsedInvoice.shipmentReference || parsedInvoice.invoiceNumber,
     extractedData: parsedInvoice,
     status: "PARSED",
     processingErrors: []
@@ -285,11 +304,11 @@ async function refreshDuplicateInvoiceDraft(
   );
 }
 
-export function downloadDpdInvoiceTemplate(_request: Request, response: Response): Response {
-  const buffer = buildDpdInvoiceTemplateBuffer();
+export async function downloadDpdInvoiceTemplate(_request: Request, response: Response): Promise<Response> {
+  const buffer = await buildCustomsInvoiceTemplateWorkbook();
 
   response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  response.setHeader("Content-Disposition", "attachment; filename=\"swiftline-dpd-invoice-template.xlsx\"");
+  response.setHeader("Content-Disposition", "attachment; filename=\"swiftline-shipment-invoice-template.xlsx\"");
 
   return response.status(200).send(buffer);
 }
@@ -418,19 +437,7 @@ export async function processInvoiceUpload(request: Request, response: Response)
     invoiceUpload.processingErrors = [];
     await invoiceUpload.save();
 
-    const parsedInvoice = parseDpdInvoiceWorkbook(invoiceUpload.storagePath);
-    const mismatchIssues: string[] = [];
-
-    if (parsedInvoice.businessAccountCode !== businessAccount.accountId) {
-      mismatchIssues.push("Business Account Code does not match the selected business account");
-    }
-
-    if (parsedInvoice.branchCode.toUpperCase() !== branch.code) {
-      mismatchIssues.push("Branch Code does not match the selected branch");
-    }
-
-    if (mismatchIssues.length) throw new InvoiceParserError(mismatchIssues);
-
+    const parsedInvoice = await parseCustomsInvoiceWorkbook(invoiceUpload.storagePath);
     const existingParsedUpload = await findExistingParsedInvoice({
       businessAccountId: invoiceUpload.businessAccountId,
       branchId: invoiceUpload.branchId,
@@ -466,7 +473,7 @@ export async function processInvoiceUpload(request: Request, response: Response)
     }
 
     invoiceUpload.set({
-      templateVersion: parsedInvoice.templateVersion,
+      templateVersion: shipmentDataTemplateVersion,
       invoiceNumber: parsedInvoice.invoiceNumber,
       shipmentReference: parsedInvoice.shipmentReference,
       extractedData: parsedInvoice,
@@ -496,7 +503,7 @@ export async function processInvoiceUpload(request: Request, response: Response)
       shipmentDraft
     });
   } catch (error) {
-    const issues = error instanceof InvoiceParserError
+    const issues = error instanceof CustomsInvoiceParseError
       ? error.issues
       : [error instanceof Error ? error.message : "Invoice could not be parsed"];
 

@@ -22,7 +22,6 @@ const environmentSchema = z.object({
   CROSS_SITE_COOKIES: booleanFromEnv.default(false),
 
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
-  REDIS_URL: z.string().url().optional(),
   JWT_SECRET: z.string().min(1, "JWT_SECRET is required for signing tokens"),
   ACCESS_TOKEN_EXPIRES_IN: z.string().default("15m"),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default("7d"),

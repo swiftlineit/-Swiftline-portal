@@ -13,7 +13,7 @@ import {
   printAuthenticatedPdf,
   submitClientOfflinePayment,
   verifyClientOnlinePayment,
-  type CreditStatement
+  type CreditStatement,
 } from "@/lib/creditBilling";
 import { formatDashboardDate } from "@/lib/dateFormat";
 import { useClientUser } from "@/lib/useClientUser";
@@ -22,11 +22,15 @@ import {
   getClientCreditAccount,
   getPaymentTerms,
   type CreditAccount,
-  type PaymentTerms
+  type PaymentTerms,
 } from "@/lib/creditAccounts";
 
 function money(valueMinor: number) {
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2 }).format(valueMinor / 100);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+  }).format(valueMinor / 100);
 }
 
 function loadRazorpay() {
@@ -46,10 +50,16 @@ export default function ClientCreditStatementDetailPage() {
   const params = useParams<{ statementId: string }>();
   const [businessAccountId, setBusinessAccountId] = useState("");
   const [statement, setStatement] = useState<CreditStatement | null>(null);
-  const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
-  const [paymentMode, setPaymentMode] = useState<"ONLINE" | "OFFLINE">("ONLINE");
+  const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(
+    null,
+  );
+  const [paymentMode, setPaymentMode] = useState<"ONLINE" | "OFFLINE">(
+    "ONLINE",
+  );
   const [amountRupees, setAmountRupees] = useState("");
-  const [method, setMethod] = useState<"BANK_TRANSFER" | "UPI" | "CASH" | "CHEQUE">("BANK_TRANSFER");
+  const [method, setMethod] = useState<
+    "BANK_TRANSFER" | "UPI" | "CASH" | "CHEQUE"
+  >("BANK_TRANSFER");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
@@ -59,20 +69,27 @@ export default function ClientCreditStatementDetailPage() {
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerms | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
-  const load = useCallback(async (accountId: string) => {
-    const [statementResult, creditResult] = await Promise.all([
-      getClientStatement(accountId, params.statementId),
-      getClientCreditAccount(accountId)
-    ]);
-    setStatement(statementResult.statement);
-    setCreditAccount(creditResult.creditAccount);
-    setAmountRupees(String(statementResult.statement.outstandingAmountMinor / 100));
-  }, [params.statementId]);
+  const load = useCallback(
+    async (accountId: string) => {
+      const [statementResult, creditResult] = await Promise.all([
+        getClientStatement(accountId, params.statementId),
+        getClientCreditAccount(accountId),
+      ]);
+      setStatement(statementResult.statement);
+      setCreditAccount(creditResult.creditAccount);
+      setAmountRupees(
+        String(statementResult.statement.outstandingAmountMinor / 100),
+      );
+    },
+    [params.statementId],
+  );
 
   useEffect(() => {
     if (!user) return;
     const initialLoad = window.setTimeout(() => {
-      const accountId = new URLSearchParams(window.location.search).get("businessAccountId") || "";
+      const accountId =
+        new URLSearchParams(window.location.search).get("businessAccountId") ||
+        "";
       setBusinessAccountId(accountId);
       if (!accountId) {
         setError("Business account is missing from this statement link.");
@@ -80,9 +97,17 @@ export default function ClientCreditStatementDetailPage() {
         return;
       }
       void load(accountId)
-        .catch((caught) => setError(caught instanceof Error ? caught.message : "Statement could not be loaded."))
+        .catch((caught) =>
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Statement could not be loaded.",
+          ),
+        )
         .finally(() => setLoading(false));
-      void getPaymentTerms().then((result) => setPaymentTerms(result.terms)).catch(() => undefined);
+      void getPaymentTerms()
+        .then((result) => setPaymentTerms(result.terms))
+        .catch(() => undefined);
     }, 0);
     return () => window.clearTimeout(initialLoad);
   }, [load, user]);
@@ -98,19 +123,29 @@ export default function ClientCreditStatementDetailPage() {
     setError("");
     setMessage("");
     try {
-      if (!termsAccepted || !paymentTerms) throw new Error("Read and accept the current payment terms before paying.");
+      if (!termsAccepted || !paymentTerms)
+        throw new Error(
+          "Read and accept the current payment terms before paying.",
+        );
       await acceptPaymentTerms({
         businessAccountId,
         termsVersion: paymentTerms.version,
-        paymentReference: statement.statementNumber
+        paymentReference: statement.statementNumber,
       });
       const created = await createClientOnlinePayment({
         businessAccountId,
         requestedStatementId: statement.id,
-        amountMinor
+        amountMinor,
       });
-      if (!created.razorpay.keyId || !created.payment.razorpayOrderId || !await loadRazorpay() || !window.Razorpay) {
-        throw new Error("Razorpay checkout is not available. Try again shortly.");
+      if (
+        !created.razorpay.keyId ||
+        !created.payment.razorpayOrderId ||
+        !(await loadRazorpay()) ||
+        !window.Razorpay
+      ) {
+        throw new Error(
+          "Razorpay checkout is not available. Try again shortly.",
+        );
       }
       new window.Razorpay({
         key: created.razorpay.keyId,
@@ -120,7 +155,10 @@ export default function ClientCreditStatementDetailPage() {
         description: statement.statementNumber,
         order_id: created.payment.razorpayOrderId,
         theme: { color: "#1e3a8a" },
-        modal: { ondismiss: () => setMessage("Checkout closed without completing payment.") },
+        modal: {
+          ondismiss: () =>
+            setMessage("Checkout closed without completing payment."),
+        },
         handler: (checkout) => {
           void (async () => {
             try {
@@ -128,13 +166,21 @@ export default function ClientCreditStatementDetailPage() {
               setMessage(verified.message);
               await load(businessAccountId);
             } catch (caught) {
-              setError(caught instanceof Error ? caught.message : "Payment confirmation failed.");
+              setError(
+                caught instanceof Error
+                  ? caught.message
+                  : "Payment confirmation failed.",
+              );
             }
           })();
-        }
+        },
       }).open();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Payment could not be started.");
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Payment could not be started.",
+      );
     } finally {
       setBusy(false);
     }
@@ -156,11 +202,14 @@ export default function ClientCreditStatementDetailPage() {
     setError("");
     setMessage("");
     try {
-      if (!termsAccepted || !paymentTerms) throw new Error("Read and accept the current payment terms before submitting payment.");
+      if (!termsAccepted || !paymentTerms)
+        throw new Error(
+          "Read and accept the current payment terms before submitting payment.",
+        );
       await acceptPaymentTerms({
         businessAccountId,
         termsVersion: paymentTerms.version,
-        paymentReference: statement.statementNumber
+        paymentReference: statement.statementNumber,
       });
       const result = await submitClientOfflinePayment({
         businessAccountId,
@@ -168,13 +217,17 @@ export default function ClientCreditStatementDetailPage() {
         amountMinor,
         method,
         externalReference: reference.trim(),
-        notes: notes.trim()
+        notes: notes.trim(),
       });
       setMessage(result.message);
       setReference("");
       setNotes("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Offline payment could not be submitted.");
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Offline payment could not be submitted.",
+      );
     } finally {
       setBusy(false);
     }
@@ -186,79 +239,334 @@ export default function ClientCreditStatementDetailPage() {
     : "";
 
   return (
-      <div className="mx-auto max-w-6xl space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <Link href="/client/credit/statements" className="text-sm font-semibold text-blue-900">Back to statements</Link>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-950">{statement?.statementNumber || "Credit Statement"}</h1>
-            {statement ? <p className="mt-1 text-sm text-slate-600">{formatDashboardDate(statement.periodStart)} to {formatDashboardDate(new Date(new Date(statement.periodEnd).getTime() - 1).toISOString())}</p> : null}
-          </div>
+    <div className="mx-auto max-w-6xl space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <Link
+            href="/client/credit/statements"
+            className="text-sm font-semibold text-blue-900"
+          >
+            Back to statements
+          </Link>
+          <h1 className="mt-2 text-2xl font-semibold text-slate-950">
+            {statement?.statementNumber || "Credit Statement"}
+          </h1>
           {statement ? (
-            <div className="flex gap-2">
-              <button type="button" onClick={() => void openAuthenticatedFile(pdfPath)} className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900">View</button>
-              <button type="button" onClick={() => void openAuthenticatedFile(`${pdfPath}&download=1`, `${statement.statementNumber.replaceAll("/", "-")}.pdf`)} className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"><FiDownload /> Download</button>
-              <button type="button" onClick={() => void printAuthenticatedPdf(pdfPath)} className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"><FiPrinter /> Print</button>
-            </div>
+            <p className="mt-1 text-sm text-slate-600">
+              {formatDashboardDate(statement.periodStart)} to{" "}
+              {formatDashboardDate(
+                new Date(
+                  new Date(statement.periodEnd).getTime() - 1,
+                ).toISOString(),
+              )}
+            </p>
           ) : null}
         </div>
-
-        {error ? <div role="alert" className="border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-        {message ? <div role="status" className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div> : null}
-        <CreditRestrictionAlert
-          restriction={creditAccount?.restriction}
-          gracePeriodDays={creditAccount?.gracePeriodDays}
-        />
-        {loading ? <div className="flex h-48 items-center justify-center border border-slate-200 bg-white text-sm text-slate-500"><FiRefreshCw className="mr-2 animate-spin" /> Loading statement...</div> : null}
-
         {statement ? (
-          <>
-            <section className="grid border border-slate-200 bg-white sm:grid-cols-2 lg:grid-cols-4">
-              <div className="border-b border-slate-200 p-5 lg:border-b-0 lg:border-r"><p className="text-xs font-semibold uppercase text-slate-500">Issued</p><p className="mt-2 font-semibold">{formatDashboardDate(statement.issuedAt)}</p></div>
-              <div className="border-b border-slate-200 p-5 lg:border-b-0 lg:border-r"><p className="text-xs font-semibold uppercase text-slate-500">Due</p><p className="mt-2 font-semibold">{formatDashboardDate(statement.dueAt)}</p></div>
-              <div className="border-b border-slate-200 p-5 sm:border-b-0 lg:border-r"><p className="text-xs font-semibold uppercase text-slate-500">Settled</p><p className="mt-2 font-semibold">{money(statement.paidAmountMinor + statement.creditAdjustmentMinor)}</p></div>
-              <div className="bg-blue-950 p-5 text-white"><p className="text-xs font-semibold uppercase text-blue-200">Outstanding</p><p className="mt-2 text-xl font-semibold">{money(statement.outstandingAmountMinor)}</p></div>
-            </section>
-
-            {statement.adjustments.length ? (
-              <section className="overflow-x-auto border border-slate-200 bg-white">
-                <div className="border-b border-slate-200 p-5"><h2 className="font-semibold text-slate-950">Billing Adjustments</h2><p className="mt-1 text-sm text-slate-500">Approved shipment updates recorded after an earlier statement was issued.</p></div>
-                <table className="min-w-full text-left text-sm"><thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Description</th><th className="px-4 py-3 text-right">Difference</th></tr></thead><tbody>{statement.adjustments.map((adjustment) => <tr key={adjustment.adjustmentId} className="border-t border-slate-100"><td className="px-4 py-4">{adjustment.description}</td><td className={`px-4 py-4 text-right font-semibold ${adjustment.amountMinor < 0 ? "text-emerald-700" : "text-slate-950"}`}>{adjustment.amountMinor > 0 ? "+" : ""}{money(adjustment.amountMinor)}</td></tr>)}</tbody></table>
-              </section>
-            ) : null}
-
-            <section className="overflow-x-auto border border-slate-200 bg-white">
-              <div className="border-b border-slate-200 p-5"><h2 className="font-semibold text-slate-950">Billing Documents</h2><p className="mt-1 text-sm text-slate-500">GST is contained in each tax document and is not charged again here.</p></div>
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-100 text-xs uppercase text-slate-500"><tr><th className="px-4 py-3">Invoice</th><th className="px-4 py-3">Issued</th><th className="px-4 py-3 text-center">Revision</th><th className="px-4 py-3 text-right">Amount</th><th className="px-4 py-3 text-right">Action</th></tr></thead>
-                <tbody>{statement.lines.map((line) => <tr key={line.shipmentInvoiceId ?? line.cancellationFeeInvoiceId} className="border-t border-slate-100"><td className="px-4 py-4 font-semibold">{line.invoiceNumber}</td><td className="px-4 py-4">{formatDashboardDate(line.invoiceIssuedAt)}</td><td className="px-4 py-4 text-center">{line.sourceType === "SHIPMENT_INVOICE" ? line.invoiceRevision : "-"}</td><td className="px-4 py-4 text-right font-semibold">{money(line.outstandingAmountMinor)}</td><td className="px-4 py-4 text-right"><Link href={line.sourceType === "SHIPMENT_INVOICE" ? `/client/shipments/${line.shipmentDraftId}/invoice` : `/client/shipments/${line.shipmentDraftId}`} className="font-semibold text-blue-900">{line.sourceType === "SHIPMENT_INVOICE" ? "View Invoice" : "View Cancellation"}</Link></td></tr>)}</tbody>
-              </table>
-            </section>
-
-            {statement.outstandingAmountMinor > 0 ? (
-              <section className="border border-slate-200 bg-white p-5">
-                <div className="flex gap-1 border-b border-slate-200 pb-4">
-                  <button type="button" onClick={() => setPaymentMode("ONLINE")} className={`h-9 px-4 text-sm font-semibold ${paymentMode === "ONLINE" ? "bg-blue-900 text-white" : "text-slate-600"}`}>Pay Online</button>
-                  <button type="button" onClick={() => setPaymentMode("OFFLINE")} className={`h-9 px-4 text-sm font-semibold ${paymentMode === "OFFLINE" ? "bg-blue-900 text-white" : "text-slate-600"}`}>Record Offline Payment</button>
-                </div>
-                <label className="mt-4 block max-w-sm text-sm font-semibold text-slate-700">Amount (INR)<input type="number" min="0.01" step="0.01" value={amountRupees} onChange={(event) => setAmountRupees(event.target.value)} className="mt-2 h-11 w-full border border-slate-300 px-3 font-normal" /></label>
-                <label className="mt-4 flex items-start gap-3 text-sm text-slate-700">
-                  <input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} className="mt-1 h-4 w-4" />
-                  <span>I have read and accept the current <Link href="/client/credit/payment-terms" target="_blank" className="font-semibold text-blue-900 underline">payment terms</Link>.</span>
-                </label>
-                {paymentMode === "ONLINE" ? (
-                  <button type="button" onClick={() => void payOnline()} disabled={busy} className="mt-4 h-10 bg-blue-900 px-5 text-sm font-semibold text-white disabled:opacity-60">{busy ? "Starting..." : "Pay with Razorpay"}</button>
-                ) : (
-                  <form onSubmit={submitOffline} className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <label className="text-sm font-semibold text-slate-700">Method<select value={method} onChange={(event) => setMethod(event.target.value as typeof method)} className="mt-2 h-11 w-full border border-slate-300 bg-white px-3 font-normal"><option value="BANK_TRANSFER">Bank Transfer</option><option value="UPI">UPI</option><option value="CASH">Cash</option><option value="CHEQUE">Cheque</option></select></label>
-                    <label className="text-sm font-semibold text-slate-700">Payment Reference<input value={reference} onChange={(event) => setReference(event.target.value)} className="mt-2 h-11 w-full border border-slate-300 px-3 font-normal" placeholder="UTR, cheque or receipt number" /></label>
-                    <label className="text-sm font-semibold text-slate-700 sm:col-span-2">Note<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="mt-2 w-full border border-slate-300 p-3 font-normal" placeholder="Optional payment note" /></label>
-                    <button disabled={busy} className="h-10 w-fit bg-blue-900 px-5 text-sm font-semibold text-white disabled:opacity-60">{busy ? "Submitting..." : "Submit for Verification"}</button>
-                  </form>
-                )}
-              </section>
-            ) : null}
-          </>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void openAuthenticatedFile(pdfPath)}
+              className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
+            >
+              View
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void openAuthenticatedFile(
+                  `${pdfPath}&download=1`,
+                  `${statement.statementNumber.replaceAll("/", "-")}.pdf`,
+                )
+              }
+              className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
+            >
+              <FiDownload /> Download
+            </button>
+            <button
+              type="button"
+              onClick={() => void printAuthenticatedPdf(pdfPath)}
+              className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
+            >
+              <FiPrinter /> Print
+            </button>
+          </div>
         ) : null}
       </div>
+
+      {error ? (
+        <div
+          role="alert"
+          className="border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+        >
+          {error}
+        </div>
+      ) : null}
+      {message ? (
+        <div
+          role="status"
+          className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"
+        >
+          {message}
+        </div>
+      ) : null}
+      <CreditRestrictionAlert
+        restriction={creditAccount?.restriction}
+        gracePeriodDays={creditAccount?.gracePeriodDays}
+      />
+      {loading ? (
+        <div className="flex h-48 items-center justify-center border border-slate-200 bg-white text-sm text-slate-500">
+          <FiRefreshCw className="mr-2 animate-spin" /> Loading statement...
+        </div>
+      ) : null}
+
+      {statement ? (
+        <>
+          <section className="grid border border-slate-200 bg-white sm:grid-cols-2 lg:grid-cols-4">
+            <div className="border-b border-slate-200 p-5 lg:border-b-0 lg:border-r">
+              <p className="text-xs font-semibold uppercase text-slate-500">
+                Issued
+              </p>
+              <p className="mt-2 font-semibold">
+                {formatDashboardDate(statement.issuedAt)}
+              </p>
+            </div>
+            <div className="border-b border-slate-200 p-5 lg:border-b-0 lg:border-r">
+              <p className="text-xs font-semibold uppercase text-slate-500">
+                Due
+              </p>
+              <p className="mt-2 font-semibold">
+                {formatDashboardDate(statement.dueAt)}
+              </p>
+            </div>
+            <div className="border-b border-slate-200 p-5 sm:border-b-0 lg:border-r">
+              <p className="text-xs font-semibold uppercase text-slate-500">
+                Settled
+              </p>
+              <p className="mt-2 font-semibold">
+                {money(
+                  statement.paidAmountMinor + statement.creditAdjustmentMinor,
+                )}
+              </p>
+            </div>
+            <div className="bg-blue-950 p-5 text-white">
+              <p className="text-xs font-semibold uppercase text-blue-200">
+                Outstanding
+              </p>
+              <p className="mt-2 text-xl font-semibold">
+                {money(statement.outstandingAmountMinor)}
+              </p>
+            </div>
+          </section>
+
+          {statement.adjustments.length ? (
+            <section className="overflow-x-auto border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 p-5">
+                <h2 className="font-semibold text-slate-950">
+                  Billing Adjustments
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Approved shipment updates recorded after an earlier statement
+                  was issued.
+                </p>
+              </div>
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-100 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Description</th>
+                    <th className="px-4 py-3 text-right">Difference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statement.adjustments.map((adjustment) => (
+                    <tr
+                      key={adjustment.adjustmentId}
+                      className="border-t border-slate-100"
+                    >
+                      <td className="px-4 py-4">{adjustment.description}</td>
+                      <td
+                        className={`px-4 py-4 text-right font-semibold ${adjustment.amountMinor < 0 ? "text-emerald-700" : "text-slate-950"}`}
+                      >
+                        {adjustment.amountMinor > 0 ? "+" : ""}
+                        {money(adjustment.amountMinor)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          ) : null}
+
+          <section className="overflow-x-auto border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 p-5">
+              <h2 className="font-semibold text-slate-950">
+                Billing Documents
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                GST is contained in each tax document and is not charged again
+                here.
+              </p>
+            </div>
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-slate-100 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Invoice</th>
+                  <th className="px-4 py-3">Issued</th>
+                  <th className="px-4 py-3 text-center">Revision</th>
+                  <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {statement.lines.map((line) => (
+                  <tr
+                    key={
+                      line.shipmentInvoiceId ?? line.cancellationFeeInvoiceId
+                    }
+                    className="border-t border-slate-100"
+                  >
+                    <td className="px-4 py-4 font-semibold">
+                      {line.invoiceNumber}
+                    </td>
+                    <td className="px-4 py-4">
+                      {formatDashboardDate(line.invoiceIssuedAt)}
+                    </td>
+                    <td className="px-4 py-4 text-center">
+                      {line.sourceType === "SHIPMENT_INVOICE"
+                        ? line.invoiceRevision
+                        : "-"}
+                    </td>
+                    <td className="px-4 py-4 text-right font-semibold">
+                      {money(line.outstandingAmountMinor)}
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <Link
+                        href={
+                          line.sourceType === "SHIPMENT_INVOICE"
+                            ? `/client/shipments/${line.shipmentDraftId}/invoice`
+                            : `/client/shipments/${line.shipmentDraftId}`
+                        }
+                        className="font-semibold text-blue-900"
+                      >
+                        {line.sourceType === "SHIPMENT_INVOICE"
+                          ? "View Invoice"
+                          : "View Cancellation"}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          {statement.outstandingAmountMinor > 0 ? (
+            <section id="statement-payment" className="border border-slate-200 bg-white p-5">
+              <div className="flex gap-1 border-b border-slate-200 pb-4">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode("ONLINE")}
+                  className={`h-9 px-4 text-sm font-semibold ${paymentMode === "ONLINE" ? "bg-blue-900 text-white" : "text-slate-600"}`}
+                >
+                  Pay Online
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode("OFFLINE")}
+                  className={`h-9 px-4 text-sm font-semibold ${paymentMode === "OFFLINE" ? "bg-blue-900 text-white" : "text-slate-600"}`}
+                >
+                  Record Offline Payment
+                </button>
+              </div>
+              <label className="mt-4 block max-w-sm text-sm font-semibold text-slate-700">
+                Amount (INR)
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={amountRupees}
+                  onChange={(event) => setAmountRupees(event.target.value)}
+                  className="mt-2 h-11 w-full border border-slate-300 px-3 font-normal"
+                />
+              </label>
+              <label className="mt-4 flex items-start gap-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={(event) => setTermsAccepted(event.target.checked)}
+                  className="mt-1 h-4 w-4"
+                />
+                <span>
+                  I have read and accept the current{" "}
+                  <Link
+                    href="/client/credit/payment-terms"
+                    target="_blank"
+                    className="font-semibold text-blue-900 underline"
+                  >
+                    payment terms
+                  </Link>
+                  .
+                </span>
+              </label>
+              {paymentMode === "ONLINE" ? (
+                <button
+                  type="button"
+                  onClick={() => void payOnline()}
+                  disabled={busy}
+                  className="mt-4 h-10 bg-blue-900 px-5 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {busy ? "Starting..." : "Pay with Razorpay"}
+                </button>
+              ) : (
+                <form
+                  onSubmit={submitOffline}
+                  className="mt-4 grid gap-4 sm:grid-cols-2"
+                >
+                  <label className="text-sm font-semibold text-slate-700">
+                    Method
+                    <select
+                      value={method}
+                      onChange={(event) =>
+                        setMethod(event.target.value as typeof method)
+                      }
+                      className="mt-2 h-11 w-full border border-slate-300 bg-white px-3 font-normal"
+                    >
+                      <option value="BANK_TRANSFER">Bank Transfer</option>
+                      <option value="UPI">UPI</option>
+                      <option value="CASH">Cash</option>
+                      <option value="CHEQUE">Cheque</option>
+                    </select>
+                  </label>
+                  <label className="text-sm font-semibold text-slate-700">
+                    Payment Reference
+                    <input
+                      value={reference}
+                      onChange={(event) => setReference(event.target.value)}
+                      className="mt-2 h-11 w-full border border-slate-300 px-3 font-normal"
+                      placeholder="UTR, cheque or receipt number"
+                    />
+                  </label>
+                  <label className="text-sm font-semibold text-slate-700 sm:col-span-2">
+                    Note
+                    <textarea
+                      value={notes}
+                      onChange={(event) => setNotes(event.target.value)}
+                      rows={3}
+                      className="mt-2 w-full border border-slate-300 p-3 font-normal"
+                      placeholder="Optional payment note"
+                    />
+                  </label>
+                  <button
+                    disabled={busy}
+                    className="h-10 w-fit bg-blue-900 px-5 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    {busy ? "Submitting..." : "Submit for Verification"}
+                  </button>
+                </form>
+              )}
+            </section>
+          ) : null}
+        </>
+      ) : null}
+    </div>
   );
 }

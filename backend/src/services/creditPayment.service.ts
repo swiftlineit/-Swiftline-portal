@@ -413,7 +413,7 @@ export async function applyVerifiedCreditPayment(input: {
         type: "PAYMENT_CONFIRMED",
         title: "Payment confirmed",
         message: `${payment.internalReference} has been verified and applied to your credit account.`,
-        href: "/client/credit/statements",
+        href: "/client/credit/statements#statements-list",
         idempotencyKey: `PAYMENT_CONFIRMED:${String(payment._id)}`,
         metadata: { paymentId: payment._id, amountMinor: payment.amountMinor }
       }, session);

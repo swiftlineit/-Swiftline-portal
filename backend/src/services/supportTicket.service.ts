@@ -249,7 +249,7 @@ export async function createClientSupportTicket(userId: mongoose.Types.ObjectId,
   await notifyActiveAdmins({
     type: "SUPPORT_TICKET_CREATED", title: "New support ticket",
     message: `${ticket.ticketNumber} has been raised and requires review.`,
-    href: `/dashboard/tickets/${String(ticket._id)}`, idempotencyKey: `SUPPORT_TICKET_CREATED:${String(ticket._id)}`,
+    href: `/dashboard/tickets/${String(ticket._id)}#ticket-conversation`, idempotencyKey: `SUPPORT_TICKET_CREATED:${String(ticket._id)}`,
     businessAccountId: ticket.businessAccountId, metadata: { ticketId: ticket._id }
   });
   return ticket;
@@ -304,7 +304,7 @@ export async function addSupportTicketReply(input: {
     await notifyPortalUsers([input.ticket.createdBy], {
       type: "SUPPORT_TICKET_REPLY", title: "Swiftline replied to your ticket",
       message: `${input.ticket.ticketNumber} has a new response.`,
-      href: `/client/tickets/${String(input.ticket._id)}`,
+      href: `/client/tickets/${String(input.ticket._id)}#ticket-conversation`,
       idempotencyKey: `SUPPORT_TICKET_REPLY:${String(input.ticket._id)}:${now.getTime()}`,
       businessAccountId: input.ticket.businessAccountId, metadata: { ticketId: input.ticket._id }
     });
@@ -312,7 +312,7 @@ export async function addSupportTicketReply(input: {
     const notification = {
       type: "SUPPORT_TICKET_REPLY" as const, title: "Customer replied to support ticket",
       message: `${input.ticket.ticketNumber} has a new customer response.`,
-      href: `/dashboard/tickets/${String(input.ticket._id)}`,
+      href: `/dashboard/tickets/${String(input.ticket._id)}#ticket-conversation`,
       idempotencyKey: `SUPPORT_TICKET_CLIENT_REPLY:${String(input.ticket._id)}:${now.getTime()}`,
       businessAccountId: input.ticket.businessAccountId, metadata: { ticketId: input.ticket._id }
     };
@@ -365,7 +365,7 @@ export async function updateSupportTicketByAdmin(input: {
     await notifyPortalUsers([input.ticket.createdBy], {
       type: "SUPPORT_TICKET_STATUS_UPDATED", title: "Support ticket updated",
       message: `${input.ticket.ticketNumber} is now ${input.ticket.status.replaceAll("_", " ").toLowerCase()}.`,
-      href: `/client/tickets/${String(input.ticket._id)}`,
+      href: `/client/tickets/${String(input.ticket._id)}#ticket-conversation`,
       idempotencyKey: `SUPPORT_TICKET_STATUS:${String(input.ticket._id)}:${input.ticket.status}:${input.ticket.statusHistory.length}`,
       businessAccountId: input.ticket.businessAccountId, metadata: { ticketId: input.ticket._id, status: input.ticket.status }
     });

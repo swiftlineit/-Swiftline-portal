@@ -5,3 +5,28 @@
 @theme {
   --font-sans: Helvetica, "Helvetica Neue", "Nimbus Sans", Arial, sans-serif;
 }
+
+/* Applied by DeepLinkTarget when a notification link resolves to a section, so
+   the panel that needs attention stands out once it has been scrolled to. The
+   background tint carries the cue on table rows, where a ring does not render. */
+@keyframes deep-link-pulse {
+  from {
+    box-shadow: 0 0 0 3px rgba(13, 18, 130, 0.5);
+    background-color: rgba(13, 18, 130, 0.07);
+  }
+  to {
+    box-shadow: 0 0 0 3px rgba(13, 18, 130, 0);
+    background-color: rgba(13, 18, 130, 0);
+  }
+}
+
+.deep-link-highlight {
+  animation: deep-link-pulse 2.5s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deep-link-highlight {
+    animation-duration: 0.01ms;
+    box-shadow: 0 0 0 3px rgba(13, 18, 130, 0.5);
+  }
+}

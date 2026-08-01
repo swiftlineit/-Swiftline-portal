@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FiBell, FiCheck } from "react-icons/fi";
+import { announceDeepLink } from "@/lib/deepLink";
 import {
   listNotifications,
   markAllNotificationsRead,
@@ -24,6 +25,7 @@ function relativeTime(value: string) {
 
 export default function NotificationBell() {
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<PortalNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -50,6 +52,27 @@ export default function NotificationBell() {
     };
   }, [load]);
 
+  // The panel is a popover, not a modal: a click anywhere outside it or Escape
+  // dismisses it, matching how the rest of the header chrome behaves.
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   async function openNotification(notification: PortalNotification) {
     if (!notification.readAt) {
       await markNotificationRead(notification.id);
@@ -65,6 +88,10 @@ export default function NotificationBell() {
 
     setOpen(false);
     router.push(notification.href);
+    // Section-targeted hrefs that resolve to the page already on screen change
+    // only the fragment, which raises no navigation event, so the shell is told
+    // to re-resolve it. Hrefs without a fragment make this a no-op.
+    announceDeepLink();
   }
 
   async function readAll() {
@@ -81,7 +108,7 @@ export default function NotificationBell() {
   }
 
   return (
-    <div className="relative group">
+    <div ref={containerRef} className="relative group">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}

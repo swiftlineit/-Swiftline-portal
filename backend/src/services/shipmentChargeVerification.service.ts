@@ -17,6 +17,8 @@ import {
   ShipmentInvoiceServiceError
 } from "./shipmentInvoice.service.js";
 import { calculateShipmentPricingEstimate, type ShipmentPricingEstimate } from "./shipmentPricing.service.js";
+import { formatMinorRupees } from "./prepaid/dailyTopUpLimit.service.js";
+import { notifyBusinessShipmentMembers } from "./portalNotification.service.js";
 
 const afterCollectionStatuses: ShipmentEventStatus[] = [
   "WAREHOUSE_SCAN_IN",
@@ -343,6 +345,25 @@ export async function finalizeShipmentChargeVerification(input: {
           billingAdjustment
         }
       }], { session });
+
+      const differenceMinor = verification.verifiedAmountMinor - verification.previousAmountMinor;
+      await notifyBusinessShipmentMembers(draft.businessAccountId, {
+        type: "SHIPMENT_CHARGE_VERIFIED",
+        title: "Final shipment charge verified",
+        message: differenceMinor === 0
+          ? `The warehouse-verified charge matches your booking. Invoice ${revisedInvoice.invoiceNumber} is final.`
+          : `The warehouse-verified charge is ${formatMinorRupees(Math.abs(differenceMinor))} `
+            + `${differenceMinor > 0 ? "higher" : "lower"} than your booking. `
+            + `Revised invoice ${revisedInvoice.invoiceNumber} is available.`,
+        href: `/client/shipments/${String(draft._id)}/invoice`,
+        idempotencyKey: `SHIPMENT_CHARGE_VERIFIED:${String(verification._id)}`,
+        metadata: {
+          shipmentDraftId: draft._id,
+          previousAmountMinor: verification.previousAmountMinor,
+          verifiedAmountMinor: verification.verifiedAmountMinor
+        }
+      }, session);
+
       result = serializeVerification(verification);
     });
   } catch (error) {

@@ -14,6 +14,7 @@ import {
 
 import { BiSolidEdit } from "react-icons/bi";
 import { DashboardLoading } from "@/components/DashboardShell";
+import { BranchFileLink, BranchImage } from "@/components/branches/BranchFileView";
 import { AssignBranchModal } from "@/components/business-accounts/AssignBranchModal";
 import {
   BusinessAccountsTable,
@@ -838,57 +839,101 @@ function BranchTicketsSection({ branchId }: { branchId: string }) {
             className="h-10 w-full rounded-lg border border-slate-200 pl-10 pr-3 text-sm outline-none focus:border-[#0D1282]"
           />
         </label>
-        <select
-          value={status}
-          onChange={(event) => {
-            setStatus(event.target.value);
-            setPage(1);
-          }}
-          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-        >
-          <option value="">All Status</option>
-          {[
-            "OPEN",
-            "IN_PROGRESS",
-            "WAITING_FOR_CUSTOMER",
-            "RESOLVED",
-            "CLOSED",
-          ].map((value) => (
-            <option key={value} value={value}>
-              {value.replaceAll("_", " ")}
-            </option>
-          ))}
-        </select>
-        <select
-          value={priority}
-          onChange={(event) => {
-            setPriority(event.target.value);
-            setPage(1);
-          }}
-          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-        >
-          <option value="">All priorities</option>
-          {["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-        <select
-          value={category}
-          onChange={(event) => {
-            setCategory(event.target.value);
-            setPage(1);
-          }}
-          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-        >
-          <option value="">All categories</option>
-          {ticketCategories.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+   <div className="relative">
+  <select
+    value={status}
+    onChange={(event) => {
+      setStatus(event.target.value);
+      setPage(1);
+    }}
+    className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-sm"
+  >
+    <option value="">All Status</option>
+    {[
+      "OPEN",
+      "IN_PROGRESS",
+      "WAITING_FOR_CUSTOMER",
+      "RESOLVED",
+      "CLOSED",
+    ].map((value) => (
+      <option key={value} value={value}>
+        {value.replaceAll("_", " ")}
+      </option>
+    ))}
+  </select>
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+  >
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+</div>
+
+<div className="relative">
+  <select
+    value={priority}
+    onChange={(event) => {
+      setPriority(event.target.value);
+      setPage(1);
+    }}
+    className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-sm"
+  >
+    <option value="">All priorities</option>
+    {["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => (
+      <option key={value} value={value}>
+        {value}
+      </option>
+    ))}
+  </select>
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+  >
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+</div>
+
+<div className="relative">
+  <select
+    value={category}
+    onChange={(event) => {
+      setCategory(event.target.value);
+      setPage(1);
+    }}
+    className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-sm"
+  >
+    <option value="">All categories</option>
+    {ticketCategories.map((item) => (
+      <option key={item.value} value={item.value}>
+        {item.label}
+      </option>
+    ))}
+  </select>
+  <svg
+    aria-hidden="true"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+  >
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+</div>
       </div>
 
       {error ? (
@@ -1186,13 +1231,10 @@ function BranchOverview({
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
             {branch.images.map((imagePath, index) => (
               <div key={index} className="overflow-hidden rounded-lg border border-slate-200 bg-[#EEEDED]/40">
-                <img
-                  src={`/api/v1/files/${encodeURIComponent(imagePath.replace(/\\/g, "/"))}`}
+                <BranchImage
+                  storedPath={imagePath}
                   alt={`Branch image ${index + 1}`}
                   className="h-32 w-full object-cover"
-                  onError={(event) => {
-                    (event.target as HTMLImageElement).style.display = "none";
-                  }}
                 />
               </div>
             ))}
@@ -1207,14 +1249,12 @@ function BranchOverview({
             {branch.documents.map((doc, index) => (
               <div key={index} className="flex items-center justify-between rounded-lg border border-slate-200 bg-[#EEEDED]/40 px-4 py-3">
                 <div>
-                  <a
-                    href={`/api/v1/files/${encodeURIComponent(doc.filePath.replace(/\\/g, "/"))}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <BranchFileLink
+                    storedPath={doc.filePath}
                     className="text-sm font-semibold text-[#0D1282] hover:underline"
                   >
                     {doc.title || doc.type}
-                  </a>
+                  </BranchFileLink>
                   <p className="mt-0.5 text-xs text-slate-500">{doc.fileName}</p>
                 </div>
                 <span className="inline-flex items-center rounded-full bg-[#0D1282]/8 px-2.5 py-0.5 text-xs font-semibold text-[#0D1282]">{doc.type}</span>

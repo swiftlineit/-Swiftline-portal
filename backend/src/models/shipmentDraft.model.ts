@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 import { csbTypeValues, type CsbType } from "../services/csbType.service.js";
-import { composeContentsDescription, normalizeParcelItems } from "../services/parcelItems.service.js";
+import {
+  composeContentsDescription,
+  defaultParcelItemUnitType,
+  normalizeParcelItems
+} from "../services/parcelItems.service.js";
+import { defaultDeclarationNote } from "../services/customsInvoice/customsInvoiceConstants.js";
 
 export const addressValidationStatusValues = [
   "NOT_VALIDATED",
@@ -95,10 +100,15 @@ export interface ShipmentKycDocument {
   uploadedBy?: mongoose.Types.ObjectId | null;
 }
 
-// One distinct good inside a parcel, with the HSN code customs requires for it.
+// One distinct good inside a parcel. Each becomes a single line on the customs
+// (shipment) invoice, so it carries the HS code, unit of measure, quantity and
+// unit rate customs needs. The line amount is always derived as quantity x rate.
 export interface ShipmentParcelItem {
   description: string;
   hsnCode: string;
+  unitType: string;
+  quantity: number;
+  unitRate: number;
 }
 
 export interface ShipmentParcel {
@@ -145,6 +155,9 @@ export interface IShipmentDraft extends mongoose.Document {
   // Customs route for the whole shipment. CSB-V attracts a flat clearance charge
   // once per shipment (see csbType.service.ts).
   csbType: CsbType;
+  // Printed as the NOTE / NOTES block on the customs (shipment) invoice. Kept
+  // separate from consignee deliveryInstructions, which go to the carrier.
+  declarationNote: string;
   serviceType: ShipmentServiceType;
   serviceCode: string;
   validationIssues: string[];
@@ -216,9 +229,13 @@ const kycDocumentSchema = new mongoose.Schema<ShipmentKycDocument>(
 const parcelItemSchema = new mongoose.Schema<ShipmentParcelItem>(
   {
     description: { type: String, trim: true, maxlength: 120, default: "" },
-    // 4, 6 or 8 digit Indian HSN code. Format is enforced in validation rather
-    // than here so partially completed drafts can still be saved.
-    hsnCode: { type: String, trim: true, maxlength: 8, default: "" }
+    // 4, 6, 8 or 10 digit HS code. Format is enforced in validation rather than
+    // here so partially completed drafts can still be saved.
+    hsnCode: { type: String, trim: true, maxlength: 10, default: "" },
+    unitType: { type: String, trim: true, maxlength: 12, default: defaultParcelItemUnitType },
+    quantity: { type: Number, min: 0, default: 0 },
+    // Per-unit declared value in the shipment currency. Line amount is derived.
+    unitRate: { type: Number, min: 0, default: 0 }
   },
   { _id: false }
 );
@@ -294,6 +311,7 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
     // Drafts created before CSB selection existed default to CSB-IV so their
     // pricing is unchanged on any later reprice.
     csbType: { type: String, enum: csbTypeValues, default: "CSB_IV", required: true, index: true },
+    declarationNote: { type: String, trim: true, maxlength: 500, default: defaultDeclarationNote },
     serviceType: { type: String, enum: shipmentServiceTypeValues, default: "COURIER", index: true },
     serviceCode: { type: String, trim: true, maxlength: 40, default: "" },
     validationIssues: [{ type: String, trim: true, maxlength: 500 }],

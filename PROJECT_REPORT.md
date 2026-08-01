@@ -46,7 +46,6 @@ Stack:
 - Node.js with Express 5
 - TypeScript using `NodeNext`
 - MongoDB through Mongoose
-- Optional Redis client
 - JWT authentication
 - HTTP-only refresh-token cookie
 - Zod environment validation
@@ -102,7 +101,7 @@ Strengths:
 
 Backend direct packages:
 
-- Runtime: `bcrypt@5.1.1`, `cookie-parser@1.4.7`, `cors@2.8.6`, `dotenv@17.4.2`, `express@5.2.1`, `express-rate-limit@6.11.2`, `helmet@8.2.0`, `jsonwebtoken@9.0.3`, `mongoose@9.7.3`, `morgan@1.11.0`, `redis@6.1.0`, `zod@4.4.3`
+- Runtime: `bcrypt@5.1.1`, `cookie-parser@1.4.7`, `cors@2.8.6`, `dotenv@17.4.2`, `express@5.2.1`, `express-rate-limit@6.11.2`, `helmet@8.2.0`, `jsonwebtoken@9.0.3`, `mongoose@9.7.3`, `morgan@1.11.0`, `zod@4.4.3`
 - Development/types: `typescript@6.0.3`, `tsx@4.23.0`, `@types/node@26.1.0`, `@types/express@5.0.6`, `@types/bcrypt@6.0.0`, `@types/cookie-parser@1.4.10`, `@types/cors@2.8.19`, `@types/jsonwebtoken@9.0.10`, `@types/morgan@1.9.10`
 
 Frontend direct packages:
@@ -144,7 +143,7 @@ Initial frontend build failed because `next/font/google` could not fetch Geist f
    Current auth middleware uses `req as any`. This is acceptable for a prototype but should be replaced with Express type augmentation before more protected routes are added.
 
 2. Harden refresh-token sessions.
-   Refresh tokens are currently signed with the same JWT secret and are not stored, rotated, or revocable server-side. For a production portal, use a separate refresh secret and store hashed refresh-token IDs in Redis or MongoDB so logout and compromise handling are reliable.
+   Refresh tokens are currently signed with the same JWT secret and are not stored, rotated, or revocable server-side. For a production portal, use a separate refresh secret and store hashed refresh-token IDs in MongoDB so logout and compromise handling are reliable.
 
 3. Add automated tests.
    Backend has no real test command yet. Add focused tests for login, refresh, role protection, lockout, and user admin routes. Add frontend tests later for auth redirects and dashboard behavior.

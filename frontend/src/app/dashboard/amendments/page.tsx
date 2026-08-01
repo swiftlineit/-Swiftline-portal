@@ -430,7 +430,7 @@ export default function AmendmentsPage() {
               const deltaAmount = amendment.pricingImpact?.deltaAmount;
 
               return (
-                <tr key={amendment.id} className="border-b border-slate-100 last:border-b-0">
+                <tr key={amendment.id} id={`amendment-${amendment.id}`} className="border-b border-slate-100 last:border-b-0">
                   <td className="px-4 py-3">
                     <Link href={`/dashboard/shipments/${amendment.shipmentDraftId}`} className="font-semibold text-blue-900 hover:text-blue-700">
                       {amendment.shipmentId}

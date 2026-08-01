@@ -82,9 +82,11 @@ export default function ShipmentInvoiceHistory({
         <div>
           <div className="flex items-center gap-2 text-slate-500">
             <FiFileText aria-hidden="true" className="h-4 w-4" />
-            <h2 className="text-sm font-semibold uppercase tracking-wide">Shipment Invoices</h2>
+            {/* GST document billing freight and tax, distinct from the shipment
+                (customs) invoice that declares the goods. */}
+            <h2 className="text-sm font-semibold uppercase tracking-wide">Tax Invoices</h2>
           </div>
-          <p className="mt-1 text-sm text-slate-500">Invoice versions and charge history.</p>
+          <p className="mt-1 text-sm text-slate-500">GST invoice versions and charge history.</p>
         </div>
         {invoice ? <p className="text-sm font-semibold text-slate-700">{invoice.invoiceNumber}</p> : null}
       </div>

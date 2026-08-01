@@ -658,7 +658,7 @@ export default function ClientPaymentsPage() {
                 </button>
               </div>
 
-              <div className="border border-slate-200 bg-white p-5 rounded-2xl">
+              <div id="payment-history" className="border border-slate-200 bg-white p-5 rounded-2xl">
                 <h2 className="text-base font-semibold text-slate-950 ">Recent Payments</h2>
                 <hr className="my-4 text-slate-300" />
                 <div className="mt-4 divide-y divide-slate-200">

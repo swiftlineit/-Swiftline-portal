@@ -10,6 +10,7 @@ import {
   getMemberCreditPermissions, serializeCreditAccount
 } from "../services/creditAccount.service.js";
 import { getCreditRestrictionState } from "../services/creditOverdue.service.js";
+import { notifyActiveAdmins } from "../services/portalNotification.service.js";
 
 const requestCreditSchema = z.object({
   businessAccountId: z.string().trim().min(1),
@@ -121,7 +122,7 @@ export async function requestClientCredit(request: Request, response: Response):
 
   const session = await mongoose.startSession();
   try {
-    let result;
+    let result: ReturnType<typeof serializeCreditAccount> | undefined;
     await session.withTransaction(async () => {
       const account = await ensureCreditAccount(membership.businessAccount, session);
       if (!["NOT_REQUESTED", "REJECTED"].includes(account.status)) {
@@ -141,6 +142,16 @@ export async function requestClientCredit(request: Request, response: Response):
         createdBy: currentUserId, session
       });
       result = serializeCreditAccount(account);
+    });
+
+    await notifyActiveAdmins({
+      type: "CREDIT_REQUEST_SUBMITTED",
+      title: "Credit facility requested",
+      message: `${businessAccount.company.companyName || businessAccount.accountId} requested a credit facility and is awaiting review.`,
+      href: `/dashboard/credit-accounts#credit-account-${String(membership.businessAccount)}`,
+      idempotencyKey: `CREDIT_REQUEST_SUBMITTED:${String(membership.businessAccount)}:${result?.version ?? 0}`,
+      businessAccountId: membership.businessAccount,
+      metadata: { requestedCreditLimitMinor: parsed.data.requestedCreditLimitMinor }
     });
     return response.status(201).json({ success: true, message: "Credit request submitted for review.", creditAccount: result });
   } catch (error) {

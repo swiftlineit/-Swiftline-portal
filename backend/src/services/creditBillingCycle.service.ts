@@ -349,7 +349,7 @@ export async function closeCreditBillingCycle(input: {
         type: "STATEMENT_ISSUED",
         title: "Credit statement generated",
         message: `${statement.statementNumber} is ready. Payment is due by ${formatIndiaDate(statement.dueAt)}.`,
-        href: `/client/credit/statements/${String(statement._id)}?businessAccountId=${String(input.businessAccountId)}`,
+        href: `/client/credit/statements/${String(statement._id)}?businessAccountId=${String(input.businessAccountId)}#statement-payment`,
         idempotencyKey: `STATEMENT_ISSUED:${String(statement._id)}`,
         metadata: { statementId: statement._id, totalAmountMinor }
       }, session);

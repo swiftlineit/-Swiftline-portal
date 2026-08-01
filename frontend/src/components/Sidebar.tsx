@@ -149,7 +149,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`sticky top-0 flex h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white transition-all duration-300 ${
+      className={`flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white transition-all duration-300 ${
         sidebarOpen ? "w-56" : "w-20"
       }`}
     >

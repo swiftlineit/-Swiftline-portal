@@ -47,7 +47,7 @@ export default function ClientDashboardHeader({
   const canPay = selectedAccount ? canMakePayment(selectedAccount) : false;
 
   return (
-    <section className={`p-6 ${panelSurface}`}>
+    <section id="business-accounts" className={`p-6 ${panelSurface}`}>
       <div className="flex flex-wrap flex-col items-start justify-between gap-6">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">

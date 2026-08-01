@@ -231,7 +231,7 @@ export default function ShipmentManifestPanel({
                 type="button"
                 onClick={() => void handleDownload(manifest)}
                 disabled={busy}
-                className="inline-flex h-9 items-center justify-center gap-2 border border-slate-300 px-3 text-sm font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-9 items-center rounded-4xl justify-center gap-2 border border-slate-300 px-3 text-sm font-semibold text-blue-900 hover:border-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <FiDownload aria-hidden="true" /> Download
               </button>

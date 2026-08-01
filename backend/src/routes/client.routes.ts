@@ -1,7 +1,10 @@
 import { Router } from "express";
 import {
   createClientShipmentAmendment,
+  downloadClientCustomsInvoicePdf,
+  downloadClientCustomsInvoiceWorkbook,
   downloadClientShipmentInvoicePdf,
+  getClientCustomsInvoice,
   createClientDpdLabel,
   createClientSwiftlineShipment,
   createClientShipmentLabelAccess,
@@ -165,6 +168,10 @@ clientRouter.post("/shipments/:id/amendments/preview", previewClientShipmentAmen
 clientRouter.post("/shipments/:id/amendments", createClientShipmentAmendment);
 clientRouter.get("/shipments/:draftId/invoice", getClientShipmentInvoice);
 clientRouter.get("/shipments/:draftId/invoice/pdf", downloadClientShipmentInvoicePdf);
+// Customs ("shipment") invoice: the goods declaration, separate from the GST invoice above.
+clientRouter.get("/shipments/:draftId/shipment-invoice", getClientCustomsInvoice);
+clientRouter.get("/shipments/:draftId/shipment-invoice/pdf", downloadClientCustomsInvoicePdf);
+clientRouter.get("/shipments/:draftId/shipment-invoice/xlsx", downloadClientCustomsInvoiceWorkbook);
 clientRouter.post("/dpd-labels/addresses/autocomplete", autocompleteAddress);
 clientRouter.post("/dpd-labels/addresses/consignor/autocomplete", autocompleteConsignorAddress);
 clientRouter.get("/dpd-labels/addresses/consignor/places/:placeId", getConsignorPlaceAddress);

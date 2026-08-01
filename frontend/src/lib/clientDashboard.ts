@@ -13,7 +13,8 @@ import {
   ShipmentDraftPatch,
   ShipmentKycDocumentType,
   ShipmentKycDocuments,
-  formatShipmentValidationIssues
+  formatShipmentValidationIssues,
+  type InvoiceImportSummary
 } from "@/lib/dpdLabels";
 
 export type ClientDashboardAccount = {
@@ -481,6 +482,7 @@ export async function getClientShipmentDraft(shipmentDraftId: string) {
   return parseApiResponse<{
     success: true;
     shipmentDraft: ShipmentDraft;
+    invoiceImport?: InvoiceImportSummary | null;
   }>(response);
 }
 

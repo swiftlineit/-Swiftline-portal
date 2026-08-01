@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import { AuthenticatedUser } from "@/lib/useAdminUser";
 import { logout } from "@/lib/auth";
+import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
 
 // Shared chrome for every authenticated dashboard page: sidebar, header, and
@@ -88,9 +89,10 @@ export default function DashboardShell({
               </div>
             </div>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {children}
           </div>
+          <DeepLinkTarget />
         </main>
       </div>
     </div>

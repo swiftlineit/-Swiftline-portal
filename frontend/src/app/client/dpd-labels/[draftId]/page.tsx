@@ -10,13 +10,14 @@ import {
   ClientShellUser
 } from "@/components/client/ClientDashboardShell";
 import {
-  ParcelItemsEditor,
   ShipmentCsbTypeField,
   ShipmentFieldLabel,
   ShipmentPhoneCodeField,
   ShipmentSelectField,
   ShipmentTextField
 } from "@/components/shipments/ShipmentFormControls";
+import { ParcelItemsEditor } from "@/components/shipments/ParcelItemsEditor";
+import InvoiceImportBanner from "@/components/shipments/InvoiceImportBanner";
 import { ConsignorKycSection } from "@/components/shipments/ConsignorKycSection";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
@@ -41,9 +42,12 @@ import {
 import { CountryRateCard, formatCountryRateService, getCountryFlag, listClientCountryRateCards } from "@/lib/countryRateCards";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
 import { normalizeCsbType, type CsbType } from "@/lib/csbType";
+import { defaultDeclarationNote } from "@/lib/customsInvoice";
 import {
   composeContentsDescription,
+  createEmptyParcelItem,
   getHsnCodeError,
+  getPositiveNumberError,
   normalizeParcelItems,
   type ParcelItem
 } from "@/lib/parcelItems";
@@ -58,7 +62,8 @@ import {
   ShipmentDraft,
   ShipmentKycDocuments,
   ShipmentServiceType,
-  shipmentContentTypeOptions
+  shipmentContentTypeOptions,
+  type InvoiceImportSummary
 } from "@/lib/dpdLabels";
 import {
   ConsignorForm,
@@ -166,7 +171,7 @@ function createEmptyParcel(sequence: number): ParcelForm {
     widthCm: "",
     heightCm: "",
     shipmentContentType: "PARCEL",
-    items: [{ description: "", hsnCode: "" }],
+    items: [createEmptyParcelItem()],
     contentsDescription: "",
     shipmentReference1: "",
     shipmentReference2: "",
@@ -252,6 +257,11 @@ function getReviewIssues(addressForm: AddressForm, contactForm: ContactForm, par
       }
       const hsnError = getHsnCodeError(item.hsnCode);
       if (hsnError) issues.push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
+      // Quantity and unit rate print on the customs invoice, so both are required.
+      const quantityError = getPositiveNumberError(item.quantity, "Quantity");
+      if (quantityError) issues.push(`${itemLabel}: ${quantityError.replace(/\.$/, "").toLowerCase()}`);
+      const unitRateError = getPositiveNumberError(item.unitRate, "Unit rate");
+      if (unitRateError) issues.push(`${itemLabel}: ${unitRateError.replace(/\.$/, "").toLowerCase()}`);
     });
   });
   return issues;
@@ -294,6 +304,10 @@ export default function ClientDpdDraftReviewPage() {
   // Customs route for the shipment. Drafts saved before CSB selection existed
   // read as CSB-IV, matching how the backend prices them.
   const [csbType, setCsbType] = useState<CsbType>("CSB_IV");
+  // Present only on drafts created from an uploaded invoice.
+  const [invoiceImport, setInvoiceImport] = useState<InvoiceImportSummary | null>(null);
+  // Printed as the NOTE block on the shipment (customs) invoice.
+  const [declarationNote, setDeclarationNote] = useState(defaultDeclarationNote);
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -413,6 +427,7 @@ export default function ClientDpdDraftReviewPage() {
       serviceCode: nextDraft.serviceCode ?? ""
     });
     setCsbType(normalizeCsbType(nextDraft.csbType));
+    setDeclarationNote(nextDraft.declarationNote ?? defaultDeclarationNote);
     setConsignorForm(consignorFormFromDraft(nextDraft.consignorAddress));
     setKycUseForAll(nextDraft.kycUseForAllParcels ?? true);
     setKycDocuments(nextDraft.kycDocuments ?? {});
@@ -458,6 +473,7 @@ export default function ClientDpdDraftReviewPage() {
 
         setUser(currentUser);
         setRates(rateData.rates);
+        setInvoiceImport(data.invoiceImport ?? null);
         syncDraft(data.shipmentDraft);
       } catch (caughtError) {
         if (!mounted) return;
@@ -625,7 +641,16 @@ export default function ClientDpdDraftReviewPage() {
         heightCm: parcel.heightCm ? Number(parcel.heightCm) : undefined,
         shipmentContentType: parcel.shipmentContentType,
         // Blank rows are dropped so an untouched extra row never blocks a save.
-        items: parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim()),
+        // Blank rows are dropped; quantity and rate go over the wire as numbers.
+        items: parcel.items
+          .filter((item) => item.description.trim() || item.hsnCode.trim())
+          .map((item) => ({
+            description: item.description,
+            hsnCode: item.hsnCode,
+            unitType: item.unitType,
+            quantity: Number(item.quantity) || 0,
+            unitRate: Number(item.unitRate) || 0
+          })),
         // Recomputed from the items so the value the EDI export, manifest, carrier
         // payload and labels read always matches what was entered.
         contentsDescription: composeContentsDescription(parcel.items),
@@ -634,6 +659,7 @@ export default function ClientDpdDraftReviewPage() {
         aadhaarNumber: parcel.aadhaarNumber
       })),
       csbType,
+      declarationNote,
       serviceType: contactForm.serviceType,
       serviceCode: contactForm.serviceCode
     });
@@ -755,7 +781,7 @@ export default function ClientDpdDraftReviewPage() {
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
-      <div className="mx-auto max-w-6xl">
+      <>
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-slate-950">Review Shipment Draft</h1>
@@ -779,6 +805,8 @@ export default function ClientDpdDraftReviewPage() {
         ) : (
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-5">
+              <InvoiceImportBanner summary={invoiceImport} />
+
               {/* Customs route, first because CSB-V changes what is charged. */}
               <section className="border border-slate-200 bg-white rounded-2xl">
                 <SectionHeader title="Shipment Type" onSave={handleSave} busy={busy} changed={draftChanged} />
@@ -787,6 +815,17 @@ export default function ClientDpdDraftReviewPage() {
                     value={csbType}
                     onChange={(next: CsbType) => { setCsbType(next); setReviewIssues([]); }}
                   />
+                  {/* Printed as the NOTE block on the shipment (customs) invoice. */}
+                  <div className="mt-4">
+                    <ShipmentTextField
+                      label="Declaration Note"
+                      placeholder="Optional note printed on the shipment invoice"
+                      tooltip="Printed on the shipment invoice sent with the goods"
+                      value={declarationNote}
+                      onChange={(event) => { setDeclarationNote(event.target.value); setReviewIssues([]); }}
+                      maxLength={500}
+                    />
+                  </div>
                 </div>
               </section>
 
@@ -904,7 +943,7 @@ export default function ClientDpdDraftReviewPage() {
                         <p className="text-sm font-semibold text-amber-950">No automatic address match was found.</p>
                         <p className="mt-1 text-sm text-amber-800">Review the delivery address below before confirming it as entered.</p>
                       </div>
-                      <button type="button" onClick={handleConfirmEnteredAddress} disabled={busy} className="inline-flex h-10 items-center justify-center bg-amber-700 px-4 text-sm font-semibold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-amber-400">
+                      <button type="button" onClick={handleConfirmEnteredAddress} disabled={busy} className="inline-flex h-10 items-center rounded-4xl justify-center bg-amber-700 px-4 text-sm font-semibold text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-amber-400">
                         Use Address As Entered
                       </button>
                     </div>
@@ -1080,7 +1119,7 @@ export default function ClientDpdDraftReviewPage() {
             </aside>
           </div>
         )}
-      </div>
+      </>
   );
 }
 

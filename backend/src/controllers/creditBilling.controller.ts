@@ -409,7 +409,7 @@ export async function submitClientOfflinePayment(request: Request, response: Res
       type: "OFFLINE_PAYMENT_SUBMITTED",
       title: "Offline credit payment submitted",
       message: `${result.payment.internalReference} requires payment verification.`,
-      href: `/dashboard/credit-accounts/${String(businessAccountId)}`,
+      href: `/dashboard/credit-accounts/${String(businessAccountId)}#payment-verification`,
       idempotencyKey: `OFFLINE_PAYMENT_SUBMITTED:${String(result.payment._id)}`,
       businessAccountId,
       metadata: { paymentId: result.payment._id }

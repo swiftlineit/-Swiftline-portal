@@ -137,7 +137,7 @@ export default function ClientCreditStatementsPage() {
           gracePeriodDays={creditAccount?.gracePeriodDays}
         />
 
-        <section className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
+        <section id="statements-list" className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
               <tr>

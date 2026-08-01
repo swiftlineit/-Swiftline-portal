@@ -150,6 +150,16 @@ function normalizeKycCheckStatus(status?: string): BusinessKycCheckStatus {
 
 type DetailTab = "overview" | "documents" | "kyc" | "access";
 
+const detailTabs: DetailTab[] = ["overview", "documents", "kyc", "access"];
+
+// Notification links address a tab directly (…/business-accounts/SL-1#kyc), so
+// the fragment picks the starting tab instead of always opening on Overview.
+function tabFromLocationHash(): DetailTab {
+  if (typeof window === "undefined") return "overview";
+  const requested = window.location.hash.slice(1) as DetailTab;
+  return detailTabs.includes(requested) ? requested : "overview";
+}
+
 export default function BusinessAccountDetailsPage() {
   const params = useParams<{ accountId: string }>();
   const { user, loading } = useAdminUser();
@@ -161,7 +171,13 @@ export default function BusinessAccountDetailsPage() {
   );
   const [kycSaving, setKycSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
-  
+
+  // Read after mount so the server render and the first client render agree.
+  useEffect(() => {
+    const applyHash = window.setTimeout(() => setActiveTab(tabFromLocationHash()), 0);
+    return () => window.clearTimeout(applyHash);
+  }, [params.accountId]);
+
 
   useEffect(() => {
     if (!user || !params.accountId) return;
@@ -418,7 +434,7 @@ export default function BusinessAccountDetailsPage() {
         </div>
       ) : null}
 
-      <div className="mt-5">
+      <div id={activeTab} className="mt-5">
         {activeTab === "overview" ? (
           <div className="grid gap-5 lg:grid-cols-2">
             <DetailSection

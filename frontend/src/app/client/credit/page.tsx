@@ -27,6 +27,17 @@ import { useClientUser } from "@/lib/useClientUser";
 
 const REQUESTABLE_STATUSES = new Set(["NOT_REQUESTED", "REJECTED"]);
 
+// `max` on a number input only blocks form submission, not typing, so the value
+// is capped as it is entered. Non-numeric and partial entries ("", "1.") pass
+// through untouched so the field stays editable while typing.
+function clampCreditLimit(value: string) {
+  const rupees = Number(value);
+  if (!value || !Number.isFinite(rupees)) return value;
+  return rupees > MAX_CREDIT_LIMIT_RUPEES
+    ? String(MAX_CREDIT_LIMIT_RUPEES)
+    : value;
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
@@ -382,12 +393,15 @@ export default function ClientCreditPage() {
                       step="0.01"
                       value={requestedAmount}
                       onChange={(event) =>
-                        setRequestedAmount(event.target.value)
+                        setRequestedAmount(clampCreditLimit(event.target.value))
                       }
                       inputMode="decimal"
                       placeholder="100000"
                       className="mt-2 h-11 w-full border border-slate-300 px-3 font-normal focus:border-blue-500 focus:outline-none"
                     />
+                    <span className="mt-1 block text-xs font-normal text-slate-500">
+                      Maximum INR 1,00,000
+                    </span>
                   </label>
                   <label className="text-sm font-semibold text-slate-700 sm:col-span-2">
                     Business reason

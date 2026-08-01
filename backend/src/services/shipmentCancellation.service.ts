@@ -257,7 +257,7 @@ export async function requestShipmentCancellation(input: {
     type: "SHIPMENT_CANCELLATION_REQUESTED",
     title: "Shipment cancellation requested",
     message: `A cancellation request for shipment ${dpdShipment.dpdShipmentId || String(dpdShipment._id)} requires review.`,
-    href: "/dashboard/cancellations",
+    href: `/dashboard/cancellations#cancellation-${String(cancellation._id)}`,
     idempotencyKey: `SHIPMENT_CANCELLATION_REQUESTED:${String(cancellation._id)}`,
     businessAccountId: draft.businessAccountId
   });
@@ -295,7 +295,7 @@ export async function rejectShipmentCancellation(input: {
     type: "SHIPMENT_CANCELLATION_REJECTED",
     title: "Cancellation request rejected",
     message: "Swiftline reviewed the shipment cancellation request and did not approve it.",
-    href: `/client/shipments/${String(cancellation.shipmentDraftId)}`,
+    href: `/client/shipments/${String(cancellation.shipmentDraftId)}#shipment-cancellation`,
     idempotencyKey: `SHIPMENT_CANCELLATION_REJECTED:${String(cancellation._id)}`
   });
   return cancellation;
@@ -591,7 +591,7 @@ export async function approveShipmentCancellation(input: {
         type: "SHIPMENT_CANCELLATION_COMPLETED",
         title: "Shipment cancellation completed",
         message: `Cancellation completed. ${creditNote.creditNoteNumber} and ${feeInvoice.invoiceNumber} are available.`,
-        href: `/client/shipments/${String(cancellation.shipmentDraftId)}`,
+        href: `/client/shipments/${String(cancellation.shipmentDraftId)}#shipment-cancellation`,
         idempotencyKey: `SHIPMENT_CANCELLATION_COMPLETED:${String(cancellation._id)}`
       }, session);
       return cancellation;

@@ -11,8 +11,10 @@ type ManifestNotificationInput = {
   generatedBy: string;
 };
 
+// Manifests have no detail route: the list page is where staff review and act on
+// them, so the link resolves to that manifest's row.
 function manifestHref(manifest: IShipmentManifest) {
-  return `/dashboard/shipment-manifests/${String(manifest._id)}`;
+  return `/dashboard/shipment-manifests#manifest-${String(manifest._id)}`;
 }
 
 /**

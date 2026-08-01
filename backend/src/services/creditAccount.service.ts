@@ -217,7 +217,7 @@ export async function notifyCreditUtilizationWarnings(now = new Date()) {
         type: "CREDIT_UTILIZATION_WARNING",
         title: "Credit utilization is high",
         message: `Your credit facility is ${utilizationPercent}% used, at or above the ${account.creditWarningThresholdPercent}% warning level.`,
-        href: "/client/credit",
+        href: "/client/credit#credit-summary",
         idempotencyKey: `CREDIT_WARNING:${String(account._id)}:${dayKey}`,
         metadata: { utilizationPercent, thresholdPercent: account.creditWarningThresholdPercent }
       });

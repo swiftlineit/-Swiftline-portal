@@ -9,6 +9,10 @@ import { CreditLimitHistory } from "../models/creditLimitHistory.model.js";
 import { maxCreditLimitMinor } from "../models/financialTypes.js";
 import { appendCreditLedgerEntry, ensureCreditAccount, getCreditActivationBlockers, serializeCreditAccount } from "../services/creditAccount.service.js";
 import { getCreditRestrictionState } from "../services/creditOverdue.service.js";
+import { formatMinorRupees } from "../services/prepaid/dailyTopUpLimit.service.js";
+import { notifyBusinessFinancialMembers } from "../services/portalNotification.service.js";
+
+const creditClientHref = "/client/credit#credit-summary";
 
 const approvalSchema = z.object({
   approvedCreditLimitMinor: z.number().int()
@@ -189,6 +193,19 @@ export async function approveAdminCreditAccount(request: Request, response: Resp
       result = { account: serializeCreditAccount(account), wasActive };
     });
     const stayedActive = result?.wasActive ?? false;
+    if (result) {
+      await notifyBusinessFinancialMembers(businessAccountId, {
+        // Re-approving a live facility is a terms change, not a new decision.
+        type: stayedActive ? "CREDIT_ACCOUNT_STATUS_CHANGED" : "CREDIT_REQUEST_APPROVED",
+        title: stayedActive ? "Credit terms updated" : "Credit facility approved",
+        message: stayedActive
+          ? `Your credit facility now carries a limit of ${formatMinorRupees(result.account.approvedCreditLimitMinor)}.`
+          : `A credit limit of ${formatMinorRupees(result.account.approvedCreditLimitMinor)} was approved. Complete the remaining activation steps to start using it.`,
+        href: creditClientHref,
+        idempotencyKey: `CREDIT_APPROVED:${result.account.id}:${result.account.version}`,
+        metadata: { approvedCreditLimitMinor: result.account.approvedCreditLimitMinor }
+      });
+    }
     return response.status(200).json({
       success: true,
       message: stayedActive
@@ -244,6 +261,14 @@ export async function activateAdminCreditAccount(request: Request, response: Res
     action: "CREDIT_ACCOUNT_ACTIVATED", entityType: "BUSINESS_CREDIT_ACCOUNT", entityId: updated._id,
     performedBy: currentUserId, performedAt: new Date(), metadata: { businessAccountId }
   });
+  await notifyBusinessFinancialMembers(businessAccountId, {
+    type: "CREDIT_ACCOUNT_STATUS_CHANGED",
+    title: "Credit facility activated",
+    message: `Your credit facility is live with a limit of ${formatMinorRupees(updated.approvedCreditLimitMinor)}. You can now book shipments on credit.`,
+    href: creditClientHref,
+    idempotencyKey: `CREDIT_STATUS_NOTICE:${String(updated._id)}:ACTIVE:${updated.version}`,
+    metadata: { status: updated.status }
+  });
   return response.status(200).json({ success: true, message: "Credit facility activated.", creditAccount: serializeCreditAccount(updated) });
 }
 
@@ -270,6 +295,7 @@ async function runCreditStatusTransition(input: {
   ledgerType: CreditLedgerEntryType;
   auditAction: AuditAction;
   description: string;
+  clientNotice: { title: string; message: string };
   guard?: (account: IBusinessCreditAccount) => string | null;
 }) {
   const session = await mongoose.startSession();
@@ -310,6 +336,15 @@ async function runCreditStatusTransition(input: {
         metadata: { businessAccountId: input.businessAccountId, reason: input.reason, fromStatus: account.status, toStatus: input.toStatus }
       }], { session });
 
+      await notifyBusinessFinancialMembers(input.businessAccountId, {
+        type: "CREDIT_ACCOUNT_STATUS_CHANGED",
+        title: input.clientNotice.title,
+        message: input.clientNotice.message,
+        href: creditClientHref,
+        idempotencyKey: `CREDIT_STATUS_NOTICE:${String(updated._id)}:${input.toStatus}:${updated.version}`,
+        metadata: { fromStatus: account.status, toStatus: input.toStatus }
+      }, session);
+
       serialized = serializeCreditAccount(updated);
     });
     return { ok: true as const, account: serialized };
@@ -334,7 +369,11 @@ export async function suspendAdminCreditAccount(request: Request, response: Resp
     allowedFrom: ["ACTIVE"], toStatus: "SUSPENDED",
     reason: parsed.data.reason, holdReason: parsed.data.reason,
     ledgerType: "CREDIT_SUSPENDED", auditAction: "CREDIT_ACCOUNT_SUSPENDED",
-    description: "Business credit facility suspended."
+    description: "Business credit facility suspended.",
+    clientNotice: {
+      title: "Credit facility suspended",
+      message: "Credit bookings are paused while your facility is suspended. Contact your Swiftline branch for details."
+    }
   });
   if (!result.ok) return response.status(result.statusCode).json({ success: false, message: result.message });
   return response.status(200).json({ success: true, message: "Credit facility suspended.", creditAccount: result.account });
@@ -354,6 +393,10 @@ export async function reactivateAdminCreditAccount(request: Request, response: R
     reason: parsed.data.reason, holdReason: "",
     ledgerType: "CREDIT_REACTIVATED", auditAction: "CREDIT_ACCOUNT_REACTIVATED",
     description: "Business credit facility reactivated.",
+    clientNotice: {
+      title: "Credit facility reactivated",
+      message: "Your credit facility is active again and available for bookings."
+    },
     guard: (account) => {
       if (account.approvedCreditLimitMinor <= 0) return "Approve a credit limit before reactivating.";
       if (account.validUntil && account.validUntil <= new Date()) {
@@ -380,6 +423,10 @@ export async function closeAdminCreditAccount(request: Request, response: Respon
     reason: parsed.data.reason, holdReason: parsed.data.reason,
     ledgerType: "CREDIT_CLOSED", auditAction: "CREDIT_ACCOUNT_CLOSED",
     description: "Business credit facility closed.",
+    clientNotice: {
+      title: "Credit facility closed",
+      message: "Your credit facility has been closed. Any outstanding statements remain payable."
+    },
     // Closing stops new usage but does not forgive outstanding statements; it must
     // not strand funds reserved for a booking still in flight.
     guard: (account) => (account.reservedCreditMinor > 0 || account.reservedAdvanceMinor > 0)
@@ -415,6 +462,14 @@ export async function rejectAdminCreditAccount(request: Request, response: Respo
     account: updated, type: "CREDIT_REJECTED", reference: `CREDIT-REJECTION-${updated.version}`,
     description: "Business credit request rejected.", idempotencyKey: `CREDIT_REJECTION:${String(updated._id)}:${updated.version}`,
     createdBy: currentUserId, metadata: { reason: parsed.data.reason }
+  });
+  await notifyBusinessFinancialMembers(businessAccountId, {
+    type: "CREDIT_REQUEST_REJECTED",
+    title: "Credit request rejected",
+    message: `Your credit request was not approved. Reason: ${parsed.data.reason}`,
+    href: creditClientHref,
+    idempotencyKey: `CREDIT_REJECTED:${String(updated._id)}:${updated.version}`,
+    metadata: { reason: parsed.data.reason }
   });
   return response.status(200).json({ success: true, message: "Credit request rejected.", creditAccount: serializeCreditAccount(updated) });
 }
