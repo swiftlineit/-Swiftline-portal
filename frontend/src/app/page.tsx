@@ -37,7 +37,7 @@ const RECAPTCHA_SITE_KEY = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || "";
 
 const SUPPORT_PHONE = "+91 70271 16600";
 const SUPPORT_PHONE_HREF = "tel:+917027116600";
-const SUPPORT_EMAIL = "support@swiftlineindia.com";
+const SUPPORT_EMAIL = "Info@swiftlinefreight.com";
 
 /**
  * Mobile sign-in is designed and built but not wired: OTP delivery needs a Jio
@@ -310,7 +310,7 @@ export default function Home() {
             </span>
             <span className="hidden  sm:block">
               <span className="block text-sm font-bold leading-tight text-[#0D1282]">{SUPPORT_PHONE}</span>
-              <span className="block text-[11px] text-left leading-tight text-slate-500">support@swiftlineindia.com</span>
+              <span className="block text-[11px] text-slate-500">{SUPPORT_EMAIL}</span>
             </span>
           </a>
         </div>
