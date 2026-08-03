@@ -9,6 +9,9 @@ export type EmailBlock =
   | { kind: "table"; columns: string[]; rows: string[][] }
   | { kind: "callout"; tone: "info" | "success" | "warning" | "danger"; text: string }
   | { kind: "button"; label: string; url: string }
+  // A short secret the reader has to retype. Set apart and widely tracked so it
+  // survives being read off a phone and cannot be confused with body copy.
+  | { kind: "code"; value: string }
   | { kind: "note"; text: string };
 
 export type EmailContent = {
@@ -78,6 +81,12 @@ function renderBlockHtml(block: EmailBlock): string {
     </table>`;
   }
 
+  if (block.kind === "code") {
+    return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px;border-collapse:collapse;">
+      <tr><td align="center" style="padding:18px 12px;background:${palette.surface};border:1px solid ${palette.border};border-radius:8px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:30px;line-height:36px;font-weight:700;letter-spacing:8px;color:${palette.ink};">${escapeHtml(block.value)}</td></tr>
+    </table>`;
+  }
+
   if (block.kind === "callout") {
     const tone = calloutTones[block.tone];
     return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px;border-collapse:collapse;">
@@ -95,6 +104,7 @@ function renderBlockHtml(block: EmailBlock): string {
 function renderBlockText(block: EmailBlock): string {
   if (block.kind === "paragraph" || block.kind === "note") return block.text;
   if (block.kind === "callout") return block.text;
+  if (block.kind === "code") return block.value;
   if (block.kind === "button") return `${block.label}: ${block.url}`;
   if (block.kind === "facts") return block.rows.map((row) => `${row.label}: ${row.value}`).join("\n");
 

@@ -120,3 +120,32 @@ test("invitation and reset templates surface their action link and expiry", () =
   assert.match(reset.content.subject, /Reset your Swiftline Portal password/);
   assert.match(reset.html, /reset\?token=xyz789/);
 });
+
+test("login OTP template shows the code in the body, the subject line and the preview text", () => {
+  const { content, html, text } = render("LOGIN_OTP", {
+    code: "418302",
+    expiresAt: new Date("2026-08-03T10:10:00.000Z"),
+    expiresInMinutes: 10
+  });
+
+  assert.match(html, /418302/);
+  assert.match(text, /418302/);
+  // The preheader is what most people read the code from, straight out of the
+  // inbox list, without ever opening the message.
+  assert.match(content.preheader ?? "", /418302/);
+  assert.match(html, /expires in 10 minutes/);
+  // The code is the credential; it must never travel in the subject, which is
+  // logged and previewed far more widely than the body.
+  assert.doesNotMatch(content.subject, /418302/);
+});
+
+test("login OTP template keeps a leading-zero code intact", () => {
+  const { html, text } = render("LOGIN_OTP", {
+    code: "007431",
+    expiresAt: new Date("2026-08-03T10:10:00.000Z"),
+    expiresInMinutes: 10
+  });
+
+  assert.match(html, /007431/);
+  assert.match(text, /007431/);
+});

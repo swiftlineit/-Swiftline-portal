@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { OAuth2Client } from "google-auth-library";
-import { User } from "../models/user.model.js";
+import { IUser, User } from "../models/user.model.js";
 import { comparePassword, createAccessToken, createRefreshToken, hashPassword } from "../services/auth.service.js";
 import { verifyRecaptcha } from "../services/recaptcha.service.js";
 import { env } from "../config/env.js";
@@ -10,7 +10,7 @@ import crypto from "crypto";
 import { AuditLog } from "../models/auditLog.model.js";
 import { BusinessAccountInvitation } from "../models/businessAccountInvitation.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
-import { sendPasswordResetEmail } from "../services/mail.service.js";
+import { sendLoginOtpEmail, sendPasswordResetEmail } from "../services/mail.service.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
 import mongoose from "mongoose";
 import { endSessions, startSession, verifySession } from "../services/userSession.service.js";
@@ -90,6 +90,112 @@ const passwordResetResponse = {
   success: true,
   message: "If an active account exists for this email, a reset link has been sent."
 };
+
+/** Email sign-in codes. Digits only — the code is retyped off a phone screen. */
+const LOGIN_OTP_TTL_MS = 10 * 60 * 1000;
+/** Per-account send throttle, mirrored by the countdown on the sign-in screen. */
+const LOGIN_OTP_RESEND_INTERVAL_MS = 60 * 1000;
+/** Guesses allowed against one code. 6 digits would otherwise permit a million. */
+const LOGIN_OTP_MAX_ATTEMPTS = 5;
+
+const requestLoginOtpSchema = z.object({
+  email: z.string().trim().email().toLowerCase(),
+  termsAccepted: z.boolean().refine((value) => value === true, { message: "Terms must be accepted" }),
+  recaptchaToken: z.string().optional()
+});
+const verifyLoginOtpSchema = z.object({
+  email: z.string().trim().email().toLowerCase(),
+  code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code from your email"),
+  termsAccepted: z.boolean().refine((value) => value === true, { message: "Terms must be accepted" })
+});
+
+/**
+ * Answered whether or not the address has an account, and whether or not a code
+ * was actually sent. Telling the difference would turn the sign-in form into a
+ * way to test which of your clients' addresses are registered.
+ */
+const loginOtpRequestResponse = {
+  success: true,
+  message: "If an active account exists for this email, a sign-in code has been sent.",
+  // Both are fixed policy, not account state, so returning them leaks nothing and
+  // saves the frontend from hard-coding a second copy of the same numbers.
+  expiresInSeconds: LOGIN_OTP_TTL_MS / 1000,
+  resendInSeconds: LOGIN_OTP_RESEND_INTERVAL_MS / 1000
+};
+
+// One message for every rejection — wrong code, expired code, no code
+// outstanding, attempts exhausted, unknown address — for the same reason.
+const LOGIN_OTP_GENERIC_ERROR = "This sign-in code is invalid or has expired. Request a new one.";
+
+// Bound to the address as well as the code, so a code minted for one account can
+// never be replayed against another.
+function hashLoginOtp(email: string, code: string) {
+  return crypto.createHash("sha256").update(`${email.toLowerCase()}:${code}`).digest("hex");
+}
+
+function generateLoginOtp() {
+  // randomInt is uniform over the range, so zero-padding does not bias the
+  // leading digit the way `Math.random()` slices would.
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function loginOtpMatches(email: string, code: string, storedHash: string) {
+  const provided = Buffer.from(hashLoginOtp(email, code), "hex");
+  const stored = Buffer.from(storedHash, "hex");
+
+  return provided.length === stored.length && crypto.timingSafeEqual(provided, stored);
+}
+
+function clearLoginOtp(user: IUser) {
+  user.loginOtpHash = "";
+  user.loginOtpExpiresAt = null;
+  user.loginOtpAttempts = 0;
+}
+
+/** An account that may sign in right now, by any method. */
+function canSignIn(user: IUser | null): user is IUser {
+  if (!user) return false;
+  if ((user.userStatus ?? "active") !== "active") return false;
+  if (user.lockedUntil && user.lockedUntil > new Date()) return false;
+
+  return true;
+}
+
+/**
+ * Finishes a successful sign-in — password, Google or email code — by opening a
+ * session and issuing the token pair. Shared so the three entry points cannot
+ * drift apart on cookie flags, session handling, or the response shape the
+ * frontend reads.
+ */
+async function issueSignedInResponse(req: Request, res: Response, user: IUser): Promise<Response> {
+  const role = normalizePortalRole(user.role);
+  if (user.role !== role) {
+    user.role = role;
+    await user.save();
+  }
+
+  // Opening a session ends whatever else this user had open: the newest login
+  // wins, so a laptop closed without signing out cannot lock them out.
+  const sessionId = await startSession(user._id as mongoose.Types.ObjectId, req, refreshTokenTtlMs());
+  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email }, sessionId);
+  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email }, sessionId);
+
+  // set httpOnly secure cookie for refresh token
+  res.cookie("refreshToken", refreshToken, refreshCookieOptions());
+
+  return res.status(200).json({
+    success: true,
+    accessToken,
+    user: {
+      id: user._id,
+      email: user.email,
+      role,
+      name: user.name,
+      userStatus: user.userStatus ?? "active",
+      hasSeenWelcome: user.hasSeenWelcome
+    }
+  });
+}
 
 function hashInvitationToken(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -174,32 +280,7 @@ export async function login(req: Request, res: Response): Promise<Response> {
   user.lastLogin = new Date();
   await user.save();
 
-  const role = normalizePortalRole(user.role);
-  if (user.role !== role) {
-    user.role = role;
-    await user.save();
-  }
-  // Opening a session ends whatever else this user had open: the newest login
-  // wins, so a laptop closed without signing out cannot lock them out.
-  const sessionId = await startSession(user._id as mongoose.Types.ObjectId, req, refreshTokenTtlMs());
-  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email }, sessionId);
-  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email }, sessionId);
-
-  // set httpOnly secure cookie for refresh token
-  res.cookie("refreshToken", refreshToken, refreshCookieOptions());
-
-  return res.status(200).json({
-    success: true,
-    accessToken,
-    user: {
-      id: user._id,
-      email: user.email,
-      role,
-      name: user.name,
-      userStatus,
-      hasSeenWelcome: user.hasSeenWelcome
-    }
-  });
+  return issueSignedInResponse(req, res, user);
 }
 
 /**
@@ -277,32 +358,136 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<Resp
     });
   }
 
-  const role = normalizePortalRole(user.role);
-  if (user.role !== role) user.role = role;
   user.lastLogin = new Date();
   user.failedLoginAttempts = 0;
   user.lockedUntil = null;
   await user.save();
 
-  // Opening a session ends whatever else this user had open: the newest login
-  // wins, so a laptop closed without signing out cannot lock them out.
-  const sessionId = await startSession(user._id as mongoose.Types.ObjectId, req, refreshTokenTtlMs());
-  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email }, sessionId);
-  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email }, sessionId);
-  res.cookie("refreshToken", refreshToken, refreshCookieOptions());
+  return issueSignedInResponse(req, res, user);
+}
 
-  return res.status(200).json({
-    success: true,
-    accessToken,
-    user: {
-      id: user._id,
+/**
+ * Step one of email sign-in: mint a single-use code and mail it.
+ *
+ * Always answers with the same neutral 200. An account that does not exist, is
+ * not activated, is suspended, or is inside its resend cooldown is silently
+ * given nothing — the caller cannot tell those apart from a delivered code, so
+ * this endpoint cannot be used to work out which addresses hold portal accounts.
+ */
+export async function requestLoginOtp(req: Request, res: Response): Promise<Response> {
+  const parsed = requestLoginOtpSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, errors: parsed.error.format() });
+  }
+
+  if (!await verifyRecaptcha(parsed.data.recaptchaToken, req.ip)) {
+    return res.status(400).json({ success: false, message: "Captcha verification failed. Please try again." });
+  }
+
+  const { email } = parsed.data;
+  const user = await User.findOne({ email })
+    .select("+loginOtpHash +loginOtpExpiresAt +loginOtpAttempts +loginOtpSentAt")
+    .exec();
+
+  // An invited user has not set a password yet and must come in through their
+  // activation link, which is what proves they control the mailbox in the first
+  // place — a sign-in code would let them skip that.
+  if (!canSignIn(user) || !user.passwordHash) {
+    return res.status(200).json(loginOtpRequestResponse);
+  }
+
+  const sentAt = user.loginOtpSentAt;
+  if (sentAt && Date.now() - sentAt.getTime() < LOGIN_OTP_RESEND_INTERVAL_MS) {
+    return res.status(200).json(loginOtpRequestResponse);
+  }
+
+  const code = generateLoginOtp();
+  const expiresAt = new Date(Date.now() + LOGIN_OTP_TTL_MS);
+
+  // Issuing a new code retires the previous one, including its spent attempts —
+  // otherwise a resend would inherit an exhausted counter and fail on arrival.
+  user.loginOtpHash = hashLoginOtp(email, code);
+  user.loginOtpExpiresAt = expiresAt;
+  user.loginOtpAttempts = 0;
+  user.loginOtpSentAt = new Date();
+  await user.save();
+
+  try {
+    await sendLoginOtpEmail({
+      to: user.email,
+      name: user.name || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
+      code,
+      expiresAt
+    });
+  } catch (error) {
+    // The stored code stays put: a transport hiccup should not invalidate a code
+    // that may still have reached the mailbox.
+    console.error("Login OTP email could not be sent.", {
       email: user.email,
-      role,
-      name: user.name,
-      userStatus: user.userStatus,
-      hasSeenWelcome: user.hasSeenWelcome
-    }
+      message: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+
+  return res.status(200).json(loginOtpRequestResponse);
+}
+
+/** Step two of email sign-in: exchange a valid code for a session. */
+export async function verifyLoginOtp(req: Request, res: Response): Promise<Response> {
+  const parsed = verifyLoginOtpSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, errors: parsed.error.format() });
+  }
+
+  const { email, code } = parsed.data;
+  const user = await User.findOne({ email })
+    .select("+loginOtpHash +loginOtpExpiresAt +loginOtpAttempts +loginOtpSentAt")
+    .exec();
+
+  // Re-checked here rather than trusted from the request step: an account can be
+  // suspended or locked in the ten minutes a code stays live.
+  if (!canSignIn(user) || !user.loginOtpHash || !user.loginOtpExpiresAt) {
+    return res.status(400).json({ success: false, message: LOGIN_OTP_GENERIC_ERROR });
+  }
+
+  if (user.loginOtpExpiresAt <= new Date() || (user.loginOtpAttempts ?? 0) >= LOGIN_OTP_MAX_ATTEMPTS) {
+    clearLoginOtp(user);
+    await user.save();
+
+    return res.status(400).json({ success: false, message: LOGIN_OTP_GENERIC_ERROR });
+  }
+
+  if (!loginOtpMatches(email, code, user.loginOtpHash)) {
+    user.loginOtpAttempts = (user.loginOtpAttempts ?? 0) + 1;
+    // Burning the code on the last guess stops an attacker from getting a fresh
+    // five tries by simply not asking for a new one.
+    if (user.loginOtpAttempts >= LOGIN_OTP_MAX_ATTEMPTS) clearLoginOtp(user);
+    await user.save();
+
+    return res.status(400).json({ success: false, message: LOGIN_OTP_GENERIC_ERROR });
+  }
+
+  // Single use: the code is spent whether or not the rest of this succeeds.
+  clearLoginOtp(user);
+  user.loginOtpSentAt = null;
+  user.failedLoginAttempts = 0;
+  user.lockedUntil = null;
+  user.lastLogin = new Date();
+  // Reading the code off the mailbox is proof they control it, which is the same
+  // thing the activation and reset links establish.
+  user.isVerified = true;
+  user.emailVerifiedAt = user.emailVerifiedAt ?? new Date();
+  await user.save();
+
+  await AuditLog.create({
+    action: "USER_LOGIN_OTP_VERIFIED",
+    entityType: "USER",
+    entityId: user._id,
+    performedBy: user._id,
+    performedAt: new Date(),
+    metadata: { email: user.email }
   });
+
+  return issueSignedInResponse(req, res, user);
 }
 
 export async function logout(req: Request, res: Response): Promise<Response> {

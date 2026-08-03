@@ -72,7 +72,10 @@ const catalog: Record<string, CatalogEntry> = {
 
   // Account and access mail, raised directly rather than through a notification
   CLIENT_INVITATION: { category: "TRANSACTIONAL", priority: 95 },
-  PASSWORD_RESET: { category: "TRANSACTIONAL", priority: 95 }
+  PASSWORD_RESET: { category: "TRANSACTIONAL", priority: 95 },
+  // Highest priority in the catalogue: someone is sitting on the sign-in screen
+  // watching a countdown, so this must overtake every queued invoice and digest.
+  LOGIN_OTP: { category: "TRANSACTIONAL", priority: 99 }
 };
 
 export function getEmailPolicy(notificationType: string): CatalogEntry | null {

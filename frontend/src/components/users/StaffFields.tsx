@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useRef, type ReactNode } from "react";
 import { BiSolidEdit } from "react-icons/bi";
 import type { IconType } from "react-icons";
 import { MultiSearchableSelect, SearchableSelect } from "@/components/business-accounts/FormFieldControls";
@@ -369,6 +369,7 @@ export function DocumentUploadField({
 }) {
   const inputId = `staff-document-${label.toLowerCase().replace(/\s+/g, "-")}`;
   const selectedName = file?.name || existingName || "";
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
@@ -386,11 +387,16 @@ export function DocumentUploadField({
 
       <label
         htmlFor={inputId}
+        onClick={(event) => {
+          event.preventDefault();
+          fileInputRef.current?.click();
+        }}
         className="mt-3 flex cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-[#0D1282]/20 bg-white px-4 py-4 text-center text-sm font-semibold text-[#0D1282] transition hover:border-[#0D1282]/50 hover:bg-[#0D1282]/5"
       >
         {selectedName ? "Replace file" : "Browse file"}
       </label>
       <input
+        ref={fileInputRef}
         id={inputId}
         type="file"
         accept={ACCEPTED_DOCUMENTS}

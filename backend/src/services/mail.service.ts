@@ -19,19 +19,29 @@ type PasswordResetEmailInput = {
   expiresAt: Date;
 };
 
+type LoginOtpEmailInput = {
+  to: string;
+  name: string;
+  code: string;
+  expiresAt: Date;
+};
+
 export type MailDeliveryResult = {
   sent: boolean;
   skipped: boolean;
 };
 
 /**
- * Both of these carry a single-use secret in their link, so the URL is what
- * identifies the message. Re-issuing an invitation mints a new token and
- * therefore a new email, while a duplicate submit of the same token reuses the
- * queued row instead of sending twice.
+ * Each of these messages carries a single-use secret — in a link, or as a code
+ * in the body — so the secret is what identifies the message. Re-issuing an
+ * invitation mints a new token and therefore a new email, while a duplicate
+ * submit of the same token reuses the queued row instead of sending twice.
+ *
+ * The secret is hashed, never stored: the outbox key must not be a place to
+ * read live credentials out of.
  */
-function keyForUrl(prefix: string, url: string) {
-  return `${prefix}:${crypto.createHash("sha256").update(url).digest("hex").slice(0, 32)}`;
+function keyForSecret(prefix: string, secret: string) {
+  return `${prefix}:${crypto.createHash("sha256").update(secret).digest("hex").slice(0, 32)}`;
 }
 
 /**
@@ -43,7 +53,7 @@ function keyForUrl(prefix: string, url: string) {
  * instead and is never awaited on a request.
  */
 async function enqueueAndSendNow(params: {
-  notificationType: "CLIENT_INVITATION" | "PASSWORD_RESET";
+  notificationType: "CLIENT_INVITATION" | "PASSWORD_RESET" | "LOGIN_OTP";
   idempotencyKey: string;
   to: string;
   name: string;
@@ -81,7 +91,7 @@ async function enqueueAndSendNow(params: {
 export async function sendClientInvitationEmail(input: ClientInvitationEmailInput): Promise<MailDeliveryResult> {
   return enqueueAndSendNow({
     notificationType: "CLIENT_INVITATION",
-    idempotencyKey: keyForUrl("CLIENT_INVITATION", input.activationUrl),
+    idempotencyKey: keyForSecret("CLIENT_INVITATION", input.activationUrl),
     to: input.to,
     name: input.name,
     subject: `Activate your Swiftline Portal access for ${input.companyName}`,
@@ -94,10 +104,37 @@ export async function sendClientInvitationEmail(input: ClientInvitationEmailInpu
   });
 }
 
+/**
+ * Sign-in codes are minted fresh on every request, so the idempotency key is
+ * derived from the code itself rather than from the address: a resend must
+ * always produce a new message, while a duplicate submit of the *same* code
+ * still collapses onto one queue row.
+ *
+ * The context deliberately omits the code — sign-in secrets do not belong in
+ * application logs.
+ */
+export async function sendLoginOtpEmail(input: LoginOtpEmailInput): Promise<MailDeliveryResult> {
+  const expiresInMinutes = Math.max(1, Math.round((input.expiresAt.getTime() - Date.now()) / 60_000));
+
+  return enqueueAndSendNow({
+    notificationType: "LOGIN_OTP",
+    idempotencyKey: keyForSecret("LOGIN_OTP", `${input.to.toLowerCase()}:${input.code}:${input.expiresAt.getTime()}`),
+    to: input.to,
+    name: input.name,
+    subject: "Your Swiftline Portal sign-in code",
+    payload: {
+      code: input.code,
+      expiresAt: input.expiresAt,
+      expiresInMinutes
+    },
+    context: { to: input.to }
+  });
+}
+
 export async function sendPasswordResetEmail(input: PasswordResetEmailInput): Promise<MailDeliveryResult> {
   return enqueueAndSendNow({
     notificationType: "PASSWORD_RESET",
-    idempotencyKey: keyForUrl("PASSWORD_RESET", input.resetUrl),
+    idempotencyKey: keyForSecret("PASSWORD_RESET", input.resetUrl),
     to: input.to,
     name: input.name,
     subject: "Reset your Swiftline Portal password",

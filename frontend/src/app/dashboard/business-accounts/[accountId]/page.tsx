@@ -15,9 +15,13 @@ import { DashboardLoading } from "@/components/DashboardShell";
 import { BusinessAccountAccessPanel } from "@/components/business-accounts/BusinessAccountAccessPanel";
 import {
   canadaRegistrationTypeOptions,
+  companyTypeOptions,
+  mobileTypeOptions,
   registrationConfig,
+  titleOptions,
 } from "@/components/business-accounts/FormFieldControls";
 import { isUsTaxIdType, usTaxIdLabels } from "@/lib/usTaxId";
+import { formatDashboardDate } from "@/lib/dateFormat";
 import {
   BusinessAccount,
   BusinessKycCheckKey,
@@ -46,6 +50,36 @@ function formatOperatingCountries(account: BusinessAccount) {
     account.company.operatingCountries ??
     (account.company.operatingCountry ? [account.company.operatingCountry] : [])
   ).join(", ");
+}
+
+function formatFromOptions(
+  value: string | undefined,
+  options: { value: string; label: string }[],
+) {
+  return options.find((option) => option.value === value)?.label ?? value ?? "";
+}
+
+function formatAssignedBranch(assignedBranch: BusinessAccount["assignedBranch"]) {
+  if (!assignedBranch) return "Not assigned";
+  if (typeof assignedBranch === "string") return assignedBranch;
+  return assignedBranch.name || assignedBranch.code || "Not assigned";
+}
+
+function formatBillingAddress(account: BusinessAccount) {
+  const billing = account.company.billingAddress;
+
+  if (!billing) return "";
+
+  return [
+    billing.addressLine1,
+    billing.addressLine2,
+    billing.city,
+    billing.stateOrProvince,
+    billing.postalCode,
+    billing.country,
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 function getRegistrationIdLabel(account: BusinessAccount) {
@@ -218,8 +252,11 @@ export default function BusinessAccountDetailsPage() {
     setError("");
 
     // Open the tab synchronously within the click gesture so browsers don't block
-    // it as a popup; its location is set once the document blob has loaded.
-    const documentWindow = window.open("", "_blank", "noopener,noreferrer");
+    // it as a popup; its location is set once the document blob has loaded. The
+    // handle must stay real: `noopener` would make window.open return null, so the
+    // blob could never be loaded into the new tab (it would fall back to the
+    // current window) and the blank tab would be left behind.
+    const documentWindow = window.open("", "_blank");
 
     try {
       const blob = await getBusinessAccountDocument(
@@ -451,12 +488,26 @@ export default function BusinessAccountDetailsPage() {
               rows={[
                 [
                   "Primary Contact",
-                  `${account.contact.firstName} ${account.contact.lastName}`,
+                  [
+                    formatFromOptions(account.contact.title, titleOptions),
+                    account.contact.firstName,
+                    account.contact.lastName,
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
                 ],
+                ["Job Title", account.contact.jobTitle],
                 ["Email", account.contact.email],
                 [
                   "Mobile",
                   `${account.contact.countryCode} ${account.contact.mobileNumber}`,
+                ],
+                [
+                  "Mobile Type",
+                  formatFromOptions(
+                    account.contact.mobileType,
+                    mobileTypeOptions,
+                  ),
                 ],
                 ["Department", account.contact.department],
                 [
@@ -471,6 +522,14 @@ export default function BusinessAccountDetailsPage() {
             <DetailSection
               title="Company Details"
               rows={[
+                ["Company Name", account.company.companyName],
+                [
+                  "Company Type",
+                  formatFromOptions(
+                    account.company.companyType,
+                    companyTypeOptions,
+                  ),
+                ],
                 ["Registration Country", account.company.registrationCountry],
                 [
                   getRegistrationIdLabel(account),
@@ -485,10 +544,36 @@ export default function BusinessAccountDetailsPage() {
                       ],
                     ]
                   : []),
-                ["Registered Address", account.company.registeredAddress],
+                ...(account.company.gstin
+                  ? [["GSTIN", account.company.gstin]]
+                  : []),
+                ...(account.company.gstExempt
+                  ? [
+                      ["GST Registration", "Exempt"],
+                      ...(account.company.gstExemptReason
+                        ? [
+                            [
+                              "GST Exempt Reason",
+                              account.company.gstExemptReason,
+                            ],
+                          ]
+                        : []),
+                    ]
+                  : []),
+                [
+                  "Registered Address",
+                  [account.company.registeredAddress, account.company.addressLine2]
+                    .filter(Boolean)
+                    .join(", "),
+                ],
                 ["City", account.company.city],
                 ["State or Province", account.company.stateOrProvince],
                 ["Postal Code", account.company.postalCode],
+                [
+                  "Country",
+                  account.company.addressCountry ||
+                    account.company.registrationCountry,
+                ],
                 ["Operating Countries", formatOperatingCountries(account)],
                 ["Industry", account.company.industry],
                 ["Website", account.company.website || "Not provided"],
@@ -498,6 +583,41 @@ export default function BusinessAccountDetailsPage() {
                   account.company.requestedCreditLimit.amount === null
                     ? "Not requested"
                     : `${account.company.requestedCreditLimit.currency} ${account.company.requestedCreditLimit.amount}`,
+                ],
+              ]}
+            />
+
+            <DetailSection
+              title="Billing Address"
+              rows={
+                account.company.useCompanyAddressAsBillingAddress !== false
+                  ? [["Billing Address", "Same as registered address"]]
+                  : [
+                      [
+                        "Billing Address",
+                        formatBillingAddress(account) || "Not provided",
+                      ],
+                    ]
+              }
+            />
+
+            <DetailSection
+              title="Account Summary"
+              rows={[
+                ["Created On", formatDashboardDate(account.createdAt)],
+                [
+                  "Submitted On",
+                  account.submittedAt
+                    ? formatDashboardDate(account.submittedAt)
+                    : "Not submitted",
+                ],
+                [
+                  "Assigned Branch",
+                  formatAssignedBranch(account.assignedBranch),
+                ],
+                [
+                  "Created By",
+                  account.createdBy?.name || account.createdBy?.email || "—",
                 ],
               ]}
             />

@@ -71,3 +71,18 @@ export const loginLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true
 });
+
+// Requesting a sign-in code needs its own cap, and it must count *successful*
+// requests too. The endpoint answers 200 whether or not the address has an
+// account — deliberately, so it cannot be used to enumerate clients — which
+// means `skipSuccessfulRequests` would leave it effectively uncapped and turn it
+// into a way to mail-bomb any address. Sized for a shared office IP where a few
+// people sign in around the same time; flooding a single mailbox is held off
+// separately by the per-account resend cooldown, which no IP can get around.
+export const otpRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: env.NODE_ENV === "production" ? 10 : 100,
+  message: { success: false, message: "Too many sign-in code requests. Wait a few minutes and try again." },
+  standardHeaders: true,
+  legacyHeaders: false
+});

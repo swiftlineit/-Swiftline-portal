@@ -672,10 +672,17 @@ export default function BranchForm({
   }
 
   async function handleSubmit(mode: SubmitMode) {
-    // Activating a branch requires policy acceptance and mandatory documents.
-    const requiresActiveValidation = mode === "activate" || (mode === "save" && initialStatus === "ACTIVE");
+    // The policy is accepted once, at activation. Editing an already-active (or
+    // previously-activated) branch must not demand a second acceptance, so only
+    // actual activations gate on it.
+    const requiresPolicyAcceptance = mode === "activate";
 
-    if (requiresActiveValidation && !policyAccepted) {
+    // A non-draft branch must stay operationally complete after an edit, or it
+    // could no longer be reactivated. Drafts can stay incomplete, which is why
+    // create-as-draft and save-draft run only the light checks.
+    const requiresActiveValidation = mode === "activate" || (mode === "save" && initialStatus !== "DRAFT");
+
+    if (requiresPolicyAcceptance && !policyAccepted) {
       setSubmitAttempted(true);
       toast.error("Please accept the branch operating policy.");
       return;
@@ -1304,7 +1311,7 @@ export default function BranchForm({
         </div>
       </FormSection>
 
-      {!isEditMode || initialStatus !== "ACTIVE" ? (
+      {!identityLocked ? (
         <div className={`rounded-xl border p-4 transition ${
           submitAttempted && !policyAccepted
             ? "border-[#D71313]/25 bg-[#D71313]/5"

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   FiArrowLeft,
@@ -146,6 +146,7 @@ export default function StaffDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     let active = true;
@@ -506,7 +507,14 @@ export default function StaffDetail({
                             Download
                           </button>
                           {canEdit ? (
-                            <label htmlFor={inputId} className="cursor-pointer text-slate-600 transition hover:text-[#0D1282]">
+                            <label
+                              htmlFor={inputId}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                fileInputRefs.current[type]?.click();
+                              }}
+                              className="cursor-pointer text-slate-600 transition hover:text-[#0D1282]"
+                            >
                               Replace
                             </label>
                           ) : null}
@@ -516,7 +524,14 @@ export default function StaffDetail({
                       <>
                         <p className="mt-2 text-sm text-slate-500">Not uploaded</p>
                         {canEdit ? (
-                          <label htmlFor={inputId} className="mt-3 cursor-pointer text-xs font-semibold text-[#0D1282] hover:underline">
+                          <label
+                            htmlFor={inputId}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              fileInputRefs.current[type]?.click();
+                            }}
+                            className="mt-3 cursor-pointer text-xs font-semibold text-[#0D1282] hover:underline"
+                          >
                             Upload
                           </label>
                         ) : null}
@@ -525,6 +540,9 @@ export default function StaffDetail({
 
                     {canEdit ? (
                       <input
+                        ref={(element) => {
+                          fileInputRefs.current[type] = element;
+                        }}
                         id={inputId}
                         type="file"
                         accept="application/pdf,image/jpeg,image/png"

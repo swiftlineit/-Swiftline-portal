@@ -137,6 +137,39 @@ export async function loginWithGoogle(credential: string) {
   return parseAuthResponse<LoginResult>(response);
 }
 
+/**
+ * Asks for an email sign-in code.
+ *
+ * Resolves the same way whether or not the address has an account — the server
+ * will not say, so that the sign-in form cannot be used to test which addresses
+ * are registered. The caller must move to the code screen regardless.
+ */
+export async function requestLoginOtp(input: { email: string; recaptchaToken?: string }) {
+  const response = await fetch(apiUrl("/api/v1/auth/login/otp/request"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...input, termsAccepted: true })
+  });
+
+  return parseAuthResponse<{
+    success: true;
+    message: string;
+    expiresInSeconds: number;
+    resendInSeconds: number;
+  }>(response);
+}
+
+export async function verifyLoginOtp(input: { email: string; code: string }) {
+  const response = await fetch(apiUrl("/api/v1/auth/login/otp/verify"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ ...input, termsAccepted: true })
+  });
+
+  return parseAuthResponse<LoginResult>(response);
+}
+
 export async function getInvitation(token: string) {
   const response = await fetch(apiUrl(`/api/v1/auth/invitations/${encodeURIComponent(token)}`));
 

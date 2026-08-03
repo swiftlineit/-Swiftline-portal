@@ -76,6 +76,10 @@ export interface IUser extends mongoose.Document {
   lastLogin?: Date | null;
   passwordResetTokenHash?: string;
   passwordResetExpiresAt?: Date | null;
+  loginOtpHash?: string;
+  loginOtpExpiresAt?: Date | null;
+  loginOtpAttempts?: number;
+  loginOtpSentAt?: Date | null;
   staffProfile?: IStaffProfile | null;
 }
 
@@ -154,6 +158,17 @@ const userSchema = new mongoose.Schema<IUser>(
     lastLogin: { type: Date, default: null },
     passwordResetTokenHash: { type: String, default: "", select: false },
     passwordResetExpiresAt: { type: Date, default: null, select: false },
+    // Email sign-in code. Stored as a hash for the same reason the reset token is:
+    // a leaked database read must not hand out live credentials. `select: false`
+    // keeps it off every incidental read of a user document.
+    loginOtpHash: { type: String, default: "", select: false },
+    loginOtpExpiresAt: { type: Date, default: null, select: false },
+    // Guesses spent against the current code. Caps a brute force at far fewer
+    // than the million tries a 6-digit code would otherwise allow.
+    loginOtpAttempts: { type: Number, default: 0, select: false },
+    // Per-account send throttle, so an IP-level limiter is not the only thing
+    // standing between one email address and a flood of codes.
+    loginOtpSentAt: { type: Date, default: null, select: false },
     staffProfile: { type: staffProfileSchema, default: null }
   },
   { timestamps: true }

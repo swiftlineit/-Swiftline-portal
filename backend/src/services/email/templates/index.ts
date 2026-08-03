@@ -3,6 +3,7 @@ import { asText, firstNameOf, toAbsoluteUrl } from "../format.js";
 import { shipmentBookedClientTemplate, shipmentBookedStaffTemplate } from "./shipmentBooked.js";
 import { clientInvitationTemplate } from "./clientInvitation.js";
 import { passwordResetTemplate } from "./passwordReset.js";
+import { loginOtpTemplate } from "./loginOtp.js";
 
 export type EmailTemplateContext = {
   recipientName: string;
@@ -41,7 +42,8 @@ const registry: Record<string, EmailTemplate> = {
   SHIPMENT_BOOKED_CLIENT: shipmentBookedClientTemplate,
   SHIPMENT_BOOKED_STAFF: shipmentBookedStaffTemplate,
   CLIENT_INVITATION: clientInvitationTemplate,
-  PASSWORD_RESET: passwordResetTemplate
+  PASSWORD_RESET: passwordResetTemplate,
+  LOGIN_OTP: loginOtpTemplate
 };
 
 export function getEmailTemplate(templateKey: string): EmailTemplate {

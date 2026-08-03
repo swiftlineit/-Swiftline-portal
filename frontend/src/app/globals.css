@@ -1,9 +1,28 @@
 @import "tailwindcss";
 
+/* Hide the reCAPTCHA badge ("Protected by reCAPTCHA") while keeping the
+   reCAPTCHA v3 verification itself active. */
+.grecaptcha-badge {
+  visibility: hidden;
+}
+
 /* Helvetica is the portal-wide typeface. Overriding `--font-sans` also feeds
    Tailwind preflight's base `html` font-family, so every page inherits it. */
 @theme {
   --font-sans: Helvetica, "Helvetica Neue", "Nimbus Sans", Arial, sans-serif;
+}
+
+/* The sign-in card is sized to fit a desktop viewport without scrolling. A
+   1366x768 laptop leaves only ~650px of usable height, which is not enough for
+   the full card, so the support strip drops out below that. Nothing is lost —
+   the same number sits in the page header at every size.
+
+   Written here rather than as a Tailwind arbitrary variant because the escaped
+   form of a two-clause media query emits `)and(`, which is invalid CSS. */
+@media (min-width: 1024px) and (max-height: 739px) {
+  .hide-on-short-desktop {
+    display: none;
+  }
 }
 
 /* Applied by DeepLinkTarget when a notification link resolves to a section, so
@@ -29,4 +48,14 @@
     animation-duration: 0.01ms;
     box-shadow: 0 0 0 3px rgba(13, 18, 130, 0.5);
   }
+}
+
+.no-scrollbar {
+  scrollbar-width: none !important;      /* Firefox */
+  -ms-overflow-style: none !important;   /* old Edge/IE */
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;              /* Chrome/Safari/WebKit */
 }

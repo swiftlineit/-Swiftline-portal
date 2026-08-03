@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { FiChevronDown, FiDownload, FiEdit3, FiExternalLink, FiFileText, FiPrinter, FiUploadCloud } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
@@ -84,6 +84,7 @@ export default function DpdLabelsPage() {
   const [creatingManual, setCreatingManual] = useState(false);
   const [error, setError] = useState("");
   const [dragActive, setDragActive] = useState(false);
+  const invoiceInputRef = useRef<HTMLInputElement>(null);
   const [shipmentAction, setShipmentAction] = useState<{
     mode: "hold" | "release" | "status";
     shipment: DpdShipmentHistoryItem;
@@ -425,6 +426,10 @@ export default function DpdLabelsPage() {
               }}
               onDragLeave={() => setDragActive(false)}
               onDrop={handleDrop}
+              onClick={(event) => {
+                event.preventDefault();
+                invoiceInputRef.current?.click();
+              }}
               className={`mt-4 flex min-h-36 cursor-pointer rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center transition ${
                 dragActive ? "border-blue-900 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-900"
               }`}
@@ -436,7 +441,7 @@ export default function DpdLabelsPage() {
               <span className="mt-1 text-xs font-medium text-slate-500">
                 {file ? formatBytes(file.size) : "or click to choose a file"}
               </span>
-              <input type="file" accept=".xlsx" onChange={handleFileChange} className="sr-only" />
+              <input ref={invoiceInputRef} type="file" accept=".xlsx" onChange={handleFileChange} className="sr-only" />
             </label>
             <button
               type="button"

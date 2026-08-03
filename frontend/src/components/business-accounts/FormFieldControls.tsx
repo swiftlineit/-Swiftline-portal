@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyboardEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, ReactNode, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { CountrySelector, FlagImage, defaultCountries, parseCountry, type CountryIso2 } from "react-international-phone";
 import { FiAlertCircle, FiAlertTriangle, FiCheckCircle, FiChevronDown, FiLoader } from "react-icons/fi";
 import InfoTooltip from "@/components/ui/InfoTooltip";
@@ -1196,6 +1196,11 @@ export function DocumentInput({
   onChange: (file: File | null) => void;
 }) {
   const inputId = `document-upload-${type}`;
+  // Browsers scroll the focused file input into view when the picker closes.
+  // That yanks the page to the hidden (sr-only) input's position, so opening
+  // the picker must be done programmatically instead of via the label's default
+  // activation - `.click()` opens the dialog without focusing the input.
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="rounded-2xl bg-[#EEEDED]/35 p-5 ring-1 ring-[#EEEDED]">
@@ -1212,6 +1217,10 @@ export function DocumentInput({
 
           <label
             htmlFor={inputId}
+            onClick={(event) => {
+              event.preventDefault();
+              fileInputRef.current?.click();
+            }}
             className={`mt-4 flex min-h-28 cursor-pointer flex-col justify-center rounded-xl border-2 border-dashed px-5 py-5 transition hover:border-[#0D1282]/50 hover:bg-[#F0DE36]/10 ${
               error ? "border-[#D71313] bg-[#D71313]/5" : "border-[#0D1282]/20 bg-white/70"
             }`}
@@ -1223,6 +1232,7 @@ export function DocumentInput({
           </label>
           {error ? <p className="mt-2 text-xs font-semibold text-[#D71313]">{error}</p> : null}
           <input
+            ref={fileInputRef}
             id={inputId}
             type="file"
             accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
@@ -1234,6 +1244,7 @@ export function DocumentInput({
           inputId={inputId}
           file={file}
           existingFileName={existingFileName}
+          fileInputRef={fileInputRef}
           onRemove={() => onChange(null)}
         />
       </div>
@@ -1245,11 +1256,13 @@ export function DocumentPreviewCard({
   inputId,
   file,
   existingFileName,
+  fileInputRef,
   onRemove
 }: {
   inputId: string;
   file: File | null;
   existingFileName?: string;
+  fileInputRef?: RefObject<HTMLInputElement | null>;
   onRemove: () => void;
 }) {
   const fileName = file?.name || existingFileName || "";
@@ -1302,7 +1315,14 @@ export function DocumentPreviewCard({
             Preview
           </button>
         ) : null}
-        <label htmlFor={inputId} className="cursor-pointer text-[#0D1282] transition hover:text-[#D71313]">
+        <label
+          htmlFor={inputId}
+          onClick={(event) => {
+            event.preventDefault();
+            fileInputRef?.current?.click();
+          }}
+          className="cursor-pointer text-[#0D1282] transition hover:text-[#D71313]"
+        >
           Replace
         </label>
         {file ? (
@@ -1325,8 +1345,8 @@ export function ReviewSection({
   onEdit: () => void;
 }) {
   return (
-    <section className="overflow-hidden rounded-3xl bg-white shadow-[0_14px_40px_rgba(13,18,130,0.08)] ring-1 ring-[#EEEDED]">
-      <div className="relative overflow-hidden bg-[#0D1282] px-5 py-5 sm:px-6">
+    <section className="overflow-hidden rounded-xl bg-white shadow-[0_14px_40px_rgba(13,18,130,0.08)] ring-1 ring-[#EEEDED]">
+      <div className="relative overflow-hidden bg-[#0d1382a5] px-5 py-5 sm:px-6">
         <div className="absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[#F0DE36]/15" />
         <div className="absolute -bottom-12 right-16 h-24 w-24 rounded-full bg-white/5" />
 
