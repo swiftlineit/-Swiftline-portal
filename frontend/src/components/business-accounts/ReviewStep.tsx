@@ -6,6 +6,8 @@ import {
   getDocumentLabel,
   type ExistingDocuments
 } from "@/components/business-accounts/FormFieldControls";
+import InfoTooltip from "@/components/ui/InfoTooltip";
+import { reviewTooltips } from "@/lib/businessAccountTooltips";
 import { BusinessAccountFiles, BusinessAccountFormData, DocumentType } from "@/lib/businessAccounts";
 import Link from "next/link";
 
@@ -48,9 +50,27 @@ export function ReviewStep({
         values={[
           ["Company", formData.company.companyName],
           ["Registration", `${formData.company.registrationCountry} - ${formData.company.registrationId}`],
-          ["GSTIN", formData.company.gstin || "Not provided"],
+          ["GSTIN", formData.company.gstExempt
+            ? `GST exempt / not registered - ${formData.company.gstExemptReason || "no reason given"} (needs administrator approval)`
+            : formData.company.gstin || "Not provided"],
           ["Operating Countries", formData.company.operatingCountries.join(", ")],
-          ["Address", `${formData.company.registeredAddress}, ${formData.company.city}`],
+          ["Address", [
+            formData.company.registeredAddress,
+            formData.company.addressLine2,
+            formData.company.city,
+            formData.company.stateOrProvince,
+            formData.company.postalCode
+          ].filter(Boolean).join(", ")],
+          ["Billing Address", formData.company.useCompanyAddressAsBillingAddress
+            ? "Same as company address"
+            : [
+              formData.company.billingAddress?.addressLine1,
+              formData.company.billingAddress?.addressLine2,
+              formData.company.billingAddress?.city,
+              formData.company.billingAddress?.stateOrProvince,
+              formData.company.billingAddress?.postalCode,
+              formData.company.billingAddress?.country
+            ].filter(Boolean).join(", ")],
           ["Industry", formData.company.industry],
           ["Credit Requested", formData.company.requestedCreditLimit ? `${formData.company.requestedCreditCurrency} ${formData.company.requestedCreditLimit}` : "Not requested"]
         ]}
@@ -108,6 +128,10 @@ export function ReviewStep({
     .
   </label>
 </div>
+      <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+        What happens after you submit
+        <InfoTooltip text={reviewTooltips.confirmation} />
+      </p>
       {validationErrors.confirmation ? <p className="text-xs font-semibold text-red-600">{validationErrors.confirmation}</p> : null}
     </div>
   );

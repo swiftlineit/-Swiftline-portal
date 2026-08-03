@@ -15,12 +15,21 @@ import {
   kycGatedStatuses
 } from "../controllers/businessAccount.controller.js";
 import {
+  countriesWithoutRegistrationId,
   isHttpOrHttpsUrl,
   isValidBusinessContactEmail,
   isValidPhoneForCountryCode,
   isValidPostalCodeForCountry,
   getPrimaryRegistrationError
 } from "../services/businessAccountRules.js";
+import {
+  getUsTaxIdError,
+  isMaskedUsTaxId,
+  isSensitiveUsTaxIdType,
+  maskUsTaxId
+} from "../services/usTaxId.js";
+import { decryptSecret, encryptSecret } from "../services/credentialEncryption.service.js";
+import { getGstinError, isValidGstin, requiresGstin } from "../services/gstin.js";
 
 function testDocument(type: DocumentType): IBusinessDocument {
   return {
@@ -149,6 +158,141 @@ describe("deriveKycOverallStatus", () => {
       deriveKycOverallStatus(requiredDocuments, emptyReview({ finalDecision: "rejected" })),
       "rejected"
     );
+  });
+});
+
+describe("GST exemption review gate", () => {
+  const verifiedChecks: IBusinessKycReview["checks"] = {
+    contactDetails: { status: "verified" },
+    companyDetails: { status: "verified" },
+    aadhaarCard: { status: "verified" },
+    panCard: { status: "verified" }
+  };
+
+  it("adds the exemption check only for accounts claiming exemption", () => {
+    assert.ok(!getRequiredKycCheckKeys(requiredDocuments).includes("gstExemption"));
+    assert.ok(!getRequiredKycCheckKeys(requiredDocuments, { gstExempt: false }).includes("gstExemption"));
+    assert.ok(getRequiredKycCheckKeys(requiredDocuments, { gstExempt: true }).includes("gstExemption"));
+  });
+
+  it("withholds verified while an exemption is unreviewed", () => {
+    const review = emptyReview({ reviewStartedAt: new Date(), checks: verifiedChecks });
+
+    // Same review, same documents: only the exemption claim differs.
+    assert.equal(deriveKycOverallStatus(requiredDocuments, review), "verified");
+    assert.equal(deriveKycOverallStatus(requiredDocuments, review, { gstExempt: true }), "under_review");
+  });
+
+  it("reaches verified once the exemption is cleared", () => {
+    const review = emptyReview({
+      reviewStartedAt: new Date(),
+      checks: { ...verifiedChecks, gstExemption: { status: "verified" } }
+    });
+
+    assert.equal(deriveKycOverallStatus(requiredDocuments, review, { gstExempt: true }), "verified");
+  });
+
+  it("rejects the account when the exemption is rejected", () => {
+    const review = emptyReview({
+      reviewStartedAt: new Date(),
+      checks: { ...verifiedChecks, gstExemption: { status: "reject" } }
+    });
+
+    assert.equal(deriveKycOverallStatus(requiredDocuments, review, { gstExempt: true }), "rejected");
+  });
+});
+
+describe("GSTIN rules", () => {
+  it("accepts a well-formed GSTIN in any case or spacing", () => {
+    assert.equal(getGstinError("27ABCDE1234F1Z5"), "");
+    assert.equal(getGstinError(" 27abcde1234f1z5 "), "");
+  });
+
+  it("rejects a wrong length", () => {
+    assert.match(getGstinError("27ABCDE1234F1Z"), /exactly 15/);
+    assert.match(getGstinError("27ABCDE1234F1Z55"), /exactly 15/);
+  });
+
+  it("rejects an invalid state code but allows merged and central jurisdictions", () => {
+    assert.match(getGstinError("00ABCDE1234F1Z5"), /state code/);
+    assert.match(getGstinError("39ABCDE1234F1Z5"), /state code/);
+    assert.equal(getGstinError("97ABCDE1234F1Z5"), "");
+    assert.equal(getGstinError("25ABCDE1234F1Z5"), "");
+  });
+
+  it("rejects a malformed PAN section", () => {
+    assert.match(getGstinError("27ABC1E1234F1Z5"), /must be a valid PAN/);
+  });
+
+  it("rejects a bad entity code or missing Z", () => {
+    assert.ok(getGstinError("27ABCDE1234F0Z5"));
+    assert.ok(getGstinError("27ABCDE1234F1X5"));
+  });
+
+  it("treats an empty value as the caller's problem, not a format error", () => {
+    assert.equal(getGstinError(""), "");
+    assert.equal(isValidGstin(""), false);
+  });
+
+  it("requires a GSTIN only for Indian accounts that have a company and claim no exemption", () => {
+    assert.equal(requiresGstin({ registrationCountry: "India" }), true);
+    assert.equal(requiresGstin({ registrationCountry: "India", noCompany: true }), false);
+    assert.equal(requiresGstin({ registrationCountry: "India", gstExempt: true }), false);
+    assert.equal(requiresGstin({ registrationCountry: "United Kingdom" }), false);
+  });
+});
+
+describe("US tax ID rules", () => {
+  it("accepts a nine-digit EIN and rejects any other length", () => {
+    assert.equal(getUsTaxIdError("12-3456789", "ein"), "");
+    assert.match(getUsTaxIdError("12-345678", "ein"), /9 digits/);
+  });
+
+  it("rejects SSN area numbers that are never issued", () => {
+    assert.equal(getUsTaxIdError("123-45-6789", "ssn"), "");
+    assert.match(getUsTaxIdError("000-45-6789", "ssn"), /cannot begin with 000/);
+    assert.match(getUsTaxIdError("666-45-6789", "ssn"), /cannot begin with 666/);
+    assert.match(getUsTaxIdError("912-70-1234", "ssn"), /ITIN/);
+    assert.match(getUsTaxIdError("123-00-6789", "ssn"), /00 as its middle/);
+    assert.match(getUsTaxIdError("123-45-0000", "ssn"), /end in 0000/);
+  });
+
+  it("requires an ITIN to begin with 9", () => {
+    assert.equal(getUsTaxIdError("912-70-1234", "itin"), "");
+    assert.match(getUsTaxIdError("123-70-1234", "itin"), /begins with 9/);
+  });
+
+  it("treats a masked value as unchanged rather than invalid", () => {
+    const masked = maskUsTaxId("123456789", "ssn");
+
+    assert.equal(masked, "•••-••-6789");
+    assert.equal(isMaskedUsTaxId(masked), true);
+    assert.equal(getUsTaxIdError(masked, "ssn"), "");
+  });
+
+  it("masks SSN and ITIN but leaves an EIN readable", () => {
+    assert.equal(maskUsTaxId("123456789", "itin"), "•••-••-6789");
+    assert.equal(maskUsTaxId("123456789", "ein"), "12-3456789");
+    assert.equal(isSensitiveUsTaxIdType("ssn"), true);
+    assert.equal(isSensitiveUsTaxIdType("itin"), true);
+    assert.equal(isSensitiveUsTaxIdType("ein"), false);
+  });
+
+  it("routes US registration errors through the tax ID rules", () => {
+    assert.equal(getPrimaryRegistrationError("United States", "12-3456789", "ein"), "");
+    assert.match(getPrimaryRegistrationError("United States", "000-45-6789", "ssn"), /cannot begin with 000/);
+  });
+
+  it("no longer exempts the US from supplying a registration ID", () => {
+    assert.equal(countriesWithoutRegistrationId.has("United States"), false);
+    assert.equal(countriesWithoutRegistrationId.has("Kuwait"), true);
+  });
+
+  it("round-trips an encrypted tax ID", () => {
+    const encrypted = encryptSecret("123456789", "taxId");
+
+    assert.notEqual(encrypted, "123456789");
+    assert.equal(decryptSecret<string>(encrypted, "taxId"), "123456789");
   });
 });
 

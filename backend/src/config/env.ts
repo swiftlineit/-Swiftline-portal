@@ -25,6 +25,10 @@ const environmentSchema = z.object({
   JWT_SECRET: z.string().min(1, "JWT_SECRET is required for signing tokens"),
   ACCESS_TOKEN_EXPIRES_IN: z.string().default("15m"),
   REFRESH_TOKEN_EXPIRES_IN: z.string().default("7d"),
+  // Off by default: sessions are tracked and audited either way, but nothing is
+  // refused until this is switched on. Turning it back off is a config change.
+  SINGLE_SESSION_ENFORCED: booleanFromEnv.default(false),
+  SESSION_IDLE_TIMEOUT_MINUTES: z.coerce.number().int().positive().default(30),
   ADMIN_EMAIL: z.string().email().optional(),
   ADMIN_PASSWORD: z.string().optional(),
   SMTP_HOST: z.string().optional(),
@@ -56,6 +60,9 @@ const environmentSchema = z.object({
   EMAIL_DRAIN_BATCH_SIZE: z.coerce.number().int().positive().default(25),
   EMAIL_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   IDEAL_POSTCODES_API_KEY: z.string().optional(),
+  // Protects stored SSN and ITIN values. Required in production; falls back to
+  // JWT_SECRET in development so a local setup still works.
+  TAX_ID_ENCRYPTION_KEY: z.string().optional(),
   GOOGLE_PLACES_API_KEY: z.string().optional(),
   GOOGLE_ADDRESS_VALIDATION_API_KEY: z.string().optional(),
   DPD_MODE: z.enum(["SIMULATED", "LIVE"]).default("SIMULATED"),

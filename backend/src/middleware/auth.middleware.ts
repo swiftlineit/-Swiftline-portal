@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../services/auth.service.js";
 import { User } from "../models/user.model.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
+import { touchSession, verifySession } from "../services/userSession.service.js";
 
 export async function attachUser(req: Request, res: Response, next: NextFunction) {
   try {
@@ -13,6 +14,17 @@ export async function attachUser(req: Request, res: Response, next: NextFunction
 
     const payload = verifyAccessToken(token);
 
+    // A token whose session has been superseded, terminated or gone idle is
+    // rejected outright rather than merely left unauthenticated: the client
+    // needs the reason so it can say why the user was signed out, and a 401
+    // with no explanation looks like an expired token it should silently
+    // refresh.
+    const sessionCheck = await verifySession(payload.sid);
+
+    if (!sessionCheck.ok) {
+      return res.status(401).json({ success: false, message: sessionCheck.message, sessionEnded: true });
+    }
+
     const user = await User.findById(payload.sub)
       .select("email role name hasSeenWelcome assignedBranches")
       .lean()
@@ -20,7 +32,11 @@ export async function attachUser(req: Request, res: Response, next: NextFunction
 
     if (user) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (req as any).user = { ...user, role: normalizePortalRole(user.role) };
+      (req as any).user = { ...user, role: normalizePortalRole(user.role), sessionId: payload.sid };
+
+      // Keeps the idle clock alive. Throttled inside, so this is not a database
+      // write on every authenticated request.
+      void touchSession(payload.sid);
     }
   } catch (error) {
     // ignore invalid token

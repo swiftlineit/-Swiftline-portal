@@ -1,8 +1,12 @@
 "use client";
 
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CountrySelector, FlagImage, defaultCountries, parseCountry, type CountryIso2 } from "react-international-phone";
-import { FiChevronDown } from "react-icons/fi";
+import { FiAlertCircle, FiAlertTriangle, FiCheckCircle, FiChevronDown, FiLoader } from "react-icons/fi";
+import InfoTooltip from "@/components/ui/InfoTooltip";
+import { usTaxIdTypeOptions } from "@/lib/usTaxId";
+import { portalCountries } from "@/lib/portalCountries";
+import { contactTooltips } from "@/lib/businessAccountTooltips";
 import {
   BusinessAccount,
   BusinessAccountFormData,
@@ -35,40 +39,17 @@ export const businessAccountSteps = ["Contact Details", "Company Details", "Uplo
 // same choices; re-exported here so the wizard's imports are unchanged.
 export { departments, industries, shipmentVolumes } from "@/lib/businessAccountOptions";
 
+// Derived from the canonical list in `lib/portalCountries`, which the geography
+// lookup also reads — so an option can never appear here without the state and
+// city data behind it, or vice versa.
 export const countryOptions: SelectOption[] = [
-  { value: "India", label: "India", iso2: "in" },
-  { value: "United States", label: "United States", iso2: "us" },
-  { value: "United Kingdom", label: "United Kingdom", iso2: "gb" },
-  { value: "Canada", label: "Canada", iso2: "ca" },
-  { value: "Australia", label: "Australia", iso2: "au" },
-  { value: "United Arab Emirates", label: "United Arab Emirates", iso2: "ae" },
-  { value: "Saudi Arabia", label: "Saudi Arabia", iso2: "sa" },
-  { value: "Singapore", label: "Singapore", iso2: "sg" },
-  { value: "China", label: "China", iso2: "cn" },
-  { value: "Japan", label: "Japan", iso2: "jp" },
-  { value: "Germany", label: "Germany", iso2: "de" },
-  { value: "France", label: "France", iso2: "fr" },
-  { value: "Italy", label: "Italy", iso2: "it" },
-  { value: "Netherlands", label: "Netherlands", iso2: "nl" },
-  { value: "Belgium", label: "Belgium", iso2: "be" },
-  { value: "Spain", label: "Spain", iso2: "es" },
-  { value: "Switzerland", label: "Switzerland", iso2: "ch" },
-  { value: "South Korea", label: "South Korea", iso2: "kr" },
-  { value: "Indonesia", label: "Indonesia", iso2: "id" },
-  { value: "Malaysia", label: "Malaysia", iso2: "my" },
-  { value: "Thailand", label: "Thailand", iso2: "th" },
-  { value: "Vietnam", label: "Vietnam", iso2: "vn" },
-  { value: "Bangladesh", label: "Bangladesh", iso2: "bd" },
-  { value: "Nepal", label: "Nepal", iso2: "np" },
-  { value: "Sri Lanka", label: "Sri Lanka", iso2: "lk" },
-  { value: "South Africa", label: "South Africa", iso2: "za" },
-  { value: "Brazil", label: "Brazil", iso2: "br" },
-  { value: "Mexico", label: "Mexico", iso2: "mx" },
-  { value: "New Zealand", label: "New Zealand", iso2: "nz" },
-  { value: "Qatar", label: "Qatar", iso2: "qa" },
-  { value: "Oman", label: "Oman", iso2: "om" },
-  { value: "Kuwait", label: "Kuwait", iso2: "kw" },
-  { value: "Bahrain", label: "Bahrain", iso2: "bh" },
+  ...portalCountries.map((country): SelectOption => ({
+    value: country.name,
+    label: country.name,
+    iso2: country.iso2 as CountryIso2
+  })),
+  // Deliberately last and without a code: it exists so an address outside the
+  // supported list can still be recorded, and it has no reference data.
   { value: "Other", label: "Other" }
 ];
 
@@ -134,6 +115,13 @@ export const canadaRegistrationTypeOptions = [
   { value: "quebec_enterprise_number", label: "Quebec enterprise number" }
 ];
 
+// Countries whose registration ID comes in several forms, so the user picks
+// which one they are entering and the format follows that choice.
+export const registrationTypeOptionsByCountry: Record<string, SelectOption[]> = {
+  Canada: canadaRegistrationTypeOptions,
+  "United States": usTaxIdTypeOptions
+};
+
 export const registrationConfig: Record<string, {
   primaryLabel?: string;
   primaryInfo?: string;
@@ -151,6 +139,13 @@ export const registrationConfig: Record<string, {
     primaryLabel: "Permanent Account Number (PAN)",
     primaryInfo: "Enter the company PAN issued in India.",
     primaryTypeValue: "pan"
+  },
+  "United States": {
+    // The label is replaced with the selected type's own label (EIN/SSN/ITIN)
+    // once a type is chosen; this is the fallback.
+    primaryLabel: "US Tax ID",
+    primaryInfo: "Enter the taxpayer identification number for this account.",
+    primaryTypeValue: "ein"
   },
   France: {
     primaryLabel: "VAT (VAT Registration)",
@@ -219,6 +214,93 @@ function DropdownChevron({ open, className = "" }: { open: boolean; className?: 
   );
 }
 
+/**
+ * Live validation state of a control.
+ *
+ * `valid` means the value passed its rules, never merely that the field is
+ * filled — a green tick on unvalidated input is worse than no tick at all.
+ * An `error` always wins over the passed-in status, so a control cannot show a
+ * tick and a message at the same time.
+ */
+export type FieldStatus = "idle" | "validating" | "valid" | "invalid";
+
+// Long option lists scroll inside the dropdown instead of stretching the page.
+// Matches the thin-scrollbar treatment already used by the DPD label screens.
+const thinScrollbarClasses =
+  "[scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400";
+
+function controlBorderClasses(status: FieldStatus) {
+  if (status === "invalid") return "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15";
+  if (status === "valid") return "border-emerald-500 focus:border-emerald-600 focus:ring-emerald-500/20";
+  return "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35";
+}
+
+export function FieldStatusIcon({ status, className = "" }: { status: FieldStatus; className?: string }) {
+  if (status === "validating") {
+    return <FiLoader aria-hidden="true" className={`h-5 w-5 shrink-0 animate-spin text-slate-400 ${className}`} />;
+  }
+
+  if (status === "valid") {
+    return <FiCheckCircle aria-hidden="true" className={`h-5 w-5 shrink-0 text-emerald-600 ${className}`} />;
+  }
+
+  if (status === "invalid") {
+    return <FiAlertCircle aria-hidden="true" className={`h-5 w-5 shrink-0 text-[#D71313] ${className}`} />;
+  }
+
+  return null;
+}
+
+/**
+ * Label, help icon, error and helper text around a control.
+ *
+ * The label sits above the control and carries the mandatory asterisk, so the
+ * marker stays visible once the field is filled — a placeholder-only asterisk
+ * disappears exactly when the user wants to re-check what is required.
+ */
+export function FieldShell({
+  label,
+  labelFor,
+  required = false,
+  info,
+  error,
+  warning,
+  helper,
+  children
+}: {
+  label: string;
+  labelFor?: string;
+  required?: boolean;
+  info?: string;
+  error?: string;
+  // A caution that does not block submission. Suppressed while an error is
+  // showing, so the field never carries two competing messages.
+  warning?: string;
+  helper?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="block min-w-0">
+      <span className="mb-1.5 flex items-center gap-1.5">
+        <label htmlFor={labelFor} className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+          {label}
+          {required ? <span className="ml-0.5 text-[#D71313]">*</span> : null}
+        </label>
+        {info ? <InfoTooltip text={info} /> : null}
+      </span>
+      {children}
+      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
+      {!error && warning ? (
+        <p className="mt-1 flex items-start gap-1.5 text-xs font-semibold text-amber-700">
+          <FiAlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{warning}</span>
+        </p>
+      ) : null}
+      {!error && !warning && helper ? <p className="mt-1 text-xs font-medium text-slate-500">{helper}</p> : null}
+    </div>
+  );
+}
+
 export function formatShipmentType(value: string) {
   return shipmentTypeOptions.find((option) => option.value === value)?.label ?? value;
 }
@@ -235,6 +317,7 @@ export function Field({
   onChange,
   onBlur,
   error,
+  warning,
   helper,
   type = "text",
   placeholder,
@@ -242,13 +325,15 @@ export function Field({
   max,
   info,
   disabled = false,
-  required = false
+  required = false,
+  status = "idle"
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
   error?: string;
+  warning?: string;
   helper?: string;
   type?: string;
   placeholder?: string;
@@ -257,13 +342,18 @@ export function Field({
   info?: string;
   disabled?: boolean;
   required?: boolean;
+  status?: FieldStatus;
 }) {
-  const inputPlaceholder = placeholder ?? `${label}${required ? " *" : ""}`;
+  const inputId = useId();
+  const inputPlaceholder = placeholder ?? label;
+  const fieldStatus: FieldStatus = error ? "invalid" : status;
+  const showsStatusIcon = fieldStatus !== "idle";
 
   return (
-    <label className="block">
+    <FieldShell label={label} labelFor={inputId} required={required} info={info} error={error} warning={warning} helper={helper}>
       <span className="relative block">
         <input
+          id={inputId}
           type={type}
           required={required}
           value={value}
@@ -273,34 +363,16 @@ export function Field({
           max={max}
           disabled={disabled}
           placeholder={inputPlaceholder}
-          aria-label={label}
-          aria-invalid={Boolean(error)}
+          aria-invalid={fieldStatus === "invalid"}
           className={`block h-14 w-full rounded-xl border bg-white py-0 pl-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
-            info ? "pr-10" : "pr-3"
-          } ${
-            error
-              ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
-              : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
-          }`}
+            showsStatusIcon ? "pr-11" : "pr-3"
+          } ${controlBorderClasses(fieldStatus)}`}
         />
-        {info ? (
-          <span className="group absolute right-3 top-1/2 z-20 -translate-y-1/2">
-            <span
-              aria-label={info}
-              tabIndex={0}
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0D1282] text-[10px] font-bold text-white outline-none transition focus:ring-2 focus:ring-[#F0DE36]/50"
-            >
-              i
-            </span>
-            <span className="pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden w-56 max-w-[calc(100vw-2rem)] rounded-xl bg-[#0D1282] px-3 py-2 text-left text-xs font-semibold leading-5 text-white shadow-xl group-hover:block group-focus-within:block">
-              {info}
-            </span>
-          </span>
+        {showsStatusIcon ? (
+          <FieldStatusIcon status={fieldStatus} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" />
         ) : null}
       </span>
-      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
-      {!error && helper ? <p className="mt-1 text-xs font-medium text-slate-500">{helper}</p> : null}
-    </label>
+    </FieldShell>
   );
 }
 
@@ -308,24 +380,31 @@ export function CheckboxField({
   label,
   checked,
   onChange,
+  info,
   disabled = false
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  info?: string;
   disabled?: boolean;
 }) {
   return (
-    <label className={`inline-flex items-center gap-3 text-sm font-medium ${disabled ? "cursor-not-allowed text-slate-400" : "cursor-pointer text-slate-800"}`}>
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 rounded border-[#EEEDED] accent-[#0D1282] disabled:cursor-not-allowed"
-      />
-      <span>{label}</span>
-    </label>
+    // The tooltip sits outside the label: nesting a button inside one makes a
+    // tap on the icon toggle the checkbox as well.
+    <span className="inline-flex items-center gap-2">
+      <label className={`inline-flex items-center gap-3 text-sm font-medium ${disabled ? "cursor-not-allowed text-slate-400" : "cursor-pointer text-slate-800"}`}>
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+          className="h-4 w-4 rounded border-[#EEEDED] accent-[#0D1282] disabled:cursor-not-allowed"
+        />
+        <span>{label}</span>
+      </label>
+      {info ? <InfoTooltip text={info} /> : null}
+    </span>
   );
 }
 
@@ -421,7 +500,7 @@ export function CountryRegistrationSelect({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[10px] font-medium uppercase text-slate-500">
-            {label}{required ? " *" : ""}
+            {label}{required ? <span className="ml-0.5 text-[#D71313]">*</span> : null}
           </span>
           <span className="block truncate text-sm font-medium text-slate-950">{selectedOption?.label ?? (value || "Select a country")}</span>
         </span>
@@ -429,7 +508,7 @@ export function CountryRegistrationSelect({
       </button>
 
       {open ? (
-        <div className="absolute top-full z-50 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-[#EEEDED] bg-white p-1 shadow-xl" ref={listRef}>
+        <div className={`absolute top-full z-50 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-[#EEEDED] bg-white p-1 shadow-xl ${thinScrollbarClasses}`} ref={listRef}>
           {registrationCountryOptions.map((option, index) => (
             <button
               key={option.value}
@@ -469,7 +548,7 @@ export function CountryCodeField({
   const selectedCountry = getPhoneCountryByDialCode(value);
 
   return (
-    <div className="block">
+    <FieldShell label="Country Code" required={required} error={error} info={contactTooltips.countryCode}>
       <CountrySelector
         selectedCountry={selectedCountry.iso2}
         preferredCountries={preferredPhoneCountries}
@@ -494,8 +573,7 @@ export function CountryCodeField({
           </button>
         )}
       />
-      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
-    </div>
+    </FieldShell>
   );
 }
 
@@ -507,7 +585,13 @@ export function SearchableSelect({
   error,
   required = false,
   placeholder,
-  disabled = false
+  info,
+  helper,
+  disabled = false,
+  status = "idle",
+  // Callers that already render their own label wrapper (the staff form) opt out
+  // so the control does not emit a second one.
+  hideLabel = false
 }: {
   label: string;
   value: string;
@@ -516,9 +600,13 @@ export function SearchableSelect({
   error?: string;
   required?: boolean;
   placeholder?: string;
-  searchable?: boolean;
+  info?: string;
+  helper?: string;
   disabled?: boolean;
+  status?: FieldStatus;
+  hideLabel?: boolean;
 }) {
+  const buttonId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -526,7 +614,9 @@ export function SearchableSelect({
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [openUp, setOpenUp] = useState(false);
   const selectedOption = options.find((option) => option.value === value);
-  const displayPlaceholder = placeholder ?? `${label}${required ? " *" : ""}`;
+  const displayPlaceholder = placeholder ?? label;
+  const fieldStatus: FieldStatus = error ? "invalid" : status;
+  const showsStatusIcon = fieldStatus !== "idle";
   const filteredOptions = search.trim()
     ? options.filter((option) => option.label.toLowerCase().includes(search.trim().toLowerCase()))
     : options;
@@ -609,12 +699,13 @@ export function SearchableSelect({
     }
   }
 
-  return (
-    <div ref={containerRef} className="relative min-w-0" onKeyDown={handleKeyDown}>
+  const control = (
+      <div ref={containerRef} className="relative min-w-0" onKeyDown={handleKeyDown}>
       <button
+        id={buttonId}
         type="button"
         aria-expanded={open}
-        aria-label={label}
+        aria-label={hideLabel ? label : undefined}
         disabled={disabled}
         onClick={() => {
           if (disabled) return;
@@ -625,11 +716,9 @@ export function SearchableSelect({
           });
           setHighlightedIndex(0);
         }}
-        className={`flex h-14 w-full min-w-0 items-center rounded-xl border bg-white py-0 pl-4 pr-11 text-left text-sm shadow-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
-          error
-            ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
-            : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
-        }`}
+        className={`flex h-14 w-full min-w-0 items-center rounded-xl border bg-white py-0 pl-4 text-left text-sm shadow-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
+          showsStatusIcon ? "pr-18" : "pr-11"
+        } ${controlBorderClasses(fieldStatus)}`}
       >
         <span className="flex min-w-0 items-center gap-2">
           {selectedOption?.iso2 ? (
@@ -641,6 +730,9 @@ export function SearchableSelect({
             {search || selectedOption?.label || displayPlaceholder}
           </span>
         </span>
+        {showsStatusIcon ? (
+          <FieldStatusIcon status={fieldStatus} className="pointer-events-none absolute right-11" />
+        ) : null}
         <DropdownChevron open={open} className="pointer-events-none absolute right-5" />
       </button>
 
@@ -650,7 +742,7 @@ export function SearchableSelect({
             openUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
         >
-          <div ref={listRef} className="max-h-64 overflow-y-auto overscroll-contain">
+          <div ref={listRef} className={`max-h-64 overflow-y-auto overscroll-contain ${thinScrollbarClasses}`}>
             {filteredOptions.length ? filteredOptions.map((option, index) => (
               <button
                 key={option.value}
@@ -676,8 +768,179 @@ export function SearchableSelect({
           </div>
         </div>
       ) : null}
-      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
-    </div>
+      </div>
+  );
+
+  if (hideLabel) return control;
+
+  return (
+    <FieldShell label={label} labelFor={buttonId} required={required} info={info} error={error} helper={helper}>
+      {control}
+    </FieldShell>
+  );
+}
+
+/**
+ * Text field with suggestions, for values where the list is helpful but never
+ * complete — city being the case in point, since the dataset misses smaller
+ * towns entirely for some countries.
+ *
+ * Unlike SearchableSelect this is a real input, so the value can be typed,
+ * pasted and edited normally; the list only offers shortcuts. Anything typed is
+ * kept whether or not it appears in `options`.
+ */
+export function ComboBoxField({
+  label,
+  value,
+  onChange,
+  onBlur,
+  options,
+  error,
+  warning,
+  helper,
+  info,
+  placeholder,
+  required = false,
+  disabled = false,
+  loading = false,
+  maxLength,
+  status = "idle"
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onBlur?: () => void;
+  options: string[];
+  error?: string;
+  warning?: string;
+  helper?: string;
+  info?: string;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+  loading?: boolean;
+  maxLength?: number;
+  status?: FieldStatus;
+}) {
+  const inputId = useId();
+  const listboxId = useId();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const fieldStatus: FieldStatus = error ? "invalid" : loading ? "validating" : status;
+  const showsStatusIcon = fieldStatus !== "idle";
+
+  const suggestions = useMemo(() => {
+    const query = value.trim().toLowerCase();
+    const matches = query
+      ? options.filter((option) => option.toLowerCase().includes(query))
+      : options;
+
+    // The list can run to thousands of entries; only the closest are useful,
+    // and rendering them all would stall the dropdown.
+    return matches.slice(0, 50);
+  }, [options, value]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  function selectOption(option: string) {
+    onChange(option);
+    setOpen(false);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      setHighlightedIndex((current) => Math.min(current + 1, suggestions.length - 1));
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedIndex((current) => Math.max(current - 1, 0));
+    }
+
+    // Enter picks the highlighted suggestion, but only while the list is open —
+    // otherwise it would overwrite a deliberately typed value.
+    if (event.key === "Enter" && open && suggestions[highlightedIndex]) {
+      event.preventDefault();
+      selectOption(suggestions[highlightedIndex]);
+    }
+  }
+
+  return (
+    <FieldShell label={label} labelFor={inputId} required={required} info={info} error={error} warning={warning} helper={helper}>
+      <div ref={containerRef} className="relative min-w-0">
+        <input
+          id={inputId}
+          type="text"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          value={value}
+          disabled={disabled}
+          maxLength={maxLength}
+          placeholder={placeholder ?? label}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+            setHighlightedIndex(0);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={onBlur}
+          onKeyDown={handleKeyDown}
+          className={`block h-14 w-full rounded-xl border bg-white py-0 pl-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
+            showsStatusIcon ? "pr-11" : "pr-3"
+          } ${controlBorderClasses(fieldStatus)}`}
+        />
+        {showsStatusIcon ? (
+          <FieldStatusIcon status={fieldStatus} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" />
+        ) : null}
+
+        {open && !disabled && suggestions.length ? (
+          <div className="absolute top-full z-50 mt-1 w-full overflow-hidden rounded-xl border border-[#EEEDED] bg-white p-1 shadow-xl">
+            <div id={listboxId} role="listbox" className={`max-h-64 overflow-y-auto overscroll-contain ${thinScrollbarClasses}`}>
+              {suggestions.map((option, index) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="option"
+                  aria-selected={highlightedIndex === index}
+                  title={option}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                  // mousedown fires before the input's blur, so the click is not
+                  // lost to the list unmounting first.
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    selectOption(option);
+                  }}
+                  className={`flex h-10 w-full items-center px-3 text-left text-sm ${
+                    highlightedIndex === index ? "rounded-lg bg-[#F0DE36]/20 text-[#0D1282]" : "rounded-lg text-slate-700 hover:bg-[#EEEDED]/60"
+                  }`}
+                >
+                  <span className="truncate">{option}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </FieldShell>
   );
 }
 
@@ -688,7 +951,11 @@ export function MultiSearchableSelect({
   options,
   error,
   required = false,
-  disabled = false
+  info,
+  helper,
+  disabled = false,
+  status = "idle",
+  hideLabel = false
 }: {
   label: string;
   values: string[];
@@ -696,9 +963,13 @@ export function MultiSearchableSelect({
   options: SelectOption[];
   error?: string;
   required?: boolean;
+  info?: string;
+  helper?: string;
   disabled?: boolean;
-  searchable?: boolean;
+  status?: FieldStatus;
+  hideLabel?: boolean;
 }) {
+  const buttonId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -713,7 +984,9 @@ export function MultiSearchableSelect({
     .filter((option): option is SelectOption => Boolean(option));
   const visibleChips = selectedOptions.slice(0, 3);
   const hiddenCount = Math.max(selectedOptions.length - visibleChips.length, 0);
-  const placeholder = `${label}${required ? " *" : ""}`;
+  const placeholder = label;
+  const fieldStatus: FieldStatus = error ? "invalid" : status;
+  const showsStatusIcon = fieldStatus !== "idle";
 
   useEffect(() => {
     if (!open) return;
@@ -792,12 +1065,13 @@ export function MultiSearchableSelect({
     }
   }
 
-  return (
-    <div ref={containerRef} className="relative min-w-0" onKeyDown={handleKeyDown}>
+  const control = (
+      <div ref={containerRef} className="relative min-w-0" onKeyDown={handleKeyDown}>
       <button
+        id={buttonId}
         type="button"
         aria-expanded={open}
-        aria-label={label}
+        aria-label={hideLabel ? label : undefined}
         disabled={disabled}
         onClick={() => {
           if (disabled) return;
@@ -808,11 +1082,9 @@ export function MultiSearchableSelect({
           });
           setHighlightedIndex(0);
         }}
-        className={`flex min-h-14 w-full min-w-0 items-center rounded-xl border bg-white py-2 pl-4 pr-11 text-left text-sm shadow-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
-          error
-            ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
-            : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
-        }`}
+        className={`flex min-h-14 w-full min-w-0 items-center rounded-xl border bg-white py-2 pl-4 text-left text-sm shadow-sm outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
+          showsStatusIcon ? "pr-18" : "pr-11"
+        } ${controlBorderClasses(fieldStatus)}`}
       >
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2 overflow-hidden">
           {search ? (
@@ -840,6 +1112,9 @@ export function MultiSearchableSelect({
           )) : <span className="truncate text-slate-400">{placeholder}</span>}
           {!search && hiddenCount ? <span className="text-xs font-semibold text-slate-500">+{hiddenCount} more</span> : null}
         </span>
+        {showsStatusIcon ? (
+          <FieldStatusIcon status={fieldStatus} className="pointer-events-none absolute right-11" />
+        ) : null}
         <DropdownChevron open={open} className="pointer-events-none absolute right-5" />
       </button>
 
@@ -856,7 +1131,7 @@ export function MultiSearchableSelect({
               </button>
             </div>
           ) : null}
-          <div ref={listRef} className="max-h-64 overflow-y-auto overscroll-contain">
+          <div ref={listRef} className={`max-h-64 overflow-y-auto overscroll-contain ${thinScrollbarClasses}`}>
             {filteredOptions.length ? filteredOptions.map((option, index) => {
               const selected = values.includes(option.value);
 
@@ -889,8 +1164,15 @@ export function MultiSearchableSelect({
           </div>
         </div>
       ) : null}
-      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
-    </div>
+      </div>
+  );
+
+  if (hideLabel) return control;
+
+  return (
+    <FieldShell label={label} labelFor={buttonId} required={required} info={info} error={error} helper={helper}>
+      {control}
+    </FieldShell>
   );
 }
 
@@ -898,6 +1180,7 @@ export function DocumentInput({
   type,
   required,
   helper,
+  info,
   existingFileName,
   file,
   error,
@@ -906,6 +1189,7 @@ export function DocumentInput({
   type: DocumentType;
   required: boolean;
   helper: string;
+  info?: string;
   existingFileName?: string;
   file: File | null;
   error?: string;
@@ -917,8 +1201,11 @@ export function DocumentInput({
     <div className="rounded-2xl bg-[#EEEDED]/35 p-5 ring-1 ring-[#EEEDED]">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-stretch">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-[#0D1282]">
-            {getDocumentLabel(type)} {required ? <span className="text-[#D71313]">*</span> : null}
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-[#0D1282]">
+            <span>
+              {getDocumentLabel(type)} {required ? <span className="text-[#D71313]">*</span> : null}
+            </span>
+            {info ? <InfoTooltip text={info} /> : null}
           </h3>
           <p className="mt-1 text-sm text-slate-500">{helper}</p>
           <p className="mt-1 text-xs text-slate-400">Supported formats: PDF, JPG, JPEG, PNG. Max size: 5 MB.</p>

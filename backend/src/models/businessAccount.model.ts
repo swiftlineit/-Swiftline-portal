@@ -42,7 +42,18 @@ export const businessKycOverallStatuses = [
   "rejected"
 ] as const;
 export type BusinessKycOverallStatus = (typeof businessKycOverallStatuses)[number];
-export type BusinessKycCheckKey = "contactDetails" | "companyDetails" | DocumentType;
+// `gstExemption` is only a required check on accounts that claim exemption from
+// GST registration; see getRequiredKycCheckKeys.
+export type BusinessKycCheckKey = "contactDetails" | "companyDetails" | "gstExemption" | DocumentType;
+
+export interface IBusinessAddress {
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  stateOrProvince: string;
+  postalCode: string;
+  country: string;
+}
 
 export interface IBusinessDocument {
   type: DocumentType;
@@ -87,19 +98,35 @@ export interface IBusinessAccount extends mongoose.Document {
   company: {
     registrationCountry: string;
     registrationIdType?: string;
+    // For a US SSN or ITIN this holds only the mask (•••-••-6789); the number
+    // itself lives encrypted in registrationIdEncrypted. Every other country
+    // stores its registration ID here in the clear.
     registrationId: string;
+    registrationIdEncrypted?: string;
+    // The comparable form of registrationId, used for the uniqueness index.
+    // Blank when the stored value is a mask and so cannot be compared.
+    registrationIdKey?: string;
     gstin?: string;
+    gstExempt?: boolean;
+    gstExemptReason?: string;
     secondaryRegistrationId?: string;
     noCompanyRegistration?: boolean;
     noCompany?: boolean;
     companyType: string;
     companyName: string;
     registeredAddress: string;
+    // Building, floor, unit or landmark. Entered by hand and never overwritten
+    // by an address lookup.
+    addressLine2?: string;
     city: string;
     stateOrProvince: string;
     postalCode: string;
     addressCountry?: string;
     useCompanyAddressAsBillingAddress?: boolean;
+    // Only meaningful when useCompanyAddressAsBillingAddress is false; it is
+    // cleared whenever the company address is reused, so a stale billing
+    // address cannot survive the checkbox being re-ticked.
+    billingAddress?: IBusinessAddress;
     operatingCountries: string[];
     website?: string | null;
     industry: string;
@@ -122,6 +149,18 @@ export interface IBusinessAccount extends mongoose.Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const businessAddressSchema = new mongoose.Schema<IBusinessAddress>(
+  {
+    addressLine1: { type: String, default: "", trim: true, maxlength: 500 },
+    addressLine2: { type: String, default: "", trim: true, maxlength: 200 },
+    city: { type: String, default: "", trim: true, maxlength: 80 },
+    stateOrProvince: { type: String, default: "", trim: true, maxlength: 80 },
+    postalCode: { type: String, default: "", trim: true, maxlength: 20 },
+    country: { type: String, default: "", trim: true, maxlength: 80 }
+  },
+  { _id: false }
+);
 
 const businessDocumentSchema = new mongoose.Schema<IBusinessDocument>(
   {
@@ -165,6 +204,7 @@ const businessKycReviewSchema = new mongoose.Schema<IBusinessKycReview>(
     checks: {
       contactDetails: { type: businessKycCheckSchema },
       companyDetails: { type: businessKycCheckSchema },
+      gstExemption: { type: businessKycCheckSchema },
       aadhaarCard: { type: businessKycCheckSchema },
       panCard: { type: businessKycCheckSchema },
       adCertificate: { type: businessKycCheckSchema },
@@ -219,18 +259,29 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
       registrationCountry: { type: String, required: true, trim: true },
       registrationIdType: { type: String, default: "", trim: true },
       registrationId: { type: String, default: "", trim: true, index: true },
+      // AES-256-GCM, keyed by TAX_ID_ENCRYPTION_KEY. Never indexed and never
+      // returned to a client — see toSafeBusinessAccount.
+      registrationIdEncrypted: { type: String, default: "", select: false },
+      registrationIdKey: { type: String, default: "", trim: true },
       gstin: { type: String, uppercase: true, trim: true, default: "", maxlength: 15 },
+      // Set when the business is legally not registered under GST. The reason is
+      // mandatory alongside it and the exemption must be cleared by an admin in
+      // the KYC review before the account can be approved.
+      gstExempt: { type: Boolean, default: false },
+      gstExemptReason: { type: String, default: "", trim: true, maxlength: 300 },
       secondaryRegistrationId: { type: String, default: "", trim: true },
       noCompanyRegistration: { type: Boolean, default: false },
       noCompany: { type: Boolean, default: false },
       companyType: { type: String, enum: ["", "pvt_ltd", "llp", "enterprise"], default: "", trim: true },
       companyName: { type: String, default: "", trim: true },
       registeredAddress: { type: String, default: "", trim: true },
+      addressLine2: { type: String, default: "", trim: true, maxlength: 200 },
       city: { type: String, default: "", trim: true },
       stateOrProvince: { type: String, default: "", trim: true },
       postalCode: { type: String, default: "", trim: true },
       addressCountry: { type: String, default: "", trim: true },
       useCompanyAddressAsBillingAddress: { type: Boolean, default: true },
+      billingAddress: { type: businessAddressSchema, default: null },
       operatingCountries: {
         type: [String],
         required: true,
@@ -293,6 +344,45 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
     submittedAt: { type: Date, default: null }
   },
   { timestamps: true }
+);
+
+/**
+ * Uniqueness enforced by the database, not only by the pre-flight query in the
+ * controller — two simultaneous requests can both pass that check and both
+ * insert.
+ *
+ * Partial on purpose. A rejected application must be able to re-apply with the
+ * same email and phone, so rejected accounts are excluded; and blank values are
+ * excluded so the many accounts with no registration ID do not all collide with
+ * each other.
+ *
+ * These indexes fail to build if the collection already holds duplicates. Run
+ * `npm run check:duplicate-accounts` and clear anything it reports before
+ * deploying.
+ */
+const liveAccountFilter = { status: { $ne: "rejected" } };
+
+businessAccountSchema.index(
+  { "contact.email": 1 },
+  { unique: true, partialFilterExpression: liveAccountFilter, name: "uniq_live_contact_email" }
+);
+
+businessAccountSchema.index(
+  { "contact.countryCode": 1, "contact.mobileNumber": 1 },
+  { unique: true, partialFilterExpression: liveAccountFilter, name: "uniq_live_contact_mobile" }
+);
+
+businessAccountSchema.index(
+  { "company.registrationIdKey": 1 },
+  {
+    unique: true,
+    // Keyed off registrationIdKey rather than registrationId because a US SSN or
+    // ITIN is stored only as its mask: two unrelated people whose numbers end in
+    // the same four digits share the string "•••-••-6789". The key is left blank
+    // for those, and blanks are excluded here, so they never collide.
+    partialFilterExpression: { ...liveAccountFilter, "company.registrationIdKey": { $type: "string", $gt: "" } },
+    name: "uniq_live_company_registration_id"
+  }
 );
 
 businessAccountSchema.pre("validate", function normalizeLegacyWorkflowStatus() {

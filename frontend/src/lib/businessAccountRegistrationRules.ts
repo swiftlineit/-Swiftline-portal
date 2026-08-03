@@ -1,6 +1,14 @@
 // KEEP IN SYNC with the backend registration rules (separate package, cannot
 // share a module): portal/backend/src/services/businessAccountRules.ts
 
+import {
+  getUsTaxIdError,
+  isUsTaxIdType,
+  usTaxIdExamples,
+  usTaxIdInfo,
+  type UsTaxIdType
+} from "./usTaxId";
+
 export type RegistrationRule = {
   info: string;
   maxLength: number;
@@ -13,6 +21,18 @@ function compact(value: string) {
 }
 
 export function getPrimaryRegistrationRule(country: string, registrationIdType?: string): RegistrationRule | null {
+  if (country === "United States") {
+    const taxIdType = isUsTaxIdType(registrationIdType ?? "") ? (registrationIdType as UsTaxIdType) : "ein";
+
+    return {
+      info: usTaxIdInfo[taxIdType],
+      // Punctuation is inserted as the user types, so the field has to hold it.
+      maxLength: taxIdType === "ein" ? 10 : 11,
+      message: `Enter a valid ${taxIdType.toUpperCase()}, for example ${usTaxIdExamples[taxIdType]}.`,
+      validate: (value) => !getUsTaxIdError(value, taxIdType)
+    };
+  }
+
   if (country === "United Kingdom") {
     return {
       info: "CRID format: 8 digits or 2 letters followed by 6 digits, e.g. 01234567 or SC012345.",

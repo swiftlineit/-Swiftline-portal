@@ -12,6 +12,23 @@ import { BusinessAccountInvitation } from "../models/businessAccountInvitation.m
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { sendPasswordResetEmail } from "../services/mail.service.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
+import mongoose from "mongoose";
+import { endSessions, startSession, verifySession } from "../services/userSession.service.js";
+
+// The refresh token's lifetime, which is how long a session can survive before
+// the token behind it lapses anyway. Parsed from the same env value that signs
+// it so the two cannot drift apart.
+function refreshTokenTtlMs() {
+  const value = env.REFRESH_TOKEN_EXPIRES_IN.trim();
+  const match = /^(\d+)([smhd])$/.exec(value);
+
+  if (!match) return 7 * 24 * 60 * 60 * 1000;
+
+  const amount = Number(match[1]);
+  const unitMs = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[match[2] as "s" | "m" | "h" | "d"];
+
+  return amount * unitMs;
+}
 
 const googleClient = env.GOOGLE_OAUTH_CLIENT_ID ? new OAuth2Client(env.GOOGLE_OAUTH_CLIENT_ID) : null;
 
@@ -162,8 +179,11 @@ export async function login(req: Request, res: Response): Promise<Response> {
     user.role = role;
     await user.save();
   }
-  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email });
-  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email });
+  // Opening a session ends whatever else this user had open: the newest login
+  // wins, so a laptop closed without signing out cannot lock them out.
+  const sessionId = await startSession(user._id as mongoose.Types.ObjectId, req, refreshTokenTtlMs());
+  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email }, sessionId);
+  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email }, sessionId);
 
   // set httpOnly secure cookie for refresh token
   res.cookie("refreshToken", refreshToken, refreshCookieOptions());
@@ -264,8 +284,11 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<Resp
   user.lockedUntil = null;
   await user.save();
 
-  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email });
-  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email });
+  // Opening a session ends whatever else this user had open: the newest login
+  // wins, so a laptop closed without signing out cannot lock them out.
+  const sessionId = await startSession(user._id as mongoose.Types.ObjectId, req, refreshTokenTtlMs());
+  const accessToken = createAccessToken({ id: String(user._id), role, email: user.email }, sessionId);
+  const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email }, sessionId);
   res.cookie("refreshToken", refreshToken, refreshCookieOptions());
 
   return res.status(200).json({
@@ -282,7 +305,21 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<Resp
   });
 }
 
-export async function logout(_req: Request, res: Response): Promise<Response> {
+export async function logout(req: Request, res: Response): Promise<Response> {
+  // End the session server-side as well as clearing the cookie, so the access
+  // token still in the browser's memory stops working immediately rather than
+  // lingering until it expires.
+  try {
+    const token = req.cookies?.refreshToken;
+
+    if (token) {
+      const payload = jwt.verify(token, env.JWT_SECRET) as { sid?: string };
+      if (payload.sid) await endSessions({ sessionId: payload.sid }, "logout");
+    }
+  } catch {
+    // An unreadable cookie still gets cleared below; there is nothing to end.
+  }
+
   // Clearing must use the same sameSite/secure flags the cookie was set with.
   const { maxAge: _maxAge, ...clearOptions } = refreshCookieOptions();
   res.clearCookie("refreshToken", clearOptions);
@@ -330,8 +367,13 @@ export async function refresh(req: Request, res: Response): Promise<Response> {
       user.role = role;
       await user.save();
     }
-    const accessToken = createAccessToken({ id: String(user._id), role, email: user.email });
-    const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email });
+    // Rotating tokens must not open a new session, or every refresh would
+    // supersede the device doing the refreshing.
+    const sessionCheck = await verifySession(payload.sid);
+    if (!sessionCheck.ok) return res.status(401).json({ success: false, message: sessionCheck.message, sessionEnded: true });
+
+    const accessToken = createAccessToken({ id: String(user._id), role, email: user.email }, payload.sid);
+    const refreshToken = createRefreshToken({ id: String(user._id), role, email: user.email }, payload.sid);
 
     res.cookie("refreshToken", refreshToken, refreshCookieOptions());
 

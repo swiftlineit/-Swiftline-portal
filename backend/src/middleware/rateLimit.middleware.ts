@@ -52,6 +52,17 @@ export const scannerFeedLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// Address lookup reaches paid third-party APIs and is now open to clients, so
+// it carries its own cap. Sized for real typing (a debounced field fires a few
+// times per address) while stopping a loop from burning the Places quota.
+export const addressLookupLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: env.NODE_ENV === "production" ? 60 : 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many address lookups. Please wait a moment and try again." }
+});
+
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: env.NODE_ENV === "production" ? 5 : 50,

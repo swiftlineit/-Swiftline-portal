@@ -14,23 +14,34 @@ export async function comparePassword(password: string, hash: string): Promise<b
   return bcrypt.compare(password, hash);
 }
 
-export function createAccessToken(user: { id: string; role: string; email: string }) {
+// `sid` ties a token to a server-side session record, which is what makes
+// "one device at a time" expressible at all — a stateless token stays valid
+// until it expires no matter what happens elsewhere. It is optional so tokens
+// issued before sessions existed keep working until they lapse.
+export function createAccessToken(user: { id: string; role: string; email: string }, sessionId?: string) {
   return jwt.sign(
-    { sub: user.id, role: user.role, email: user.email },
+    { sub: user.id, role: user.role, email: user.email, ...(sessionId ? { sid: sessionId } : {}) },
     JWT_SECRET,
     { expiresIn: env.ACCESS_TOKEN_EXPIRES_IN as jwt.SignOptions["expiresIn"] }
   );
 }
 
-export function createRefreshToken(user: { id: string; role: string; email: string }) {
+export function createRefreshToken(user: { id: string; role: string; email: string }, sessionId?: string) {
   // using same secret for simplicity; can be a separate secret
   return jwt.sign(
-    { sub: user.id },
+    { sub: user.id, ...(sessionId ? { sid: sessionId } : {}) },
     JWT_SECRET,
     { expiresIn: env.REFRESH_TOKEN_EXPIRES_IN as jwt.SignOptions["expiresIn"] }
   );
 }
 
 export function verifyAccessToken(token: string) {
-  return jwt.verify(token, JWT_SECRET) as { sub: string; role: string; email: string; iat: number; exp: number };
+  return jwt.verify(token, JWT_SECRET) as {
+    sub: string;
+    role: string;
+    email: string;
+    sid?: string;
+    iat: number;
+    exp: number;
+  };
 }

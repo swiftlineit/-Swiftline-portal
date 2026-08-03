@@ -68,11 +68,46 @@ describe("shipment label numbering", () => {
   });
 });
 
+// A PDF declares its page size in the MediaBox, which is the only part of the
+// file readable without decompressing the content stream.
+function readPageSize(pdf: Buffer): number[] {
+  const mediaBox = /MediaBox\s*\[([^\]]+)\]/.exec(pdf.toString("latin1"));
+
+  assert.ok(mediaBox?.[1], "label PDF should declare a page size");
+
+  return mediaBox[1].trim().split(/\s+/).map(Number);
+}
+
 describe("shipment label PDFs", () => {
-  test("renders a non-empty A6 Swiftline internal PDF", async () => {
+  test("renders the internal label on label stock, not an A6 sheet", async () => {
     const pdf = await renderSwiftlineLabelPdf(labelData("SLCDEL200726001-01"));
     assert.equal(pdf.subarray(0, 4).toString(), "%PDF");
     assert.ok(pdf.length > 2_000);
+
+    // The page is sized to its content: a barcode and the parcel number. The
+    // old A6 page (283 x 425 pt) was mostly blank, which wasted label stock and
+    // left the barcode small on the roll.
+    const mediaBox = /MediaBox\s*\[([^\]]+)\]/.exec(pdf.toString("latin1"));
+    assert.ok(mediaBox, "label PDF should declare a page size");
+
+    const [, , pageWidth, pageHeight] = readPageSize(pdf);
+    assert.equal(pageWidth, 200);
+    assert.equal(pageHeight, 84);
+  });
+
+  test("shrinks the parcel number rather than wrapping or clipping it", async () => {
+    // Parcel numbers vary in length; a wrapped or truncated one is unreadable
+    // next to the barcode it labels, so the whole thing must stay on one line.
+    const long = await renderSwiftlineLabelPdf(labelData("SLCGURGAON01082600199-1234"));
+    const short = await renderSwiftlineLabelPdf(labelData("SLC-01"));
+
+    for (const pdf of [long, short]) {
+      const [, , pageWidth, pageHeight] = readPageSize(pdf);
+
+      // Length must not change the label's footprint.
+      assert.equal(pageWidth, 200);
+      assert.equal(pageHeight, 84);
+    }
   });
 
   test("renders a non-empty simulated DPD PDF", async () => {

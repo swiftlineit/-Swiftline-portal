@@ -201,6 +201,7 @@ export function SelectField({
         options={options}
         onChange={onChange}
         placeholder={placeholder ?? "Select"}
+        hideLabel
       />
     </FieldShell>
   );
@@ -240,6 +241,7 @@ export function DesignationField({
             setOtherPicked(false);
             onChange(next);
           }}
+          hideLabel
         />
       </FieldShell>
 
@@ -281,6 +283,7 @@ export function BranchField({
         values={values}
         onChange={onChange}
         options={options.map((branch) => ({ value: branch.id, label: `${branch.code} - ${branch.name}` }))}
+        hideLabel
       />
     </FieldShell>
   );

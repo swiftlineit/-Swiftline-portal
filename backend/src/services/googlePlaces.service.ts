@@ -70,6 +70,73 @@ const placesRegions = {
 
 export type PlacesRegionKey = keyof typeof placesRegions;
 
+/**
+ * Autocomplete for any country the portal supports, as opposed to the two
+ * hard-coded regions the shipment flows use.
+ *
+ * `sessionToken` is what makes this affordable: Google bills each keystroke as
+ * its own request unless the calls leading to one Place Details lookup share a
+ * token, in which case the whole sequence is billed once. Callers must generate
+ * one per address entry and pass the same value through to `getPlaceDetails`.
+ */
+export async function autocompletePlaces(
+  input: string,
+  countryCode: string,
+  sessionToken: string
+): Promise<AddressPrediction[]> {
+  const apiKey = getPlacesApiKey();
+  const region = countryCode.trim().toLowerCase();
+  const response = await fetch(autocompleteUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey
+    },
+    body: JSON.stringify({
+      input,
+      // Bias to the country the form has selected, but do not restrict to it:
+      // a company can hold an address Google files under a neighbouring region.
+      ...(region ? { includedRegionCodes: [region] } : {}),
+      ...(sessionToken ? { sessionToken } : {})
+    })
+  });
+  const payload = await readGoogleJson(response);
+
+  if (!response.ok) {
+    throw new GooglePlacesError("No matching address was found. Enter the address manually.", response.status);
+  }
+
+  return readPredictions(payload);
+}
+
+export async function getPlaceDetails(placeId: string, sessionToken: string) {
+  const apiKey = getPlacesApiKey();
+  const url = new URL(`${placesBaseUrl}/places/${encodeURIComponent(placeId)}`);
+
+  if (sessionToken) url.searchParams.set("sessionToken", sessionToken);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "id,formattedAddress,addressComponents"
+    }
+  });
+  const payload = await readGoogleJson(response);
+
+  if (!response.ok) {
+    throw new GooglePlacesError("That address could not be read. Enter the address manually.", response.status);
+  }
+
+  return {
+    placeId: typeof payload.id === "string" ? payload.id : placeId,
+    formattedAddress: typeof payload.formattedAddress === "string" ? payload.formattedAddress : "",
+    addressComponents: Array.isArray(payload.addressComponents)
+      ? payload.addressComponents as GoogleAddressComponent[]
+      : []
+  };
+}
+
 export async function autocompleteAddresses(
   input: string,
   region: PlacesRegionKey = "gb"
@@ -94,6 +161,10 @@ export async function autocompleteAddresses(
     throw new GooglePlacesError(notFoundMessage, response.status);
   }
 
+  return readPredictions(payload);
+}
+
+function readPredictions(payload: Record<string, unknown>): AddressPrediction[] {
   const suggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
 
   return suggestions.flatMap((suggestion) => {

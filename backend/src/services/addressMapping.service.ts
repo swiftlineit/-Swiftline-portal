@@ -26,6 +26,54 @@ function getShortText(components: GoogleAddressComponent[], type: string) {
   return findComponent(components, type)?.shortText?.trim() ?? "";
 }
 
+export interface GenericPortalAddress {
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  countryCode: string;
+  countryName: string;
+}
+
+/**
+ * Country-agnostic mapping, for the address lookup the account forms use.
+ *
+ * The UK and Indian mappers below stay as they are: they serve the shipment
+ * flows, where the shape of the record and the fallbacks differ. This one has
+ * to work for anywhere, so it walks the administrative levels from most to
+ * least specific and takes the first that is present.
+ */
+export function mapGoogleComponentsToGenericAddress(
+  components: GoogleAddressComponent[]
+): GenericPortalAddress {
+  const subpremise = getLongText(components, "subpremise");
+  const premise = getLongText(components, "premise");
+  const streetNumber = getLongText(components, "street_number");
+  const route = getLongText(components, "route");
+  const sublocality = getLongText(components, "sublocality_level_1") || getLongText(components, "sublocality");
+  const neighborhood = getLongText(components, "neighborhood");
+  const postalTown = getLongText(components, "postal_town");
+  const locality = getLongText(components, "locality");
+  const district = getLongText(components, "administrative_area_level_2");
+  const state = getLongText(components, "administrative_area_level_1");
+
+  const line1Parts = [streetNumber, route].filter(Boolean);
+  const line2Parts = [subpremise, premise].filter(Boolean);
+
+  return {
+    addressLine1: line1Parts.length ? line1Parts.join(" ") : premise || route || sublocality,
+    // Only ever a suggestion: the form keeps whatever the user typed here, so
+    // their building or floor is never overwritten by a lookup.
+    addressLine2: line2Parts.join(", "),
+    city: postalTown || locality || sublocality || neighborhood || district,
+    state,
+    postalCode: getLongText(components, "postal_code").toUpperCase(),
+    countryCode: getShortText(components, "country").toUpperCase(),
+    countryName: getLongText(components, "country")
+  };
+}
+
 export function mapGoogleComponentsToPortalAddress(components: GoogleAddressComponent[]): PortalAddress {
   const subpremise = getLongText(components, "subpremise");
   const premise = getLongText(components, "premise");

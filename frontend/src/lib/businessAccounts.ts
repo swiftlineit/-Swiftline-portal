@@ -54,7 +54,9 @@ export type BusinessKycOverallStatus =
   | "additional_information_required"
   | "verified"
   | "rejected";
-export type BusinessKycCheckKey = "contactDetails" | "companyDetails" | DocumentType;
+// `gstExemption` is only reviewed on accounts that claim exemption from GST
+// registration; every other account never sees the row.
+export type BusinessKycCheckKey = "contactDetails" | "companyDetails" | "gstExemption" | DocumentType;
 
 export type BusinessDocument = {
   type: DocumentType;
@@ -63,6 +65,24 @@ export type BusinessDocument = {
   mimeType: string;
   size: number;
   uploadedAt: string;
+};
+
+export type BusinessAddress = {
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  stateOrProvince: string;
+  postalCode: string;
+  country: string;
+};
+
+export const emptyBusinessAddress: BusinessAddress = {
+  addressLine1: "",
+  addressLine2: "",
+  city: "",
+  stateOrProvince: "",
+  postalCode: "",
+  country: ""
 };
 
 export type BusinessAccount = {
@@ -86,17 +106,21 @@ export type BusinessAccount = {
     registrationIdType?: string;
     registrationId: string;
     gstin?: string;
+    gstExempt?: boolean;
+    gstExemptReason?: string;
     secondaryRegistrationId?: string;
     noCompanyRegistration?: boolean;
     noCompany?: boolean;
     companyType: string;
     companyName: string;
     registeredAddress: string;
+    addressLine2?: string;
     city: string;
     stateOrProvince: string;
     postalCode: string;
     addressCountry?: string;
     useCompanyAddressAsBillingAddress?: boolean;
+    billingAddress?: BusinessAddress | null;
     operatingCountries: string[];
     operatingCountry?: string;
     website?: string | null;
@@ -150,6 +174,9 @@ export type BusinessAccountUniqueCheck = {
   mobileNumber?: string;
   countryCode?: string;
   registrationId?: string;
+  // Sent alongside a registration ID so the server can decline to answer for a
+  // US SSN or ITIN, which are never compared.
+  registrationIdType?: string;
   excludeAccountId?: string;
 };
 
@@ -328,13 +355,29 @@ export async function validateBusinessAccountUnique(check: BusinessAccountUnique
   }>(response);
 }
 
-export async function createBusinessAccount(data: BusinessAccountFormData, files: BusinessAccountFiles) {
+export function createIdempotencyKey() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * `idempotencyKey` must stay the same across retries of one submission attempt
+ * so the server can recognise a repeat and return the account it already
+ * created, rather than creating a second one.
+ */
+export async function createBusinessAccount(
+  data: BusinessAccountFormData,
+  files: BusinessAccountFiles,
+  idempotencyKey?: string
+) {
   const formData = new FormData();
   appendPayload(formData, data, files);
 
   const response = await fetchWithAuth(apiUrl("/api/v1/business-accounts"), {
     method: "POST",
-    body: formData
+    body: formData,
+    ...(idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : {})
   });
 
   return parseApiResponse<{ success: true; account: BusinessAccount }>(response);

@@ -7,6 +7,8 @@ import {
   type ExistingDocuments
 } from "@/components/business-accounts/FormFieldControls";
 import { BusinessAccountFiles, DocumentType } from "@/lib/businessAccounts";
+import InfoTooltip from "@/components/ui/InfoTooltip";
+import { documentTooltips, sectionTooltips } from "@/lib/businessAccountTooltips";
 
 const optionalDocumentOptions: { value: DocumentType; label: string }[] = [
   { value: "adCertificate", label: "AD Certificate" },
@@ -25,7 +27,7 @@ export function DocumentsStep({
   documentErrors,
   onDocumentChange
 }: {
-  documentFields: { type: DocumentType; required: boolean; helper: string }[];
+  documentFields: { type: DocumentType; required: boolean; helper: string; info?: string }[];
   existingDocuments: ExistingDocuments;
   files: BusinessAccountFiles;
   documentErrors: Partial<Record<DocumentType, string>>;
@@ -40,12 +42,20 @@ export function DocumentsStep({
   const optionalFields = useMemo(
     () => selectedOptionalDocuments
       .map((type) => documentFields.find((field) => field.type === type))
-      .filter((field): field is { type: DocumentType; required: boolean; helper: string } => Boolean(field)),
+      .filter((field): field is { type: DocumentType; required: boolean; helper: string; info?: string } => Boolean(field)),
     [documentFields, selectedOptionalDocuments]
   );
 
   return (
     <div className="grid gap-5">
+      <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-950">
+        KYC documents
+        <InfoTooltip text={sectionTooltips.documents} />
+        <span className="ml-1 inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
+          File requirements
+          <InfoTooltip text={documentTooltips.fileRules} />
+        </span>
+      </h3>
       <div className="rounded-2xl border-l-4 border-[#F0DE36] bg-[#F0DE36]/20 px-5 py-4 text-sm leading-6 text-slate-700">
         Upload Aadhaar Card and PAN Card to submit this account request. Additional documents may be needed later to complete KYC verification. You can add supporting certificates now or provide them when the KYC reviewer asks for them.
       </div>
@@ -57,6 +67,7 @@ export function DocumentsStep({
             type={field.type}
             required={field.required}
             helper={field.helper}
+            info={field.info}
             existingFileName={existingDocuments[field.type]?.originalName}
             file={files[field.type] ?? null}
             error={documentErrors[field.type]}
@@ -71,7 +82,6 @@ export function DocumentsStep({
           values={selectedOptionalDocuments}
           onChange={(values) => setSelectedOptionalDocuments(values as DocumentType[])}
           options={optionalDocumentOptions}
-          searchable={false}
         />
 
         {optionalFields.length ? optionalFields.map((optionalField) => (
@@ -80,6 +90,7 @@ export function DocumentsStep({
             type={optionalField.type}
             required={false}
             helper={optionalField.helper}
+            info={optionalField.info}
             existingFileName={existingDocuments[optionalField.type]?.originalName}
             file={files[optionalField.type] ?? null}
             error={documentErrors[optionalField.type]}

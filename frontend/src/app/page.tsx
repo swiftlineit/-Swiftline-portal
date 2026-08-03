@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Script from "next/script";
 import { apiUrl } from "@/lib/api";
-import { loginWithGoogle, setAccessToken } from "@/lib/auth";
+import { loginWithGoogle, setAccessToken, takeSessionEndedReason } from "@/lib/auth";
 import Link from "next/link";
 import { FiEye, FiEyeOff } from "react-icons/fi";
 
@@ -38,6 +38,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [googleReady, setGoogleReady] = useState(false);
+  // Read once, during the initial state, from whatever ended the previous
+  // session — so the reason is on screen in the same paint the user lands on.
+  // An unexplained bounce back to the login form reads as a bug.
+  const [sessionEndedNotice] = useState(() => takeSessionEndedReason());
   const googleButtonRef = useRef<HTMLDivElement>(null);
 
   const handleGoogleCredential = useCallback(async (credential: string) => {
@@ -288,6 +292,11 @@ export default function Home() {
               </label>
             </div>
 
+            {sessionEndedNotice ? (
+              <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+                {sessionEndedNotice}
+              </p>
+            ) : null}
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
             <button

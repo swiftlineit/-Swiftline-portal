@@ -10,6 +10,11 @@ backend/inspectAdmin.js
 backend/tmpAuthTest.js
 backend/unlock-admin.js
 backend/private_uploads/
+# The 45 MB source dataset is a one-off tool, not a build input: the compact
+# files it produces (backend/data/reference/) are committed instead, so nothing
+# needs it to run. Regenerate with `npm run build:reference-data` after
+# replacing it.
+countries+states+cities.json
 
 # Frontend
 frontend/node_modules/

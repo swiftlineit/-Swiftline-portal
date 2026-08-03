@@ -197,7 +197,9 @@ async function getReusableShipment(existingShipment: IDpdShipment | null, expect
   return null;
 }
 
-async function storeGeneratedLabel(input: {
+// Exported so the demo seeder can produce labels through the same storage path
+// as a real booking — same checksum, storage layout and version numbering.
+export async function storeGeneratedLabel(input: {
   dpdShipmentId: mongoose.Types.ObjectId;
   parcelNumber: string;
   labelType: LabelType;

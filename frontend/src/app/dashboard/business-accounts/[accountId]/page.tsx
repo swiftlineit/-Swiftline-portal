@@ -17,6 +17,7 @@ import {
   canadaRegistrationTypeOptions,
   registrationConfig,
 } from "@/components/business-accounts/FormFieldControls";
+import { isUsTaxIdType, usTaxIdLabels } from "@/lib/usTaxId";
 import {
   BusinessAccount,
   BusinessKycCheckKey,
@@ -48,6 +49,14 @@ function formatOperatingCountries(account: BusinessAccount) {
 }
 
 function getRegistrationIdLabel(account: BusinessAccount) {
+  // US accounts name the identifier they actually hold. The stored value for an
+  // SSN or ITIN is only the mask, so the label is what tells a reviewer which
+  // of the three they are looking at.
+  if (account.company.registrationCountry === "United States") {
+    const taxIdType = account.company.registrationIdType ?? "";
+    return isUsTaxIdType(taxIdType) ? usTaxIdLabels[taxIdType] : "US Tax ID";
+  }
+
   if (account.company.registrationCountry === "Canada") {
     return (
       canadaRegistrationTypeOptions.find(
@@ -582,6 +591,18 @@ function getKycCheckRows(
         "Required document missing.",
     },
   ];
+
+  // Only accounts claiming exemption from GST registration carry this check, and
+  // it must be cleared before the account can be approved or activated.
+  if (account.company.gstExempt) {
+    rows.splice(2, 0, {
+      key: "gstExemption",
+      label: "GST Exemption",
+      helper:
+        account.company.gstExemptReason ||
+        "Claimed exempt from GST registration, no reason recorded.",
+    });
+  }
 
   for (const row of documentSummaryRows.filter((item) => !item.required)) {
     if (account.documents?.[row.key]) {

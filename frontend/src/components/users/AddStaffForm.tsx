@@ -27,6 +27,7 @@ import {
   type InternalRole
 } from "@/lib/roles";
 import { createStaff, listUserBranchOptions } from "@/lib/users";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 
 const emptyForm = {
   firstName: "",
@@ -67,6 +68,16 @@ export default function AddStaffForm({ canGrantAdmin }: { canGrantAdmin: boolean
   const [branchOptions, setBranchOptions] = useState<Array<{ id: string; name: string; code: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [staffPersisted, setStaffPersisted] = useState(false);
+
+  // Documents and branch assignments count as unsaved work too, not just the
+  // typed fields.
+  useUnsavedChanges(
+    !staffPersisted
+    && (JSON.stringify(values) !== JSON.stringify(emptyForm)
+      || assignedBranches.length > 0
+      || Object.keys(documents).length > 0)
+  );
 
   useEffect(() => {
     let active = true;
@@ -155,6 +166,8 @@ export default function AddStaffForm({ canGrantAdmin }: { canGrantAdmin: boolean
       for (const [field, file] of Object.entries(documents)) form.append(field, file);
 
       const created = await createStaff(form);
+      // Saved on the server; leaving no longer loses anything.
+      setStaffPersisted(true);
       router.push(`/dashboard/users/${created.user._id}`);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to create the staff member.");

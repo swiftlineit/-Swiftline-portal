@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   BusinessAccount,
@@ -8,6 +8,8 @@ import {
   BusinessAccountFormData,
   DocumentType,
   createBusinessAccount,
+  createIdempotencyKey,
+  emptyBusinessAddress,
   submitBusinessAccount,
   updateBusinessAccount,
   validateBusinessAccountUnique
@@ -20,21 +22,23 @@ import {
   ReviewStep,
   type UniqueField
 } from "@/components/business-accounts/BusinessAccountFormSteps";
+import type { FieldStatus } from "@/components/business-accounts/FormFieldControls";
 import {
-  getPrimaryRegistrationRule,
-  getSecondaryRegistrationRule
-} from "@/lib/businessAccountRegistrationRules";
-import {
-  getPostalCodeValidationMessage,
-  isValidPostalCodeForCountry
-} from "@/lib/businessAccountPostalCodes";
-import {
-  BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX,
   emailValidationMessage,
   getPhoneValidationError,
-  isHttpOrHttpsUrl,
   isValidBusinessContactEmail
 } from "@/lib/businessAccountContactRules";
+import {
+  fieldLabels,
+  getStepIssues,
+  isStepValid,
+  stepFieldKeys,
+  validateBusinessAccountForm
+} from "@/lib/businessAccountValidation";
+import { confirmLeave, useUnsavedChanges } from "@/lib/useUnsavedChanges";
+import { documentTooltips, reviewTooltips } from "@/lib/businessAccountTooltips";
+import InfoTooltip from "@/components/ui/InfoTooltip";
+import { isSensitiveUsTaxIdType, isUsTaxIdType, type UsTaxIdType } from "@/lib/usTaxId";
 
 const defaultFormData: BusinessAccountFormData = {
   contact: {
@@ -54,17 +58,21 @@ const defaultFormData: BusinessAccountFormData = {
     registrationIdType: "pan",
     registrationId: "",
     gstin: "",
+    gstExempt: false,
+    gstExemptReason: "",
     secondaryRegistrationId: "",
     noCompanyRegistration: false,
     noCompany: false,
     companyType: "",
     companyName: "",
     registeredAddress: "",
+    addressLine2: "",
     city: "",
     stateOrProvince: "",
     postalCode: "",
     addressCountry: "India",
     useCompanyAddressAsBillingAddress: true,
+    billingAddress: emptyBusinessAddress,
     operatingCountries: ["India"],
     website: "",
     industry: "",
@@ -83,36 +91,6 @@ const duplicateMessages: Record<UniqueField, string> = {
 const maxDocumentSizeBytes = 5 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const allowedDocumentExtensions = new Set(["pdf", "jpg", "jpeg", "png"]);
-type CompanyBlurValidationField = "registrationId" | "secondaryRegistrationId" | "postalCode" | "requestedCreditLimit";
-
-const stepValidationKeys = [
-  ["title", "firstName", "lastName", "email", "mobileType", "countryCode", "mobileNumber", "jobTitle", "department", "shipmentTypes"],
-  [
-    "registrationCountry",
-    "registrationIdType",
-    "registrationId",
-    "gstin",
-    "secondaryRegistrationId",
-    "noCompanyRegistration",
-    "noCompany",
-    "companyType",
-    "companyName",
-    "registeredAddress",
-    "city",
-    "stateOrProvince",
-    "postalCode",
-    "addressCountry",
-    "useCompanyAddressAsBillingAddress",
-    "operatingCountries",
-    "industry",
-    "monthlyShipmentVolume",
-    "requestedCreditCurrency",
-    "requestedCreditLimit",
-    "website"
-  ],
-  [],
-  ["confirmation"]
-];
 
 function normalizeShipmentTypes(values: string[]) {
   const firstValue = values[0];
@@ -136,6 +114,8 @@ function fromAccount(account?: BusinessAccount): BusinessAccountFormData {
     company: {
       ...account.company,
       registrationIdType: account.company.registrationIdType ?? defaultFormData.company.registrationIdType,
+      gstExempt: account.company.gstExempt ?? false,
+      gstExemptReason: account.company.gstExemptReason ?? "",
       secondaryRegistrationId: account.company.secondaryRegistrationId ?? "",
       noCompanyRegistration: account.company.noCompanyRegistration ?? false,
       noCompany: account.company.noCompany ?? false,
@@ -143,19 +123,13 @@ function fromAccount(account?: BusinessAccount): BusinessAccountFormData {
       website: account.company.website ?? "",
       addressCountry: account.company.addressCountry ?? account.company.registrationCountry ?? defaultFormData.company.addressCountry,
       useCompanyAddressAsBillingAddress: account.company.useCompanyAddressAsBillingAddress ?? true,
+      addressLine2: account.company.addressLine2 ?? "",
+      billingAddress: account.company.billingAddress ?? emptyBusinessAddress,
       operatingCountries: account.company.operatingCountries ?? (account.company.operatingCountry ? [account.company.operatingCountry] : []),
       requestedCreditCurrency: account.company.requestedCreditLimit.currency,
       requestedCreditLimit: account.company.requestedCreditLimit.amount?.toString() ?? ""
     }
   };
-}
-
-function countryRequiresRegistrationId(country: string) {
-  return !["United States", "Kuwait"].includes(country);
-}
-
-function countryRequiresSecondaryRegistrationId(country: string) {
-  return ["France", "Netherlands"].includes(country);
 }
 
 function getDocumentFileError(file: File) {
@@ -176,11 +150,21 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
   const [files, setFiles] = useState<BusinessAccountFiles>({});
   const [confirmation, setConfirmation] = useState(false);
   const [error, setError] = useState("");
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [documentErrors, setDocumentErrors] = useState<Partial<Record<DocumentType, string>>>({});
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<UniqueField, string>>>({});
   const [validatingFields, setValidatingFields] = useState<Partial<Record<UniqueField, boolean>>>({});
   const [saving, setSaving] = useState(false);
+  const [persisted, setPersisted] = useState(false);
+  const idempotencyKeyRef = useRef("");
+
+  // Snapshot of the form as it was opened. Comparing against it means simply
+  // clicking through the steps is not treated as an edit.
+  const initialSnapshot = useMemo(() => JSON.stringify(fromAccount(account)), [account]);
+  const hasUnsavedChanges = !persisted
+    && (JSON.stringify(formData) !== initialSnapshot || Object.values(files).some(Boolean));
+
+  useUnsavedChanges(hasUnsavedChanges);
 
   const existingDocuments = account?.documents ?? {};
   const steps = businessAccountSteps;
@@ -188,29 +172,131 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
   const isDraftEdit = account?.status === "draft";
   const isCheckingUnique = Object.values(validatingFields).some(Boolean);
 
+  // The whole form's field state, recomputed on every keystroke. One call feeds
+  // the live tick/warning on each control, the per-step gate, and the submit
+  // gate, so the three cannot drift apart.
+  const validation = useMemo(() => validateBusinessAccountForm(formData), [formData]);
+
+  // A field only turns red once the user has left it (or a button revealed the
+  // whole step). Green needs no such gate — a tick the moment the value becomes
+  // valid is helpful, whereas a red field mid-word is not.
+  const validationErrors = useMemo(() => {
+    const errors: Record<string, string> = {};
+
+    for (const [key, field] of Object.entries(validation)) {
+      if (touched[key] && field.error) errors[key] = field.error;
+    }
+
+    // The review checkbox lives outside the form data the rules cover.
+    if (touched.confirmation && !confirmation) {
+      errors.confirmation = "Please confirm the information has been reviewed.";
+    }
+
+    return errors;
+  }, [validation, touched, confirmation]);
+
+  const fieldStatus = useMemo(() => {
+    const statuses: Record<string, FieldStatus> = {};
+
+    for (const [key, field] of Object.entries(validation)) {
+      if (validatingFields[key as UniqueField]) statuses[key] = "validating";
+      else if (validationErrors[key] || fieldErrors[key as UniqueField]) statuses[key] = "invalid";
+      else if (field.filled && !field.error) statuses[key] = "valid";
+      else statuses[key] = "idle";
+    }
+
+    return statuses;
+  }, [validation, validationErrors, fieldErrors, validatingFields]);
+
+  // Warnings are advisory, so unlike errors they show as soon as they apply and
+  // never wait for the field to be visited or gate the submit button.
+  const fieldWarnings = useMemo(() => {
+    const warnings: Record<string, string> = {};
+
+    for (const [key, field] of Object.entries(validation)) {
+      if (field.warning) warnings[key] = field.warning;
+    }
+
+    return warnings;
+  }, [validation]);
+
+  const hasUniqueConflict = Object.values(fieldErrors).some(Boolean);
+  const documentsComplete = Boolean(files.aadhaarCard || existingDocuments.aadhaarCard)
+    && Boolean(files.panCard || existingDocuments.panCard)
+    && !Object.values(documentErrors).some(Boolean);
+  const canLeaveStep = step === 2
+    ? documentsComplete
+    : step === 3
+      ? true
+      : isStepValid(validation, step) && !isCheckingUnique && !hasUniqueConflict;
+  const canSubmit = isStepValid(validation, 0)
+    && isStepValid(validation, 1)
+    && documentsComplete
+    && confirmation
+    && !hasUniqueConflict
+    && !isCheckingUnique;
+
+  // Shown beside a disabled button so it never reads as broken. On a step the
+  // user has not started, the empty form is its own explanation — listing every
+  // field before they have typed anything reads as a wall of failures, so the
+  // checklist waits until they have engaged with the step.
+  const outstandingIssues = useMemo(() => {
+    if (step === 2) return documentsComplete ? [] : ["Aadhaar Card and PAN Card Copy are required."];
+
+    if (step === 3) {
+      const issues = [0, 1].flatMap((stepIndex) =>
+        getStepIssues(validation, stepIndex).map((key) => `${fieldLabels[key] ?? key}: ${validation[key].error}`)
+      );
+
+      if (!documentsComplete) issues.push("Aadhaar Card and PAN Card Copy are required.");
+      if (!confirmation) issues.push("Confirm the information has been reviewed.");
+
+      return issues;
+    }
+
+    const stepStarted = (stepFieldKeys[step] ?? []).some((key) => touched[key]);
+    if (!stepStarted) return [];
+
+    return getStepIssues(validation, step).map((key) => `${fieldLabels[key] ?? key}: ${validation[key].error}`);
+  }, [step, validation, touched, documentsComplete, confirmation]);
+
   const documentFields = useMemo(() => [
-    { type: "aadhaarCard" as DocumentType, required: true, helper: "Mandatory identity document for KYC verification." },
-    { type: "panCard" as DocumentType, required: true, helper: "Mandatory PAN document for KYC verification." },
-    { type: "adCertificate" as DocumentType, required: false, helper: "Optional supporting AD certificate for KYC review." },
-    { type: "msmeCertificate" as DocumentType, required: false, helper: "Optional MSME certificate, if applicable." },
-    { type: "tanCertificate" as DocumentType, required: false, helper: "Optional TAN certificate, if applicable." },
-    { type: "gstCertificate" as DocumentType, required: false, helper: "Optional GST certificate, if applicable." },
-    { type: "iecCertificate" as DocumentType, required: false, helper: "Optional IEC certificate, if applicable." },
-    { type: "otherCertificate" as DocumentType, required: false, helper: "Optional supporting certificate or document." }
+    { type: "aadhaarCard" as DocumentType, required: true, helper: "Mandatory identity document for KYC verification.", info: documentTooltips.aadhaarCard },
+    { type: "panCard" as DocumentType, required: true, helper: "Mandatory PAN document for KYC verification.", info: documentTooltips.panCard },
+    { type: "adCertificate" as DocumentType, required: false, helper: "Optional supporting AD certificate for KYC review.", info: documentTooltips.adCertificate },
+    { type: "msmeCertificate" as DocumentType, required: false, helper: "Optional MSME certificate, if applicable.", info: documentTooltips.msmeCertificate },
+    { type: "tanCertificate" as DocumentType, required: false, helper: "Optional TAN certificate, if applicable.", info: documentTooltips.tanCertificate },
+    { type: "gstCertificate" as DocumentType, required: false, helper: "Optional GST certificate, if applicable.", info: documentTooltips.gstCertificate },
+    { type: "iecCertificate" as DocumentType, required: false, helper: "Optional IEC certificate, if applicable.", info: documentTooltips.iecCertificate },
+    { type: "otherCertificate" as DocumentType, required: false, helper: "Optional supporting certificate or document.", info: documentTooltips.otherCertificate }
   ], []);
+
+  // Marks fields as visited so their errors may be shown. Blur marks one field;
+  // pressing a button marks a whole step.
+  function markTouched(...keys: string[]) {
+    setTouched((current) => {
+      const next = { ...current };
+
+      for (const key of keys) next[key] = true;
+
+      return next;
+    });
+  }
+
+  function markStepTouched(stepToReveal: number) {
+    markTouched(...(stepFieldKeys[stepToReveal] ?? []));
+  }
 
   function updateContact<Key extends keyof BusinessAccountFormData["contact"]>(
     key: Key,
     value: BusinessAccountFormData["contact"][Key]
   ) {
-    setValidationErrors((current) => ({ ...current, [key]: "" }));
-
     if (key === "email" || key === "mobileNumber") {
       setFieldErrors((current) => ({ ...current, [key]: undefined }));
     }
 
+    // A different dialling code makes the previous number check meaningless.
     if (key === "countryCode") {
-      setValidationErrors((current) => ({ ...current, mobileNumber: "" }));
       setFieldErrors((current) => ({ ...current, mobileNumber: undefined }));
     }
 
@@ -224,35 +310,21 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
     key: Key,
     value: BusinessAccountFormData["company"][Key]
   ) {
-    setValidationErrors((current) => ({ ...current, [key]: "" }));
-
     if (key === "registrationId") {
       setFieldErrors((current) => ({ ...current, registrationId: undefined }));
     }
 
+    // Switching country replaces the registration format, so a conflict raised
+    // against the old country's ID no longer applies.
     if (key === "registrationCountry") {
-      setValidationErrors((current) => ({ ...current, registrationId: "", secondaryRegistrationId: "" }));
       setFieldErrors((current) => ({ ...current, registrationId: undefined }));
+      setTouched((current) => ({ ...current, registrationId: false, secondaryRegistrationId: false }));
     }
 
     setFormData((current) => ({
       ...current,
       company: { ...current.company, [key]: value }
     }));
-  }
-
-  function replaceStepValidationErrors(stepToValidate: number, nextErrors: Record<string, string>) {
-    const keys = stepValidationKeys[stepToValidate] ?? [];
-
-    setValidationErrors((current) => {
-      const merged = { ...current };
-
-      for (const key of keys) {
-        delete merged[key];
-      }
-
-      return { ...merged, ...nextErrors };
-    });
   }
 
   function getUniqueFieldValue(field: UniqueField) {
@@ -283,6 +355,22 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
       }
     }
 
+    // A value that fails its format rule can never match an existing record, so
+    // there is nothing to ask the server. The format message is already shown.
+    if (field === "registrationId" && validation.registrationId?.error) return false;
+
+    // A US SSN or ITIN is stored encrypted and never compared. Asking would also
+    // turn this endpoint into a way to confirm whether a guessed SSN is on file.
+    if (
+      field === "registrationId"
+      && formData.company.registrationCountry === "United States"
+      && isUsTaxIdType(formData.company.registrationIdType ?? "")
+      && isSensitiveUsTaxIdType(formData.company.registrationIdType as UsTaxIdType)
+    ) {
+      setFieldErrors((current) => ({ ...current, registrationId: undefined }));
+      return true;
+    }
+
     setValidatingFields((current) => ({ ...current, [field]: true }));
 
     try {
@@ -290,6 +378,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
         [field]: value,
         // The mobile-number check is scoped by country code, matching the server.
         ...(field === "mobileNumber" ? { countryCode: formData.contact.countryCode.trim() } : {}),
+        ...(field === "registrationId" ? { registrationIdType: formData.company.registrationIdType ?? "" } : {}),
         excludeAccountId: account?.accountId
       });
 
@@ -333,7 +422,6 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
   }
 
   function updateShipmentType(value: string) {
-    setValidationErrors((currentErrors) => ({ ...currentErrors, shipmentTypes: "" }));
     updateContact("shipmentTypes", [value] as BusinessAccountFormData["contact"]["shipmentTypes"]);
   }
 
@@ -354,139 +442,6 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
 
     setFiles((current) => ({ ...current, [type]: file }));
     setDocumentErrors((current) => ({ ...current, [type]: undefined }));
-  }
-
-  function getCompanyBlurValidationError(field: CompanyBlurValidationField) {
-    const noCompany = Boolean(formData.company.noCompany);
-
-    if (field === "registrationId") {
-      const registrationId = formData.company.registrationId.trim();
-      const canSkipRegistration = noCompany || formData.company.noCompanyRegistration || !countryRequiresRegistrationId(formData.company.registrationCountry);
-      const primaryRegistrationRule = getPrimaryRegistrationRule(formData.company.registrationCountry, formData.company.registrationIdType);
-
-      if (canSkipRegistration || !registrationId || !primaryRegistrationRule) return "";
-      return primaryRegistrationRule.validate(registrationId) ? "" : primaryRegistrationRule.message;
-    }
-
-    if (field === "secondaryRegistrationId") {
-      const secondaryRegistrationId = formData.company.secondaryRegistrationId?.trim() ?? "";
-      const canSkipRegistration = noCompany || formData.company.noCompanyRegistration || !countryRequiresRegistrationId(formData.company.registrationCountry);
-      const secondaryRegistrationRule = getSecondaryRegistrationRule(formData.company.registrationCountry);
-
-      if (canSkipRegistration || !secondaryRegistrationId || !secondaryRegistrationRule) return "";
-      return secondaryRegistrationRule.validate(secondaryRegistrationId) ? "" : secondaryRegistrationRule.message;
-    }
-
-    if (field === "postalCode") {
-      const postalCode = formData.company.postalCode.trim();
-      const addressCountry = formData.company.addressCountry?.trim();
-
-      if (noCompany || !postalCode || !addressCountry) return "";
-      return isValidPostalCodeForCountry(addressCountry, postalCode) ? "" : getPostalCodeValidationMessage(addressCountry);
-    }
-
-    const requestedCreditLimit = formData.company.requestedCreditLimit.trim();
-
-    if (noCompany || !requestedCreditLimit) return "";
-    if (!Number.isFinite(Number(requestedCreditLimit)) || Number(requestedCreditLimit) < 0) {
-      return "Requested credit limit must be a valid positive amount.";
-    }
-
-    if (Number(requestedCreditLimit) > BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX) {
-      return `Requested credit limit cannot exceed ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}.`;
-    }
-
-    return "";
-  }
-
-  function validateCompanyFieldOnBlur(field: CompanyBlurValidationField) {
-    const nextError = getCompanyBlurValidationError(field);
-
-    setValidationErrors((current) => ({
-      ...current,
-      [field]: nextError
-    }));
-
-    return !nextError;
-  }
-
-  function getStepValidationErrors(stepToValidate: number) {
-    const nextErrors: Record<string, string> = {};
-
-    if (stepToValidate === 0) {
-      if (!formData.contact.title.trim()) nextErrors.title = "Title is required.";
-      if (!formData.contact.firstName.trim()) nextErrors.firstName = "First name is required.";
-      else if (formData.contact.firstName.trim().length > 22) nextErrors.firstName = "First name must be 22 characters or less.";
-      if (!formData.contact.lastName.trim()) nextErrors.lastName = "Last name is required.";
-      else if (formData.contact.lastName.trim().length > 22) nextErrors.lastName = "Last name must be 22 characters or less.";
-      if (!formData.contact.email.trim()) nextErrors.email = "Email address is required.";
-      else if (!isValidBusinessContactEmail(formData.contact.email.trim())) nextErrors.email = emailValidationMessage;
-      if (!formData.contact.mobileType.trim()) nextErrors.mobileType = "Phone type is required.";
-      const phoneError = getPhoneValidationError(formData.contact.countryCode, formData.contact.mobileNumber);
-      if (phoneError === "Country code is required.") nextErrors.countryCode = phoneError;
-      else if (phoneError) nextErrors.mobileNumber = phoneError;
-      if (!formData.contact.jobTitle.trim()) nextErrors.jobTitle = "Job title is required.";
-      if (!formData.contact.department.trim()) nextErrors.department = "Department is required.";
-      if (!formData.contact.shipmentTypes.length) nextErrors.shipmentTypes = "Select at least one shipment type.";
-    }
-
-    if (stepToValidate === 1) {
-      if (!formData.company.registrationCountry.trim()) nextErrors.registrationCountry = "Country of registration is required.";
-      const noCompany = Boolean(formData.company.noCompany);
-      if (!noCompany && !formData.company.companyType.trim()) nextErrors.companyType = "Company type is required.";
-
-      const canSkipRegistration = noCompany || formData.company.noCompanyRegistration || !countryRequiresRegistrationId(formData.company.registrationCountry);
-      if (!canSkipRegistration && !formData.company.registrationId.trim()) nextErrors.registrationId = "Registration ID is required.";
-      if (!canSkipRegistration && countryRequiresSecondaryRegistrationId(formData.company.registrationCountry) && !formData.company.secondaryRegistrationId?.trim()) {
-        nextErrors.secondaryRegistrationId = "Additional registration code is required.";
-      }
-
-      const primaryRegistrationRule = getPrimaryRegistrationRule(formData.company.registrationCountry, formData.company.registrationIdType);
-      if (!canSkipRegistration && formData.company.registrationId.trim() && primaryRegistrationRule && !primaryRegistrationRule.validate(formData.company.registrationId)) {
-        nextErrors.registrationId = primaryRegistrationRule.message;
-      }
-
-      const secondaryRegistrationRule = getSecondaryRegistrationRule(formData.company.registrationCountry);
-      if (!canSkipRegistration && formData.company.secondaryRegistrationId?.trim() && secondaryRegistrationRule && !secondaryRegistrationRule.validate(formData.company.secondaryRegistrationId)) {
-        nextErrors.secondaryRegistrationId = secondaryRegistrationRule.message;
-      }
-      if (formData.company.gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(formData.company.gstin)) {
-        nextErrors.gstin = "Enter a valid 15-character GSTIN.";
-      }
-
-      if (!noCompany && !formData.company.companyName.trim()) nextErrors.companyName = "Company name is required.";
-      if (!noCompany && !formData.company.registeredAddress.trim()) nextErrors.registeredAddress = "Registered address is required.";
-      if (!noCompany && !formData.company.city.trim()) nextErrors.city = "City is required.";
-      if (!noCompany && !formData.company.stateOrProvince.trim()) nextErrors.stateOrProvince = "State or province is required.";
-      if (!noCompany && !formData.company.postalCode.trim()) nextErrors.postalCode = "Postal code is required.";
-      if (!noCompany && !formData.company.addressCountry?.trim()) nextErrors.addressCountry = "Country is required.";
-      if (
-        !noCompany
-        && formData.company.postalCode.trim()
-        && formData.company.addressCountry?.trim()
-        && !isValidPostalCodeForCountry(formData.company.addressCountry, formData.company.postalCode)
-      ) {
-        nextErrors.postalCode = getPostalCodeValidationMessage(formData.company.addressCountry);
-      }
-      if (!noCompany && !formData.company.operatingCountries.length) nextErrors.operatingCountries = "Select at least one operating country.";
-      if (!noCompany && !formData.company.industry.trim()) nextErrors.industry = "Company industry is required.";
-      if (!noCompany && !formData.company.monthlyShipmentVolume.trim()) nextErrors.monthlyShipmentVolume = "Monthly shipment volume is required.";
-      if (!formData.company.requestedCreditCurrency.trim()) nextErrors.requestedCreditCurrency = "Currency is required.";
-      if (!noCompany && formData.company.website && !isHttpOrHttpsUrl(formData.company.website)) nextErrors.website = "Website must start with http:// or https://";
-
-      const requestedCreditLimit = formData.company.requestedCreditLimit.trim();
-      if (!noCompany && requestedCreditLimit && (!Number.isFinite(Number(requestedCreditLimit)) || Number(requestedCreditLimit) < 0)) {
-        nextErrors.requestedCreditLimit = "Requested credit limit must be a valid positive amount.";
-      } else if (!noCompany && requestedCreditLimit && Number(requestedCreditLimit) > BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX) {
-        nextErrors.requestedCreditLimit = `Requested credit limit cannot exceed ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}.`;
-      }
-    }
-
-    if (stepToValidate === 3 && !confirmation) {
-      nextErrors.confirmation = "Please confirm the information has been reviewed.";
-    }
-
-    return nextErrors;
   }
 
   function getDocumentValidationErrors() {
@@ -518,10 +473,22 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
       return true;
     }
 
-    const nextErrors = getStepValidationErrors(stepToValidate);
-    replaceStepValidationErrors(stepToValidate, nextErrors);
+    if (stepToValidate === 3) {
+      markTouched("confirmation");
 
-    if (Object.keys(nextErrors).length) {
+      if (!confirmation) {
+        setError("Please confirm the information has been reviewed.");
+        return false;
+      }
+
+      return true;
+    }
+
+    // Reveals the step's messages, then reads the shared rules rather than
+    // re-deriving them here.
+    markStepTouched(stepToValidate);
+
+    if (!isStepValid(validation, stepToValidate)) {
       setError("Please fill the highlighted fields before continuing.");
       return false;
     }
@@ -540,9 +507,17 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
     setSaving(true);
 
     try {
+      // Held in a ref so a retry after a network failure reuses the same key and
+      // the server recognises it as the same submission, not a new one.
+      idempotencyKeyRef.current ||= createIdempotencyKey();
+
       const result = isEdit && account
         ? await updateBusinessAccount(account.accountId, formData, files)
-        : await createBusinessAccount(formData, files);
+        : await createBusinessAccount(formData, files, idempotencyKeyRef.current);
+
+      // Saved on the server from here on, so leaving no longer loses anything —
+      // including on the submit-failure path below, which navigates away.
+      setPersisted(true);
 
       if (!isEdit || isDraftEdit) {
         try {
@@ -597,7 +572,9 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
         </div>
         <button
           type="button"
-          onClick={() => router.push("/dashboard/business-accounts")}
+          onClick={() => {
+            if (confirmLeave(hasUnsavedChanges)) router.push("/dashboard/business-accounts");
+          }}
           className="rounded-xl border border-[#EEEDED] bg-white px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition hover:border-[#0D1282]/30 hover:bg-[#EEEDED]/60 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/40"
         >
           Cancel
@@ -639,11 +616,13 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
           <ContactStep
             formData={formData}
             validationErrors={validationErrors}
+            fieldStatus={fieldStatus}
             fieldErrors={fieldErrors}
             validatingFields={validatingFields}
             onContactChange={updateContact}
             onShipmentTypeChange={updateShipmentType}
             onValidateUniqueField={validateUniqueField}
+            onFieldBlur={markTouched}
           />
         ) : null}
 
@@ -651,11 +630,13 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
           <CompanyStep
             formData={formData}
             validationErrors={validationErrors}
+            fieldStatus={fieldStatus}
+            fieldWarnings={fieldWarnings}
             fieldErrors={fieldErrors}
             validatingFields={validatingFields}
             onCompanyChange={updateCompany}
             onValidateUniqueField={validateUniqueField}
-            onValidateCompanyField={validateCompanyFieldOnBlur}
+            onFieldBlur={markTouched}
           />
         ) : null}
 
@@ -677,12 +658,24 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
             files={files}
             confirmation={confirmation}
             validationErrors={validationErrors}
-            onConfirmationChange={(checked) => {
-              setConfirmation(checked);
-              setValidationErrors((current) => ({ ...current, confirmation: "" }));
-            }}
+            onConfirmationChange={setConfirmation}
             onEditStep={setStep}
           />
+        ) : null}
+
+        {/* The forward button is disabled until the step is valid, so the reason
+            has to be on screen — otherwise it just looks broken. */}
+        {outstandingIssues.length ? (
+          <div className="mt-8 rounded-2xl border border-[#F0DE36] bg-[#F0DE36]/10 px-4 py-3">
+            <p className="text-sm font-bold text-[#0D1282]">
+              {step === 3 ? "Complete these before submitting" : "Complete these to continue"}
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+              {outstandingIssues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </div>
         ) : null}
 
         <div className="mt-8 flex flex-wrap justify-between gap-3 border-t border-[#EEEDED] pt-5">
@@ -698,16 +691,18 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
             {step < steps.length - 1 ? (
               <button
                 type="submit"
-                disabled={saving || isCheckingUnique}
+                disabled={saving || isCheckingUnique || !canLeaveStep}
                 className="rounded-xl bg-[#0D1282] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D1282]/90 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/50 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#0D1282]/55"
               >
                 {isCheckingUnique ? "Checking..." : "Continue"}
               </button>
             ) : (
+              <span className="inline-flex items-center gap-2">
+              <InfoTooltip text={reviewTooltips.submit} />
               <button
                 type="button"
                 onClick={submitForReview}
-                disabled={saving || isCheckingUnique}
+                disabled={saving || isCheckingUnique || !canSubmit}
                 className="rounded-xl bg-[#0D1282] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D1282]/90 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/50 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#0D1282]/55"
               >
                 {saving
@@ -715,6 +710,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
                   : isCheckingUnique ? "Checking..."
                     : isEdit && !isDraftEdit ? "Save Changes" : "Submit for Review"}
               </button>
+              </span>
             )}
           </div>
         </div>

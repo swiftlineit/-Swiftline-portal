@@ -30,6 +30,8 @@ import {
   validateBranchCodeForEdit,
   workingDays
 } from "@/lib/branches";
+import { GSTIN_EXAMPLE, GSTIN_LENGTH, getGstinError, normalizeGstin } from "@/lib/gstin";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 
 type FormErrors = Partial<Record<string, string>>;
 type FieldKey =
@@ -139,8 +141,14 @@ function validateForm(data: BranchFormData, level: ValidationLevel, codeExists: 
   if (!isDomesticOnlyCoverage(data.operations.shipmentCoverage) && data.operations.operatingCountries.length === 0) {
     errors.operatingCountries = "Select at least one operating country for international coverage.";
   }
-  // Indian branches need a GSTIN or invoice generation fails after the fact.
-  if (data.address.countryCode === "IN" && !data.gstin.trim()) errors.gstin = "GSTIN is required for Indian branches.";
+  // Indian branches need a GSTIN or invoice generation fails after the fact, and
+  // a malformed one fails just as badly, so it gets the full format check.
+  if (data.address.countryCode === "IN" && !data.gstin.trim()) {
+    errors.gstin = "GSTIN is required for Indian branches.";
+  } else {
+    const gstinError = getGstinError(data.gstin);
+    if (gstinError) errors.gstin = gstinError;
+  }
 
   // Branches being activated must have PAN and GST documents uploaded.
   // Documents are validated during upload flow, not here.
@@ -532,6 +540,12 @@ export default function BranchForm({
   const router = useRouter();
   const isEditMode = Boolean(branchId);
   const [form, setForm] = useState<BranchFormData>(initialData ?? initialForm);
+  const [branchPersisted, setBranchPersisted] = useState(false);
+  // Snapshot of the form as opened, so browsing without editing is not treated
+  // as unsaved work.
+  const branchSnapshot = useMemo(() => JSON.stringify(initialData ?? initialForm), [initialData]);
+
+  useUnsavedChanges(!branchPersisted && JSON.stringify(form) !== branchSnapshot);
   const [codeExists, setCodeExists] = useState<boolean | null>(null);
   const [savingMode, setSavingMode] = useState<SubmitMode | null>(null);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -737,6 +751,8 @@ export default function BranchForm({
       }
 
       toast.success(mode === "draft" ? "Branch saved as draft." : "Branch saved successfully.");
+      // Saved on the server, so leaving no longer loses anything.
+      setBranchPersisted(true);
       router.push(`/dashboard/branches/${branch._id}`);
     } catch (caughtError) {
       toast.error(caughtError instanceof Error ? caughtError.message : "Unable to save branch.");
@@ -890,10 +906,10 @@ export default function BranchForm({
             label="Branch GSTIN"
             required={form.address.countryCode === "IN"}
             value={form.gstin}
-            onChange={(event) => updateForm({ gstin: event.target.value.toUpperCase().replace(/\s+/g, "") })}
+            onChange={(event) => updateForm({ gstin: normalizeGstin(event.target.value) })}
             error={visibleErrors.gstin}
-            maxLength={15}
-            placeholder="06ABCDE1234F1Z5"
+            maxLength={GSTIN_LENGTH}
+            placeholder={GSTIN_EXAMPLE}
           />
           <TextField
             label="Invoice SAC Code"

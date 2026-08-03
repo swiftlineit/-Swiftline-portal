@@ -19,6 +19,12 @@ import {
   reserveShipmentBookingCharge
 } from "../services/shipmentBookingBilling.service.js";
 import { ensureShipmentInvoiceForDraft } from "../services/shipmentInvoice.service.js";
+import { storeGeneratedLabel } from "../services/dpdShipment.service.js";
+import {
+  renderSimulatedDpdLabelPdf,
+  renderSwiftlineLabelPdf,
+  type ShipmentLabelData
+} from "../services/shipmentLabelPdf.service.js";
 
 const demoShipmentName = process.env.DEMO_SHIPMENT_NAME || "TESTING SHIPMENT NOT DEMO";
 const demoInvoiceNumber = process.env.DEMO_INVOICE_NUMBER || "TESTING-INV-0001";
@@ -310,6 +316,56 @@ async function main() {
     },
     { returnDocument: "after", upsert: true, setDefaultsOnInsert: true }
   ).exec();
+
+  // The shipment record claims LABEL_RECEIVED, so it needs actual labels behind
+  // it — without these the portal shows a booked shipment with nothing to
+  // download, and there is no way to check a label change.
+  const swiftlineTrackingNumber = `SLCDEMO${String(shipmentDraft._id).slice(-6).toUpperCase()}`;
+
+  for (const [index, parcel] of shipmentDraft.parcelList.entries()) {
+    const parcelSuffix = String(index + 1).padStart(2, "0");
+    const labelData: ShipmentLabelData = {
+      swiftlineTrackingNumber,
+      parcelNumber: `${swiftlineTrackingNumber}-${parcelSuffix}`,
+      parcelIndex: index,
+      parcelCount: shipmentDraft.parcelList.length,
+      weightKg: parcel.weightKg ?? 1,
+      serviceCode: shipmentDraft.serviceCode ?? "SLC",
+      shipmentReference: demoShipmentReference,
+      customerReference: demoInvoiceNumber,
+      generatedAt: new Date(),
+      consignee: {
+        name: destinationAddress.companyName,
+        contactName: destinationAddress.contactName,
+        addressLines: [destinationAddress.addressLine1, destinationAddress.addressLine2, destinationAddress.townOrCity],
+        postcode: destinationAddress.postcode,
+        countryCode: destinationAddress.countryCode,
+        countryName: destinationAddress.countryName
+      },
+      sender: {
+        name: account.company.companyName || account.accountId,
+        branchCode: "DEMO",
+        addressLines: ["12 Connaught Place", "New Delhi"],
+        phone: "+919876543210"
+      }
+    };
+
+    await storeGeneratedLabel({
+      dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
+      parcelNumber: labelData.parcelNumber,
+      labelType: "SWIFTLINE",
+      providerMode: "SIMULATED",
+      buffer: await renderSwiftlineLabelPdf(labelData)
+    });
+
+    await storeGeneratedLabel({
+      dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
+      parcelNumber: `DPDTEST${String(shipmentDraft._id).slice(-8).toUpperCase()}${parcelSuffix}`,
+      labelType: "DPD",
+      providerMode: "SIMULATED",
+      buffer: await renderSimulatedDpdLabelPdf(labelData)
+    });
+  }
 
   await completeShipmentBookingCharge({
     shipmentDraftId: shipmentDraft._id as mongoose.Types.ObjectId,

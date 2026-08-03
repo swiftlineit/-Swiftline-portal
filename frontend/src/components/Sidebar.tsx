@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useConfirmLeave } from "@/lib/useUnsavedChanges";
 import { usePathname } from "next/navigation";
 import type { IconType } from "react-icons";
 import {
@@ -145,6 +146,7 @@ export default function Sidebar({
   items?: SidebarNavItem[];
 }) {
   const pathname = usePathname();
+  const confirmLeaveIfDirty = useConfirmLeave();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const visibleNavigationItems: SidebarNavItem[] =
@@ -164,7 +166,7 @@ export default function Sidebar({
       >
         {sidebarOpen ? (
           <div className="flex min-w-0 items-center gap-3">
-           <Link href="/dashboard">
+           <Link href="/dashboard" onNavigate={(event) => { if (!confirmLeaveIfDirty()) event.preventDefault(); }}>
             <Image
               src="/logo.svg"
               alt="Swiftline Cargo"
@@ -211,6 +213,12 @@ export default function Sidebar({
             <Link
               key={item.label}
               href={item.href}
+              // Navigating away from a half-filled form would discard it
+              // silently. One guard here covers every form in the portal,
+              // because the dirty state is held in a shared registry.
+              onNavigate={(event) => {
+                if (!confirmLeaveIfDirty()) event.preventDefault();
+              }}
               className={`group flex h-11 items-center rounded-lg text-sm font-medium transition ${
                 isActive
                   ? "text-slate-900"

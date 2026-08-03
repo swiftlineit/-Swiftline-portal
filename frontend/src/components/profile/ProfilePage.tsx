@@ -4,7 +4,16 @@ import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { FiBriefcase, FiCheck, FiChevronDown, FiEdit3, FiLock, FiMail, FiMapPin, FiPhone, FiShield, FiUser, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { BiSolidEdit } from "react-icons/bi";
-import { departments, industries, shipmentVolumes } from "@/lib/businessAccountOptions";
+import { SearchableSelect } from "@/components/business-accounts/FormFieldControls";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
+import {
+  OTHER_JOB_TITLE,
+  departments,
+  industries,
+  isListedJobTitle,
+  jobTitleOptions,
+  shipmentVolumes
+} from "@/lib/businessAccountOptions";
 import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
 import {
   changeProfilePassword,
@@ -177,6 +186,71 @@ function SelectField({
   );
 }
 
+/**
+ * Job title picker, matching the business account wizard: the same searchable
+ * list, with "Other" revealing a free-text box.
+ *
+ * The list is long enough to need search, so it borrows the wizard's dropdown
+ * rather than this page's native `<select>`, shrunk to the compact height the
+ * rest of the profile fields use.
+ */
+function JobTitleField({
+  value,
+  onChange,
+  error
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+}) {
+  const [otherPicked, setOtherPicked] = useState(false);
+  const showsOther = otherPicked || (Boolean(value) && !isListedJobTitle(value));
+
+  return (
+    <div className="block">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Job Title
+        <span className="ml-1 text-red-600">*</span>
+      </span>
+      <div className="mt-1.5 [&_button]:h-10 [&_button]:min-h-10 [&_button]:rounded-xl">
+        <SearchableSelect
+          label="Job Title"
+          value={showsOther ? OTHER_JOB_TITLE : value}
+          options={jobTitleOptions}
+          placeholder="Select a job title"
+          onChange={(next) => {
+            if (next === OTHER_JOB_TITLE) {
+              setOtherPicked(true);
+              onChange("");
+              return;
+            }
+
+            setOtherPicked(false);
+            onChange(next);
+          }}
+          hideLabel
+        />
+      </div>
+
+      {showsOther ? (
+        <input
+          value={value}
+          maxLength={80}
+          placeholder="e.g. Regional Logistics Head"
+          onChange={(event) => onChange(event.target.value)}
+          className={`mt-2 h-10 w-full rounded-xl border px-3 text-sm text-slate-900 outline-none transition focus:ring-2 ${
+            error
+              ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+              : "border-slate-300 focus:border-[#0D1282] focus:ring-blue-100"
+          }`}
+        />
+      ) : null}
+
+      {error ? <span className="mt-1 block text-xs font-medium text-red-600">{error}</span> : null}
+    </div>
+  );
+}
+
 function EditButton({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -232,6 +306,10 @@ export default function ProfilePage() {
     emergencyContact: { name: "", phone: "" }
   });
   const [accountForm, setAccountForm] = useState<{ company: EditableCompany; contact: ProfileContact } | null>(null);
+
+  // Profile edits are inline panels rather than a page, so "dirty" is simply
+  // having one of them open — closing either discards whatever was typed.
+  useUnsavedChanges(editingUser || Boolean(editingAccountId));
   const [passwordForm, setPasswordForm] = useState(emptyPassword);
   // Inline messages keyed by field, cleared whenever an edit starts.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -526,7 +604,7 @@ export default function ProfilePage() {
                     <InputField label="Email" required error={fieldErrors.contactEmail} type="email" maxLength={160} value={accountForm.contact.email} onChange={(value) => setAccountForm((current) => current && ({ ...current, contact: { ...current.contact, email: value } }))} />
                     <InputField label="Country Code" required error={fieldErrors.countryCode} maxLength={8} value={accountForm.contact.countryCode} onChange={(value) => setAccountForm((current) => current && ({ ...current, contact: { ...current.contact, countryCode: value } }))} />
                     <InputField label="Mobile Number" required error={fieldErrors.mobileNumber} maxLength={15} value={accountForm.contact.mobileNumber} onChange={(value) => setAccountForm((current) => current && ({ ...current, contact: { ...current.contact, mobileNumber: value } }))} />
-                    <InputField label="Job Title" required error={fieldErrors.jobTitle} maxLength={80} value={accountForm.contact.jobTitle} onChange={(value) => setAccountForm((current) => current && ({ ...current, contact: { ...current.contact, jobTitle: value } }))} />
+                    <JobTitleField error={fieldErrors.jobTitle} value={accountForm.contact.jobTitle} onChange={(value) => setAccountForm((current) => current && ({ ...current, contact: { ...current.contact, jobTitle: value } }))} />
                     <SelectField label="Department" required error={fieldErrors.department} options={departmentOptions} value={accountForm.contact.department} onChange={(value) => setAccountForm((current) => current && ({ ...current, contact: { ...current.contact, department: value } }))} />
                   </div>
                 </div>

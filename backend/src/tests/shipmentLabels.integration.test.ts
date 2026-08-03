@@ -161,6 +161,155 @@ describe("Swiftline tracking sequence", () => {
     assert.ok(locked.lockedAt);
   });
 
+  test("creates shipment labels for BA-2026-800823 / Drifter Co", async () => {
+    const userId = new mongoose.Types.ObjectId();
+    const branch = await Branch.create({
+      name: "Drifter Co Branch",
+      code: `DR-${Date.now()}`,
+      labelCode: "DRF",
+      status: "ACTIVE",
+      gstin: "09BIQPK8904E1ZW",
+      invoiceSacCode: "996812",
+      baseCurrency: "INR",
+      address: {
+        countryCode: "IN",
+        countryName: "India",
+        city: "Delhi",
+        stateOrProvince: "Delhi",
+        postalCode: "110001",
+        address: "Swiftline Test Branch"
+      },
+      contact: { email: "branch@driftercono.example", phone: "+91 9999999999" },
+      operations: { supportedServices: [], shipmentCoverage: ["INTERNATIONAL"], operatingCountries: ["GB"], workingDays: [] },
+      createdBy: userId
+    });
+
+    const account = await BusinessAccount.create({
+      accountId: "BA-2026-800823",
+      status: "active",
+      contact: {
+        title: "mr.",
+        firstName: "Drifter",
+        lastName: "Cono",
+        email: "contact@driftercono.example",
+        mobileType: "mobile",
+        countryCode: "+91",
+        mobileNumber: "9000000000",
+        jobTitle: "Owner",
+        department: "Operations",
+        shipmentTypes: ["international_courier"]
+      },
+      company: {
+        registrationCountry: "India",
+        registrationId: `DRIFTER-${Date.now()}`,
+        companyType: "pvt_ltd",
+        companyName: "Drifter Co",
+        registeredAddress: "Drifter Co HQ",
+        city: "Delhi",
+        stateOrProvince: "Delhi",
+        postalCode: "110002",
+        addressCountry: "India",
+        gstin: "09BIQPK8904E1ZD",
+        operatingCountries: ["United Kingdom"],
+        industry: "Trading",
+        monthlyShipmentVolume: "1-10",
+        requestedCreditLimit: { currency: "INR", amount: 0 }
+      },
+      kycReview: { overallStatus: "verified", checks: {} },
+      assignedBranch: branch._id,
+      createdBy: userId
+    });
+
+    await CountryRateCard.create({
+      countryCode: "GB",
+      countryName: "United Kingdom",
+      service: "COURIER",
+      fromKg: 0.01,
+      toKg: 25,
+      chargesPerKg: 200,
+      maxBoxKg: 25,
+      createdBy: userId
+    });
+
+    const upload = await InvoiceUpload.create({
+      businessAccountId: account._id,
+      branchId: branch._id,
+      templateVersion: "TEST-1.0",
+      invoiceNumber: `DRIFTER-INV-${Date.now()}`,
+      shipmentReference: `DRIFTER-SHIP-${Date.now()}`,
+      originalFilename: "drifter-branch.pdf",
+      storagePath: "test://drifter-branch.pdf",
+      fileChecksum: new mongoose.Types.ObjectId().toHexString().padEnd(64, "0"),
+      extractedData: {},
+      status: "PARSED",
+      uploadedBy: userId
+    });
+
+    const draft = await ShipmentDraft.create({
+      invoiceUploadId: upload._id,
+      businessAccountId: account._id,
+      branchId: branch._id,
+      sender: { name: branch.name, code: branch.code },
+      consignorAddress: consignorFixture,
+      kycDocuments: kycDocumentsFixture,
+      consigneeEnteredAddress: {
+        companyName: "Drifter Co",
+        contactName: "Rohit Kapoor",
+        email: "rohit@driftercono.example",
+        mobileCountryCode: "+91",
+        mobileNumber: "9876501234",
+        countryCode: "GB",
+        countryName: "United Kingdom",
+        postcode: "SW1A 1AA",
+        addressLine1: "1 Drifter House",
+        townOrCity: "London",
+        county: "Greater London"
+      },
+      consigneeValidatedAddress: {
+        companyName: "Drifter Co",
+        contactName: "Rohit Kapoor",
+        email: "rohit@driftercono.example",
+        mobileCountryCode: "+91",
+        mobileNumber: "9876501234",
+        countryCode: "GB",
+        countryName: "United Kingdom",
+        postcode: "SW1A 1AA",
+        addressLine1: "1 Drifter House",
+        townOrCity: "London",
+        county: "Greater London"
+      },
+      addressValidationStatus: "VALIDATED",
+      addressValidationResult: { outcome: "VALID" },
+      parcelList: [{
+        sequence: 1,
+        weightKg: 5,
+        lengthCm: 30,
+        widthCm: 20,
+        heightCm: 10,
+        shipmentContentType: "PARCEL",
+        items: [{ description: "Books", hsnCode: "49019900", unitType: "Pkt", quantity: 1, unitRate: 500 }],
+        contentsDescription: "Books",
+        shipmentReference1: "DRIFTER-BOX-1"
+      }],
+      serviceType: "COURIER",
+      status: "READY_FOR_DPD",
+      bookingState: "EDITABLE",
+      createdBy: userId
+    });
+
+    const result = await createLabelForShipmentDraft(String(draft._id), userId, {
+      actor: "admin",
+      paymentSource: "TEST"
+    });
+
+    result.labels.forEach((label) => generatedFiles.add(label.storagePath));
+    assert.equal(result.labels.filter((label) => label.labelType === "DPD").length, 1);
+    assert.equal(result.labels.filter((label) => label.labelType === "SWIFTLINE").length, 1);
+    assert.ok(result.labels.some((label) => label.labelType === "SWIFTLINE"));
+    assert.ok(result.dpdShipment._id);
+    assert.ok(result.labels.some((label) => label.parcelNumber.startsWith("SLC")));
+  });
+
   test("books two parcels once and keeps charge, invoice and all four labels aligned", async () => {
     const userId = new mongoose.Types.ObjectId();
     const branch = await Branch.create({

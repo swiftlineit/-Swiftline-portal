@@ -33,6 +33,33 @@ import {
   isValidPostalCodeForCountry,
   phoneValidationMessage
 } from "../services/businessAccountRules.js";
+import {
+  GST_EXEMPT_REASON_MAX,
+  GST_EXEMPT_REASON_MIN,
+  collectsGstin,
+  getGstinError,
+  normalizeGstin,
+  requiresGstin
+} from "../services/gstin.js";
+import {
+  formatUsTaxId,
+  isMaskedUsTaxId,
+  isSensitiveUsTaxIdType,
+  isUsTaxIdType,
+  maskUsTaxId,
+  normalizeUsTaxId
+} from "../services/usTaxId.js";
+import { encryptSecret } from "../services/credentialEncryption.service.js";
+import {
+  diffSnapshots,
+  recordBusinessAccountAudit,
+  toAuditSnapshot
+} from "../services/businessAccountAudit.service.js";
+import { IdempotencyKey } from "../models/idempotencyKey.model.js";
+import { isValidStateForCountry } from "../services/reference/geography.service.js";
+
+const idempotencyScope = "business-account-create";
+import { getCountryCodeByName } from "../services/reference/portalCountries.js";
 
 const shipmentTypeSchema = z.enum(["international_cargo", "international_courier"]);
 const companyTypeSchema = z.enum(["pvt_ltd", "llp", "enterprise"]).or(z.literal(""));
@@ -66,6 +93,7 @@ const businessAccountOperationalActionSchema = z.enum([
 const businessKycCheckKeySchema = z.enum([
   "contactDetails",
   "companyDetails",
+  "gstExemption",
   "aadhaarCard",
   "panCard",
   "adCertificate",
@@ -101,18 +129,38 @@ const businessAccountBodySchema = z.object({
     registrationCountry: registrationCountrySchema,
     registrationIdType: z.string().trim().max(80).optional().default(""),
     registrationId: z.string().trim().max(50).optional().default(""),
-    gstin: z.string().trim().toUpperCase().regex(/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "Enter a valid 15-character GSTIN").optional().or(z.literal("")),
+    // Shape is checked in the superRefine below so the message can name the part
+    // that is wrong (state code, PAN section) instead of restating the format.
+    gstin: z.string().trim().max(20).optional().default(""),
+    gstExempt: z.coerce.boolean().optional().default(false),
+    gstExemptReason: z.string().trim().max(GST_EXEMPT_REASON_MAX).optional().default(""),
     secondaryRegistrationId: z.string().trim().max(50).optional().default(""),
     noCompanyRegistration: z.coerce.boolean().optional().default(false),
     noCompany: z.coerce.boolean().optional().default(false),
     companyType: companyTypeSchema.default(""),
     companyName: z.string().trim().max(160).optional().default(""),
     registeredAddress: z.string().trim().max(500).optional().default(""),
+    addressLine2: z.string().trim().max(200).optional().default(""),
     city: z.string().trim().max(80).optional().default(""),
     stateOrProvince: z.string().trim().max(80).optional().default(""),
     postalCode: z.string().trim().max(20).optional().default(""),
     addressCountry: z.string().trim().max(80).optional().default(""),
     useCompanyAddressAsBillingAddress: z.coerce.boolean().optional().default(true),
+    billingAddress: z.object({
+      addressLine1: z.string().trim().max(500).optional().default(""),
+      addressLine2: z.string().trim().max(200).optional().default(""),
+      city: z.string().trim().max(80).optional().default(""),
+      stateOrProvince: z.string().trim().max(80).optional().default(""),
+      postalCode: z.string().trim().max(20).optional().default(""),
+      country: z.string().trim().max(80).optional().default("")
+    }).optional().default({
+      addressLine1: "",
+      addressLine2: "",
+      city: "",
+      stateOrProvince: "",
+      postalCode: "",
+      country: ""
+    }),
     operatingCountries: z.array(z.string().trim().min(1).max(80)).default([]),
     website: z.string().trim().url().refine(isHttpOrHttpsUrl, "Website must start with http:// or https://").optional().or(z.literal("")).or(z.null()),
     industry: z.string().trim().max(100).optional().default(""),
@@ -132,7 +180,13 @@ const businessAccountBodySchema = z.object({
   const registrationId = data.company.registrationId.trim();
   const secondaryRegistrationId = data.company.secondaryRegistrationId.trim();
   const noCompany = data.company.noCompany;
-  const canSkipRegistration = noCompany || data.company.noCompanyRegistration || countriesWithoutRegistrationId.has(data.company.registrationCountry);
+  // Neither escape hatch applies to a US account: an individual with no company
+  // still holds an SSN or an ITIN, so there is no route to a US account without
+  // a taxpayer ID. Allowing either would be a one-request bypass of a mandatory
+  // field.
+  const allowsSkippingRegistration = data.company.registrationCountry !== "United States";
+  const canSkipRegistration = countriesWithoutRegistrationId.has(data.company.registrationCountry)
+    || (allowsSkippingRegistration && (noCompany || data.company.noCompanyRegistration));
 
   if (!noCompany && !data.company.companyType.trim()) {
     context.addIssue({
@@ -176,6 +230,50 @@ const businessAccountBodySchema = z.object({
     });
   }
 
+  const gstin = normalizeGstin(data.company.gstin);
+  const gstExempt = data.company.gstExempt;
+  const collectsGst = collectsGstin({ registrationCountry: data.company.registrationCountry, noCompany });
+
+  if (collectsGst && gstExempt) {
+    const reason = data.company.gstExemptReason.trim();
+
+    if (reason.length < GST_EXEMPT_REASON_MIN) {
+      context.addIssue({
+        code: "custom",
+        path: ["company", "gstExemptReason"],
+        message: `Explain why this business is not registered under GST, in at least ${GST_EXEMPT_REASON_MIN} characters.`
+      });
+    }
+
+    if (gstin) {
+      context.addIssue({
+        code: "custom",
+        path: ["company", "gstin"],
+        message: "Remove the GSTIN or untick GST exempt. An account cannot be both registered and exempt."
+      });
+    }
+  }
+
+  if (requiresGstin({ registrationCountry: data.company.registrationCountry, noCompany, gstExempt }) && !gstin) {
+    context.addIssue({
+      code: "custom",
+      path: ["company", "gstin"],
+      message: "GSTIN is required for Indian business accounts. Tick GST exempt if the business is not registered under GST."
+    });
+  }
+
+  // Scoped to accounts that actually capture a GSTIN. Validating it regardless
+  // of country would reject a submission over a field the form does not show,
+  // leaving the user an error they cannot act on.
+  const gstinError = collectsGst ? getGstinError(gstin) : "";
+  if (gstinError) {
+    context.addIssue({
+      code: "custom",
+      path: ["company", "gstin"],
+      message: gstinError
+    });
+  }
+
   if (!noCompany) {
     const requiredCompanyFields: [keyof typeof data.company, string][] = [
       ["companyName", "Company name is required"],
@@ -216,6 +314,59 @@ const businessAccountBodySchema = z.object({
         path: ["company", "postalCode"],
         message: getPostalCodeValidationMessage(data.company.addressCountry)
       });
+    }
+
+    // The state must be one the selected country actually has. Countries with no
+    // subdivision data accept anything, and the comparison ignores case,
+    // accents and punctuation so a legacy spelling is not rejected on an
+    // otherwise unrelated edit.
+    const stateCountryCode = getCountryCodeByName(data.company.addressCountry);
+    if (
+      stateCountryCode
+      && data.company.stateOrProvince.trim()
+      && !isValidStateForCountry(stateCountryCode, data.company.stateOrProvince)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["company", "stateOrProvince"],
+        message: `Select a valid state or province for ${data.company.addressCountry}.`
+      });
+    }
+
+    // A separate billing address has to be as complete as the company one, or
+    // invoices go somewhere unusable.
+    if (!data.company.useCompanyAddressAsBillingAddress) {
+      const billing = data.company.billingAddress;
+      const requiredBillingFields: [keyof typeof billing, string][] = [
+        ["addressLine1", "Billing address is required"],
+        ["city", "Billing city is required"],
+        ["stateOrProvince", "Billing state or province is required"],
+        ["postalCode", "Billing postal code is required"],
+        ["country", "Billing country is required"]
+      ];
+
+      for (const [field, message] of requiredBillingFields) {
+        if (!String(billing[field] ?? "").trim()) {
+          context.addIssue({ code: "custom", path: ["company", "billingAddress", field], message });
+        }
+      }
+
+      if (billing.postalCode.trim() && billing.country.trim() && !isValidPostalCodeForCountry(billing.country, billing.postalCode)) {
+        context.addIssue({
+          code: "custom",
+          path: ["company", "billingAddress", "postalCode"],
+          message: getPostalCodeValidationMessage(billing.country)
+        });
+      }
+
+      const billingCountryCode = getCountryCodeByName(billing.country);
+      if (billingCountryCode && billing.stateOrProvince.trim() && !isValidStateForCountry(billingCountryCode, billing.stateOrProvince)) {
+        context.addIssue({
+          code: "custom",
+          path: ["company", "billingAddress", "stateOrProvince"],
+          message: `Select a valid state or province for ${billing.country}.`
+        });
+      }
     }
   }
 });
@@ -417,7 +568,61 @@ function toBusinessDocument(type: DocumentType, file: Express.Multer.File): IBus
   };
 }
 
-function buildAccountPayload(data: BusinessAccountBody) {
+/**
+ * Decides how a registration ID is stored.
+ *
+ * A US SSN or ITIN identifies a person, so only its mask goes in the readable
+ * field and the number itself is encrypted alongside. An EIN is a public
+ * business identifier and is stored like any other registration ID.
+ *
+ * Editing an account shows the mask, and submitting it unchanged must keep the
+ * stored number rather than overwrite it with the mask.
+ */
+function resolveRegistrationIdStorage(
+  company: BusinessAccountBody["company"],
+  existingEncrypted = ""
+): { registrationId: string; registrationIdEncrypted: string } {
+  if (company.registrationCountry !== "United States") {
+    return {
+      registrationId: compactRegistrationId(company.registrationId),
+      registrationIdEncrypted: ""
+    };
+  }
+
+  const taxIdType = isUsTaxIdType(company.registrationIdType) ? company.registrationIdType : "ein";
+
+  if (!isSensitiveUsTaxIdType(taxIdType)) {
+    return {
+      registrationId: formatUsTaxId(company.registrationId, taxIdType),
+      registrationIdEncrypted: ""
+    };
+  }
+
+  if (isMaskedUsTaxId(company.registrationId)) {
+    return { registrationId: company.registrationId, registrationIdEncrypted: existingEncrypted };
+  }
+
+  const digits = normalizeUsTaxId(company.registrationId);
+
+  if (!digits) return { registrationId: "", registrationIdEncrypted: "" };
+
+  return {
+    registrationId: maskUsTaxId(digits, taxIdType),
+    registrationIdEncrypted: encryptSecret(digits, "taxId")
+  };
+}
+
+function buildAccountPayload(data: BusinessAccountBody, existingEncryptedRegistrationId = "") {
+  // GST fields belong only to accounts that capture them. Dropping them
+  // otherwise stops a country switch — or a hand-rolled request — leaving GST
+  // data stranded on an account that has no GST at all.
+  const keepsGst = collectsGstin({
+    registrationCountry: data.company.registrationCountry,
+    noCompany: data.company.noCompany
+  });
+
+  const registrationStorage = resolveRegistrationIdStorage(data.company, existingEncryptedRegistrationId);
+
   return {
     contact: data.contact,
     company: {
@@ -425,19 +630,33 @@ function buildAccountPayload(data: BusinessAccountBody) {
       registrationIdType: data.company.registrationIdType,
       // Store the normalized registration ID so lookups and duplicate checks
       // stay consistent regardless of spacing or letter case on input.
-      registrationId: compactRegistrationId(data.company.registrationId),
-      gstin: data.company.gstin,
+      registrationId: registrationStorage.registrationId,
+      registrationIdEncrypted: registrationStorage.registrationIdEncrypted,
+      // Blank whenever the stored value is a mask, so masked tax IDs are left
+      // out of the uniqueness index rather than colliding on their last digits.
+      registrationIdKey: registrationStorage.registrationIdEncrypted
+        ? ""
+        : compactRegistrationId(registrationStorage.registrationId),
+      // Normalized so a pasted certificate value matches a typed one.
+      gstin: keepsGst ? normalizeGstin(data.company.gstin) : "",
+      gstExempt: keepsGst ? data.company.gstExempt : false,
+      // The reason only means anything alongside the claim it explains.
+      gstExemptReason: keepsGst && data.company.gstExempt ? data.company.gstExemptReason : "",
       secondaryRegistrationId: data.company.secondaryRegistrationId,
       noCompanyRegistration: data.company.noCompanyRegistration,
       noCompany: data.company.noCompany,
       companyType: data.company.companyType,
       companyName: data.company.companyName,
       registeredAddress: data.company.registeredAddress,
+      addressLine2: data.company.addressLine2,
       city: data.company.city,
       stateOrProvince: data.company.stateOrProvince,
       postalCode: data.company.postalCode,
       addressCountry: data.company.addressCountry,
       useCompanyAddressAsBillingAddress: data.company.useCompanyAddressAsBillingAddress,
+      // Cleared when the company address is reused, so re-ticking the box cannot
+      // leave a stale billing address behind on the record.
+      billingAddress: data.company.useCompanyAddressAsBillingAddress ? null : data.company.billingAddress,
       operatingCountries: data.company.operatingCountries,
       website: data.company.website || null,
       industry: data.company.industry,
@@ -478,7 +697,13 @@ async function hasDuplicateBusinessIdentity(
   data: BusinessAccountBody,
   accountIdToExclude?: string
 ): Promise<string | null> {
-  const normalizedRegistrationId = compactRegistrationId(data.company.registrationId);
+  // An SSN or ITIN is stored only as its mask, so comparing it would flag two
+  // unrelated people who happen to share the last four digits as duplicates —
+  // and would be comparing masks, not numbers, in any case.
+  const isSensitiveTaxId = data.company.registrationCountry === "United States"
+    && isUsTaxIdType(data.company.registrationIdType)
+    && isSensitiveUsTaxIdType(data.company.registrationIdType);
+  const normalizedRegistrationId = isSensitiveTaxId ? "" : compactRegistrationId(data.company.registrationId);
   const identityChecks: Record<string, string>[] = [
     { "contact.email": data.contact.email },
     // The same local number under a different country code is a different phone,
@@ -527,9 +752,15 @@ export function getDocumentRequirementError(
 }
 
 export function getRequiredKycCheckKeys(
-  documents: Partial<Record<DocumentType, IBusinessDocument>>
+  documents: Partial<Record<DocumentType, IBusinessDocument>>,
+  options: { gstExempt?: boolean } = {}
 ): BusinessKycCheckKey[] {
   const keys: BusinessKycCheckKey[] = ["contactDetails", "companyDetails", "aadhaarCard", "panCard"];
+
+  // An account claiming exemption from GST registration carries an extra check,
+  // so it cannot reach "verified" — and therefore cannot be approved or
+  // activated — until an admin has cleared the exemption.
+  if (options.gstExempt) keys.push("gstExemption");
 
   for (const optionalKey of ["adCertificate", "msmeCertificate", "tanCertificate", "otherCertificate", "gstCertificate", "iecCertificate"] as DocumentType[]) {
     if (documents[optionalKey]) keys.push(optionalKey);
@@ -562,13 +793,14 @@ function getDefaultKycReview(): IBusinessKycReview {
 
 export function deriveKycOverallStatus(
   documents: Partial<Record<DocumentType, IBusinessDocument>>,
-  review: IBusinessKycReview
+  review: IBusinessKycReview,
+  options: { gstExempt?: boolean } = {}
 ): BusinessKycOverallStatus {
   const missingDocuments = getMissingRequiredDocuments(documents);
   if (missingDocuments.length) return "documents_pending";
   if (review.finalDecision === "rejected") return "rejected";
 
-  const requiredKeys = getRequiredKycCheckKeys(documents);
+  const requiredKeys = getRequiredKycCheckKeys(documents, options);
   const statuses = requiredKeys.map((key) => review.checks?.[key]?.status ?? "not_started");
   const infoRequiredStatuses: BusinessKycCheckStatus[] = ["information_required"];
 
@@ -680,12 +912,18 @@ function resolveKycReviewedAt(
   return new Date();
 }
 
-function applyDerivedKycStatus(account: { documents?: Partial<Record<DocumentType, IBusinessDocument>>; kycReview?: IBusinessKycReview }) {
+function applyDerivedKycStatus(account: {
+  documents?: Partial<Record<DocumentType, IBusinessDocument>>;
+  kycReview?: IBusinessKycReview;
+  company?: { gstExempt?: boolean };
+}) {
   const previousStatus = account.kycReview?.overallStatus;
   const previousReviewedAt = account.kycReview?.reviewedAt ?? null;
   const review = getSanitizedKycReview(account.kycReview);
 
-  review.overallStatus = deriveKycOverallStatus(account.documents ?? {}, review);
+  review.overallStatus = deriveKycOverallStatus(account.documents ?? {}, review, {
+    gstExempt: account.company?.gstExempt
+  });
   review.reviewedAt = resolveKycReviewedAt(previousStatus, previousReviewedAt, review.overallStatus);
 
   return review;
@@ -776,8 +1014,15 @@ export async function validateBusinessAccountUniqueness(request: Request, respon
   const email = typeof request.query.email === "string" ? request.query.email.trim().toLowerCase() : "";
   const mobileNumber = typeof request.query.mobileNumber === "string" ? request.query.mobileNumber.trim() : "";
   const countryCode = typeof request.query.countryCode === "string" ? request.query.countryCode.trim() : "";
-  const registrationId = typeof request.query.registrationId === "string" ? compactRegistrationId(request.query.registrationId) : "";
+  const rawRegistrationId = typeof request.query.registrationId === "string" ? request.query.registrationId : "";
   const excludeAccountId = typeof request.query.excludeAccountId === "string" ? request.query.excludeAccountId.trim() : "";
+
+  // SSNs and ITINs are stored encrypted and never compared, so this endpoint
+  // must not answer questions about them: a caller could otherwise confirm
+  // whether a given SSN is on file by guessing one number at a time.
+  const registrationIdType = typeof request.query.registrationIdType === "string" ? request.query.registrationIdType : "";
+  const isSensitiveTaxId = isUsTaxIdType(registrationIdType) && isSensitiveUsTaxIdType(registrationIdType);
+  const registrationId = isSensitiveTaxId ? "" : compactRegistrationId(rawRegistrationId);
 
   const checks: Record<string, boolean> = {
     email: false,
@@ -886,6 +1131,30 @@ export async function createBusinessAccount(request: Request, response: Response
     return response.status(400).json({ success: false, message: "One or more documents are not a valid PDF, JPG, or PNG file." });
   }
 
+  // A repeat of the same submission returns the account the first one created,
+  // rather than creating a second. Covers a duplicate tab or a retried request,
+  // which the disabled button on the form cannot.
+  const idempotencyKey = typeof request.headers["idempotency-key"] === "string"
+    ? request.headers["idempotency-key"].trim().slice(0, 100)
+    : "";
+
+  if (idempotencyKey) {
+    const existing = await IdempotencyKey
+      .findOne({ scope: idempotencyScope, userId, key: idempotencyKey })
+      .lean()
+      .exec();
+
+    if (existing) {
+      await cleanupUploadedFiles(files);
+
+      const alreadyCreated = await BusinessAccount.findById(existing.entityId).lean().exec();
+      if (alreadyCreated) {
+        const populated = await getPopulatedBusinessAccount(alreadyCreated.accountId);
+        return response.status(200).json({ success: true, account: populated ?? alreadyCreated });
+      }
+    }
+  }
+
   const documents: Partial<Record<DocumentType, IBusinessDocument>> = {};
   attachUploadedDocuments(documents, files);
 
@@ -897,6 +1166,16 @@ export async function createBusinessAccount(request: Request, response: Response
       createdBy: userId,
       updatedBy: userId
     });
+
+    if (idempotencyKey) {
+      // Best effort: a lost race here only means a retry could create a second
+      // account, which the duplicate-identity check and unique indexes catch.
+      await IdempotencyKey
+        .create({ scope: idempotencyScope, userId, key: idempotencyKey, entityId: account._id })
+        .catch(() => undefined);
+    }
+
+    await recordBusinessAccountAudit("BUSINESS_ACCOUNT_CREATED", account, userId);
 
     const populatedAccount = await getPopulatedBusinessAccount(account.accountId);
     return response.status(201).json({ success: true, account: populatedAccount ?? account });
@@ -927,7 +1206,13 @@ export async function updateBusinessAccount(request: Request, response: Response
     return response.status(401).json({ success: false, message: "Unauthorized" });
   }
 
-  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
+  // The encrypted tax ID is `select: false`, so it has to be asked for
+  // explicitly — an edit that leaves the masked field untouched needs it to
+  // write the same value back rather than blanking it.
+  const account = await BusinessAccount
+    .findOne({ accountId: request.params.accountId })
+    .select("+company.registrationIdEncrypted")
+    .exec();
   if (!account) {
     await cleanupUploadedFiles(files);
     return response.status(404).json({ success: false, message: "Business account not found" });
@@ -938,6 +1223,10 @@ export async function updateBusinessAccount(request: Request, response: Response
     await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, errors: parsed.error.format() });
   }
+
+  // Captured before the payload is applied, so the audit entry can say what
+  // actually changed rather than just that something did.
+  const auditSnapshotBefore = toAuditSnapshot(account);
 
   const duplicateMessage = await hasDuplicateBusinessIdentity(parsed.data, String(account._id));
   if (duplicateMessage) {
@@ -961,7 +1250,7 @@ export async function updateBusinessAccount(request: Request, response: Response
   const supersededPaths = attachUploadedDocuments(documents, files);
 
   account.set({
-    ...buildAccountPayload(parsed.data),
+    ...buildAccountPayload(parsed.data, account.company?.registrationIdEncrypted ?? ""),
     documents,
     updatedBy: userId
   });
@@ -971,7 +1260,11 @@ export async function updateBusinessAccount(request: Request, response: Response
   // the overall KYC status.
   const invalidatedChecks: BusinessKycCheckKey[] = [...replacedDocumentTypes];
   if (JSON.stringify(account.contact) !== previousContact) invalidatedChecks.push("contactDetails");
-  if (JSON.stringify(account.company) !== previousCompany) invalidatedChecks.push("companyDetails");
+  if (JSON.stringify(account.company) !== previousCompany) {
+    // Any company edit reopens the exemption too: the claim an admin approved
+    // was about the company as it stood then.
+    invalidatedChecks.push("companyDetails", "gstExemption");
+  }
   resetKycChecks(account.kycReview, invalidatedChecks);
 
   account.kycReview = applyDerivedKycStatus(account);
@@ -991,7 +1284,21 @@ export async function updateBusinessAccount(request: Request, response: Response
   // Save succeeded: the replaced documents are no longer referenced, so remove them.
   await unlinkFiles(supersededPaths);
 
+  await recordBusinessAccountAudit(
+    "BUSINESS_ACCOUNT_UPDATED",
+    account,
+    userId,
+    diffSnapshots(auditSnapshotBefore, toAuditSnapshot(account))
+  );
+
   const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
+
+  // This handler loaded `account` with the encrypted tax ID selected in so an
+  // untouched masked field could be written back. It must not travel to a
+  // client on the fallback path, even as ciphertext; the refetched copy leaves
+  // it out already because the field is `select: false`.
+  account.set("company.registrationIdEncrypted", undefined);
+
   return response.status(200).json({ success: true, account: updatedAccount ?? account });
 }
 
@@ -1015,6 +1322,8 @@ export async function submitBusinessAccount(request: Request, response: Response
   account.updatedBy = userId;
   account.kycReview = applyDerivedKycStatus(account);
   await account.save();
+
+  await recordBusinessAccountAudit("BUSINESS_ACCOUNT_SUBMITTED", account, userId);
 
   await notifyActiveAdmins({
     type: "BUSINESS_ACCOUNT_SUBMITTED",
@@ -1084,6 +1393,12 @@ export async function updateBusinessAccountStatus(request: Request, response: Re
   account.updatedBy = userId;
   account.kycReview = applyDerivedKycStatus(account);
   await account.save();
+
+  if (targetStatus !== currentStatus) {
+    await recordBusinessAccountAudit("BUSINESS_ACCOUNT_STATUS_CHANGED", account, userId, {
+      status: { from: currentStatus, to: targetStatus }
+    });
+  }
 
   // Only lifecycle decisions the client can act on are worth a notification;
   // moving an account back to draft or into review is internal housekeeping.
@@ -1219,7 +1534,9 @@ export async function updateBusinessAccountKycReview(request: Request, response:
   let reviewedAccount: IBusinessAccount | null = null;
   try {
     const nextReview = applyKycReviewUpdate(account.kycReview, parsed.data, userId);
-    nextReview.overallStatus = deriveKycOverallStatus(account.documents ?? {}, nextReview);
+    nextReview.overallStatus = deriveKycOverallStatus(account.documents ?? {}, nextReview, {
+      gstExempt: account.company?.gstExempt
+    });
     nextReview.reviewedAt = resolveKycReviewedAt(account.kycReview?.overallStatus, account.kycReview?.reviewedAt, nextReview.overallStatus);
 
     // Optimistic concurrency: apply only if the document is unchanged since it was

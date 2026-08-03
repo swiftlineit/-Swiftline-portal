@@ -3,6 +3,28 @@ import { apiUrl } from "@/lib/api";
 let accessToken: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
 
+/**
+ * Why the session ended, when the server ended it rather than the user.
+ *
+ * Held here so the login screen can explain the bounce — "signed in on another
+ * device" reads very differently from an unexplained trip back to the login
+ * form, which users report as the app logging them out at random.
+ */
+let sessionEndedReason: string | null = null;
+
+export function setSessionEndedReason(reason: string | null) {
+  sessionEndedReason = reason;
+}
+
+// Reading it clears it: the reason explains one bounce, and must not reappear
+// on the next visit to the login screen.
+export function takeSessionEndedReason() {
+  const reason = sessionEndedReason;
+  sessionEndedReason = null;
+
+  return reason;
+}
+
 export function getAccessToken() {
   return accessToken;
 }
@@ -32,6 +54,15 @@ async function requestRefreshedAccessToken() {
     if (response.ok && data.success && typeof data.accessToken === "string") {
       setAccessToken(data.accessToken);
       return data.accessToken;
+    }
+
+    // A session ended elsewhere — signed in on another device, terminated by an
+    // admin, or gone idle. The user needs to be told why, otherwise being
+    // bounced to the login screen looks like a bug.
+    if (data.sessionEnded && typeof data.message === "string") {
+      setAccessToken(null);
+      setSessionEndedReason(data.message);
+      return null;
     }
 
     // Only a rejected refresh cookie means the session is gone. Throttling,

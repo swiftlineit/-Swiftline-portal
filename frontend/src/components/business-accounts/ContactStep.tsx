@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import {
   Field,
   SearchableSelect,
   CountryCodeField,
   type ContactUpdater,
+  type FieldStatus,
   type UniqueField,
   departments,
   mobileTypeOptions,
@@ -13,24 +15,102 @@ import {
   toOptions
 } from "@/components/business-accounts/FormFieldControls";
 import { BusinessAccountFormData } from "@/lib/businessAccounts";
+import { OTHER_JOB_TITLE, isListedJobTitle, jobTitleOptions } from "@/lib/businessAccountOptions";
+import { contactTooltips } from "@/lib/businessAccountTooltips";
+
+/**
+ * Job title picker: a searchable list of the titles Swiftline recognises, with
+ * an "Other" choice that reveals a free-text box.
+ *
+ * The server stores the title as free text, so a stored value that is not on
+ * the list (an older record, or one typed through "Other") reopens in the text
+ * box instead of being silently replaced by a listed title.
+ */
+function JobTitleField({
+  value,
+  error,
+  status,
+  onChange,
+  onBlur
+}: {
+  value: string;
+  error?: string;
+  status: FieldStatus;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+}) {
+  const [otherPicked, setOtherPicked] = useState(false);
+  const showsOther = otherPicked || (Boolean(value) && !isListedJobTitle(value));
+
+  return (
+    <div className="grid gap-3">
+      <SearchableSelect
+        label="Job Title"
+        value={showsOther ? OTHER_JOB_TITLE : value}
+        onChange={(next) => {
+          if (next === OTHER_JOB_TITLE) {
+            // Deliberately not marked as visited: the user has answered the
+            // dropdown but not yet the box it just revealed, and greeting them
+            // with "Job title is required" before they can type would be absurd.
+            setOtherPicked(true);
+            onChange("");
+            return;
+          }
+
+          // Choosing from the list counts as answering the field, so the result
+          // is judged immediately rather than waiting for a blur that a mouse
+          // user may never produce.
+          onBlur();
+          setOtherPicked(false);
+          onChange(next);
+        }}
+        options={jobTitleOptions}
+        // While "Other" is active the message belongs on the text box the user
+        // actually types into, not on the dropdown that already has a value.
+        error={showsOther ? undefined : error}
+        status={showsOther ? "idle" : status}
+        info={contactTooltips.jobTitle}
+        required
+      />
+
+      {showsOther ? (
+        <Field
+          label="Job Title (Manual Entry)"
+          value={value}
+          onChange={onChange}
+          onBlur={onBlur}
+          error={error}
+          placeholder="e.g. Regional Logistics Head"
+          maxLength={80}
+          status={status}
+          required
+        />
+      ) : null}
+    </div>
+  );
+}
 
 // Contact step UI for collecting personal and shipment details.
 export function ContactStep({
   formData,
   validationErrors,
+  fieldStatus,
   fieldErrors,
   validatingFields,
   onContactChange,
   onShipmentTypeChange,
-  onValidateUniqueField
+  onValidateUniqueField,
+  onFieldBlur
 }: {
   formData: BusinessAccountFormData;
   validationErrors: Record<string, string>;
+  fieldStatus: Record<string, FieldStatus>;
   fieldErrors: Partial<Record<UniqueField, string>>;
   validatingFields: Partial<Record<UniqueField, boolean>>;
   onContactChange: ContactUpdater;
   onShipmentTypeChange: (value: string) => void;
   onValidateUniqueField: (field: UniqueField) => Promise<boolean>;
+  onFieldBlur: (...keys: string[]) => void;
 }) {
   return (
     <div className="grid gap-6">
@@ -38,17 +118,22 @@ export function ContactStep({
         <SearchableSelect
           label="Title"
           value={formData.contact.title}
-          onChange={(value) => onContactChange("title", value as BusinessAccountFormData["contact"]["title"])}
+          onChange={(value) => {
+            onFieldBlur("title");
+            onContactChange("title", value as BusinessAccountFormData["contact"]["title"]);
+          }}
           options={titleOptions}
           error={validationErrors.title}
-          searchable={false}
+          status={fieldStatus.title}
           required
         />
         <Field
           label="First Name"
           value={formData.contact.firstName}
           onChange={(value) => onContactChange("firstName", value)}
+          onBlur={() => onFieldBlur("firstName")}
           error={validationErrors.firstName}
+          status={fieldStatus.firstName}
           maxLength={22}
           required
         />
@@ -56,7 +141,9 @@ export function ContactStep({
           label="Last Name"
           value={formData.contact.lastName}
           onChange={(value) => onContactChange("lastName", value)}
+          onBlur={() => onFieldBlur("lastName")}
           error={validationErrors.lastName}
+          status={fieldStatus.lastName}
           maxLength={22}
           required
         />
@@ -71,9 +158,15 @@ export function ContactStep({
         type="email"
         value={formData.contact.email}
         onChange={(value) => onContactChange("email", value)}
-        onBlur={() => void onValidateUniqueField("email")}
+        onBlur={() => {
+          onFieldBlur("email");
+          void onValidateUniqueField("email");
+        }}
         error={validationErrors.email || fieldErrors.email}
+        status={fieldStatus.email}
+        placeholder="e.g. name@company.com"
         helper={validatingFields.email ? "Checking email..." : undefined}
+        info={contactTooltips.email}
         required
       />
 
@@ -81,10 +174,14 @@ export function ContactStep({
         <SearchableSelect
           label="Phone Type"
           value={formData.contact.mobileType}
-          onChange={(value) => onContactChange("mobileType", value as BusinessAccountFormData["contact"]["mobileType"])}
+          onChange={(value) => {
+            onFieldBlur("mobileType");
+            onContactChange("mobileType", value as BusinessAccountFormData["contact"]["mobileType"]);
+          }}
           options={mobileTypeOptions}
           error={validationErrors.mobileType}
-          searchable={false}
+          status={fieldStatus.mobileType}
+          info={contactTooltips.mobileType}
           required
         />
         <CountryCodeField
@@ -97,27 +194,38 @@ export function ContactStep({
           label="Mobile Number"
           value={formData.contact.mobileNumber}
           onChange={(value) => onContactChange("mobileNumber", value)}
-          onBlur={() => void onValidateUniqueField("mobileNumber")}
+          onBlur={() => {
+            onFieldBlur("mobileNumber");
+            void onValidateUniqueField("mobileNumber");
+          }}
           error={validationErrors.mobileNumber || fieldErrors.mobileNumber}
+          status={fieldStatus.mobileNumber}
+          placeholder="Number without the country code"
           helper={validatingFields.mobileNumber ? "Checking mobile number..." : undefined}
+          info={contactTooltips.mobileNumber}
           required
         />
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2">
-        <Field
-          label="Job Title"
+      <div className="grid items-start gap-5 md:grid-cols-2">
+        <JobTitleField
           value={formData.contact.jobTitle}
-          onChange={(value) => onContactChange("jobTitle", value)}
           error={validationErrors.jobTitle}
-          required
+          status={fieldStatus.jobTitle}
+          onChange={(value) => onContactChange("jobTitle", value)}
+          onBlur={() => onFieldBlur("jobTitle")}
         />
         <SearchableSelect
           label="Department"
           value={formData.contact.department}
-          onChange={(value) => onContactChange("department", value)}
+          onChange={(value) => {
+            onFieldBlur("department");
+            onContactChange("department", value);
+          }}
           options={toOptions(departments)}
           error={validationErrors.department}
+          status={fieldStatus.department}
+          info={contactTooltips.department}
           required
         />
       </div>
@@ -126,10 +234,14 @@ export function ContactStep({
         <SearchableSelect
           label="Shipment Type"
           value={formData.contact.shipmentTypes[0] ?? ""}
-          onChange={onShipmentTypeChange}
+          onChange={(value) => {
+            onFieldBlur("shipmentTypes");
+            onShipmentTypeChange(value);
+          }}
           options={shipmentTypeOptions}
           error={validationErrors.shipmentTypes}
-          searchable={false}
+          status={fieldStatus.shipmentTypes}
+          info={contactTooltips.shipmentTypes}
           required
         />
       </div>

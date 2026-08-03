@@ -1,4 +1,5 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js";
+import { getUsTaxIdError, isUsTaxIdType, type UsTaxIdType } from "./usTaxId.js";
 
 // Single source of truth for business-account field validation on the backend.
 //
@@ -18,7 +19,10 @@ const blockedEmailTlds = new Set(["con", "comm", "cpm", "coom", "om"]);
 export const emailValidationMessage = "Use gmail.com, yahoo.com, outlook.com, or a valid company email domain.";
 export const phoneValidationMessage = "Enter a valid phone number for the selected country code.";
 
-export const countriesWithoutRegistrationId = new Set(["United States", "Kuwait"]);
+// The US is not listed here: a US account must supply a taxpayer ID (EIN, SSN
+// or ITIN), which is carried by the same registrationId/registrationIdType pair
+// every other country uses.
+export const countriesWithoutRegistrationId = new Set(["Kuwait"]);
 export const countriesWithSecondaryRegistrationId = new Set(["France", "Netherlands"]);
 
 const fiveDigitPostalCodeCountries = new Set([
@@ -80,6 +84,12 @@ export function getPrimaryRegistrationError(country: string, registrationId: str
   const value = compactRegistrationId(registrationId);
 
   if (!value) return "";
+
+  if (country === "United States") {
+    const taxIdType = isUsTaxIdType(registrationIdType ?? "") ? registrationIdType as UsTaxIdType : "ein";
+
+    return getUsTaxIdError(registrationId, taxIdType);
+  }
 
   if (country === "United Kingdom" && !/^(\d{8}|[A-Z]{2}\d{6})$/.test(value)) {
     return "Enter a valid CRID: 8 digits or 2 letters followed by 6 digits.";

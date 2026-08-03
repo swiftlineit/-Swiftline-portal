@@ -5,6 +5,14 @@ const A6_WIDTH = 283.46;
 const A6_HEIGHT = 425.2;
 const PAGE_MARGIN = 10;
 
+// The internal label is a barcode and the parcel number, nothing else. It goes
+// on small label stock, so the page is sized to its content — roughly 70 x 30 mm
+// — rather than being an A6 sheet that is mostly blank.
+const INTERNAL_LABEL_WIDTH = 200;
+const INTERNAL_LABEL_HEIGHT = 84;
+const INTERNAL_LABEL_MARGIN = 8;
+const INTERNAL_BARCODE_HEIGHT = 46;
+
 export interface ShipmentLabelData {
   swiftlineTrackingNumber: string;
   parcelNumber: string;
@@ -31,10 +39,13 @@ export interface ShipmentLabelData {
   };
 }
 
-function collectPdf(render: (document: PDFKit.PDFDocument) => void): Promise<Buffer> {
+function collectPdf(
+  render: (document: PDFKit.PDFDocument) => void,
+  size: [number, number] = [A6_WIDTH, A6_HEIGHT]
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const document = new PDFDocument({
-      size: [A6_WIDTH, A6_HEIGHT],
+      size,
       margin: 0,
       info: { Creator: "Swiftline Portal", Producer: "Swiftline Portal" }
     });
@@ -47,12 +58,15 @@ function collectPdf(render: (document: PDFKit.PDFDocument) => void): Promise<Buf
   });
 }
 
-async function barcode(value: string) {
+async function barcode(value: string, options: { scale?: number; height?: number } = {}) {
   return bwipjs.toBuffer({
     bcid: "code128",
     text: value,
-    scale: 5,
-    height: 12,
+    // `scale` is the raster resolution, not the printed size — the PDF box
+    // decides that. Rendering above the printed size and letting it downsample
+    // is what keeps the bars crisp instead of soft-edged.
+    scale: options.scale ?? 5,
+    height: options.height ?? 12,
     includetext: false,
     backgroundcolor: "FFFFFF",
     barcolor: "000000",
@@ -151,69 +165,43 @@ function dateTime(date: Date) {
 //   });
 // }
 
+/**
+ * The internal warehouse label: barcode, parcel number, nothing else.
+ *
+ * No border, no heading and no footer — this is scanned off a small label, and
+ * every extra element either shrinks the barcode or wastes stock. The page is
+ * sized to the content so there is no blank area to trim.
+ */
 export async function renderSwiftlineLabelPdf(data: ShipmentLabelData) {
-  const barcodeImage = await barcode(data.parcelNumber);
+  // Rendered well above its printed size: this label is small, and an
+  // under-sampled barcode is what scanners fail on.
+  const barcodeImage = await barcode(data.parcelNumber, { scale: 8, height: 14 });
 
   return collectPdf((document) => {
-    const width = A6_WIDTH - PAGE_MARGIN * 2;
+    const contentWidth = INTERNAL_LABEL_WIDTH - INTERNAL_LABEL_MARGIN * 2;
 
-    document
-      .rect(
-        PAGE_MARGIN,
-        PAGE_MARGIN,
-        width,
-        A6_HEIGHT - PAGE_MARGIN * 2
-      )
-      .lineWidth(1.5)
-      .stroke("#0b1f46");
-
-    // Keep the internal label limited to the identifiers needed for scanning.
-    document
-      .fillColor("#44546f")
-      .font("Helvetica-Bold")
-      .fontSize(8)
-      .text("PARCEL BARCODE", 16, 32, { width: width - 12, align: "center" });
-
-    document.image(barcodeImage, 18, 58, {
-      fit: [width - 16, 100],
+    document.image(barcodeImage, INTERNAL_LABEL_MARGIN, INTERNAL_LABEL_MARGIN, {
+      fit: [contentWidth, INTERNAL_BARCODE_HEIGHT],
       align: "center"
     });
 
-    document
-      .fillColor("#000000")
-      .font("Helvetica-Bold")
-      .fontSize(13)
-      .text(data.parcelNumber, 16, 173, { width: width - 12, align: "center" });
-
-    document
-      .moveTo(PAGE_MARGIN, 210)
-      .lineTo(A6_WIDTH - PAGE_MARGIN, 210)
-      .stroke("#0b1f46");
-
-    document
-      .fillColor("#44546f")
-      .font("Helvetica-Bold")
-      .fontSize(8)
-      .text("SHIPMENT REFERENCE", 16, 232, { width: width - 12, align: "center" });
+    // Shrink to fit rather than wrap or clip: parcel numbers vary in length and
+    // a wrapped or truncated one is unreadable next to the barcode it labels.
+    document.font("Helvetica-Bold");
+    let fontSize = 14;
+    while (fontSize > 6 && document.fontSize(fontSize).widthOfString(data.parcelNumber) > contentWidth) {
+      fontSize -= 0.5;
+    }
 
     document
       .fillColor("#000000")
-      .font("Helvetica-Bold")
-      .fontSize(fittedFontSize(data.swiftlineTrackingNumber, 18, 15, 12))
-      .text(data.swiftlineTrackingNumber, 16, 248, { width: width - 12, align: "center" });
-
-    document
-      .fillColor("#44546f")
-      .font("Helvetica-Bold")
-      .fontSize(8)
-      .text("PIECE", 16, 300, { width: width - 12, align: "center" });
-
-    document
-      .fillColor("#000000")
-      .font("Helvetica-Bold")
-      .fontSize(18)
-      .text(`${data.parcelIndex + 1} OF ${data.parcelCount}`, 16, 316, { width: width - 12, align: "center" });
-  });
+      .fontSize(fontSize)
+      .text(data.parcelNumber, INTERNAL_LABEL_MARGIN, INTERNAL_LABEL_MARGIN + INTERNAL_BARCODE_HEIGHT + 6, {
+        width: contentWidth,
+        align: "center",
+        lineBreak: false
+      });
+  }, [INTERNAL_LABEL_WIDTH, INTERNAL_LABEL_HEIGHT]);
 }
 
 export async function renderSimulatedDpdLabelPdf(data: ShipmentLabelData) {

@@ -3,6 +3,7 @@ import { listUsers, createUser, listUserBranchOptions, unlockUser, updateUserAcc
 import { createStaffUser, getStaffUser, updateStaffUser, viewStaffDocument } from "../controllers/staff.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { staffDocumentUpload } from "../middleware/staffDocumentUpload.middleware.js";
+import { listUserSessions, terminateUserSessions } from "../controllers/userSession.controller.js";
 
 export const userRouter = Router();
 
@@ -22,6 +23,10 @@ userRouter.get("/:id/documents/:documentType", viewStaffDocument);
 userRouter.get("/:id", getStaffUser);
 userRouter.patch("/:id/staff", requireAdmin, staffDocumentUpload, updateStaffUser);
 userRouter.post("/", requireAdmin, createUser);
+userRouter.get("/:id/sessions", requireAdmin, listUserSessions);
+// Lets an admin free an account whose only active session is on a device the
+// user no longer has.
+userRouter.delete("/:id/sessions", requireAdmin, terminateUserSessions);
 userRouter.patch("/:id/unlock", requireAdmin, unlockUser);
 userRouter.patch("/:id/status", requireAdmin, updateUserStatus);
 userRouter.patch("/:id/access", requireAdmin, updateUserAccess);

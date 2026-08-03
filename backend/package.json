@@ -7,6 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "tsx src/server.ts",
+    "build:reference-data": "tsx src/scripts/buildReferenceData.ts",
     "seed:demo-shipment": "tsx src/scripts/createDemoShipment.ts",
     "backfill:shipment-invoices": "tsx src/scripts/backfillShipmentInvoices.ts",
     "migrate:shipment-manifest-indexes": "tsx src/scripts/migrateShipmentManifestIndexes.ts",
@@ -52,7 +53,10 @@
     "test:business-accounts": "tsx --test src/tests/businessAccount.test.ts",
     "test:business-accounts:integration": "tsx --test src/tests/businessAccount.integration.test.ts",
     "test:branches": "tsx --test src/tests/branch.test.ts",
-    "test:branches:integration": "tsx --test src/tests/branch.integration.test.ts"
+    "test:branches:integration": "tsx --test src/tests/branch.integration.test.ts",
+    "check:duplicate-accounts": "tsx src/scripts/checkDuplicateAccounts.ts",
+    "backfill:registration-id-keys": "tsx src/scripts/backfillRegistrationIdKeys.ts",
+    "test:sessions": "tsx --test src/tests/userSession.test.ts"
   },
   "keywords": [],
   "author": "",
