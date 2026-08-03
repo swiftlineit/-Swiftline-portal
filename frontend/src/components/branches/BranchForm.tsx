@@ -4,7 +4,9 @@ import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { FiChevronDown, FiTrash2, FiUpload, FiX } from "react-icons/fi";
+import { AddressAutocompleteField } from "@/components/business-accounts/AddressAutocompleteField";
 import { BranchFileLink, BranchImage } from "@/components/branches/BranchFileView";
+import type { LookupAddress } from "@/lib/addressLookup";
 import {
   BranchDocument,
   BranchDocumentType,
@@ -30,7 +32,7 @@ import {
   validateBranchCodeForEdit,
   workingDays
 } from "@/lib/branches";
-import { GSTIN_EXAMPLE, GSTIN_LENGTH, getGstinError, normalizeGstin } from "@/lib/gstin";
+import { GSTIN_EXAMPLE, GSTIN_LENGTH, getGstinError, getGstinStateName, normalizeGstin } from "@/lib/gstin";
 import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 
 type FormErrors = Partial<Record<string, string>>;
@@ -576,6 +578,7 @@ export default function BranchForm({
   const visibleErrors = Object.fromEntries(
     Object.entries(activeErrors).filter(([field]) => submitAttempted || touchedFields[field as FieldKey])
   ) as FormErrors;
+  const gstinStateName = getGstinStateName(form.gstin);
 
   useEffect(() => {
     if (!form.code || !/^[A-Z0-9-]{3,20}$/.test(form.code)) {
@@ -613,6 +616,25 @@ export default function BranchForm({
 
   function updateAddress(update: Partial<BranchFormData["address"]>) {
     setForm((current) => ({ ...current, address: { ...current.address, ...update } }));
+  }
+
+  // Fills the address fields from a picked suggestion. The lookup does not know
+  // the branch's state list, so the provider's spelling is kept as-is and the
+  // user can still correct it manually.
+  function applyLookupToAddress(address: LookupAddress) {
+    const fullAddress = [address.addressLine1, address.addressLine2]
+      .filter(Boolean)
+      .join(", ");
+
+    updateAddress({
+      address: fullAddress || form.address.address,
+      city: address.city || form.address.city,
+      stateOrProvince: address.state || form.address.stateOrProvince,
+      postalCode: address.postalCode || form.address.postalCode
+    });
+    markTouched("address");
+    markTouched("city");
+    markTouched("postalCode");
   }
 
   function updateContact(update: Partial<BranchFormData["contact"]>) {
@@ -893,15 +915,18 @@ export default function BranchForm({
             placeholder="+919876543210"
           />
           <div className="md:col-span-2">
-            <TextAreaField
+            <AddressAutocompleteField
               label="Full Address"
               required
               value={form.address.address}
-              error={visibleErrors.address}
+              countryName={form.address.countryName}
               onChange={(value) => {
                 markTouched("address");
                 updateAddress({ address: value });
               }}
+              onBlur={() => markTouched("address")}
+              onAddressSelected={applyLookupToAddress}
+              error={visibleErrors.address}
             />
           </div>
         </div>
@@ -915,6 +940,7 @@ export default function BranchForm({
             value={form.gstin}
             onChange={(event) => updateForm({ gstin: normalizeGstin(event.target.value) })}
             error={visibleErrors.gstin}
+            helper={gstinStateName ? `State code ${form.gstin.slice(0, 2)} — ${gstinStateName}` : undefined}
             maxLength={GSTIN_LENGTH}
             placeholder={GSTIN_EXAMPLE}
           />

@@ -14,7 +14,7 @@ import {
 
 import { BiSolidEdit } from "react-icons/bi";
 import { DashboardLoading } from "@/components/DashboardShell";
-import { BranchFileLink, BranchImage } from "@/components/branches/BranchFileView";
+import { BranchFileModal, BranchImage } from "@/components/branches/BranchFileView";
 import { AssignBranchModal } from "@/components/business-accounts/AssignBranchModal";
 import {
   BusinessAccountsTable,
@@ -131,6 +131,14 @@ function SummaryTile({
 function formatValues(values: string[]) {
   return values.length ? values.map(formatBranchLabel).join(", ") : "";
 }
+
+// Stored file paths are relative and may use either slash style; the last
+// segment is the original file name.
+function branchFileDisplayName(storedPath: string) {
+  return storedPath.replace(/\\/g, "/").split("/").pop() ?? storedPath;
+}
+
+type FilePreview = { storedPath: string; fileName: string; title: string };
 
 export default function BranchDetailPage() {
   const params = useParams<{ branchId: string }>();
@@ -1124,6 +1132,8 @@ function BranchOverview({
   branch: Branch;
   accountCount: number;
 }) {
+  const [preview, setPreview] = useState<FilePreview | null>(null);
+
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1230,13 +1240,23 @@ function BranchOverview({
           <h2 className="mb-4 text-base font-bold text-[#0D1282]">Branch Images</h2>
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
             {branch.images.map((imagePath, index) => (
-              <div key={index} className="overflow-hidden rounded-lg border border-slate-200 bg-[#EEEDED]/40">
+              <button
+                key={index}
+                type="button"
+                onClick={() => setPreview({
+                  storedPath: imagePath,
+                  fileName: branchFileDisplayName(imagePath),
+                  title: `Branch image ${index + 1}`
+                })}
+                aria-label={`View branch image ${index + 1}`}
+                className="group overflow-hidden rounded-lg border border-slate-200 bg-[#EEEDED]/40 text-left transition hover:border-[#0D1282]/40 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0D1282]/20"
+              >
                 <BranchImage
                   storedPath={imagePath}
                   alt={`Branch image ${index + 1}`}
                   className="h-32 w-full object-cover"
                 />
-              </div>
+              </button>
             ))}
           </div>
         </section>
@@ -1247,21 +1267,38 @@ function BranchOverview({
           <h2 className="mb-4 text-base font-bold text-[#0D1282]">Branch Documents</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {branch.documents.map((doc, index) => (
-              <div key={index} className="flex items-center justify-between rounded-lg border border-slate-200 bg-[#EEEDED]/40 px-4 py-3">
-                <div>
-                  <BranchFileLink
-                    storedPath={doc.filePath}
-                    className="text-sm font-semibold text-[#0D1282] hover:underline"
-                  >
+              <button
+                key={index}
+                type="button"
+                onClick={() => setPreview({
+                  storedPath: doc.filePath,
+                  fileName: doc.fileName,
+                  title: doc.title || doc.type
+                })}
+                aria-label={`View document ${doc.title || doc.type}`}
+                className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-[#EEEDED]/40 px-4 py-3 text-left transition hover:border-[#0D1282]/40 hover:bg-[#EEEDED]/70 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/20"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[#0D1282]">
                     {doc.title || doc.type}
-                  </BranchFileLink>
-                  <p className="mt-0.5 text-xs text-slate-500">{doc.fileName}</p>
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{doc.fileName}</p>
                 </div>
-                <span className="inline-flex items-center rounded-full bg-[#0D1282]/8 px-2.5 py-0.5 text-xs font-semibold text-[#0D1282]">{doc.type}</span>
-              </div>
+                <span className="inline-flex shrink-0 items-center rounded-full bg-[#0D1282]/8 px-2.5 py-0.5 text-xs font-semibold text-[#0D1282]">{doc.type}</span>
+              </button>
             ))}
           </div>
         </section>
+      ) : null}
+
+      {preview ? (
+        <BranchFileModal
+          key={preview.storedPath}
+          storedPath={preview.storedPath}
+          fileName={preview.fileName}
+          title={preview.title}
+          onClose={() => setPreview(null)}
+        />
       ) : null}
     </div>
   );

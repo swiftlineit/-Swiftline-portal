@@ -167,13 +167,13 @@ export default function Sidebar({
         {sidebarOpen ? (
           <div className="flex min-w-0 items-center gap-3">
            <Link href="/dashboard" onNavigate={(event) => { if (!confirmLeaveIfDirty()) event.preventDefault(); }}>
-            <Image
-              src="/logo.svg"
-              alt="Swiftline Cargo"
-              width={124}
-              height={214}
-              className="h-102 w-102 rounded-2xl object-contain"
-            />
+        <Image
+  src="/slclogo1.png"
+  alt="Swiftline Cargo"
+  width={100}
+  height={100}
+  className="h-17 w-30 rounded-2xl object-contain"
+/>
            </Link>
 
             {/*
