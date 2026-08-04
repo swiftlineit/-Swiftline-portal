@@ -13,6 +13,7 @@ import {
   listBranches,
   updateBranchStatus,
 } from "@/lib/branches";
+import { BRANCH_VIEW_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 function formatListValue(values: string[]) {
@@ -55,7 +56,10 @@ const statusActionLabels: Record<BranchStatus, string> = {
 };
 
 export default function BranchesPage() {
-  const { user, loading } = useAdminUser();
+  // Operations reads this page; creating, editing, and status changes stay with
+  // admin, matching the write guards on the branch router.
+  const { user, loading } = useAdminUser(BRANCH_VIEW_AREA);
+  const canManage = user?.role === "admin";
   const [branches, setBranches] = useState<Branch[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -140,15 +144,19 @@ export default function BranchesPage() {
             Branches
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Create, activate, and manage operating branches.
+            {canManage
+              ? "Create, activate, and manage operating branches."
+              : "Operating branches and their assignments."}
           </p>
         </div>
-        <Link
-          href="/dashboard/branches/create"
-          className="inline-flex items-center gap-2 rounded-4xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/40 focus:ring-offset-2"
-        >
-          <span className="text-base leading-none">+</span> Create New Branch
-        </Link>
+        {canManage ? (
+          <Link
+            href="/dashboard/branches/create"
+            className="inline-flex items-center gap-2 rounded-4xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/40 focus:ring-offset-2"
+          >
+            <span className="text-base leading-none">+</span> Create New Branch
+          </Link>
+        ) : null}
       </div>
 
       <div className="mb-4 grid gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_240px]">
@@ -281,7 +289,7 @@ export default function BranchesPage() {
                                 event.target.value,
                               )
                             }
-                            disabled={updatingBranchId === branch._id}
+                            disabled={!canManage || updatingBranchId === branch._id}
                             aria-label={`Change status for ${branch.name}`}
                             className="h-9 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-2.5 pr-8 text-xs font-semibold capitalize text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15 disabled:opacity-60"
                           >
@@ -316,13 +324,15 @@ export default function BranchesPage() {
                             className="h-4 w-4"
                           />
                         </Link>
-                        <Link
-                          href={`/dashboard/branches/${branch._id}/edit`}
-                          className="inline-flex items-center gap-1 ml-3 text-sm font-semibold text-blue-900 hover:text-blue-700"
-                        >
-                          Edit
-                          <BiEdit aria-hidden="true" className="h-4 w-4" />
-                        </Link>
+                        {canManage ? (
+                          <Link
+                            href={`/dashboard/branches/${branch._id}/edit`}
+                            className="inline-flex items-center gap-1 ml-3 text-sm font-semibold text-blue-900 hover:text-blue-700"
+                          >
+                            Edit
+                            <BiEdit aria-hidden="true" className="h-4 w-4" />
+                          </Link>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

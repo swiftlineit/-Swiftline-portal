@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import dns from "node:dns";
 import { z } from "zod";
 import { OAuth2Client } from "google-auth-library";
 import { IUser, User } from "../models/user.model.js";
@@ -31,6 +32,42 @@ function refreshTokenTtlMs() {
 }
 
 const googleClient = env.GOOGLE_OAUTH_CLIENT_ID ? new OAuth2Client(env.GOOGLE_OAUTH_CLIENT_ID) : null;
+
+/**
+ * Whether an email points at a domain that actually exists. Rejects typos like
+ * `gmail.cos` that format checks accept. Uses the OS resolver (`lookup`) rather
+ * than c-ares (`resolveMx`) because the OS path honors hosts-file overrides and
+ * works in environments where c-ares can't reach the configured DNS server.
+ * Results are cached so repeated sign-in attempts don't hit DNS on every request.
+ * The check only exposes whether a domain is registered — public information —
+ * so it doesn't weaken the enumeration resistance of the login endpoints.
+ */
+const EMAIL_DOMAIN_CHECK_ENABLED = env.EMAIL_DOMAIN_CHECK;
+const EMAIL_DOMAIN_CACHE_TTL_MS = 5 * 60 * 1000;
+const emailDomainCache = new Map<string, { ok: boolean; checkedAt: number }>();
+
+async function emailDomainExists(email: string): Promise<boolean> {
+  const domain = email.split("@").pop()?.toLowerCase() ?? "";
+  if (!domain || !domain.includes(".")) return false;
+
+  if (!EMAIL_DOMAIN_CHECK_ENABLED) return true;
+
+  const cached = emailDomainCache.get(domain);
+  if (cached && Date.now() - cached.checkedAt < EMAIL_DOMAIN_CACHE_TTL_MS) return cached.ok;
+
+  let ok = false;
+  try {
+    await dns.promises.lookup(domain);
+    ok = true;
+  } catch {
+    ok = false;
+  }
+
+  emailDomainCache.set(domain, { ok, checkedAt: Date.now() });
+  return ok;
+}
+
+const invalidEmailMessage = "Please enter a valid email address.";
 
 // Same message for "no such user", "invited but not activated", and "suspended/disabled"
 // so a failed Google sign-in can't be used to probe which emails exist in the system.
@@ -234,6 +271,10 @@ export async function login(req: Request, res: Response): Promise<Response> {
 
   const { email, password, recaptchaToken } = parse.data;
 
+  if (!await emailDomainExists(email)) {
+    return res.status(400).json({ success: false, message: invalidEmailMessage });
+  }
+
   if (!await verifyRecaptcha(recaptchaToken, req.ip)) {
     return res.status(400).json({ success: false, message: "Captcha verification failed. Please try again." });
   }
@@ -380,11 +421,15 @@ export async function requestLoginOtp(req: Request, res: Response): Promise<Resp
     return res.status(400).json({ success: false, errors: parsed.error.format() });
   }
 
+  const { email } = parsed.data;
+  if (!await emailDomainExists(email)) {
+    return res.status(400).json({ success: false, message: invalidEmailMessage });
+  }
+
   if (!await verifyRecaptcha(parsed.data.recaptchaToken, req.ip)) {
     return res.status(400).json({ success: false, message: "Captcha verification failed. Please try again." });
   }
 
-  const { email } = parsed.data;
   const user = await User.findOne({ email })
     .select("+loginOtpHash +loginOtpExpiresAt +loginOtpAttempts +loginOtpSentAt")
     .exec();

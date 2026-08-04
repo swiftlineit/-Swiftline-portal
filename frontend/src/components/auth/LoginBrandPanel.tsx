@@ -243,6 +243,14 @@ function WorldMapBackdrop() {
 export function LoginBrandPanel() {
   return (
     <section className="relative order-2 h-auto min-w-0 lg:h-125 lg:order-1 lg:self-center lg:pr-8 bg-white shadow p-4 rounded-2xl">
+      <div
+    aria-hidden="true"
+    className="pointer-events-none absolute inset-0 flex items-center justify-center"
+  >
+    <span className="select-none text-[40rem] ml-120 font-semibold tracking-[-0.08em] text-blue-500/5">
+      SLC
+    </span>
+  </div>
       <WorldMapBackdrop />
 
       {/* Positioned so it paints above the absolute backdrop behind it. */}

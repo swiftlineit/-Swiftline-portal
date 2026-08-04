@@ -23,7 +23,7 @@ import {
   listAdminCreditAccounts,
   rejectCreditAccount
 } from "@/lib/creditAccounts";
-import { FINANCE_AREA } from "@/lib/roles";
+import { CREDIT_VIEW_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 const creditAccountStatuses: CreditAccountStatus[] = [
@@ -39,7 +39,10 @@ const creditAccountStatuses: CreditAccountStatus[] = [
 ];
 
 export default function AdminCreditAccountsPage() {
-  const { user, loading } = useAdminUser(FINANCE_AREA);
+  // Operations reads credit records; approving, activating, and rejecting stay
+  // with finance, matching the write guards on the credit router.
+  const { user, loading } = useAdminUser(CREDIT_VIEW_AREA);
+  const canSettle = user?.role === "admin" || user?.role === "finance";
   const [accounts, setAccounts] = useState<CreditAccount[]>([]);
   const [agreements, setAgreements] = useState<CreditAgreement[]>([]);
   const [status, setStatus] = useState<CreditAccountStatus | "">("");
@@ -301,6 +304,7 @@ export default function AdminCreditAccountsPage() {
   >
     <FiEye size={12} /> Account
   </Link>
+  {canSettle ? (
   <button
     type="button"
     onClick={() => setSelected(account)}
@@ -309,9 +313,10 @@ export default function AdminCreditAccountsPage() {
     style={{ borderColor: "#0D1282", color: "#0D1282" }}
   >Configure
     <GrDocumentConfig
- size={12} /> 
+ size={12} />
   </button>
-  {canGenerate ? (
+  ) : null}
+  {canSettle && canGenerate ? (
     <button
       type="button"
       onClick={() => void generateAgreement(account, agreement)}
@@ -334,7 +339,7 @@ export default function AdminCreditAccountsPage() {
       <FiEye size={12} /> View
     </button>
   ) : null}
-  {account.status === "APPROVED" ? (
+  {canSettle && account.status === "APPROVED" ? (
     <button
       type="button"
       onClick={() => void activate(account)}
@@ -346,7 +351,7 @@ export default function AdminCreditAccountsPage() {
       <FiCheck size={12} /> Activate
     </button>
   ) : null}
-  {['PENDING_REVIEW', 'APPROVED'].includes(account.status) ? (
+  {canSettle && ['PENDING_REVIEW', 'APPROVED'].includes(account.status) ? (
     <button
       type="button"
       onClick={() => void reject(account)}

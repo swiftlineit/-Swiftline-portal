@@ -239,7 +239,7 @@ export default function ShipmentInvoicePage({
           {parcels.map((parcel) => (
             <div key={parcel.sequence} className="border-t border-slate-950">
               <div className="bg-white px-3 py-2 text-center text-[11px] font-bold uppercase">
-                Box {parcel.sequence} | Dimensions: {formatDimensions(parcel)}
+                Box {parcel.sequence} | Dimensions(CM): {formatDimensions(parcel)}
               </div>
               <div className="grid grid-cols-[1.8fr_repeat(5,1fr)] border-t border-slate-950 text-center text-[11px]">
                 <div className="border-r border-slate-950 px-3 py-3 font-semibold uppercase">
@@ -413,7 +413,7 @@ function Meta({ label, text }: { label: string; text: string }) {
 function formatDimensions(parcel: ShipmentInvoiceParcel) {
   if (!parcel.lengthCm || !parcel.widthCm || !parcel.heightCm)
     return "Not provided";
-  return `${parcel.lengthCm.toFixed(2)} x ${parcel.widthCm.toFixed(2)} x ${parcel.heightCm.toFixed(2)} CM`;
+  return `${parcel.lengthCm.toFixed(2)} x ${parcel.widthCm.toFixed(2)} x ${parcel.heightCm.toFixed(2)} `;
 }
 
 function Total({

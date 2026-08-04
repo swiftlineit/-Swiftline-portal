@@ -31,7 +31,7 @@ import {
   type CreditAccount
 } from "@/lib/creditAccounts";
 import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
-import { FINANCE_AREA } from "@/lib/roles";
+import { CREDIT_VIEW_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 // Formats a minor-unit (paise) integer as an INR currency string.
@@ -57,7 +57,10 @@ const statementStatuses = ["ISSUED", "PARTIALLY_PAID", "PAID", "OVERDUE", "VOID"
 const paymentStatuses = ["CREATED", "PENDING_VERIFICATION", "PROCESSING", "VERIFIED", "FAILED"];
 
 export default function AdminCreditAccountDetailPage() {
-  const { user, loading: userLoading } = useAdminUser(FINANCE_AREA);
+  // Operations reads statements, payments, and the ledger. Recording payments,
+  // writing off, closing cycles, and lifecycle changes stay with finance.
+  const { user, loading: userLoading } = useAdminUser(CREDIT_VIEW_AREA);
+  const canSettle = user?.role === "admin" || user?.role === "finance";
   const params = useParams<{ businessAccountId: string }>();
   const accountId = params.businessAccountId;
 
@@ -280,17 +283,19 @@ export default function AdminCreditAccountDetailPage() {
               <FiDownload /> Export Ledger
             </button>
 
-            <button
-              type="button"
-              onClick={() => void closeCycle()}
-              disabled={busy === "cycle"}
-              className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 disabled:opacity-60"
-            >
-              <FiRefreshCw className={busy === "cycle" ? "animate-spin" : ""} /> Close Completed Cycle
-            </button>
+            {canSettle ? (
+              <button
+                type="button"
+                onClick={() => void closeCycle()}
+                disabled={busy === "cycle"}
+                className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 disabled:opacity-60"
+              >
+                <FiRefreshCw className={busy === "cycle" ? "animate-spin" : ""} /> Close Completed Cycle
+              </button>
+            ) : null}
 
             {/* Lifecycle actions are conditional on the account's current status */}
-            {account?.status === "ACTIVE" ? (
+            {canSettle && account?.status === "ACTIVE" ? (
               <button
                 type="button"
                 onClick={() => void runLifecycle("suspend")}
@@ -301,7 +306,7 @@ export default function AdminCreditAccountDetailPage() {
               </button>
             ) : null}
 
-            {account?.status === "SUSPENDED" ? (
+            {canSettle && account?.status === "SUSPENDED" ? (
               <button
                 type="button"
                 onClick={() => void runLifecycle("reactivate")}
@@ -312,7 +317,7 @@ export default function AdminCreditAccountDetailPage() {
               </button>
             ) : null}
 
-            {account && ["APPROVED", "ACTIVE", "SUSPENDED", "EXPIRED", "REJECTED"].includes(account.status) ? (
+            {canSettle && account && ["APPROVED", "ACTIVE", "SUSPENDED", "EXPIRED", "REJECTED"].includes(account.status) ? (
               <button
                 type="button"
                 onClick={() => void runLifecycle("close")}
@@ -406,7 +411,7 @@ export default function AdminCreditAccountDetailPage() {
                       <Link href={`/dashboard/credit-accounts/${accountId}/statements/${statement.id}`} className="font-semibold text-blue-900">
                         View
                       </Link>
-                      {statement.outstandingAmountMinor > 0 ? (
+                      {canSettle && statement.outstandingAmountMinor > 0 ? (
                         <button
                           type="button"
                           onClick={() => void writeOff(statement)}
@@ -491,7 +496,7 @@ export default function AdminCreditAccountDetailPage() {
                     <td className="px-4 py-4 text-right font-semibold">{money(payment.amountMinor)}</td>
                     <td className="px-4 py-4">{title(payment.status)}</td>
                     <td className="px-4 py-4 text-right">
-                      {payment.status === "PENDING_VERIFICATION" ? (
+                      {canSettle && payment.status === "PENDING_VERIFICATION" ? (
                         <button
                           type="button"
                           onClick={() => void verify(payment.id)}
@@ -517,6 +522,7 @@ export default function AdminCreditAccountDetailPage() {
             </div>
           </div>
 
+         {canSettle ? (
          <form onSubmit={recordPayment} className="h-fit border border-slate-200 bg-white p-5 rounded-2xl">
             <h2 className="font-semibold text-slate-950">Record Offline Payment</h2>
             <p className="mt-3 text-sm ">Admin-recorded payments are verified and allocated immediately.</p>
@@ -605,6 +611,7 @@ export default function AdminCreditAccountDetailPage() {
               {busy === "payment" ? "Applying..." : "Record and Apply"}
             </button>
           </form>
+         ) : null}
         </section>
 
         {/* Credit ledger table */}

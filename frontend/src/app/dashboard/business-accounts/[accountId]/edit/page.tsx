@@ -6,11 +6,12 @@ import { useEffect, useState } from "react";
 import BusinessAccountForm from "@/components/business-accounts/BusinessAccountForm";
 import { DashboardLoading } from "@/components/DashboardShell";
 import { BusinessAccount, getBusinessAccount } from "@/lib/businessAccounts";
+import { BUSINESS_ACCOUNT_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 export default function EditBusinessAccountPage() {
   const params = useParams<{ accountId: string }>();
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(BUSINESS_ACCOUNT_AREA);
   const [account, setAccount] = useState<BusinessAccount | null>(null);
   const [error, setError] = useState("");
   const [accountLoading, setAccountLoading] = useState(true);

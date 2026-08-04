@@ -17,6 +17,7 @@ import {
   IBusinessKycReview
 } from "../models/businessAccount.model.js";
 import { Branch } from "../models/branch.model.js";
+import { businessAccountBranchFilter } from "../middleware/businessAccountBranchAccess.middleware.js";
 import { notifyActiveAdmins, notifyBusinessAccountManagers } from "../services/portalNotification.service.js";
 import {
   BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX,
@@ -1075,7 +1076,12 @@ export async function listBusinessAccounts(request: Request, response: Response)
     ];
   }
 
-  const query = BusinessAccount.find(filters)
+  // Operations sees only its own branches' accounts. The scope is `$and`-ed on
+  // rather than merged, so it cannot be widened by the `$or` the search builds.
+  const scope = await businessAccountBranchFilter(request);
+  const scopedFilters = scope ? { $and: [filters, scope] } : filters;
+
+  const query = BusinessAccount.find(scopedFilters)
     .populate("createdBy", "email name")
     .populate("assignedBranch", "name code status")
     .sort({ createdAt: -1 });
@@ -1088,7 +1094,7 @@ export async function listBusinessAccounts(request: Request, response: Response)
   if (Number.isInteger(requestedPage) && requestedPage >= 1) {
     const requestedSize = typeof request.query.pageSize === "string" ? Number.parseInt(request.query.pageSize, 10) : NaN;
     const pageSize = Number.isInteger(requestedSize) ? Math.min(Math.max(requestedSize, 1), 100) : 10;
-    const total = await BusinessAccount.countDocuments(filters);
+    const total = await BusinessAccount.countDocuments(scopedFilters);
     const accounts = await query.skip((requestedPage - 1) * pageSize).limit(pageSize).lean().exec();
 
     return response.status(200).json({

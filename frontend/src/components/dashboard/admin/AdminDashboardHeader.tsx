@@ -42,7 +42,7 @@ export default function AdminDashboardHeader({ user }: { user: AuthenticatedUser
         </div>
 
         <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-700  sm:text-[28px]">
-          {greeting()},<span className="tracking-wide text-black"> {firstName(user)}</span>
+          {greeting()},<span className="tracking-wide text-black capitalize"> {firstName(user)}</span>
         </h1>
         <p className="mt-1 max-w-xl text-sm leading-6 text-slate-600">
           Here is the state of Swiftline Cargo operations for your role: shipment flow, the queues waiting on

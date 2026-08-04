@@ -32,6 +32,7 @@ import {
   getBusinessAccountDocument,
   updateBusinessAccountKycReview,
 } from "@/lib/businessAccounts";
+import { BUSINESS_ACCOUNT_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { useDialog } from "@/lib/useDialog";
 
@@ -205,7 +206,7 @@ function tabFromLocationHash(): DetailTab {
 
 export default function BusinessAccountDetailsPage() {
   const params = useParams<{ accountId: string }>();
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(BUSINESS_ACCOUNT_AREA);
   const [account, setAccount] = useState<BusinessAccount | null>(null);
   const [error, setError] = useState("");
   const [accountLoading, setAccountLoading] = useState(true);

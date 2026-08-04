@@ -45,8 +45,29 @@ export function describeRole(role?: string) {
 /** Booking, manifests, amendments, cancellations, quotes, and tickets. */
 export const OPERATIONS_AREA: readonly PortalRole[] = ["operations"];
 
+/**
+ * Business accounts: onboarding, KYC review, branch assignment, and client
+ * access. Operations holds the same actions as admin here, but the server scopes
+ * what it lists to the branches that member is assigned to.
+ */
+export const BUSINESS_ACCOUNT_AREA: readonly PortalRole[] = ["operations"];
+
+/**
+ * Reading the branch network. Operations needs it for the booking flow and the
+ * business account branch picker; creating and editing branches stays admin-only,
+ * so pages here check `role === "admin"` before offering a write control.
+ */
+export const BRANCH_VIEW_AREA: readonly PortalRole[] = ["operations"];
+
 /** Credit, rate cards, and tax invoices. */
 export const FINANCE_AREA: readonly PortalRole[] = ["finance"];
+
+/**
+ * Credit accounts, statements, payments, and the ledger. Operations reads these
+ * to answer client questions; approvals, payments, and write-offs stay with
+ * finance, so pages here gate write controls on the role.
+ */
+export const CREDIT_VIEW_AREA: readonly PortalRole[] = ["finance", "operations"];
 
 /** Shipment lists, shipment detail, and tracking. */
 export const SHIPMENT_VIEW_AREA: readonly PortalRole[] = ["operations", "delivery"];

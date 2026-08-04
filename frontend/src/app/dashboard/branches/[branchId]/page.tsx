@@ -52,6 +52,7 @@ import {
   ticketCategories,
   type SupportTicket,
 } from "@/lib/supportTickets";
+import { BRANCH_VIEW_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 type BranchTab =
@@ -143,7 +144,10 @@ type FilePreview = { storedPath: string; fileName: string; title: string };
 export default function BranchDetailPage() {
   const params = useParams<{ branchId: string }>();
   const router = useRouter();
-  const { user, loading } = useAdminUser();
+  // Read-only for operations: the edit link and status control below are gated
+  // on `canManage`, mirroring the admin-only writes on the branch router.
+  const { user, loading } = useAdminUser(BRANCH_VIEW_AREA);
+  const canManage = user?.role === "admin";
   const [branch, setBranch] = useState<Branch | null>(null);
   const [linkedAccounts, setLinkedAccounts] = useState<BusinessAccount[]>([]);
   const [activeTab, setActiveTab] = useState<BranchTab>("overview");
@@ -391,7 +395,7 @@ export default function BranchDetailPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              {branch && branchStatusTransitions[branch.status].length ? (
+              {canManage && branch && branchStatusTransitions[branch.status].length ? (
                 <div className="relative w-44">
                   <select
                     value=""
@@ -422,7 +426,7 @@ export default function BranchDetailPage() {
                   />
                 </div>
               ) : null}
-              {branch ? (
+              {canManage && branch ? (
                 <Link
                   href={`/dashboard/branches/${branch._id}/edit`}
                   className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 px-4 py-2.5 text-sm font-semibold shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] hover:text-white"

@@ -254,6 +254,30 @@ export async function ensureShipmentInvoiceForDraft(input: {
     email: asString(snapshotSenderContact.email) || branch.contact.email || "",
     phone: asString(snapshotSenderContact.phone) || branch.contact.phone || ""
   };
+  // A business account may keep a billing address separate from its registered
+  // company address. When it does, that address is the one the tax invoice bills
+  // to; otherwise the registered address stands in.
+  const separateBilling = asRecord(
+    asRecord(snapshotCompany.billingAddress).addressLine1 ? snapshotCompany.billingAddress : account.company.billingAddress
+  );
+  const usesCompanyAddress = Boolean(
+    snapshotCompany.useCompanyAddressAsBillingAddress ?? account.company.useCompanyAddressAsBillingAddress
+  );
+  const separateBillingAddressLine = usesCompanyAddress ? "" : addressLine([
+    asString(separateBilling.addressLine1),
+    asString(separateBilling.addressLine2),
+    asString(separateBilling.city),
+    asString(separateBilling.stateOrProvince),
+    asString(separateBilling.postalCode),
+    asString(separateBilling.country)
+  ]);
+  const registeredAddressLine = addressLine([
+    asString(snapshotCompany.registeredAddress) || account.company.registeredAddress,
+    asString(snapshotCompany.city) || account.company.city,
+    customerState,
+    asString(snapshotCompany.postalCode) || account.company.postalCode,
+    asString(snapshotCompany.addressCountry) || account.company.addressCountry
+  ]);
   const customer = {
     accountId: asString(snapshotAccount.accountId) || account.accountId,
     companyName: asString(snapshotCompany.companyName) || account.company.companyName,
@@ -261,13 +285,7 @@ export async function ensureShipmentInvoiceForDraft(input: {
     gstin: customerGstin,
     state: customerState,
     stateCode: customerGstin.slice(0, 2),
-    billingAddress: addressLine([
-      asString(snapshotCompany.registeredAddress) || account.company.registeredAddress,
-      asString(snapshotCompany.city) || account.company.city,
-      customerState,
-      asString(snapshotCompany.postalCode) || account.company.postalCode,
-      asString(snapshotCompany.addressCountry) || account.company.addressCountry
-    ]),
+    billingAddress: separateBillingAddressLine || registeredAddressLine,
     email: asString(snapshotContact.email) || account.contact.email,
     phone: `${asString(snapshotContact.countryCode) || account.contact.countryCode} ${asString(snapshotContact.mobileNumber) || account.contact.mobileNumber}`.trim()
   };

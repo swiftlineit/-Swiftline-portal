@@ -20,16 +20,24 @@ import {
   validateBusinessAccountUniqueness
 } from "../controllers/businessAccount.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
+import { requireBusinessAccountBranch } from "../middleware/businessAccountBranchAccess.middleware.js";
 import { businessDocumentUpload } from "../middleware/businessDocumentUpload.middleware.js";
 
 export const businessAccountRouter = Router();
 
 businessAccountRouter.use(attachUser);
-businessAccountRouter.use(requireRole("admin"));
+businessAccountRouter.use(requireRole("admin", "operations"));
 
+// Collection routes come first: they are answered before the `/:accountId` guard
+// below is reached, which would otherwise treat "validate-unique" as an account.
 businessAccountRouter.get("/", listBusinessAccounts);
 businessAccountRouter.get("/validate-unique", validateBusinessAccountUniqueness);
 businessAccountRouter.post("/", businessDocumentUpload, createBusinessAccount);
+
+// Admin passes straight through; operations only reaches its own branches'
+// accounts. `listBusinessAccounts` applies the same scope to the collection.
+businessAccountRouter.use("/:accountId", requireBusinessAccountBranch);
+
 businessAccountRouter.get("/:accountId", getBusinessAccount);
 businessAccountRouter.get("/:accountId/members", listBusinessAccountMembers);
 businessAccountRouter.post("/:accountId/client-access", createBusinessAccountClientAccess);

@@ -11,9 +11,15 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const creditAgreementRouter = Router();
 
 creditAgreementRouter.use(attachUser);
-creditAgreementRouter.use(requireRole("admin", "finance"));
+// Read-only for operations, alongside the rest of the credit records. Drafting
+// and generating an agreement commits the company to terms, so both stay with
+// finance.
+creditAgreementRouter.use(requireRole("admin", "finance", "operations"));
+
+const requireFinance = requireRole("admin", "finance");
+
 creditAgreementRouter.get("/", listAdminCreditAgreements);
-creditAgreementRouter.post("/business-accounts/:businessAccountId/drafts", createAdminCreditAgreementDraft);
-creditAgreementRouter.post("/:agreementId/generate", generateAdminCreditAgreement);
+creditAgreementRouter.post("/business-accounts/:businessAccountId/drafts", requireFinance, createAdminCreditAgreementDraft);
+creditAgreementRouter.post("/:agreementId/generate", requireFinance, generateAdminCreditAgreement);
 creditAgreementRouter.get("/:agreementId/pdf", getAdminCreditAgreementPdf);
 creditAgreementRouter.get("/:agreementId", getAdminCreditAgreement);

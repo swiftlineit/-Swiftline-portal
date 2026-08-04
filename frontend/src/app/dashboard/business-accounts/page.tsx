@@ -21,12 +21,13 @@ import {
 } from "@/lib/businessAccounts";
 import { Branch, listBranches } from "@/lib/branches";
 import { CreditAccount, listAdminCreditAccounts } from "@/lib/creditAccounts";
+import { BUSINESS_ACCOUNT_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { FiSearch } from "react-icons/fi";
 
 export default function BusinessAccountsPage() {
   const router = useRouter();
-  const { user, loading } = useAdminUser();
+  const { user, loading } = useAdminUser(BUSINESS_ACCOUNT_AREA);
   const [accounts, setAccounts] = useState<BusinessAccount[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<BusinessAccountStatus | "all">("all");

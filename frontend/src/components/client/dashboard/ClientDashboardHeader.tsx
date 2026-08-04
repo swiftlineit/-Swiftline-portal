@@ -61,7 +61,7 @@ export default function ClientDashboardHeader({
           </div>
 
           <h1 className="mt-3 text-2xl font-semibold tracking-wide text-slate-700 sm:text-[28px]">
-            {greeting()},<span className="tracking-wide text-black"> {getDisplayName(user)}</span>
+            {greeting()},<span className="tracking-wide text-black capitalize"> {getDisplayName(user)}</span>
           </h1>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
             {selectedAccount?.account.company.companyName || "Customer Dashboard"}

@@ -28,6 +28,9 @@ import {
 import { BsCurrencyRupee } from "react-icons/bs";
 import {
   ALL_STAFF_AREA,
+  BRANCH_VIEW_AREA,
+  BUSINESS_ACCOUNT_AREA,
+  CREDIT_VIEW_AREA,
   FINANCE_AREA,
   OPERATIONS_AREA,
   SHIPMENT_VIEW_AREA,
@@ -54,19 +57,19 @@ const navigationItems = [
     label: "Business Accounts",
     href: "/dashboard/business-accounts",
     icon: FiBriefcase,
-    roles: ["admin"],
+    roles: withAdmin(BUSINESS_ACCOUNT_AREA),
   },
   {
     label: "Credit Accounts",
     href: "/dashboard/credit-accounts",
     icon: FiCreditCard,
-    roles: withAdmin(FINANCE_AREA),
+    roles: withAdmin(CREDIT_VIEW_AREA),
   },
   {
     label: "Branches",
     href: "/dashboard/branches",
     icon: FiMapPin,
-    roles: ["admin"],
+    roles: withAdmin(BRANCH_VIEW_AREA),
   },
   // {
   //   label: "Create Shipment",

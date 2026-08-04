@@ -6,13 +6,15 @@ import type { serializeShipmentInvoice } from "./shipmentInvoice.service.js";
 
 type ShipmentInvoiceDocument = ReturnType<typeof serializeShipmentInvoice>;
 
+// The built-in Helvetica face is WinAnsi encoded and has no rupee glyph, so a
+// symbol-style format renders as a stray superscript. The currency code is
+// printed instead, matching the credit billing statement PDF.
 function money(minor: number, currency: string) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
+  const amount = new Intl.NumberFormat("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(minor / 100);
+  return `${currency} ${amount}`;
 }
 
 function date(value: Date) {
@@ -29,13 +31,25 @@ function numberValue(record: Record<string, unknown>, key: string) {
   return Number.isFinite(value) ? value : 0;
 }
 
+const columns = [42, 220, 285, 350, 415, 480, 549];
+
 function dimensions(record: Record<string, unknown>) {
   const length = numberValue(record, "lengthCm");
   const width = numberValue(record, "widthCm");
   const height = numberValue(record, "heightCm");
   return length && width && height
-    ? `${length.toFixed(2)} x ${width.toFixed(2)} x ${height.toFixed(2)} CM`
-    : "Not provided";
+    ? `${length.toFixed(2)} x ${width.toFixed(2)} x ${height.toFixed(2)}`
+    : "";
+}
+
+function boxLabel(record: Record<string, unknown>, sequence: string) {
+  const size = dimensions(record);
+  return size ? `BOX ${sequence} | DIMENSIONS (CM): ${size}` : `BOX ${sequence} | DIMENSIONS: Not provided`;
+}
+
+function drawColumnSeparators(doc: PDFKit.PDFDocument, y: number, height: number, color: string) {
+  doc.lineWidth(0.5).strokeColor(color);
+  for (const x of columns.slice(1, -1)) doc.moveTo(x, y).lineTo(x, y + height).stroke();
 }
 
 function drawLabelValue(doc: PDFKit.PDFDocument, label: string, value: string, x: number, y: number, width: number) {
@@ -63,10 +77,13 @@ function drawPartyBox(
 }
 
 function drawTaxRow(doc: PDFKit.PDFDocument, label: string, amountMinor: number, y: number, currency: string, bold = false) {
+  const height = bold ? 22 : 18;
+  doc.lineWidth(0.5).strokeColor("#94a3b8");
+  doc.rect(350, y - 4, 199, height).stroke();
+  doc.moveTo(455, y - 4).lineTo(455, y - 4 + height).stroke();
   doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(bold ? 11 : 9).fillColor("#0f172a");
-  doc.text(label, 354, y, { width: 105 });
-  doc.text(money(amountMinor, currency), 459, y, { width: 90, align: "right" });
-  doc.moveTo(350, y + 15).lineTo(549, y + 15).strokeColor("#cbd5e1").stroke();
+  doc.text(label, 354, y, { width: 97 });
+  doc.text(money(amountMinor, currency), 459, y, { width: 86, align: "right" });
 }
 
 export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
@@ -82,9 +99,8 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   if (fs.existsSync(logoPath)) doc.image(logoPath, 42, 38, { fit: [190, 58] });
   doc.font("Helvetica-Bold").fontSize(16).fillColor("#0f172a").text(invoice.status === "ISSUED" ? "TAX INVOICE" : "DRAFT TAX INVOICE", 310, 42, { width: 239, align: "right" });
   doc.font("Helvetica").fontSize(8).text(`Invoice No: ${invoice.invoiceNumber}`, 310, 66, { width: 239, align: "right" });
-  doc.text(`Version: Invoice ${invoice.revision}`, 310, 78, { width: 239, align: "right" });
-  doc.text(`Invoice Date: ${date(invoice.issuedAt)}`, 310, 90, { width: 239, align: "right" });
-  doc.text(`Reference: ${textValue(shipment, "shipmentReference")}`, 310, 102, { width: 239, align: "right" });
+  doc.text(`Invoice Date: ${date(invoice.issuedAt)}`, 310, 78, { width: 239, align: "right" });
+  doc.text(`Reference: ${textValue(shipment, "shipmentReference")}`, 310, 90, { width: 239, align: "right" });
   doc.moveTo(42, 116).lineTo(549, 116).lineWidth(1.5).strokeColor("#0f172a").stroke();
 
   drawPartyBox(doc, "Supplier / Shipper Branch", supplier, 42, 132, 247, true);
@@ -97,8 +113,8 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   drawLabelValue(doc, "Boxes", String(parcels.length), 423, detailY, 126);
 
   let y = 310;
-  const columns = [42, 220, 285, 350, 415, 480, 549];
   doc.rect(42, y, 507, 25).fill("#0f2f5f");
+  drawColumnSeparators(doc, y, 25, "#ffffff");
   const headers = ["Description", "Actual KG", "Volumetric KG", "Chargeable KG", "Rate/KG", "Amount"];
   doc.font("Helvetica-Bold").fontSize(7).fillColor("#ffffff");
   headers.forEach((header, index) => doc.text(header, columns[index]! + 4, y + 9, {
@@ -113,15 +129,18 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
       doc.addPage();
       y = 48;
     }
-    doc.rect(42, y, 507, 22).fill("#f8fafc").strokeColor("#0f172a").stroke();
+    doc.lineWidth(0.75);
+    doc.rect(42, y, 507, 22).fillAndStroke("#f8fafc", "#0f172a");
     doc.font("Helvetica-Bold").fontSize(8).fillColor("#0f172a").text(
-      `BOX ${String(parcel.sequence ?? index + 1)} | DIMENSIONS: ${dimensions(parcel)}`,
+      boxLabel(parcel, String(parcel.sequence ?? index + 1)),
       48,
       y + 7,
       { width: 495, align: "center" }
     );
     y += 22;
-    doc.rect(42, y, 507, 28).fill("#ffffff").strokeColor("#0f172a").stroke();
+    doc.lineWidth(0.75);
+    doc.rect(42, y, 507, 28).fillAndStroke("#ffffff", "#0f172a");
+    drawColumnSeparators(doc, y, 28, "#0f172a");
     const values = [
       textValue(parcel, "contentsDescription").toUpperCase(),
       numberValue(parcel, "actualWeightKg").toFixed(3),
@@ -147,7 +166,9 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
       doc.addPage();
       y = 48;
     }
-    doc.rect(42, y, 507, 28).fill("#ffffff").strokeColor("#0f172a").stroke();
+    doc.lineWidth(0.75);
+    doc.rect(42, y, 507, 28).fillAndStroke("#ffffff", "#0f172a");
+    doc.lineWidth(0.5).strokeColor("#0f172a").moveTo(columns[5]!, y).lineTo(columns[5]!, y + 28).stroke();
     doc.font("Helvetica-Bold").fontSize(7).fillColor("#0f172a").text(
       "CSB-V CLEARANCE CHARGE",
       columns[0]! + 4,
@@ -177,8 +198,8 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   drawTaxRow(doc, "Total Chargeable", invoice.totalAmountMinor, y + 58, invoice.currency, true);
 
   const wordsY = y + 92;
-  doc.rect(42, wordsY, 507, 44).strokeColor("#cbd5e1").stroke();
-  doc.font("Helvetica-Bold").fontSize(8).text("Amount in words", 52, wordsY + 8);
+  doc.lineWidth(1).rect(42, wordsY, 507, 44).strokeColor("#cbd5e1").stroke();
+  doc.font("Helvetica-Bold").fontSize(8).fillColor("#0f172a").text("Amount in words", 52, wordsY + 8);
   doc.font("Helvetica").fontSize(8).text(amountMinorToWords(invoice.totalAmountMinor, invoice.currency), 52, wordsY + 21, { width: 487 });
 
   const declarationY = wordsY + 58;

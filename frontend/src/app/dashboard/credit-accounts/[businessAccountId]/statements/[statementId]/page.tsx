@@ -12,7 +12,7 @@ import {
   type CreditStatement,
 } from "@/lib/creditBilling";
 import { formatDashboardDate } from "@/lib/dateFormat";
-import { FINANCE_AREA } from "@/lib/roles";
+import { CREDIT_VIEW_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 function money(valueMinor: number) {
@@ -24,7 +24,7 @@ function money(valueMinor: number) {
 }
 
 export default function AdminCreditStatementDetailPage() {
-  const { user, loading: userLoading } = useAdminUser(FINANCE_AREA);
+  const { user, loading: userLoading } = useAdminUser(CREDIT_VIEW_AREA);
   const params = useParams<{
     businessAccountId: string;
     statementId: string;

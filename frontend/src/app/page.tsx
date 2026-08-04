@@ -20,6 +20,7 @@ import {
   FiSmartphone,
   FiUserCheck
 } from "react-icons/fi";
+import { LuSquareMousePointer } from "react-icons/lu";
 import { BsHeadset } from "react-icons/bs";
 import { apiUrl } from "@/lib/api";
 import {
@@ -79,11 +80,25 @@ function formatCountdown(totalSeconds: number) {
   return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
+/**
+ * Format check for the email fields. Only catches structural problems — the
+ * authoritative check on whether a domain actually exists happens on the server.
+ * `gmail.cos` is syntactically valid, so it passes here and is rejected there.
+ */
+const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/;
+
+function getEmailFormatError(value: string): string | null {
+  const email = value.trim();
+  if (!email) return "Enter your email address.";
+  return EMAIL_FORMAT.test(email) ? null : "Please enter a valid email address.";
+}
+
 export default function Home() {
   const router = useRouter();
   const [tab, setTab] = useState<LoginTab>("email");
   const [view, setView] = useState<AuthView>("otp-request");
   const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -182,6 +197,11 @@ export default function Home() {
 
   const sendCode = async () => {
     setError("");
+    const formatError = getEmailFormatError(email);
+    if (formatError) {
+      setEmailError(formatError);
+      return;
+    }
     setLoading(true);
 
     try {
@@ -233,6 +253,11 @@ export default function Home() {
     event.preventDefault();
     setError("");
     setNotice("");
+    const formatError = getEmailFormatError(email);
+    if (formatError) {
+      setEmailError(formatError);
+      return;
+    }
     setLoading(true);
 
     try {
@@ -271,7 +296,7 @@ export default function Home() {
     // a frame that stays put beats either a clipped footer or a scrolling page.
     <div className="flex min-h-screen flex-col bg-[#F6F8FC] text-slate-900 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
       <header className="shrink-0 border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-350 items-center gap-10 px-5 py-3 sm:px-8 lg:py-2.5">
+        <div className="mx-auto flex w-full max-w-350 items-center gap-5 px-5 py-3 sm:px-8 lg:py-2.5">
           <Link href="/" className="shrink-0" aria-label="Swiftline Cargo and Express Logistics">
             <Image
               src="/slclogo1.png"
@@ -301,7 +326,7 @@ export default function Home() {
             </p></div>
           </div>
 
-          <a
+          <Link
             href={SUPPORT_PHONE_HREF}
             className="ml-auto flex shrink-0 items-center gap-1.5 mr-10 rounded-lg px-2 py-1 transition hover:bg-slate-50"
           >
@@ -312,7 +337,12 @@ export default function Home() {
               <span className="block text-sm font-bold leading-tight text-[#0D1282]">{SUPPORT_PHONE}</span>
               <span className="block text-[11px] text-slate-500">{SUPPORT_EMAIL}</span>
             </span>
-          </a>
+          </Link>
+
+          <Link href="https://www.swiftlinefreight.com" target="_blank" className="shrink-0 flex gap-2 text-blue-900 align-middle justify-center">
+          <LuSquareMousePointer className=" text-2xl text-black"/>
+          <span>  swiftlinefreight.com</span>
+          </Link>
         </div>
       </header>
 
@@ -418,9 +448,16 @@ export default function Home() {
                     autoComplete="email"
                     required
                     value={email}
-                    onChange={(event) => setEmail(event.target.value)}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                      setEmailError("");
+                    }}
                     placeholder="Enter your email address"
-                    className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-3.5 pr-10 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0D1282] focus:ring-4 focus:ring-[#0D1282]/10"
+                    className={`w-full rounded-xl border bg-white py-2.5 pl-3.5 pr-10 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:ring-4 focus:ring-[#0D1282]/10 ${
+                      emailError
+                        ? "border-[#B3121A] focus:border-[#B3121A]"
+                        : "border-slate-300 focus:border-[#0D1282]"
+                    }`}
                   />
                   <FiMail
                     size={16}
@@ -428,6 +465,11 @@ export default function Home() {
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400"
                   />
                 </div>
+                {emailError ? (
+                  <p role="alert" className="mt-1.5 text-[12px] font-medium text-[#B3121A]">
+                    {emailError}
+                  </p>
+                ) : null}
 
                 <button
                   type="submit"
@@ -510,9 +552,16 @@ export default function Home() {
                     autoComplete="email"
                     required
                     value={email}
-                    onChange={(event) => setEmail(event.target.value)}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+                      setEmailError("");
+                    }}
                     placeholder="Enter your email address"
-                    className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-3.5 pr-10 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0D1282] focus:ring-4 focus:ring-[#0D1282]/10"
+                    className={`w-full rounded-xl border bg-white py-2.5 pl-3.5 pr-10 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:ring-4 focus:ring-[#0D1282]/10 ${
+                      emailError
+                        ? "border-[#B3121A] focus:border-[#B3121A]"
+                        : "border-slate-300 focus:border-[#0D1282]"
+                    }`}
                   />
                   <FiMail
                     size={16}
@@ -520,6 +569,11 @@ export default function Home() {
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400"
                   />
                 </div>
+                {emailError ? (
+                  <p role="alert" className="mt-1.5 text-[12px] font-medium text-[#B3121A]">
+                    {emailError}
+                  </p>
+                ) : null}
 
                 <div className="mt-3 flex items-center justify-between gap-3">
                   <label htmlFor="password" className="block text-sm font-medium text-slate-700">
@@ -652,7 +706,7 @@ export default function Home() {
           {/* `hide-on-short-desktop` is defined in globals.css — see the note
               there on why this one rule is not a Tailwind utility. */}
           <div className="hide-on-short-desktop mt-3 flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2">
-            <FiHeadphones size={17} className="shrink-0 text-[#0D1282]" aria-hidden="true" />
+            <BsHeadset size={17} className="shrink-0 text-[#0D1282]" aria-hidden="true" />
             <div className="min-w-0">
               <p className="text-[12.5px] font-bold text-slate-800">Need Help?</p>
               <p className="text-[10.5px] text-slate-500">Our support team is available 24/7</p>
