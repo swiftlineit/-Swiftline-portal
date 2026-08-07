@@ -28,7 +28,8 @@ import {
   type DpdProviderMode
 } from "./dpdProviderConfiguration.service.js";
 import { saveLabelBuffer } from "./labelStorage.service.js";
-import { calculateShipmentPricingEstimate } from "./shipmentPricing.service.js";
+import { buildPricingInputFromDraft, calculateShipmentPricingEstimate } from "./shipmentPricing.service.js";
+import { assertPriceLockUnchanged } from "./shipmentCostEstimate.service.js";
 import {
   renderSimulatedDpdLabelPdf,
   renderSwiftlineLabelPdf
@@ -46,6 +47,7 @@ import {
 } from "./shipmentBookingSnapshot.service.js";
 import {
   completeShipmentBookingCharge,
+  recordCounterShipmentCharge,
   markShipmentBookingChargeConsuming,
   markShipmentBookingChargeReviewRequired,
   releaseShipmentBookingCharge,
@@ -70,17 +72,29 @@ function createIdempotencyKey(shipmentDraftId: mongoose.Types.ObjectId, bookingA
   return `SHIPMENT_BOOKING:${shipmentDraftId.toString()}:${bookingAttemptId}`;
 }
 
+/**
+ * The price the booker was shown and accepted, from the cost estimate endpoint.
+ *
+ * Carried on both arms of the union so a client and an admin booking are held to
+ * the same check. Optional because counter sales and seed scripts book drafts
+ * that were never quoted, and there is no accepted price for those to differ from.
+ */
+type AcceptedPricing = { acceptedPricingHash?: string };
+
 type LabelPaymentContext =
-  | {
+  | ({
+      // ADMIN_DIRECT is a walk-in booked at the counter: the customer has already
+      // paid into a company account, so there is no credit to reserve. Staying in
+      // the admin arm of this union keeps clients unable to book one.
       actor: "admin";
-      paymentSource?: Extract<PaymentSource, "BUSINESS_ACCOUNT" | "TEST">;
+      paymentSource?: Extract<PaymentSource, "BUSINESS_ACCOUNT" | "ADMIN_DIRECT" | "TEST">;
       bookingProvider?: ShipmentBookingProvider;
-    }
-  | {
+    } & AcceptedPricing)
+  | ({
       actor: "client";
       paymentSource: Extract<PaymentSource, "BUSINESS_ACCOUNT">;
       bookingProvider?: ShipmentBookingProvider;
-    };
+    } & AcceptedPricing);
 
 function getShippingEnvironment(mode: DpdProviderMode): ShippingEnvironment {
   return mode === "LIVE" ? "PRODUCTION" : "MOCK";
@@ -253,7 +267,11 @@ export async function createLabelForShipmentDraft(
 ) {
   const paymentContext = normalizePaymentContext(paymentContextInput);
   const bookingProvider = paymentContext.bookingProvider ?? "DPD";
-  const usesBusinessAccountBilling = paymentContext.paymentSource !== "TEST";
+  // Only account-backed bookings reserve capacity. TEST never did; ADMIN_DIRECT is
+  // a counter sale that was paid before the booking was made, so there is nothing
+  // to reserve, convert or release for it.
+  const usesBusinessAccountBilling = paymentContext.paymentSource !== "TEST"
+    && paymentContext.paymentSource !== "ADMIN_DIRECT";
   const draft = await ShipmentDraft.findById(shipmentDraftId).exec();
   if (!draft) throw new DpdShipmentServiceError("Shipment draft not found", 404);
 
@@ -350,12 +368,7 @@ export async function createLabelForShipmentDraft(
     });
   }
 
-  const pricing = await calculateShipmentPricingEstimate({
-    countryCode: lockedDraft.consigneeEnteredAddress.countryCode,
-    serviceType: lockedDraft.serviceType,
-    parcels: lockedDraft.parcelList,
-    csbType: lockedDraft.csbType
-  });
+  const pricing = await calculateShipmentPricingEstimate(buildPricingInputFromDraft(lockedDraft));
   if (pricing.missingRate) {
     await transitionShipmentDraftBooking({
       shipmentDraftId: lockedDraft._id as mongoose.Types.ObjectId,
@@ -366,6 +379,24 @@ export async function createLabelForShipmentDraft(
       `Rates are not available for ${lockedDraft.consigneeEnteredAddress.countryName || lockedDraft.consigneeEnteredAddress.countryCode} with ${lockedDraft.serviceType === "CARGO" ? "Cargo" : "Courier"} service. Please contact ${branch.name} to arrange this shipment.`,
       409
     );
+  }
+
+  // Checked before anything is reserved or sent to the carrier, so a shipment
+  // whose price moved is stopped while it is still cleanly abandonable. The draft
+  // is returned to EDITABLE and the booker is shown what changed.
+  try {
+    assertPriceLockUnchanged({
+      acceptedPricingHash: paymentContext.acceptedPricingHash,
+      currentPricing: pricing,
+      requireAcceptedPricing: usesBusinessAccountBilling
+    });
+  } catch (error) {
+    await transitionShipmentDraftBooking({
+      shipmentDraftId: lockedDraft._id as mongoose.Types.ObjectId,
+      bookingAttemptId,
+      bookingState: "EDITABLE"
+    });
+    throw error;
   }
 
   let advanceAmountMinor = 0;
@@ -380,6 +411,13 @@ export async function createLabelForShipmentDraft(
       });
       advanceAmountMinor = reservationResult.reservation?.advanceAmountMinor ?? 0;
       creditAmountMinor = reservationResult.reservation?.creditAmountMinor ?? creditAmountMinor;
+    } else if (paymentContext.paymentSource === "ADMIN_DIRECT") {
+      // Already paid at the counter. Record the charge so the amendment and
+      // cancellation flows have one to read, and treat the whole amount as
+      // settled so the invoice is issued PAID rather than as credit owed.
+      await recordCounterShipmentCharge({ draft: lockedDraft, pricing });
+      advanceAmountMinor = Math.round(pricing.totalAmount * 100);
+      creditAmountMinor = 0;
     }
   } catch (error) {
     await transitionShipmentDraftBooking({

@@ -21,7 +21,6 @@ import {
   reopenOperationsBag,
   scanOperationsParcel,
   sealOperationsManifest,
-  updateParcelValue,
   updateOperationsManifest
 } from "../services/operationsManifest.service.js";
 import { operationsBranchIds, operationsUser } from "../middleware/operationsBranchAccess.middleware.js";
@@ -80,7 +79,7 @@ export async function listBranchOptions(request: Request, response: Response) {
 }
 
 export async function listManifests(request: Request, response: Response) {
-  const query = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(50).default(15), status: z.string().optional(), branchId: z.string().optional(), date: z.string().optional() }).safeParse(request.query);
+  const query = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(50).default(15), status: z.string().optional(), branchId: z.string().optional(), dateFrom: z.string().optional(), dateTo: z.string().optional() }).safeParse(request.query);
   if (!query.success) return response.status(400).json({ success: false, message: "Manifest filters are invalid." });
   const allowedBranches = operationsBranchIds(request);
   if (query.data.branchId && allowedBranches !== null && !allowedBranches.includes(query.data.branchId)) {
@@ -158,19 +157,6 @@ export async function scanParcel(request: Request, response: Response) {
         userId: actorId
       }))
     });
-  } catch (error) { return sendError(response, error); }
-}
-
-export async function setGoodsValue(request: Request, response: Response) {
-  try {
-    const actorId = userId(request);
-    const input = parsedBody(response, z.object({
-      parcelNumber: z.string().trim().min(1, "Select the parcel to value."),
-      valueMinor: z.number().int().min(1, "Goods value must be greater than zero.")
-    }), request.body);
-    if (!actorId || !input) return;
-    await updateParcelValue({ manifestId: String(request.params.manifestId), consignmentId: String(request.params.consignmentId), ...input, userId: actorId });
-    return response.json({ success: true, message: "Goods value updated." });
   } catch (error) { return sendError(response, error); }
 }
 

@@ -14,6 +14,8 @@ import CustomsInvoiceCard from "@/components/shipments/CustomsInvoiceCard";
 import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel";
 import ShipmentCancellationPanel from "@/components/shipments/ShipmentCancellationPanel";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
+import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/components/shipments/ShipmentKycDocumentsPanel";
+import ClientPodPanel from "@/components/pods/ClientPodPanel";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
 import {
@@ -21,6 +23,8 @@ import {
   createClientShipmentAmendment,
   getClientShipmentLabelAccessUrl,
   getClientShipmentDetails,
+  openClientShipmentKycDocument,
+  openClientShipmentParcelKycDocument,
   previewClientShipmentAmendment
 } from "@/lib/clientDashboard";
 import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
@@ -195,6 +199,14 @@ export default function ClientShipmentDetailsPage() {
   const totalWeight = useMemo(() => (
     shipment?.shipmentDraft.parcelList.reduce((total, parcel) => total + (Number(parcel.weightKg) || 0), 0) ?? 0
   ), [shipment]);
+  const kycDocuments = useMemo(
+    () => shipment ? collectShipmentKycDocuments({
+      documents: shipment.shipmentDraft.kycDocuments,
+      parcels: shipment.shipmentDraft.parcelList,
+      kycUseForAllParcels: shipment.shipmentDraft.kycUseForAllParcels
+    }) : [],
+    [shipment]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -282,7 +294,7 @@ export default function ClientShipmentDetailsPage() {
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-8xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <Link href="/client/dashboard" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-900 hover:text-blue-700">
@@ -314,6 +326,8 @@ export default function ClientShipmentDetailsPage() {
                 <p className="mt-1 text-sm text-amber-800">Do not submit it again. Your account allocation remains protected while carrier documents are finalized.</p>
               </section>
             ) : null}
+            <ClientPodPanel shipmentId={params.draftId} />
+
             <section className="border border-slate-200 bg-white rounded-2xl">
               <div className="grid gap-0 lg:grid-cols-3">
                 <DetailPanel title="Shipment" icon={<FiTruck aria-hidden="true" className="h-4 w-4" />}>
@@ -324,7 +338,6 @@ export default function ClientShipmentDetailsPage() {
                 </DetailPanel>
 
                 <DetailPanel title="Booking" icon={<FiFileText aria-hidden="true" className="h-4 w-4" />}>
-                  <DetailRow label="Label Provider" value={shipment.dpdShipment?.bookingProvider === "SWIFTLINE" ? "Swiftline Only" : "DPD"} />
                   {shipment.dpdShipment?.bookingProvider !== "SWIFTLINE" ? <DetailRow label="DPD Shipment ID" value={shipment.dpdShipment?.dpdShipmentId || "Pending"} /> : null}
                   <DetailRow label="Swiftline Tracking" value={shipment.dpdShipment?.swiftlineTrackingNumber || "Pending"} />
                   {shipment.dpdShipment?.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Parcels" value={shipment.dpdShipment?.parcelNumbers.join(", ") || "Pending"} /> : null}
@@ -334,7 +347,7 @@ export default function ClientShipmentDetailsPage() {
                 <DetailPanel title="Parcels" icon={<FiPackage aria-hidden="true" className="h-4 w-4" />}>
                   <DetailRow label="Parcel Count" value={String(shipment.shipmentDraft.parcelCount || shipment.shipmentDraft.parcelList.length)} />
                   <DetailRow label="Total Weight" value={`${totalWeight.toFixed(2)} kg`} />
-                  <DetailRow label="Service" value={shipment.shipmentDraft.serviceCode || formatLabel(shipment.shipmentDraft.serviceType)} />
+                  <DetailRow label="Service" value={shipment.shipmentDraft.serviceType === "CARGO" ? "Cargo" : shipment.shipmentDraft.serviceType === "COURIER" ? "Courier" : formatLabel(shipment.shipmentDraft.serviceCode)} />
                   <DetailRow label="Shipment Type" value={formatCsbType(shipment.shipmentDraft.csbType)} />
                 </DetailPanel>
               </div>
@@ -436,6 +449,12 @@ export default function ClientShipmentDetailsPage() {
                   />
                   <DetailRow label="Instructions" value={shipment.shipmentDraft.consignee.deliveryInstructions} />
                 </div>
+                <ShipmentKycDocumentsPanel
+                  documents={kycDocuments}
+                  onOpen={(document) => document.sequence
+                    ? openClientShipmentParcelKycDocument(params.draftId, document.sequence, document.type)
+                    : openClientShipmentKycDocument(params.draftId, document.type)}
+                />
               </div>
 
               <div className="border border-slate-200 bg-white p-5 rounded-2xl">

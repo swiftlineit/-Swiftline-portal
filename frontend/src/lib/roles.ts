@@ -69,6 +69,13 @@ export const FINANCE_AREA: readonly PortalRole[] = ["finance"];
  */
 export const CREDIT_VIEW_AREA: readonly PortalRole[] = ["finance", "operations"];
 
+/**
+ * Counter sales: what individual (walk-in) customers paid and were refunded.
+ * Operations books and settles them; finance reconciles them, since they never
+ * reach the credit statements finance normally works from.
+ */
+export const COUNTER_SALES_AREA: readonly PortalRole[] = ["operations", "finance"];
+
 /** Shipment lists, shipment detail, and tracking. */
 export const SHIPMENT_VIEW_AREA: readonly PortalRole[] = ["operations", "delivery"];
 

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { FiArrowLeft, FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi";
+import { FiArrowLeft, FiMapPin, FiSave, FiSearch, FiTruck,FiPackage } from "react-icons/fi";
+import { FaRegWindowClose, FaWeight } from "react-icons/fa";
 import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
@@ -39,7 +40,7 @@ import {
   uploadClientShipmentParcelKycDocument,
   validateClientAddress
 } from "@/lib/clientDashboard";
-import { CountryRateCard, formatCountryRateService, getCountryFlag, listClientCountryRateCards } from "@/lib/countryRateCards";
+import { getDraftRateCardContext, type ClientCountryRateCard } from "@/lib/countryRateCards";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
 import { normalizeCsbType, type CsbType } from "@/lib/csbType";
 import { defaultDeclarationNote } from "@/lib/customsInvoice";
@@ -73,10 +74,21 @@ import {
   consignorFormToPatch,
   consignorFormsMatch,
   createEmptyConsignorForm,
+  getConsignorFormIssueDetail,
   getConsignorFormIssues,
-  getKycIssues
+  getKycIssues,
+  mergeShipmentFormIssues,
+  allShipmentFormIssues,
+  type ShipmentFormIssues
 } from "@/lib/shipmentConsignor";
-import { calculateShipmentEstimate, formatMoney, getVolumetricDivisor, getVolumetricFormula } from "@/lib/shipmentPricing";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
+import ShipmentCostEstimatePanel from "@/components/shipments/ShipmentCostEstimatePanel";
+import ShipmentPriceChangeDialog from "@/components/shipments/ShipmentPriceChangeDialog";
+import {
+  ShipmentPriceChangedError,
+  type ShipmentCostEstimateInput
+} from "@/lib/shipmentCostEstimate";
+import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 
 type AddressForm = {
@@ -116,7 +128,7 @@ type ParcelForm = {
   aadhaarNumber: string;
 };
 
-const maxParcelCount = 10;
+const maxParcelCount = 100;
 const prohibitedItems = [
   "Alcohol / Liquor",
   "Tobacco / Nicotine / Vape",
@@ -140,7 +152,18 @@ const prohibitedItems = [
 ];
 
 function getCountryName(countryCode: string) {
-  return new Intl.DisplayNames(["en"], { type: "region" }).of(countryCode.toUpperCase()) ?? countryCode;
+  // Intl.DisplayNames throws RangeError("invalid_argument") on anything that is
+  // not a region code, blanks included. A draft may well have no destination
+  // country yet, so an empty code has to resolve to an empty name rather than
+  // taking down the save that is trying to store it.
+  const code = countryCode.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return "";
+
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 async function loadCurrentUser() {
@@ -207,65 +230,98 @@ function isParcelEmpty(parcel: ParcelForm) {
     && !parcel.aadhaarNumber;
 }
 
-function getReviewIssues(addressForm: AddressForm, contactForm: ContactForm, parcelForms: ParcelForm[]) {
-  const issues: string[] = [];
-  if (!contactForm.contactName.trim()) issues.push("Contact name is required");
+/**
+ * Review-form problems split into blank fields and wrongly filled ones.
+ *
+ * A blank field is deferrable: it is stored in the draft and blocks only at
+ * booking. A wrongly filled one is refused, because a draft that holds data the
+ * form rejects cannot be reopened cleanly.
+ */
+function getReviewIssueDetail(
+  addressForm: AddressForm,
+  contactForm: ContactForm,
+  parcelForms: ParcelForm[]
+): ShipmentFormIssues {
+  const missing: string[] = [];
+  const invalid: string[] = [];
+
+  if (!contactForm.contactName.trim()) missing.push("Contact name is required");
   if (!contactForm.email.trim()) {
-    issues.push("Email is required");
+    missing.push("Email is required");
   } else {
     const emailError = getShipmentEmailError(contactForm.email);
-    if (emailError) issues.push(emailError);
+    if (emailError) invalid.push(emailError);
   }
-  if (!contactForm.mobileCountryCode.trim()) issues.push("Mobile country code is required");
+  if (!contactForm.mobileCountryCode.trim()) missing.push("Mobile country code is required");
   if (!contactForm.mobileNumber.trim()) {
-    issues.push("Mobile number is required");
+    missing.push("Mobile number is required");
   } else {
     const mobileError = getShipmentMobileError(contactForm.mobileCountryCode, contactForm.mobileNumber);
-    if (mobileError) issues.push(mobileError);
+    if (mobileError) invalid.push(mobileError);
   }
-  if (!addressForm.countryCode.trim()) issues.push("Country is required");
-  if (!addressForm.addressLine1.trim()) issues.push("Address line 1 is required");
-  if (!addressForm.townOrCity.trim()) issues.push("Town or city is required");
+  if (!addressForm.countryCode.trim()) missing.push("Country is required");
+  if (!addressForm.addressLine1.trim()) missing.push("Address line 1 is required");
+  if (!addressForm.townOrCity.trim()) missing.push("Town or city is required");
   if (!addressForm.postcode.trim()) {
-    issues.push("Postcode is required");
+    missing.push("Postcode is required");
   } else {
     const postcodeError = getPostcodeError(addressForm.countryCode, addressForm.postcode);
-    if (postcodeError) issues.push(postcodeError);
+    if (postcodeError) invalid.push(postcodeError);
   }
   parcelForms.forEach((parcel, index) => {
     const label = `Parcel ${index + 1}`;
     const weight = Number(parcel.weightKg);
-    if (!parcel.weightKg.trim() || !Number.isFinite(weight) || weight <= 0) issues.push(`${label}: weight must be greater than zero`);
+    if (!parcel.weightKg.trim()) {
+      missing.push(`${label}: weight is required`);
+    } else if (!Number.isFinite(weight) || weight <= 0) {
+      invalid.push(`${label}: weight must be greater than zero`);
+    }
     for (const [field, value] of [["length", parcel.lengthCm], ["width", parcel.widthCm], ["height", parcel.heightCm]]) {
-      if (!value.trim() || !Number.isFinite(Number(value)) || Number(value) <= 0) {
-        issues.push(`${label}: ${field} must be greater than zero`);
+      if (!value.trim()) {
+        missing.push(`${label}: ${field} is required`);
+      } else if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+        invalid.push(`${label}: ${field} must be greater than zero`);
       }
     }
-    if (!parcel.shipmentContentType) issues.push(`${label}: shipment content type is required`);
-    if (!parcel.shipmentReference1.trim()) issues.push(`${label}: reference is required`);
+    if (!parcel.shipmentContentType) missing.push(`${label}: shipment content type is required`);
+    if (!parcel.shipmentReference1.trim()) missing.push(`${label}: reference is required`);
     // Every declared item needs a description and a valid HSN code for customs.
     const items = parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim());
     if (!items.length) {
-      issues.push(`${label}: contents are required`);
+      missing.push(`${label}: contents are required`);
     }
     items.forEach((item, itemIndex) => {
       const itemLabel = `${label} item ${itemIndex + 1}`;
       if (!item.description.trim()) {
-        issues.push(`${itemLabel}: description is required`);
+        missing.push(`${itemLabel}: description is required`);
       } else {
         const restricted = findRestrictedCategories(item.description);
-        if (restricted.length) issues.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
+        if (restricted.length) invalid.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
       }
+      // Each of these reports a blank and a malformed value differently, so the
+      // empty check decides which bucket the message lands in.
       const hsnError = getHsnCodeError(item.hsnCode);
-      if (hsnError) issues.push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
+      if (hsnError) {
+        (item.hsnCode.trim() ? invalid : missing).push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
+      }
       // Quantity and unit rate print on the customs invoice, so both are required.
       const quantityError = getPositiveNumberError(item.quantity, "Quantity");
-      if (quantityError) issues.push(`${itemLabel}: ${quantityError.replace(/\.$/, "").toLowerCase()}`);
+      if (quantityError) {
+        (item.quantity.trim() ? invalid : missing).push(`${itemLabel}: ${quantityError.replace(/\.$/, "").toLowerCase()}`);
+      }
       const unitRateError = getPositiveNumberError(item.unitRate, "Unit rate");
-      if (unitRateError) issues.push(`${itemLabel}: ${unitRateError.replace(/\.$/, "").toLowerCase()}`);
+      if (unitRateError) {
+        (item.unitRate.trim() ? invalid : missing).push(`${itemLabel}: ${unitRateError.replace(/\.$/, "").toLowerCase()}`);
+      }
     });
   });
-  return issues;
+
+  return { missing, invalid };
+}
+
+/** Every review-form problem, blank fields included. Use before booking. */
+function getReviewIssues(addressForm: AddressForm, contactForm: ContactForm, parcelForms: ParcelForm[]) {
+  return allShipmentFormIssues(getReviewIssueDetail(addressForm, contactForm, parcelForms));
 }
 
 function findIssue(issues: string[], patterns: string[]) {
@@ -277,7 +333,7 @@ export default function ClientDpdDraftReviewPage() {
   const router = useRouter();
   const [user, setUser] = useState<ClientShellUser | null>(null);
   const [draft, setDraft] = useState<ShipmentDraft | null>(null);
-  const [rates, setRates] = useState<CountryRateCard[]>([]);
+  const [rates, setRates] = useState<ClientCountryRateCard[]>([]);
   const [addressForm, setAddressForm] = useState<AddressForm>({
     countryCode: "GB",
     countryName: "United Kingdom",
@@ -302,9 +358,20 @@ export default function ClientDpdDraftReviewPage() {
   const [kycDocuments, setKycDocuments] = useState<ShipmentKycDocuments>({});
   const [parcelKyc, setParcelKyc] = useState<Record<number, ShipmentKycDocuments>>({});
   const [parcelForms, setParcelForms] = useState<ParcelForm[]>([createEmptyParcel(1)]);
+  const [parcelCountInput, setParcelCountInput] = useState(String(parcelForms.length));
+  useEffect(() => {
+    setParcelCountInput(String(parcelForms.length));
+  }, [parcelForms.length]);
+
   // Customs route for the shipment. Drafts saved before CSB selection existed
   // read as CSB-IV, matching how the backend prices them.
   const [csbType, setCsbType] = useState<CsbType>("CSB_IV");
+  // Optional transit cover. Off unless the customer asks for it.
+  const [insuranceOptIn, setInsuranceOptIn] = useState(false);
+  // Set when the server refuses a booking because the price moved after it was
+  // quoted. Holds the new breakdown until the customer accepts or cancels.
+  const [priceChange, setPriceChange] = useState<ShipmentPriceChangedError | null>(null);
+  // Which button opened the price change dialog, so accepting re-books the same way.
   // Present only on drafts created from an uploaded invoice.
   const [invoiceImport, setInvoiceImport] = useState<InvoiceImportSummary | null>(null);
   // Printed as the NOTE block on the shipment (customs) invoice.
@@ -374,19 +441,46 @@ export default function ClientDpdDraftReviewPage() {
     return [...countries].map(([code, name]) => ({ code, name }));
   }, [addressForm.countryCode, addressForm.countryName, rates]);
   const totalWeight = parcelForms.reduce((total, parcel) => total + (Number(parcel.weightKg) || 0), 0);
-  // Recalculates when the CSB type is toggled so the panel always reflects the
-  // clearance charge the backend will apply at booking.
-  const chargeEstimate = useMemo(() => calculateShipmentEstimate({
-    parcels: parcelForms,
-    rates,
+
+  // Priced by the server, not here. The booking charges whatever this returns, so
+  // there is deliberately no second implementation in the browser to drift from it.
+  const estimateValues = useMemo<ShipmentCostEstimateInput>(() => ({
     countryCode: addressForm.countryCode,
+    destinationPostcode: addressForm.postcode,
     serviceType: contactForm.serviceType,
-    csbType
-  }), [addressForm.countryCode, contactForm.serviceType, csbType, parcelForms, rates]);
+    csbType,
+    insuranceOptIn,
+    parcels: parcelForms.map((parcel, index) => ({
+      sequence: index + 1,
+      weightKg: Number(parcel.weightKg) || 0,
+      lengthCm: Number(parcel.lengthCm) || 0,
+      widthCm: Number(parcel.widthCm) || 0,
+      heightCm: Number(parcel.heightCm) || 0,
+      // Carried so the insurance premium tracks the value being declared.
+      items: parcel.items.map((item) => ({
+        quantity: Number(item.quantity) || 0,
+        unitRate: Number(item.unitRate) || 0
+      }))
+    }))
+  }), [addressForm.countryCode, addressForm.postcode, contactForm.serviceType, csbType, insuranceOptIn, parcelForms]);
+
+  const {
+    estimate: costEstimate,
+    loading: costEstimateLoading,
+    error: costEstimateError,
+    refresh: refreshCostEstimate,
+    acceptEstimate
+  } = useShipmentCostEstimate({
+    shipmentDraftId: params.draftId,
+    audience: "client",
+    values: estimateValues,
+    enabled: Boolean(draft)
+  });
 
   const draftChanged = useMemo(() => {
     if (!draft) return false;
     return consignorChanged
+      || insuranceOptIn !== (draft.insuranceOptIn ?? false)
       || JSON.stringify(parcelForms) !== JSON.stringify(normalizeParcels(draft))
       || contactForm.companyName !== (draft.consigneeEnteredAddress.companyName ?? "")
       || contactForm.contactName !== (draft.consigneeEnteredAddress.contactName ?? "")
@@ -402,7 +496,19 @@ export default function ClientDpdDraftReviewPage() {
       || addressForm.townOrCity !== (draft.consigneeEnteredAddress.townOrCity ?? "")
       || addressForm.county !== (draft.consigneeEnteredAddress.county ?? "")
       || addressForm.postcode !== (draft.consigneeEnteredAddress.postcode ?? "");
-  }, [addressForm, consignorChanged, contactForm, draft, parcelForms]);
+  }, [addressForm, consignorChanged, contactForm, draft, insuranceOptIn, parcelForms]);
+
+  // This form used to lose everything on navigation: nothing was stored until the
+  // whole form validated, and there was no guard on the way out.
+  useUnsavedChanges(draftChanged, {
+    label: "this shipment",
+    saveDraft: async () => {
+      const saved = await handleSaveDraft({ silentWhenUnchanged: true });
+      // Rejecting holds the user here; handleSaveDraft has already named the
+      // field that has to be corrected first.
+      if (!saved) throw new Error("Shipment draft was not saved.");
+    }
+  });
 
   function syncDraft(nextDraft: ShipmentDraft) {
     const address = nextDraft.consigneeEnteredAddress;
@@ -428,6 +534,7 @@ export default function ClientDpdDraftReviewPage() {
       serviceCode: nextDraft.serviceCode ?? ""
     });
     setCsbType(normalizeCsbType(nextDraft.csbType));
+    setInsuranceOptIn(nextDraft.insuranceOptIn ?? false);
     setDeclarationNote(nextDraft.declarationNote ?? defaultDeclarationNote);
     setConsignorForm(consignorFormFromDraft(nextDraft.consignorAddress));
     setKycUseForAll(nextDraft.kycUseForAllParcels ?? true);
@@ -462,7 +569,7 @@ export default function ClientDpdDraftReviewPage() {
 
         const [data, rateData] = await Promise.all([
           getClientShipmentDraft(params.draftId),
-          listClientCountryRateCards()
+          getDraftRateCardContext(params.draftId, "client")
         ]);
         if (!mounted) return;
 
@@ -590,8 +697,18 @@ export default function ClientDpdDraftReviewPage() {
   }
 
   function handleParcelCountChange(event: ChangeEvent<HTMLInputElement>) {
-    const nextCount = Number(event.target.value);
-    if (!Number.isInteger(nextCount) || nextCount < 1 || nextCount > maxParcelCount) return;
+    const nextValue = event.target.value;
+    if (nextValue === "") {
+      setParcelCountInput("");
+      return;
+    }
+
+    if (!/^\d+$/.test(nextValue)) return;
+    const nextCount = Number(nextValue);
+    if (nextCount > maxParcelCount) return;
+
+    setParcelCountInput(nextValue);
+    if (!Number.isInteger(nextCount) || nextCount < 1) return;
 
     setParcelForms((current) => {
       if (nextCount > current.length) {
@@ -610,6 +727,42 @@ export default function ClientDpdDraftReviewPage() {
       return current.slice(0, nextCount).map((parcel, index) => ({ ...parcel, sequence: index + 1 }));
     });
     setReviewIssues([]);
+  }
+
+  function handleParcelCountBlur() {
+    if (!/^[0-9]+$/.test(parcelCountInput)) {
+      setParcelCountInput(String(parcelForms.length));
+      return;
+    }
+
+    const nextCount = Number(parcelCountInput);
+    if (!Number.isInteger(nextCount) || nextCount < 1 || nextCount > maxParcelCount) {
+      setParcelCountInput(String(parcelForms.length));
+    }
+  }
+
+  function removeParcel(index: number) {
+    setParcelForms((current) => {
+      if (index < 0 || index >= current.length) return current;
+      const removedParcel = current[index];
+      const shouldConfirm = !isParcelEmpty(removedParcel) || current.length > 1;
+      if (shouldConfirm) {
+        const confirmed = window.confirm(`Remove Parcel ${index + 1}? This will delete its details.`);
+        if (!confirmed) return current;
+      }
+
+      const nextParcels = current.filter((_, parcelIndex) => parcelIndex !== index);
+      return nextParcels.map((parcel, parcelIndex) => ({ ...parcel, sequence: parcelIndex + 1 }));
+    });
+  }
+
+  function removeAllParcels() {
+    if (!parcelForms.length) return;
+    const confirmed = window.confirm("Remove all boxes? This will clear every parcel entry.");
+    if (!confirmed) return;
+
+    setParcelForms([]);
+    setParcelCountInput("");
   }
 
   async function saveDraftChanges() {
@@ -660,6 +813,7 @@ export default function ClientDpdDraftReviewPage() {
         aadhaarNumber: parcel.aadhaarNumber
       })),
       csbType,
+      insuranceOptIn,
       declarationNote,
       serviceType: contactForm.serviceType,
       serviceCode: contactForm.serviceCode
@@ -668,18 +822,32 @@ export default function ClientDpdDraftReviewPage() {
     return data.shipmentDraft;
   }
 
-  async function handleSave() {
-    if (!draft || !draftChanged) return;
+  /**
+   * Stores whatever the form currently holds.
+   *
+   * Blank fields are kept as-is — that is the point of a draft, and booking
+   * still refuses to proceed without them. Fields filled in wrongly are refused,
+   * because a draft holding data the form rejects cannot be reopened cleanly.
+   *
+   * Returns whether anything was stored, so the leave prompt can keep the user
+   * here when it was not.
+   */
+  async function handleSaveDraft({ silentWhenUnchanged = false } = {}): Promise<boolean> {
+    if (!draft) return false;
+    if (!draftChanged) {
+      if (!silentWhenUnchanged) toast.info("No changes to save.");
+      return true;
+    }
 
-    const issues = [
-      ...getReviewIssues(addressForm, contactForm, parcelForms),
-      ...getConsignorFormIssues(consignorForm, consigneeContactFrom(contactForm))
-    ];
-    if (issues.length) {
+    const { invalid } = mergeShipmentFormIssues(
+      getReviewIssueDetail(addressForm, contactForm, parcelForms),
+      getConsignorFormIssueDetail(consignorForm, consigneeContactFrom(contactForm))
+    );
+    if (invalid.length) {
       setSubmitAttempted(true);
-      setReviewIssues(issues);
-      setError("Correct the highlighted details before saving.");
-      return;
+      setReviewIssues(invalid);
+      setError(`Correct this before saving: ${invalid[0]}`);
+      return false;
     }
 
     setBusy(true);
@@ -691,14 +859,20 @@ export default function ClientDpdDraftReviewPage() {
       await saveDraftChanges();
       setSubmitAttempted(false);
       toast.success("Shipment draft saved.");
+      return true;
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Shipment changes could not be saved.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleCreateLabel(bookingProvider: "DPD" | "SWIFTLINE" = "DPD") {
+  async function handleCreateLabel(
+    bookingProvider: "DPD" | "SWIFTLINE" = "DPD",
+    // Supplied when re-booking after the customer accepted a changed price.
+    acceptedPricingHash = costEstimate?.pricingHash
+  ) {
     if (!draft) return;
 
     const issues = [
@@ -717,10 +891,21 @@ export default function ClientDpdDraftReviewPage() {
       setError("Correct the highlighted details before creating a label.");
       return;
     }
-    if (chargeEstimate.missingRate) {
+    if (costEstimate?.pricing.missingRate) {
       const message = `Rates are not available for ${addressForm.countryName || addressForm.countryCode} with ${contactForm.serviceType === "CARGO" ? "Cargo" : "Courier"} service. Please contact your assigned branch to arrange this shipment.`;
       setError(message);
       toast.error(message);
+      return;
+    }
+    // Booking before the first estimate lands would send no accepted price, which
+    // the server would let through unchecked.
+    if (!costEstimate) {
+      toast.info("Charges are still being calculated. Try again in a moment.");
+      return;
+    }
+    if (!costEstimate.funding.canFund) {
+      setError(costEstimate.funding.message);
+      toast.error(costEstimate.funding.message);
       return;
     }
 
@@ -747,17 +932,41 @@ export default function ClientDpdDraftReviewPage() {
       }
 
       const result = bookingProvider === "DPD"
-        ? await createClientDpdLabel(currentDraft._id)
-        : await createClientSwiftlineShipment(currentDraft._id);
+        ? await createClientDpdLabel(currentDraft._id, acceptedPricingHash)
+        : await createClientSwiftlineShipment(currentDraft._id, acceptedPricingHash);
+      setPriceChange(null);
       setNotice(result.reused ? "Existing shipment label found for this draft." : "Shipment request created.");
       toast.success(result.reused ? "Existing booked shipment opened." : "Shipment booked successfully.");
       router.push(`/client/shipments/${currentDraft._id}`);
     } catch (caughtError) {
+      // Nothing was booked or reserved. The customer is shown what moved and has
+      // to accept the new price explicitly before this can be retried.
+      if (caughtError instanceof ShipmentPriceChangedError) {
+        setPriceChange(caughtError);
+        return;
+      }
+
       const message = caughtError instanceof Error ? caughtError.message : "Unable to create shipment.";
       toast.error(message);
     } finally {
       setBusy(false);
     }
+  }
+
+  /** Re-books at the price the customer has just been shown and accepted. */
+  async function handleAcceptChangedPrice() {
+    if (!priceChange) return;
+
+    if (costEstimate) {
+      acceptEstimate({
+        ...costEstimate,
+        pricing: priceChange.pricing,
+        pricingHash: priceChange.pricingHash
+      });
+    }
+    setPriceChange(null);
+    refreshCostEstimate();
+    toast.success("New charges accepted. Review the updated summary, then create the shipment.");
   }
 
   async function handleConfirmEnteredAddress() {
@@ -810,7 +1019,7 @@ export default function ClientDpdDraftReviewPage() {
 
               {/* Customs route, first because CSB-V changes what is charged. */}
               <section className="border border-slate-200 bg-white rounded-2xl">
-                <SectionHeader title="Shipment Type" onSave={handleSave} busy={busy} changed={draftChanged} />
+                <SectionHeader title="Shipment Type" />
                 <div className="p-4">
                   <ShipmentCsbTypeField
                     value={csbType}
@@ -836,9 +1045,6 @@ export default function ClientDpdDraftReviewPage() {
                 onFormChange={(next) => { setConsignorForm(next); setReviewIssues([]); }}
                 fieldIssues={consignorFieldIssues}
                 submitAttempted={submitAttempted}
-                changed={consignorChanged}
-                onSave={handleSave}
-                busy={busy}
                 kycUseForAll={kycUseForAll}
                 onKycUseForAllChange={(next) => { setKycUseForAll(next); setReviewIssues([]); }}
                 sharedKycDocuments={kycDocuments}
@@ -856,7 +1062,7 @@ export default function ClientDpdDraftReviewPage() {
               />
 
               <section className="border border-slate-200 bg-white rounded-2xl">
-                <SectionHeader title="Consignee Details" onSave={handleSave} busy={busy} changed={draftChanged} />
+                <SectionHeader title="Consignee Details" />
                 <div className="grid gap-4 p-4 md:grid-cols-2">
                   <ShipmentTextField label="Consignee Company" value={contactForm.companyName} onChange={handleContactChange("companyName")} />
                   <ShipmentTextField label="Consignee Contact Name" required value={contactForm.contactName} onChange={handleContactChange("contactName")} error={findIssue(currentReviewIssues, ["contact name"])} revealError={submitAttempted} />
@@ -886,7 +1092,7 @@ export default function ClientDpdDraftReviewPage() {
               </section>
 
               <section className="border border-slate-200 bg-white rounded-2xl">
-                <SectionHeader title="Address" onSave={handleSave} busy={busy} changed={draftChanged} />
+                <SectionHeader title="Address" />
                 <div className="space-y-4 p-4">
                   {addressForm.countryCode === "GB" ? <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
                     <label className="block">
@@ -969,7 +1175,7 @@ export default function ClientDpdDraftReviewPage() {
               </section>
 
               <section className="border border-slate-200 bg-white rounded-2xl">
-                <SectionHeader title="Parcel Details" onSave={handleSave} busy={busy} changed={draftChanged} />
+                <SectionHeader title="Parcel Details" />
                 <div className="space-y-4 p-4">
                   <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
                     <label className="block">
@@ -979,21 +1185,71 @@ export default function ClientDpdDraftReviewPage() {
                         min="1"
                         max={maxParcelCount}
                         step="1"
-                        value={parcelForms.length}
+                        value={parcelCountInput}
                         onChange={handleParcelCountChange}
+                        onBlur={handleParcelCountBlur}
                         className="mt-2 h-10 w-full border rounded-xl border-slate-300 px-3 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                       />
                     </label>
-                    <div className="grid gap-3 border rounded-xl border-slate-200 bg-slate-50 p-3 text-sm sm:grid-cols-2">
-                      <ReadOnlyDetail label="Total Parcels" value={parcelForms.length} />
-                      <ReadOnlyDetail label="Total Weight" value={`${totalWeight.toFixed(2)} kg`} />
-                    </div>
+                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    {/* Summary */}
+    <div className="flex flex-wrap items-center gap-6">
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded bg-[#0D1282]/10 text-[#0D1282]">
+            <FiPackage className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Total Boxes
+          </p>
+          <p className="text-lg font-bold text-slate-900">
+            {parcelForms.length}
+          </p>
+        </div>
+      </div>
+
+      <div className="h-10 w-px bg-slate-200" />
+
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded bg-[#0D1282]/10 text-[#0D1282]">
+          <FaWeight className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Total Weight
+          </p>
+          <p className="text-lg font-bold text-slate-900">
+            {totalWeight.toFixed(2)} kg
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {/* Action */}
+    <button
+      type="button"
+      onClick={removeAllParcels}
+      disabled={!parcelForms.length}
+      className="inline-flex h-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+    >
+      Remove All Boxes
+    </button>
+  </div>
+</div>
                   </div>
 
                   {parcelForms.map((parcel, index) => (
                     <div key={parcel.sequence} className="border border-slate-200">
-                      <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
-                        Parcel {index + 1} of {parcelForms.length}
+                      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
+                        <span>Parcel {index + 1} of {parcelForms.length}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeParcel(index)}
+                          className="rounded-full px-3 py-1 text-lg font-semibold uppercase tracking-[0.08em] text-red-500 hover:text-xl"
+                        >
+                          <FaRegWindowClose/>
+                        </button>
                       </div>
                       <div className="grid gap-4 p-3 md:grid-cols-4">
                         <ShipmentTextField label="Actual Weight KG" required type="number" inputMode="decimal" value={parcel.weightKg} onChange={handleParcelChange(index, "weightKg")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "weight"])} revealError={submitAttempted} />
@@ -1054,60 +1310,32 @@ export default function ClientDpdDraftReviewPage() {
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
                   {busy ? "Processing..." : "Create Without DPD Label"}
                 </button>
-                <div className="mt-3 text-sm font-medium text-slate-600">
-                  <p>The total shown below will be reserved from Customer Advance first, then available business credit.</p>
-                </div>
-                <div className="mt-4 border border-slate-400 bg-slate-50 p-3 rounded-2xl ">
-                  <div className="grid gap-3 text-sm">
-                    <ReadOnlyDetail label="Service" value={formatCountryRateService(contactForm.serviceType)} />
-                    <ReadOnlyDetail label="Destination" value={`${getCountryFlag(addressForm.countryCode)} ${addressForm.countryName}`} />
-                    <ReadOnlyDetail label="Volumetric Divisor" value={getVolumetricDivisor(contactForm.serviceType)} tooltip={getVolumetricFormula(contactForm.serviceType)} />
-                  </div>
-                  <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
-                    {chargeEstimate.parcels.map((parcel, index) => (
-                      <div key={`${parcel.chargeableWeightKg}-${index}`} className="text-xs text-slate-600">
-                        <p className="font-semibold text-slate-900">Box {index + 1}</p>
-                        <p>Actual {parcel.actualWeightKg.toFixed(2)} kg / Volumetric {parcel.volumetricWeightKg.toFixed(2)} kg</p>
-                        <p>Chargeable {parcel.chargeableWeightKg.toFixed(2)} kg x {parcel.rate ? formatMoney(parcel.rate.chargesPerKg) : "No rate"}</p>
-                        {parcel.exceedsMaxBoxKg && parcel.rate ? (
-                          <p className="mt-1 font-semibold text-amber-700">
-                            Max box limit is {parcel.rate.maxBoxKg} kg. Estimated charges still use {parcel.chargeableWeightKg.toFixed(2)} kg.
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                  {chargeEstimate.missingRate ? (
-                    <p className="mt-3 text-xs font-semibold text-red-700">
-                      No matching country rate slab found for one or more boxes.
-                    </p>
-                  ) : null}
-                  <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Freight</span>
-                      <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.freightAmount)}</span>
-                    </div>
-                    {/* Flat charge for the whole shipment, not per box. Absent on CSB-IV. */}
-                    {chargeEstimate.csbClearanceAmount > 0 ? (
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500">CSB-V Clearance Charge</span>
-                        <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.csbClearanceAmount)}</span>
-                      </div>
-                    ) : null}
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Subtotal</span>
-                      <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.baseAmount)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">GST 18%</span>
-                      <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.gstAmount)}</span>
-                    </div>
-                    <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-                      <span className="font-semibold text-slate-950">Total Charges incl. GST</span>
-                      <span className="text-base font-bold text-blue-900">{formatMoney(chargeEstimate.totalAmount)}</span>
-                    </div>
-                  </div>
-                </div>
+                {/* Sits with the booking actions rather than in its own bar: this
+                    is where the customer already looks to finish the shipment, and
+                    saving for later is the third choice alongside the two. */}
+                <button
+                  type="button"
+                  onClick={() => void handleSaveDraft()}
+                  disabled={busy || !draftChanged}
+                  className="mt-2 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                >
+                  <FiSave aria-hidden="true" className="h-4 w-4" />
+                  {busy ? "Saving..." : "Save as Draft"}
+                </button>
+                {draftChanged ? (
+                  <p className="mt-2 text-center text-xs font-semibold text-amber-700">Unsaved changes</p>
+                ) : null}
+                <ShipmentCostEstimatePanel
+                  estimate={costEstimate}
+                  loading={costEstimateLoading}
+                  error={costEstimateError}
+                  serviceType={contactForm.serviceType}
+                  countryCode={addressForm.countryCode}
+                  countryName={addressForm.countryName}
+                  insuranceOptIn={insuranceOptIn}
+                  onInsuranceOptInChange={setInsuranceOptIn}
+                  insuranceDisabled={busy}
+                />
                 <div className="mt-4 border border-red-400 bg-amber-50 p-3 rounded-2xl">
  <h3 className="text-sm font-semibold text-amber-900 ">Prohibited Items Reminder</h3>
                 <ul className="mt-2 text-xs font-medium text-amber-800">
@@ -1120,23 +1348,30 @@ export default function ClientDpdDraftReviewPage() {
             </aside>
           </div>
         )}
+
+        {priceChange ? (
+          <ShipmentPriceChangeDialog
+            previousPricing={costEstimate?.pricing ?? null}
+            currentPricing={priceChange.pricing}
+            message={priceChange.message}
+            busy={busy}
+            onAccept={() => void handleAcceptChangedPrice()}
+            onCancel={() => {
+              setPriceChange(null);
+              refreshCostEstimate();
+            }}
+          />
+        ) : null}
       </>
   );
 }
 
-function SectionHeader({ title, onSave, busy, changed }: { title: string; onSave: () => void; busy: boolean; changed: boolean }) {
+// Saving is handled once, by the sticky bar at the foot of the form, so a
+// section header is now just a title.
+function SectionHeader({ title }: { title: string }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
       <h2 className="text-sm font-semibold uppercase text-slate-500">{title}</h2>
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={busy || !changed}
-        className="inline-flex h-9 items-center rounded-xl justify-center gap-2 bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-      >
-        <FiSave aria-hidden="true" className="h-4 w-4" />
-        Save
-      </button>
     </div>
   );
 }

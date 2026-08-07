@@ -11,6 +11,7 @@ import {
   FiExternalLink,
   FiFileText,
   FiPrinter,
+  FiTrash2,
   FiUploadCloud,
   FiInfo
 } from "react-icons/fi";
@@ -34,6 +35,7 @@ import {
 } from "@/lib/clientDashboard";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { downloadShipmentInvoicePdf, shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
+import { useDeleteShipmentDraft } from "@/lib/useDeleteShipmentDraft";
 import { RiMenuAddLine } from "react-icons/ri";
 
 type ClientDraft = NonNullable<Awaited<ReturnType<typeof uploadClientDpdInvoice>>["shipmentDraft"]>;
@@ -95,8 +97,9 @@ export default function ClientDpdLabelsPage() {
   );
   const branches = useMemo(() => selectedAccount ? getAvailableBranches(selectedAccount) : [], [selectedAccount]);
   const selectedBranch = branches.find((branch) => branch._id === branchId) ?? branches[0] ?? null;
-  const canUpload = Boolean(selectedAccount && selectedBranch && file && !busy && !creatingManual);
-  const canCreateManual = Boolean(selectedAccount && selectedBranch && !busy && !creatingManual);
+  const rateCardAssigned = Boolean(selectedAccount?.account.rateCard.assigned);
+  const canUpload = Boolean(rateCardAssigned && selectedBranch && file && !busy && !creatingManual);
+  const canCreateManual = Boolean(rateCardAssigned && selectedBranch && !busy && !creatingManual);
   const totalWeight = draft?.parcelList.reduce((total, parcel) => total + (parcel.weightKg || 0), 0) ?? 0;
   const selectedAccountDocumentId = selectedAccount?.account.id ?? "";
   const selectedBranchId = selectedBranch?._id ?? "";
@@ -180,7 +183,7 @@ export default function ClientDpdLabelsPage() {
   }, [selectedAccountDocumentId, selectedBranchId, shipmentPage, shipmentRefreshKey]);
 
   function selectFile(nextFile: File | null) {
-    if (!nextFile) return;
+    if (!nextFile || !rateCardAssigned) return;
     setFile(nextFile);
     setDraft(null);
     setError("");
@@ -193,6 +196,7 @@ export default function ClientDpdLabelsPage() {
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
     setDragActive(false);
+    if (!rateCardAssigned) return;
     selectFile(event.dataTransfer.files?.[0] ?? null);
   }
 
@@ -216,7 +220,7 @@ export default function ClientDpdLabelsPage() {
   }
 
   async function handleUpload() {
-    if (!file || !selectedBranch) return;
+    if (!rateCardAssigned || !file || !selectedBranch) return;
 
     setBusy(true);
     setError("");
@@ -257,7 +261,7 @@ export default function ClientDpdLabelsPage() {
   }
 
   async function handleManualDraft() {
-    if (!selectedBranchId) return;
+    if (!rateCardAssigned || !selectedBranchId) return;
 
     setCreatingManual(true);
     setError("");
@@ -298,6 +302,11 @@ export default function ClientDpdLabelsPage() {
     setShipmentPage(page);
   }
 
+  const { requestDelete: requestDraftDelete, dialog: deleteDraftDialog } = useDeleteShipmentDraft({
+    actor: "client",
+    onChanged: () => setShipmentRefreshKey((key) => key + 1)
+  });
+
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
@@ -320,6 +329,16 @@ export default function ClientDpdLabelsPage() {
 
         {error ? (
           <div className="mt-5 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>
+        ) : null}
+
+        {selectedAccount && !rateCardAssigned ? (
+          <div className="mt-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <FiInfo aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-semibold">Shipment booking is paused for your account.</p>
+              <p className="mt-1">A rate card has not been assigned yet. Please contact Swiftline support.</p>
+            </div>
+          </div>
         ) : null}
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -378,14 +397,14 @@ export default function ClientDpdLabelsPage() {
                 }}
                 onDragLeave={() => setDragActive(false)}
                 onDrop={handleDrop}
-                className={`mt-4 flex min-h-36 cursor-pointer  rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center ${dragActive ? "border-blue-900 bg-blue-50" : "border-slate-300 bg-slate-50"}`}
+                className={`mt-4 flex min-h-36 rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center ${rateCardAssigned ? "cursor-pointer" : "cursor-not-allowed opacity-60"} ${dragActive ? "border-blue-900 bg-blue-50" : "border-slate-300 bg-slate-50"}`}
               >
                 <FiUploadCloud aria-hidden="true" className="h-8 w-8 text-blue-900" />
                 <span className="mt-3 text-sm font-semibold text-slate-900">
                   {file ? file.name : "Drop .xlsx invoice here"}
                 </span>
                 <span className="mt-1 text-xs font-medium text-slate-500">Account and branch are locked to your login.</span>
-                <input type="file" accept=".xlsx" onChange={handleFileChange} className="hidden" />
+                <input type="file" accept=".xlsx" onChange={handleFileChange} disabled={!rateCardAssigned} className="hidden" />
               </label>
               <button
                 type="button"
@@ -433,7 +452,10 @@ export default function ClientDpdLabelsPage() {
           downloadingInvoiceId={downloadingInvoiceId}
           onPageChange={handleShipmentPageChange}
           onInvoiceDownload={handleInvoiceDownload}
+          onDeleteDraft={requestDraftDelete}
         />
+
+        {deleteDraftDialog}
       </div>
   );
 }
@@ -445,7 +467,8 @@ function ClientShipmentTable({
   pagination,
   downloadingInvoiceId,
   onPageChange,
-  onInvoiceDownload
+  onInvoiceDownload,
+  onDeleteDraft
 }: {
   shipments: ClientShipmentListItem[];
   loading: boolean;
@@ -454,6 +477,7 @@ function ClientShipmentTable({
   downloadingInvoiceId: string;
   onPageChange: (page: number) => void;
   onInvoiceDownload: (shipment: ClientShipmentListItem) => Promise<void>;
+  onDeleteDraft: (draft: { id: string; label: string }) => void;
 }) {
   const firstItem = pagination.total ? (pagination.page - 1) * pagination.limit + 1 : 0;
   const lastItem = Math.min(pagination.page * pagination.limit, pagination.total);
@@ -502,6 +526,9 @@ function ClientShipmentTable({
               const viewHref = hasInvoice
                 ? `/client/shipments/${shipment.id}`
                 : `/client/dpd-labels/${shipment.id}`;
+              // An unbooked draft is still being worked on, so it reads as
+              // "continue" rather than "view" and is the only row that can be deleted.
+              const isDraft = shipment.canDelete;
 
               return (
                 <tr key={shipment.id} className="border-b border-slate-100 text-slate-700 last:border-b-0">
@@ -533,8 +560,29 @@ function ClientShipmentTable({
                   <td className="px-4 py-3">
                     <div className="flex min-w-44 items-center justify-end gap-2">
                       <Link href={viewHref} className="inline-flex text-left items-center gap-1 font-semibold text-blue-900 hover:text-blue-700">
-                        <FiExternalLink aria-hidden="true" className="h-4 w-4" />View Shipment
+                        {isDraft ? (
+                          <><FiEdit3 aria-hidden="true" className="h-4 w-4" />Continue Draft</>
+                        ) : (
+                          <><FiExternalLink aria-hidden="true" className="h-4 w-4" />View Shipment</>
+                        )}
                       </Link>
+                      {isDraft ? (
+                        <button
+                          type="button"
+                          title="Delete draft"
+                          aria-label="Delete draft"
+                          onClick={() => onDeleteDraft({
+                            id: shipment.id,
+                            label: shipment.shipmentReference
+                              || shipment.invoiceNumber
+                              || formatCapitalized(consignee)
+                              || "This draft"
+                          })}
+                          className="inline-flex rounded h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 transition hover:border-red-600 hover:text-red-600"
+                        >
+                          <FiTrash2 aria-hidden="true" className="h-4 w-4" />
+                        </button>
+                      ) : null}
                       {shipment.shipmentInvoice ? (
                         <>
                           <Link href={shipmentInvoicePageUrl(shipment.id, "client")} target="_blank" rel="noreferrer" title="View invoice" aria-label="View invoice" className="inline-flex rounded h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900">

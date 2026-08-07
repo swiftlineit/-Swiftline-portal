@@ -13,6 +13,7 @@ import {
   printAuthenticatedPdf,
   submitClientOfflinePayment,
   verifyClientOnlinePayment,
+  MAX_OFFLINE_PAYMENT_RUPEES,
   type CreditStatement,
 } from "@/lib/creditBilling";
 import { formatDashboardDate } from "@/lib/dateFormat";
@@ -194,6 +195,12 @@ export default function ClientCreditStatementDetailPage() {
       setError("Enter a valid payment amount.");
       return;
     }
+    if (amountMinor > MAX_OFFLINE_PAYMENT_RUPEES * 100) {
+      setError(
+        `A single offline payment cannot exceed ${money(MAX_OFFLINE_PAYMENT_RUPEES * 100)}.`,
+      );
+      return;
+    }
     if (reference.trim().length < 3) {
       setError("Enter the bank, UPI, cash, or cheque reference.");
       return;
@@ -267,7 +274,7 @@ export default function ClientCreditStatementDetailPage() {
             <button
               type="button"
               onClick={() => void openAuthenticatedFile(pdfPath)}
-              className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
+              className="inline-flex rounded-4xl h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
             >
               View
             </button>
@@ -279,14 +286,14 @@ export default function ClientCreditStatementDetailPage() {
                   `${statement.statementNumber.replaceAll("/", "-")}.pdf`,
                 )
               }
-              className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
+              className="inline-flex rounded-4xl h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
             >
               <FiDownload /> Download
             </button>
             <button
               type="button"
               onClick={() => void printAuthenticatedPdf(pdfPath)}
-              className="inline-flex h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
+              className="inline-flex rounded-4xl h-10 items-center gap-2 border border-slate-300 px-4 text-sm font-semibold text-blue-900"
             >
               <FiPrinter /> Print
             </button>
@@ -322,7 +329,7 @@ export default function ClientCreditStatementDetailPage() {
 
       {statement ? (
         <>
-          <section className="grid border border-slate-200 bg-white sm:grid-cols-2 lg:grid-cols-4">
+          <section className="grid border border-slate-200 bg-white rounded-2xl sm:grid-cols-2 lg:grid-cols-4">
             <div className="border-b border-slate-200 p-5 lg:border-b-0 lg:border-r">
               <p className="text-xs font-semibold uppercase text-slate-500">
                 Issued
@@ -360,7 +367,7 @@ export default function ClientCreditStatementDetailPage() {
           </section>
 
           {statement.adjustments.length ? (
-            <section className="overflow-x-auto border border-slate-200 bg-white">
+            <section className="overflow-x-auto border border-slate-200 rounded-2xl bg-white">
               <div className="border-b border-slate-200 p-5">
                 <h2 className="font-semibold text-slate-950">
                   Billing Adjustments
@@ -397,7 +404,7 @@ export default function ClientCreditStatementDetailPage() {
             </section>
           ) : null}
 
-          <section className="overflow-x-auto border border-slate-200 bg-white">
+          <section className="overflow-x-auto border border-slate-200 rounded-2xl bg-white">
             <div className="border-b border-slate-200 p-5">
               <h2 className="font-semibold text-slate-950">
                 Billing Documents
@@ -482,11 +489,15 @@ export default function ClientCreditStatementDetailPage() {
                 <input
                   type="number"
                   min="0.01"
+                  max={MAX_OFFLINE_PAYMENT_RUPEES}
                   step="0.01"
                   value={amountRupees}
                   onChange={(event) => setAmountRupees(event.target.value)}
                   className="mt-2 h-11 w-full border border-slate-300 px-3 font-normal"
                 />
+                <p className="mt-1 text-xs font-normal text-slate-500">
+                  Maximum {money(MAX_OFFLINE_PAYMENT_RUPEES * 100)} per payment.
+                </p>
               </label>
               <label className="mt-4 flex items-start gap-3 text-sm text-slate-700">
                 <input

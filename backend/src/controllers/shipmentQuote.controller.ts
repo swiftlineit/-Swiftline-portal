@@ -3,12 +3,12 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { ShipmentQuote, shipmentQuoteStatusValues } from "../models/shipmentQuote.model.js";
-import { dayBounds } from "../utils/dateRangeFilter.js";
+import { dateRangeCondition, dateRangeParams } from "../utils/dateRangeFilter.js";
 import { csbTypeValues } from "../services/csbType.service.js";
 import { quoteDocumentCodeValues } from "../services/quoteDocuments.service.js";
 import {
   ShipmentQuoteError, calculateQuoteEstimate, changeShipmentQuoteStatus,
-  convertShipmentQuoteToDraft, createShipmentDraftFromEstimate, createShipmentQuote, loadQuoteContext,
+  convertShipmentQuoteToDraft, createShipmentDraftFromEstimate, createShipmentQuote, loadQuoteDisplayContext,
   publishShipmentQuote, resolveAdminQuoteContext, resolveClientQuoteContext,
   serializeShipmentQuote, type ShipmentQuoteRequestInput
 } from "../services/shipmentQuote.service.js";
@@ -66,7 +66,7 @@ function handleQuoteError(error: unknown, response: Response): Response {
 }
 
 async function serializeWithContext(quote: InstanceType<typeof ShipmentQuote>, audience: "CLIENT" | "ADMIN" = "ADMIN") {
-  const result = serializeShipmentQuote(quote, await loadQuoteContext(quote));
+  const result = serializeShipmentQuote(quote, await loadQuoteDisplayContext(quote));
   return audience === "CLIENT" ? { ...result, internalNote: "" } : result;
 }
 
@@ -173,8 +173,9 @@ async function list(request: Request, response: Response, audience: "CLIENT" | "
         filters.businessAccountId = request.query.businessAccountId;
       }
     }
-    const bounds = dayBounds(typeof request.query.date === "string" ? request.query.date : undefined);
-    if (bounds) filters.createdAt = { $gte: bounds.start, $lte: bounds.end };
+    const { dateFrom, dateTo } = dateRangeParams(request.query);
+    const createdAt = dateRangeCondition(dateFrom, dateTo);
+    if (createdAt) filters.createdAt = createdAt;
     const [quotes, total] = await Promise.all([
       ShipmentQuote.find(filters).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).exec(),
       ShipmentQuote.countDocuments(filters)

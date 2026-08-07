@@ -5,6 +5,7 @@ import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember, type BusinessAccountMemberRole } from "../models/businessAccountMember.model.js";
 import { CancellationFeeInvoice } from "../models/cancellationFeeInvoice.model.js";
+import { counterPaymentMethodValues } from "../models/counterPayment.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import {
   ShipmentCancellation,
@@ -13,7 +14,7 @@ import {
 } from "../models/shipmentCancellation.model.js";
 import { ShipmentCreditNote } from "../models/shipmentCreditNote.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
-import { dayBounds } from "../utils/dateRangeFilter.js";
+import { dateRangeCondition, dateRangeParams } from "../utils/dateRangeFilter.js";
 import {
   approveShipmentCancellation,
   getShipmentCancellation,
@@ -36,7 +37,15 @@ const reviewSchema = z.object({
   carrierConfirmed: z.literal(true, { error: "Confirm carrier cancellation before approval." }),
   settlementConfirmed: z.literal(true, { error: "Confirm the cancellation settlement before approval." }),
   carrierReference: z.string().trim().max(120).optional().default(""),
-  reviewNote: z.string().trim().max(500).optional().default("")
+  reviewNote: z.string().trim().max(500).optional().default(""),
+  // Only sent for walk-in shipments, where the refund is paid back outside the
+  // portal. The service decides whether it was required and rejects the approval
+  // when a counter sale is refundable but no payout was recorded.
+  refundPayout: z.object({
+    method: z.enum(counterPaymentMethodValues),
+    reference: z.string().trim().max(80).optional(),
+    note: z.string().trim().max(300).optional()
+  }).optional()
 });
 const rejectSchema = z.object({
   reviewNote: z.string().trim().min(5, "Enter a reason for rejection.").max(500)
@@ -156,8 +165,9 @@ export async function listShipmentCancellations(request: Request, response: Resp
   const filter: Record<string, unknown> = shipmentCancellationStatusValues.includes(status as ShipmentCancellationStatus)
     ? { status: status as ShipmentCancellationStatus }
     : {};
-  const bounds = dayBounds(typeof request.query.date === "string" ? request.query.date : undefined);
-  if (bounds) filter.requestedAt = { $gte: bounds.start, $lte: bounds.end };
+  const { dateFrom, dateTo } = dateRangeParams(request.query);
+  const requestedAt = dateRangeCondition(dateFrom, dateTo);
+  if (requestedAt) filter.requestedAt = requestedAt;
 
   const limit = Math.min(100, Math.max(1, Number.parseInt(String(request.query.limit ?? "50"), 10) || 50));
   const requestedPage = Math.max(1, Number.parseInt(String(request.query.page ?? "1"), 10) || 1);
@@ -171,7 +181,10 @@ export async function listShipmentCancellations(request: Request, response: Resp
     .exec();
   const draftIds = cancellations.map((item) => item.shipmentDraftId);
   const [drafts, shipments, branches, accounts] = await Promise.all([
-    ShipmentDraft.find({ _id: { $in: draftIds } }).select("consigneeEnteredAddress businessAccountId branchId").lean().exec(),
+    ShipmentDraft.find({ _id: { $in: draftIds } })
+      .select("consigneeEnteredAddress businessAccountId branchId customerType consignorAddress.contactName")
+      .lean()
+      .exec(),
     DpdShipment.find({ shipmentDraftId: { $in: draftIds } }).select("shipmentDraftId dpdShipmentId").lean().exec(),
     Branch.find({ _id: { $in: cancellations.map((item) => item.branchId) } }).select("name code").lean().exec(),
     BusinessAccount.find({ _id: { $in: cancellations.map((item) => item.businessAccountId) } }).select("accountId company.companyName").lean().exec()
@@ -187,8 +200,12 @@ export async function listShipmentCancellations(request: Request, response: Resp
       const shipment = shipmentMap.get(String(item.shipmentDraftId));
       const branch = branchMap.get(String(item.branchId));
       const account = accountMap.get(String(item.businessAccountId));
+      // A walk-in cancellation refunds money that left the portal, so the review
+      // screen needs to know to ask how it was paid back.
+      const isIndividual = draft?.customerType === "INDIVIDUAL";
       return {
         ...serializeShipmentCancellation(item),
+        customerType: draft?.customerType ?? "BUSINESS",
         shipmentReference: shipment?.dpdShipmentId || String(item.dpdShipmentId),
         consignee: draft?.consigneeEnteredAddress?.companyName
           || draft?.consigneeEnteredAddress?.contactName
@@ -196,8 +213,11 @@ export async function listShipmentCancellations(request: Request, response: Resp
         branch: branch ? { id: String(branch._id), name: branch.name, code: branch.code } : null,
         businessAccount: account ? {
           id: String(account._id),
-          accountId: account.accountId,
-          companyName: account.company.companyName
+          accountId: isIndividual ? "INDIVIDUAL" : account.accountId,
+          // The sentinel's name is bookkeeping; show the person who shipped.
+          companyName: isIndividual
+            ? draft?.consignorAddress?.contactName || "Individual customer"
+            : account.company.companyName
         } : null
       };
     }),

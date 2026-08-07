@@ -72,7 +72,9 @@ function getSafeInternalDestination(value: string | null) {
 /** Same post-login destination rule for the password, code and Google paths. */
 function destinationFor(role: string | undefined) {
   const requestedDestination = getSafeInternalDestination(new URLSearchParams(window.location.search).get("next"));
-  return role === "client" ? "/client/dashboard" : requestedDestination || "/dashboard";
+  if (role === "client") return "/client/dashboard";
+  if (role === "delivery") return "/driver";
+  return requestedDestination || "/dashboard";
 }
 
 function formatCountdown(totalSeconds: number) {

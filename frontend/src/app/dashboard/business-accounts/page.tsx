@@ -9,11 +9,13 @@ import {
   BusinessAccountsTable,
   getAssignedBranch,
 } from "@/components/business-accounts/BusinessAccountsTable";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import {
   assignBusinessAccountBranch,
   BusinessAccount,
   BusinessAccountOperationalAction,
   BusinessAccountStatus,
+  deleteBusinessAccountDraft,
   listBusinessAccounts,
   submitBusinessAccount,
   updateBusinessAccountOperationalAction,
@@ -40,6 +42,8 @@ export default function BusinessAccountsPage() {
   const [assigningAccount, setAssigningAccount] =
     useState<BusinessAccount | null>(null);
   const [branchesLoading, setBranchesLoading] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<BusinessAccount | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   // Credit facilities keyed by business account _id, loaded once: the endpoint
@@ -187,6 +191,33 @@ export default function BusinessAccountsPage() {
     );
   }
 
+  async function handleDeleteDraft() {
+    if (!pendingDelete) return;
+
+    setDeleting(true);
+    setError("");
+
+    try {
+      await deleteBusinessAccountDraft(pendingDelete.accountId);
+      // Dropped from the list rather than refetched: the account is gone, and a
+      // refetch would only shuffle the current page.
+      setAccounts((current) =>
+        current.filter((account) => account.accountId !== pendingDelete.accountId),
+      );
+      setTotal((current) => Math.max(current - 1, 0));
+      setPendingDelete(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to delete this draft account.",
+      );
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleAccountMenuChange(
     account: BusinessAccount,
     value: string,
@@ -205,6 +236,18 @@ export default function BusinessAccountsPage() {
 
     if (value === "submit") {
       await handleSubmitForReview(account);
+      return;
+    }
+
+    // Reopens the wizard on the saved draft. Submitting for review happens from
+    // inside the form, once the fields it still needs are filled in.
+    if (value === "open_draft") {
+      router.push(`/dashboard/business-accounts/${account.accountId}/edit`);
+      return;
+    }
+
+    if (value === "delete") {
+      setPendingDelete(account);
       return;
     }
 
@@ -381,6 +424,26 @@ export default function BusinessAccountsPage() {
             onSelectBranch={setSelectedBranchId}
             onCancel={closeAssignBranchModal}
             onAssign={handleAssignBranch}
+          />
+        ) : null}
+
+        {pendingDelete ? (
+          <ConfirmDialog
+            title="Delete draft account?"
+            description={(
+              <>
+                <span className="font-semibold text-slate-900">
+                  {pendingDelete.company.companyName || pendingDelete.accountId}
+                </span>{" "}
+                and any documents uploaded against it will be permanently removed.
+                This cannot be undone.
+              </>
+            )}
+            confirmLabel="Delete Draft"
+            busyLabel="Deleting..."
+            busy={deleting}
+            onConfirm={handleDeleteDraft}
+            onCancel={() => setPendingDelete(null)}
           />
         ) : null}
       </div>

@@ -34,7 +34,6 @@ import {
   runBagAction,
   runManifestAction,
   scanOperationsParcel,
-  setOperationsParcelValue,
   type ManifestDetail,
   type OperationsBag,
   type OperationsConsignment,
@@ -297,31 +296,6 @@ export default function OperationsManifestWorkspace() {
     }
   }
 
-  async function saveGoodsValue(
-    consignmentId: string,
-    parcelNumber: string,
-    current?: number | null,
-  ) {
-    const entered = window.prompt(
-      `Goods value in INR for parcel ${parcelNumber}`,
-      current ? String(current / 100) : "",
-    );
-    if (!entered) return;
-    const rupees = Number(entered);
-    if (!Number.isFinite(rupees) || rupees <= 0)
-      return toast.error("Enter a valid goods value greater than zero.");
-    await refreshAction(
-      () =>
-        setOperationsParcelValue(
-          manifestId,
-          consignmentId,
-          parcelNumber,
-          Math.round(rupees * 100),
-        ),
-      "Goods value updated.",
-    );
-  }
-
   async function exportFile(format: "xlsx" | "pdf" | "edi", view = false) {
     try {
       await downloadOperationsManifest(
@@ -563,7 +537,6 @@ export default function OperationsManifestWorkspace() {
                     item.bagId === activeBagId,
                 )}
                 canEdit
-                onValue={saveGoodsValue}
                 onRemove={requestParcelRemoval}
               />
             </div>
@@ -572,7 +545,6 @@ export default function OperationsManifestWorkspace() {
           <ConsignmentTable
             rows={data.consignments}
             canEdit={false}
-            onValue={saveGoodsValue}
             onRemove={requestParcelRemoval}
           />
         )}
@@ -883,12 +855,10 @@ function BagButton({
 function ConsignmentTable({
   rows,
   canEdit,
-  onValue,
   onRemove,
 }: {
   rows: OperationsConsignment[];
   canEdit: boolean;
-  onValue: (id: string, parcelNumber: string, current?: number | null) => void;
   onRemove: (parcel: string) => void;
 }) {
   return (
@@ -948,23 +918,9 @@ function ConsignmentTable({
                         </span>
                         <div className="flex shrink-0 items-center gap-1">
                           {/* Each box carries its own customs value. */}
-                          {canEdit ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onValue(item.id, parcel, parcelValue)
-                              }
-                              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${parcelValue ? "text-[#0D1282] hover:bg-[#0D1282]/5" : "text-[#D71313] underline"}`}
-                            >
-                              {parcelValue
-                                ? formatMoney(parcelValue)
-                                : "Add value"}
-                            </button>
-                          ) : (
-                            <span className="text-[10px] font-semibold text-slate-600">
-                              {formatMoney(parcelValue)}
-                            </span>
-                          )}
+                          <span className={`text-[10px] font-semibold ${parcelValue ? "text-slate-600" : "text-[#D71313]"}`}>
+                            {parcelValue ? formatMoney(parcelValue) : "Goods value unavailable"}
+                          </span>
                           {canEdit ? (
                             <button
                               type="button"

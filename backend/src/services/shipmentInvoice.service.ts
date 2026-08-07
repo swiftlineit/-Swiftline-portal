@@ -9,7 +9,11 @@ import { ShipmentCharge } from "../models/shipmentCharge.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentInvoiceCounter } from "../models/shipmentInvoiceCounter.model.js";
 import { formatCsbType } from "./csbType.service.js";
-import { calculateShipmentPricingEstimate, type ShipmentPricingEstimate } from "./shipmentPricing.service.js";
+import {
+  buildPricingInputFromDraft,
+  calculateShipmentPricingEstimate,
+  type ShipmentPricingEstimate
+} from "./shipmentPricing.service.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 
 export class ShipmentInvoiceServiceError extends Error {
@@ -182,10 +186,7 @@ export async function ensureShipmentInvoiceForDraft(input: {
     pricing = charge.pricingSnapshot as unknown as ShipmentPricingEstimate;
   } else {
     pricing = await calculateShipmentPricingEstimate({
-      countryCode: draft.consigneeEnteredAddress.countryCode,
-      serviceType: draft.serviceType,
-      parcels: draft.parcelList,
-      csbType: draft.csbType,
+      ...buildPricingInputFromDraft(draft),
       session: input.session
     });
   }
@@ -223,6 +224,18 @@ export async function ensureShipmentInvoiceForDraft(input: {
   const snapshotCompany = asRecord(snapshotAccount.company);
   const snapshotContact = asRecord(snapshotAccount.contact);
   const snapshotConsignee = asRecord(bookingSnapshot?.consignee);
+  // Every field below falls back to the business account when the snapshot leaves
+  // it blank. For a walk-in that account is the shared sentinel, so the fallback
+  // would print its bookkeeping identity — "Customers" as a surname, and its
+  // internal system email address — onto a real customer's invoice. Individuals
+  // are billed from their snapshot alone; a blank field stays blank.
+  const isIndividualCustomer = draft.customerType === "INDIVIDUAL";
+  const fallbackContact = isIndividualCustomer
+    ? { firstName: "", lastName: "", email: "", countryCode: "", mobileNumber: "" }
+    : account.contact;
+  const fallbackCompany = isIndividualCustomer
+    ? { companyName: "", registeredAddress: "", city: "", postalCode: "", addressCountry: "" }
+    : account.company;
   const supplierState = asString(snapshotSenderAddress.stateOrProvince) || branch.address.stateOrProvince || "";
   const customerState = asString(snapshotCompany.stateOrProvince) || account.company.stateOrProvince || "";
   const supplierGstin = asString(snapshotSender.gstin) || branch.gstin || "";
@@ -234,9 +247,16 @@ export async function ensureShipmentInvoiceForDraft(input: {
   const taxAmounts = getTaxAmounts(taxableValueMinor, totalTaxAmountMinor, supplierJurisdiction, customerJurisdiction);
   const validationWarnings = [
     !supplierGstin ? "Branch GSTIN is not configured." : "",
-    !customerGstin ? "Customer GSTIN is not configured." : ""
+    // A missing GSTIN on a business account means it was onboarded incompletely,
+    // so the invoice is held as a draft until someone fixes it. An individual is
+    // an unregistered B2C customer who will never hold one, so requiring it would
+    // leave every walk-in invoice permanently unissued.
+    !customerGstin && draft.customerType !== "INDIVIDUAL" ? "Customer GSTIN is not configured." : ""
   ].filter(Boolean);
-  const status = validationWarnings.length ? "DRAFT" : "ISSUED";
+  // A shipment with no GST is still a valid completed invoice. Keep the GST
+  // cells empty in the document instead of marking the entire invoice as draft;
+  // only a GST-bearing invoice with incomplete party tax details is held back.
+  const status = validationWarnings.length && totalTaxAmountMinor > 0 ? "DRAFT" : "ISSUED";
   const supplier = {
     legalName: "Swiftline Cargo and Express Logistics Pvt. Ltd.",
     branchName: asString(snapshotSender.name) || branch.name,
@@ -272,22 +292,22 @@ export async function ensureShipmentInvoiceForDraft(input: {
     asString(separateBilling.country)
   ]);
   const registeredAddressLine = addressLine([
-    asString(snapshotCompany.registeredAddress) || account.company.registeredAddress,
-    asString(snapshotCompany.city) || account.company.city,
+    asString(snapshotCompany.registeredAddress) || fallbackCompany.registeredAddress,
+    asString(snapshotCompany.city) || fallbackCompany.city,
     customerState,
-    asString(snapshotCompany.postalCode) || account.company.postalCode,
-    asString(snapshotCompany.addressCountry) || account.company.addressCountry
+    asString(snapshotCompany.postalCode) || fallbackCompany.postalCode,
+    asString(snapshotCompany.addressCountry) || fallbackCompany.addressCountry
   ]);
   const customer = {
     accountId: asString(snapshotAccount.accountId) || account.accountId,
-    companyName: asString(snapshotCompany.companyName) || account.company.companyName,
-    contactName: `${asString(snapshotContact.firstName) || account.contact.firstName} ${asString(snapshotContact.lastName) || account.contact.lastName}`.trim(),
+    companyName: asString(snapshotCompany.companyName) || fallbackCompany.companyName,
+    contactName: `${asString(snapshotContact.firstName) || fallbackContact.firstName} ${asString(snapshotContact.lastName) || fallbackContact.lastName}`.trim(),
     gstin: customerGstin,
     state: customerState,
     stateCode: customerGstin.slice(0, 2),
     billingAddress: separateBillingAddressLine || registeredAddressLine,
-    email: asString(snapshotContact.email) || account.contact.email,
-    phone: `${asString(snapshotContact.countryCode) || account.contact.countryCode} ${asString(snapshotContact.mobileNumber) || account.contact.mobileNumber}`.trim()
+    email: asString(snapshotContact.email) || fallbackContact.email,
+    phone: `${asString(snapshotContact.countryCode) || fallbackContact.countryCode} ${asString(snapshotContact.mobileNumber) || fallbackContact.mobileNumber}`.trim()
   };
   const snapshotParcels = bookingSnapshot?.parcels ?? [];
   const shipmentReference = bookingSnapshot?.source.shipmentReference || upload.shipmentReference;

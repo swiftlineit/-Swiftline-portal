@@ -8,8 +8,11 @@ import {
 } from "../controllers/businessAccountAccess.controller.js";
 import {
   assignBusinessAccountBranch,
+  assignBusinessAccountRateCard,
   createBusinessAccount,
+  deleteBusinessAccountDraft,
   getBusinessAccount,
+  listBusinessAccountRateCardHistory,
   listBusinessAccounts,
   submitBusinessAccount,
   updateBusinessAccount,
@@ -20,12 +23,30 @@ import {
   validateBusinessAccountUniqueness
 } from "../controllers/businessAccount.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
-import { requireBusinessAccountBranch } from "../middleware/businessAccountBranchAccess.middleware.js";
+import {
+  requireAssignedBusinessAccountBranch,
+  requireBusinessAccountBranch
+} from "../middleware/businessAccountBranchAccess.middleware.js";
 import { businessDocumentUpload } from "../middleware/businessDocumentUpload.middleware.js";
 
 export const businessAccountRouter = Router();
 
 businessAccountRouter.use(attachUser);
+
+// Finance can change only this commercial field; it does not gain access to the
+// broader onboarding and KYC routes below. Non-admin roles are branch scoped.
+businessAccountRouter.patch(
+  "/:accountId/rate-card",
+  requireRole("admin", "finance", "operations"),
+  requireAssignedBusinessAccountBranch,
+  assignBusinessAccountRateCard
+);
+businessAccountRouter.get(
+  "/:accountId/rate-card-history",
+  requireRole("admin", "finance", "operations"),
+  requireAssignedBusinessAccountBranch,
+  listBusinessAccountRateCardHistory
+);
 businessAccountRouter.use(requireRole("admin", "operations"));
 
 // Collection routes come first: they are answered before the `/:accountId` guard
@@ -51,3 +72,6 @@ businessAccountRouter.patch("/:accountId/operational-action", updateBusinessAcco
 businessAccountRouter.patch("/:accountId/kyc-review", updateBusinessAccountKycReview);
 businessAccountRouter.patch("/:accountId/status", updateBusinessAccountStatus);
 businessAccountRouter.post("/:accountId/submit", submitBusinessAccount);
+// Draft accounts only; anything already under review goes through the status
+// endpoint above instead.
+businessAccountRouter.delete("/:accountId", deleteBusinessAccountDraft);

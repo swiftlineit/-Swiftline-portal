@@ -14,6 +14,7 @@ import {
   bookingSnapshotToLabelData,
   buildRevisedShipmentSnapshot,
   buildShipmentBookingSnapshot,
+  snapshotDeclaredGoodsValueMinor,
   serializeShipmentBookingConfirmation
 } from "../services/shipmentBookingSnapshot.service.js";
 
@@ -133,8 +134,8 @@ describe("immutable multi-parcel booking snapshot", () => {
       },
       consigneeValidatedAddress: null,
       parcelList: [
-        { sequence: 1, weightKg: 7, lengthCm: 30, widthCm: 20, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "Clothing", shipmentReference1: "BOX-A" },
-        { sequence: 2, weightKg: 11, lengthCm: 40, widthCm: 30, heightCm: 20, shipmentContentType: "PARCEL", contentsDescription: "Shoes", shipmentReference1: "BOX-B" }
+        { sequence: 1, weightKg: 7, lengthCm: 30, widthCm: 20, heightCm: 10, shipmentContentType: "PARCEL", items: [{ description: "Clothing", hsnCode: "62034200", unitType: "Pkt", quantity: 2, unitRate: 150 }], contentsDescription: "Clothing", shipmentReference1: "BOX-A" },
+        { sequence: 2, weightKg: 11, lengthCm: 40, widthCm: 30, heightCm: 20, shipmentContentType: "PARCEL", items: [{ description: "Shoes", hsnCode: "64039900", unitType: "Pair", quantity: 3, unitRate: 200 }], contentsDescription: "Shoes", shipmentReference1: "BOX-B" }
       ]
     };
     const snapshot = buildShipmentBookingSnapshot({
@@ -156,14 +157,24 @@ describe("immutable multi-parcel booking snapshot", () => {
           { sequence: 2, actualWeightKg: 11, volumetricWeightKg: 4.8, chargeableWeightKg: 11, rateCardId: "rate-2", rateFromKg: 10.01, rateToKg: 20, chargesPerKg: 180, maxBoxKg: 25, baseAmount: 1980, exceedsMaxBoxKg: false }
         ],
         freightAmount: 3380,
+        fuelSurchargeAmount: 0,
+        remoteAreaAmount: 0,
+        remoteAreaApplied: false,
         csbType: "CSB_IV" as const,
         csbClearanceAmount: 0,
+        handlingAmount: 0,
+        insuranceAmount: 0,
+        insuranceApplied: false,
+        declaredGoodsValue: 0,
+        discountAmount: 0,
         baseAmount: 3380,
         gstAmount: 608.4,
         totalAmount: 3988.4,
         missingRate: false,
         exceedsMaxBoxKg: false,
-        gstRate: 0.18
+        gstRate: 0.18,
+        lines: [],
+        pricingBasis: { rateCardIds: [], routeChargesUpdatedAt: null }
       },
       serviceCode: "DPD_CLASSIC",
       bookedAt: new Date("2026-07-20T06:30:00.000Z"),
@@ -184,6 +195,9 @@ describe("immutable multi-parcel booking snapshot", () => {
       "SLCDEL200726001-01",
       "SLCDEL200726001-02"
     ]);
+    assert.deepEqual(snapshot.parcels.map((parcel) => parcel.items?.[0]?.unitType), ["Pkt", "Pair"]);
+    assert.deepEqual(snapshot.parcels.map((parcel) => parcel.declaredGoodsValueMinor), [30_000, 60_000]);
+    assert.equal(snapshotDeclaredGoodsValueMinor(snapshot), 90_000);
 
     const firstDpdLabel = bookingSnapshotToLabelData(snapshot, 0, "DPD");
     const secondSwiftlineLabel = bookingSnapshotToLabelData(snapshot, 1, "SWIFTLINE");
@@ -238,6 +252,7 @@ describe("immutable multi-parcel booking snapshot", () => {
     assert.equal(revisedSnapshot.parcels[0]?.actualWeightKg, 8);
     assert.equal(revisedSnapshot.parcels[0]?.reference, "BOX-A-UPDATED");
     assert.equal(revisedSnapshot.parcels[0]?.carrierParcelNumber, "DPD-BOX-1");
+    assert.equal(revisedSnapshot.parcels[0]?.declaredGoodsValueMinor, 30_000);
     assert.equal(revisedSnapshot.payment.totalAmountMinor, 424800);
     assert.equal(revisedSnapshot.payment.advanceAmountMinor, 120000);
     assert.equal(revisedSnapshot.payment.creditAmountMinor, 304800);

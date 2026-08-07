@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
-import { FiBriefcase, FiCheck, FiChevronDown, FiEdit3, FiLock, FiMail, FiMapPin, FiPhone, FiShield, FiUser, FiX } from "react-icons/fi";
+import Image from "next/image";
+import { FiBriefcase, FiCamera, FiChevronDown, FiLock, FiMail, FiMapPin, FiPhone, FiTrash2, FiUser } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { BiSolidEdit } from "react-icons/bi";
 import { SearchableSelect } from "@/components/business-accounts/FormFieldControls";
@@ -20,6 +21,9 @@ import {
   contactTitles,
   formatProfileRole,
   getProfile,
+  deleteProfileImage,
+  loadProfileImageUrl,
+  uploadProfileImage,
   updateProfileBusinessAccount,
   updateProfileDetails,
   validateProfileAccount,
@@ -309,10 +313,11 @@ export default function ProfilePage() {
 
   // Profile edits are inline panels rather than a page, so "dirty" is simply
   // having one of them open — closing either discards whatever was typed.
-  useUnsavedChanges(editingUser || Boolean(editingAccountId));
+  useUnsavedChanges(editingUser || Boolean(editingAccountId), { label: "your profile" });
   const [passwordForm, setPasswordForm] = useState(emptyPassword);
   // Inline messages keyed by field, cleared whenever an edit starts.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [profileImageUrl, setProfileImageUrl] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -331,6 +336,54 @@ export default function ProfilePage() {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = "";
+    if (!profile?.user.hasProfileImage) {
+      return;
+    }
+    void loadProfileImageUrl().then((url) => {
+      objectUrl = url;
+      if (active) setProfileImageUrl(url);
+      else URL.revokeObjectURL(url);
+    }).catch(() => { if (active) setProfileImageUrl(""); });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [profile?.user.hasProfileImage]);
+
+  async function handleProfileImage(file?: File) {
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) {
+      toast.error("The profile image must be 3 MB or smaller.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await uploadProfileImage(file);
+      setProfile((current) => current ? { ...current, user: { ...current.user, hasProfileImage: true } } : current);
+      toast.success(result.message);
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "The profile image could not be uploaded.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleProfileImageDelete() {
+    setBusy(true);
+    try {
+      const result = await deleteProfileImage();
+      setProfile((current) => current ? { ...current, user: { ...current.user, hasProfileImage: false } } : current);
+      toast.success(result.message);
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "The profile image could not be removed.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function startUserEdit() {
     if (!profile) return;
@@ -450,9 +503,25 @@ export default function ProfilePage() {
 <div className="h-20 bg-linear-to-r from-blue-400 via-blue-300 to-blue-300" />
         <div className="flex flex-wrap items-end justify-between gap-4 px-6 pb-5">
           <div className="flex items-end gap-4">
-            <span className="-mt-10 flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-4 border-white bg-[#F0DE36] text-2xl font-bold text-[#0D1282] shadow-sm">
-              {initials(displayName, user.email)}
-            </span>
+            <div className="-mt-10 shrink-0">
+              <span className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-4 border-white bg-[#F0DE36] text-2xl font-bold text-[#0D1282] shadow-sm">
+                {profileImageUrl ? (
+                  <Image src={profileImageUrl} alt={`${displayName} profile`} fill unoptimized className="object-cover" />
+                ) : initials(displayName, user.email)}
+              </span>
+              <div className="mt-2 flex justify-center gap-1.5">
+                <label className="inline-flex h-8 cursor-pointer items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:border-[#0D1282] hover:text-[#0D1282]">
+                  <FiCamera aria-hidden="true" className="h-3.5 w-3.5" />
+                  {user.hasProfileImage ? "Change" : "Add photo"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} className="sr-only" onChange={(event) => { void handleProfileImage(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+                </label>
+                {user.hasProfileImage ? (
+                  <button type="button" disabled={busy} onClick={() => void handleProfileImageDelete()} aria-label="Remove profile image" className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-white text-red-600 hover:bg-red-50">
+                    <FiTrash2 aria-hidden="true" className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
             <div className="min-w-0 pb-1">
               <h1 className="truncate text-2xl font-semibold text-slate-950">{displayName}</h1>
               <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">

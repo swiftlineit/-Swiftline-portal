@@ -1,7 +1,9 @@
 import { apiUrl } from "@/lib/api";
+import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
 import type { QuoteDocumentCode } from "@/lib/quoteDocuments";
+import type { ShipmentChargeLine } from "@/lib/shipmentCostEstimate";
 
 export type QuoteStatus = "REQUESTED" | "UNDER_REVIEW" | "QUOTED" | "DECLINED" | "EXPIRED" | "CONVERTED";
 export type QuoteAudience = "client" | "admin";
@@ -62,6 +64,9 @@ export type QuoteEstimate = {
   csbClearanceMinor: number;
   fuelSurchargeMinor: number | null;
   taxableAddOnsMinor: number | null;
+  // Full charge breakdown. Absent on quotes estimated before route charges
+  // existed, which fall back to the freight and clearance figures above.
+  lines?: ShipmentChargeLine[];
   gstRate: number;
   gstMinor: number;
   totalMinor: number;
@@ -151,12 +156,12 @@ export async function createShipmentDraftFromQuote(audience: QuoteAudience, inpu
   );
 }
 
-export type ShipmentQuoteListInput = { status?: string; date?: string; page?: number };
+export type ShipmentQuoteListInput = { status?: string; dateRange?: DateRange; page?: number };
 
 export async function listShipmentQuotes(audience: QuoteAudience, input: ShipmentQuoteListInput = {}) {
   const url = new URL(apiUrl(root(audience)));
   if (input.status) url.searchParams.set("status", input.status);
-  if (input.date) url.searchParams.set("date", input.date);
+  setDateRangeParams(url.searchParams, input.dateRange);
   url.searchParams.set("page", String(input.page ?? 1));
   return parse<{ success: true; quotes: ShipmentQuote[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
     await fetchWithAuth(url.toString())

@@ -11,7 +11,7 @@ import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { CancellationFeeInvoice } from "../models/cancellationFeeInvoice.model.js";
 import { appendCreditLedgerEntry } from "./creditAccount.service.js";
 import { notifyBusinessFinancialMembers } from "./portalNotification.service.js";
-import { dayBounds } from "../utils/dateRangeFilter.js";
+import { dateRangeCondition } from "../utils/dateRangeFilter.js";
 
 export class CreditPaymentError extends Error {
   constructor(public readonly statusCode: number, message: string) {
@@ -430,7 +430,8 @@ export async function applyVerifiedCreditPayment(input: {
 
 export type CreditPaymentListFilter = {
   status?: string;
-  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   page?: number;
   limit?: number;
 };
@@ -441,8 +442,8 @@ export async function listCreditPayments(
 ) {
   const query: Record<string, unknown> = { businessAccountId };
   if (filter.status) query.status = filter.status;
-  const bounds = dayBounds(filter.date);
-  if (bounds) query.createdAt = { $gte: bounds.start, $lte: bounds.end };
+  const createdAt = dateRangeCondition(filter.dateFrom, filter.dateTo);
+  if (createdAt) query.createdAt = createdAt;
 
   const limit = Math.min(100, Math.max(1, filter.limit ?? 100));
   const total = await CreditPayment.countDocuments(query).exec();

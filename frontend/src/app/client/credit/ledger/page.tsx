@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FiArrowLeft, FiDownload, FiRefreshCw } from "react-icons/fi";
+import { FiArrowLeft, FiChevronDown, FiDownload, FiRefreshCw } from "react-icons/fi";
 import {
   ClientDashboardLoading,
 } from "@/components/client/ClientDashboardShell";
 import {
+  ledgerExportRanges,
   listClientLedger,
   openAuthenticatedFile,
+  withLedgerExportRange,
   type CreditLedgerEntry,
 } from "@/lib/creditBilling";
 import {
@@ -43,6 +45,8 @@ export default function ClientCreditLedgerPage() {
   const [entries, setEntries] = useState<CreditLedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Reporting window for the export; empty exports the full history.
+  const [exportRange, setExportRange] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -133,18 +137,38 @@ export default function ClientCreditLedgerPage() {
             </p>
           </div>
           {businessAccountId ? (
-            <button
-              type="button"
-              onClick={() =>
-                void openAuthenticatedFile(
-                  `/api/v1/client/credit/ledger/export?businessAccountId=${businessAccountId}`,
-                  "credit-account-statement.csv",
-                )
-              }
-              className="inline-flex h-10 items-center rounded-4xl gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900"
-            >
-              <FiDownload /> Export CSV
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <select
+                  value={exportRange}
+                  onChange={(event) => setExportRange(event.target.value)}
+                  aria-label="Export period"
+                  className="h-10 appearance-none rounded-4xl border border-slate-300 bg-white pl-4 pr-11 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+                >
+                  {ledgerExportRanges.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  void openAuthenticatedFile(
+                    withLedgerExportRange(
+                      `/api/v1/client/credit/ledger/export?businessAccountId=${businessAccountId}`,
+                      exportRange,
+                    ),
+                    "credit-account-statement.csv",
+                  )
+                }
+                className="inline-flex h-10 items-center rounded-4xl gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900"
+              >
+                <FiDownload /> Export CSV
+              </button>
+            </div>
           ) : null}
         </div>
         {accounts.length > 1 ? (

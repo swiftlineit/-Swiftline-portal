@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { FiDownload, FiPrinter } from "react-icons/fi";
+import { FiDownload } from "react-icons/fi";
 import {
   downloadShipmentInvoicePdf,
   getShipmentInvoice,
+  getShipmentLevelInvoiceLines,
   ShipmentInvoice,
   ShipmentInvoiceAudience,
   ShipmentInvoiceParcel,
@@ -62,9 +63,6 @@ export default function ShipmentInvoicePage({
           requestedRevision,
         );
         setInvoice(result);
-        if (searchParams.get("print") === "1") {
-          window.setTimeout(() => window.print(), 500);
-        }
       } catch (caughtError) {
         setError(
           caughtError instanceof Error
@@ -112,10 +110,15 @@ export default function ShipmentInvoicePage({
     );
 
   const parcels = invoice.shipment.parcels ?? [];
-  // Flat CSB-V clearance charge for the whole shipment, in minor units.
-  const csbClearanceMinor = Math.round(
-    (invoice.pricingSnapshot?.csbClearanceAmount ?? 0) * 100,
-  );
+  // Every charge that is not per-box freight and is not the tax itself. Freight is
+  // already itemised per box above, and GST is totalled opposite, so listing them
+  // again here would double them.
+  //
+  // Invoices raised before route charges existed carry no `lines`, so their flat
+  // CSB-V clearance charge is reconstructed from the stored amount and they print
+  // exactly as they always did.
+  const shipmentLevelLines = getShipmentLevelInvoiceLines(invoice.pricingSnapshot);
+  const showDraftStatus = invoice.status === "DRAFT" && invoice.totalTaxAmountMinor > 0;
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 print:bg-white print:p-0">
@@ -125,14 +128,6 @@ export default function ShipmentInvoicePage({
           {invoice.versions.length}
         </p>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex h-10 items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
-          >
-            <FiPrinter aria-hidden="true" />
-            Print
-          </button>
           <button
             type="button"
             onClick={() => void downloadPdf()}
@@ -152,7 +147,7 @@ export default function ShipmentInvoicePage({
       ) : null}
 
       <article className="invoice-sheet relative mx-auto min-h-[297mm] max-w-[210mm] bg-white p-10 text-slate-950 shadow-sm print:min-h-0 print:max-w-none print:p-0 print:shadow-none">
-        {invoice.status === "DRAFT" ? (
+        {showDraftStatus ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-7xl font-bold text-red-600 opacity-[0.06] -rotate-45">
             DRAFT
           </div>
@@ -168,7 +163,7 @@ export default function ShipmentInvoicePage({
           />
           <div className="text-right">
             <h1 className="text-xl font-bold">
-              {invoice.status === "ISSUED"
+              {!showDraftStatus
                 ? "TAX INVOICE"
                 : "DRAFT TAX INVOICE"}
             </h1>
@@ -268,22 +263,28 @@ export default function ShipmentInvoicePage({
               </div>
             </div>
           ))}
-          {/* Flat charge for the whole shipment, so it sits below the per-box rows
-              rather than inside any one of them. Absent on CSB-IV. */}
-          {csbClearanceMinor > 0 ? (
-            <div className="grid grid-cols-[1.8fr_repeat(5,1fr)] border-t border-slate-950 text-center text-[11px]">
+          {/* Charges that apply to the whole shipment rather than to one box:
+              surcharges, clearance, handling, insurance and any discount. Listed
+              below the per-box rows so the rows above plus these always add up to
+              the taxable value printed opposite. */}
+          {shipmentLevelLines.map((line) => (
+            <div
+              key={line.code}
+              className="grid grid-cols-[1.8fr_repeat(5,1fr)] border-t border-slate-950 text-center text-[11px]"
+            >
               <div className="border-r border-slate-950 px-3 py-3 text-left font-bold uppercase">
-                CSB-V Clearance Charge
+                {line.label}
               </div>
               <div className="border-r border-slate-950 px-2 py-3">-</div>
               <div className="border-r border-slate-950 px-2 py-3">-</div>
               <div className="border-r border-slate-950 px-2 py-3">-</div>
               <div className="border-r border-slate-950 px-2 py-3">-</div>
               <div className="px-3 py-3 font-semibold">
-                {money(csbClearanceMinor, invoice.currency)}
+                {line.kind === "DEDUCTION" ? "-" : ""}
+                {money(line.amountMinor, invoice.currency)}
               </div>
             </div>
-          ) : null}
+          ))}
         </section>
 
         <section className="relative grid grid-cols-[1fr_280px] border-x border-b border-slate-950 text-xs">
@@ -301,26 +302,28 @@ export default function ShipmentInvoicePage({
               amount={invoice.taxableValueMinor}
               currency={invoice.currency}
             />
-            {invoice.taxType === "CGST_SGST" ? (
-              <>
+            {invoice.totalTaxAmountMinor > 0 ? (
+              invoice.taxType === "CGST_SGST" ? (
+                <>
+                  <Total
+                    label={`CGST ${invoice.gstRatePercent / 2}%`}
+                    amount={invoice.cgstAmountMinor}
+                    currency={invoice.currency}
+                  />
+                  <Total
+                    label={`SGST ${invoice.gstRatePercent / 2}%`}
+                    amount={invoice.sgstAmountMinor}
+                    currency={invoice.currency}
+                  />
+                </>
+              ) : (
                 <Total
-                  label={`CGST ${invoice.gstRatePercent / 2}%`}
-                  amount={invoice.cgstAmountMinor}
+                  label={`IGST ${invoice.gstRatePercent}%`}
+                  amount={invoice.igstAmountMinor}
                   currency={invoice.currency}
                 />
-                <Total
-                  label={`SGST ${invoice.gstRatePercent / 2}%`}
-                  amount={invoice.sgstAmountMinor}
-                  currency={invoice.currency}
-                />
-              </>
-            ) : (
-              <Total
-                label={`IGST ${invoice.gstRatePercent}%`}
-                amount={invoice.igstAmountMinor}
-                currency={invoice.currency}
-              />
-            )}
+              )
+            ) : <div className="min-h-12" aria-hidden="true" />}
             <Total
               label="Total Chargeable"
               amount={invoice.totalAmountMinor}

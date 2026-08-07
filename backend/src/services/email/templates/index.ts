@@ -4,6 +4,8 @@ import { shipmentBookedClientTemplate, shipmentBookedStaffTemplate } from "./shi
 import { clientInvitationTemplate } from "./clientInvitation.js";
 import { passwordResetTemplate } from "./passwordReset.js";
 import { loginOtpTemplate } from "./loginOtp.js";
+import { pickupOtpTemplate } from "./pickupOtp.js";
+import { rateCardSharedTemplate } from "./rateCardShared.js";
 
 export type EmailTemplateContext = {
   recipientName: string;
@@ -43,7 +45,9 @@ const registry: Record<string, EmailTemplate> = {
   SHIPMENT_BOOKED_STAFF: shipmentBookedStaffTemplate,
   CLIENT_INVITATION: clientInvitationTemplate,
   PASSWORD_RESET: passwordResetTemplate,
-  LOGIN_OTP: loginOtpTemplate
+  LOGIN_OTP: loginOtpTemplate,
+  PICKUP_OTP: pickupOtpTemplate,
+  RATE_CARD_SHARED: rateCardSharedTemplate
 };
 
 export function getEmailTemplate(templateKey: string): EmailTemplate {

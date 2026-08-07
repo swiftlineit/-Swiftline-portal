@@ -1,4 +1,5 @@
 import { apiUrl } from "@/lib/api";
+import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, readJsonSafely, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
 
@@ -97,7 +98,7 @@ export async function listShipments(audience: ShipmentAudience, input: {
   page?: number;
   limit?: number;
   status?: string;
-  date?: string;
+  dateRange?: DateRange;
   businessAccountId?: string;
   branchId?: string;
 } = {}) {
@@ -105,7 +106,7 @@ export async function listShipments(audience: ShipmentAudience, input: {
   params.set("page", String(input.page ?? 1));
   params.set("limit", String(input.limit ?? 20));
   if (input.status) params.set("status", input.status);
-  if (input.date) params.set("date", input.date);
+  setDateRangeParams(params, input.dateRange);
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
   if (input.branchId) params.set("branchId", input.branchId);
   const base = audience === "client" ? "/api/v1/client/booked-shipments" : "/api/v1/shipments";

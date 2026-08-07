@@ -8,7 +8,11 @@ import {
   releaseBookingReservation,
   reserveBookingCapacity
 } from "./creditBooking.service.js";
-import { calculateShipmentPricingEstimate, type ShipmentPricingEstimate } from "./shipmentPricing.service.js";
+import {
+  buildPricingInputFromDraft,
+  calculateShipmentPricingEstimate,
+  type ShipmentPricingEstimate
+} from "./shipmentPricing.service.js";
 
 const RESERVATION_TTL_MS = 15 * 60 * 1000;
 type ShipmentDraftDocument = InstanceType<typeof ShipmentDraft>;
@@ -36,12 +40,8 @@ export async function reserveShipmentBookingCharge(input: {
     return { charge: existingCharge, reservation: null, reserved: false as const };
   }
 
-  const pricing = input.pricing ?? await calculateShipmentPricingEstimate({
-      countryCode: input.draft.consigneeEnteredAddress.countryCode,
-      serviceType: input.draft.serviceType,
-      parcels: input.draft.parcelList,
-      csbType: input.draft.csbType
-    });
+  const pricing = input.pricing
+    ?? await calculateShipmentPricingEstimate(buildPricingInputFromDraft(input.draft));
   if (pricing.missingRate) throw new Error("BOOKING_RATE_NOT_FOUND");
 
   const amountMinor = toMinor(pricing.totalAmount);
@@ -58,6 +58,52 @@ export async function reserveShipmentBookingCharge(input: {
     parcelCount: Math.max(input.draft.parcelList.length || input.draft.parcelCount || 1, 1),
     pricingSnapshot: pricing
   });
+}
+
+/**
+ * Records the charge for a walk-in shipment, which was paid into a company
+ * account before the booking was made.
+ *
+ * There is no reservation to hold and nothing to convert later, so the charge is
+ * written straight to COMPLETED with no `balanceReservationId`. It exists because
+ * the rest of the shipment lifecycle reads it: the amendment flow rejects a
+ * shipment that has no charge, and the cancellation flow inspects `paymentSource`
+ * to decide whether credit needs unwinding. `ADMIN_DIRECT` tells both of them
+ * that no credit is involved.
+ *
+ * Idempotent on `shipmentDraftId`, which is unique on the model, so a retried
+ * booking updates the existing row rather than colliding.
+ */
+export async function recordCounterShipmentCharge(input: {
+  draft: ShipmentDraftDocument;
+  pricing: ShipmentPricingEstimate;
+  session?: mongoose.ClientSession;
+}) {
+  const amountMinor = toMinor(input.pricing.totalAmount);
+  if (amountMinor <= 0) throw new Error("BOOKING_AMOUNT_INVALID");
+
+  return ShipmentCharge.findOneAndUpdate(
+    { shipmentDraftId: input.draft._id },
+    {
+      businessAccountId: input.draft.businessAccountId,
+      branchId: input.draft.branchId,
+      shipmentDraftId: input.draft._id,
+      balanceReservationId: null,
+      parcelCount: Math.max(input.draft.parcelList.length || input.draft.parcelCount || 1, 1),
+      paymentSource: "ADMIN_DIRECT",
+      customerChargeMinor: amountMinor,
+      customerCurrency: "INR",
+      customerChargeStatus: "COMPLETED",
+      pricingSnapshot: input.pricing
+    },
+    {
+      returnDocument: "after",
+      upsert: true,
+      runValidators: true,
+      setDefaultsOnInsert: true,
+      session: input.session ?? null
+    }
+  ).exec();
 }
 
 async function getReservedCharge(shipmentDraftId: mongoose.Types.ObjectId) {

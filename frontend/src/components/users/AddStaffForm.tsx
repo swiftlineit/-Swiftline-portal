@@ -72,11 +72,14 @@ export default function AddStaffForm({ canGrantAdmin }: { canGrantAdmin: boolean
 
   // Documents and branch assignments count as unsaved work too, not just the
   // typed fields.
+  // No draft option: creating a staff member issues an activation invitation,
+  // so there is no half-created state for one to be saved into.
   useUnsavedChanges(
     !staffPersisted
     && (JSON.stringify(values) !== JSON.stringify(emptyForm)
       || assignedBranches.length > 0
-      || Object.keys(documents).length > 0)
+      || Object.keys(documents).length > 0),
+    { label: "this staff member" }
   );
 
   useEffect(() => {

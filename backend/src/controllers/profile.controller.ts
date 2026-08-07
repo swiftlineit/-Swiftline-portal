@@ -1,3 +1,4 @@
+import fs from "fs";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -123,6 +124,7 @@ type ProfileUser = {
   createdAt?: Date | null;
   assignedBranches?: mongoose.Types.ObjectId[];
   staffProfile?: IStaffProfile | null;
+  profileImage?: { storedName?: string } | null;
 };
 
 function serializeBranches(branches: BranchSummary[]) {
@@ -179,7 +181,7 @@ function serializeAccount(account: IBusinessAccount, membershipRole: string, joi
 
 async function loadProfile(userId: mongoose.Types.ObjectId) {
   const user = await User.findById(userId)
-    .select("firstName lastName name email phone role userStatus isVerified emailVerifiedAt lastLogin assignedBranches createdAt staffProfile")
+    .select("firstName lastName name email phone role userStatus isVerified emailVerifiedAt lastLogin assignedBranches createdAt staffProfile profileImage")
     .lean<ProfileUser>()
     .exec();
   if (!user) return null;
@@ -227,6 +229,7 @@ async function loadProfile(userId: mongoose.Types.ObjectId) {
       emailVerifiedAt: user.emailVerifiedAt ?? null,
       lastLogin: user.lastLogin ?? null,
       createdAt: user.createdAt ?? null,
+      hasProfileImage: Boolean(user.profileImage?.storedName),
       assignedBranches: serializeBranches(resolveBranches(user.assignedBranches ?? [])),
       // Null for clients and for internal accounts created before the staff form.
       staffProfile: serializeStaffProfile(user.staffProfile)
@@ -407,4 +410,92 @@ export async function changeProfilePassword(request: Request, response: Response
   });
 
   return response.status(200).json({ success: true, message: "Your password was updated." });
+}
+
+function isValidProfileImageHeader(header: Buffer) {
+  const jpeg = header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+  const png = header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const webp = header.subarray(0, 4).toString("latin1") === "RIFF" && header.subarray(8, 12).toString("latin1") === "WEBP";
+  return jpeg || png || webp;
+}
+
+export async function uploadProfileImage(request: Request, response: Response) {
+  const userId = getUserId(request);
+  const file = request.file;
+  if (!userId) {
+    if (file) await fs.promises.unlink(file.path).catch(() => undefined);
+    return response.status(401).json({ success: false, message: "Unauthorized" });
+  }
+  if (!file) return response.status(400).json({ success: false, message: "Choose a profile image." });
+
+  const header = Buffer.alloc(12);
+  let handle: fs.promises.FileHandle | undefined;
+  try {
+    handle = await fs.promises.open(file.path, "r");
+    await handle.read(header, 0, 12, 0);
+  } finally {
+    await handle?.close();
+  }
+  if (!isValidProfileImageHeader(header)) {
+    await fs.promises.unlink(file.path).catch(() => undefined);
+    return response.status(400).json({ success: false, message: "The selected file is not a valid JPG, PNG, or WebP image." });
+  }
+
+  const user = await User.findById(userId).select("profileImage").exec();
+  if (!user) {
+    await fs.promises.unlink(file.path).catch(() => undefined);
+    return response.status(404).json({ success: false, message: "Profile not found." });
+  }
+  const previousPath = user.profileImage?.path;
+  user.profileImage = {
+    originalName: file.originalname,
+    storedName: file.filename,
+    mimeType: file.mimetype,
+    size: file.size,
+    path: file.path,
+    uploadedAt: new Date()
+  };
+  await user.save();
+  if (previousPath && previousPath !== file.path) await fs.promises.unlink(previousPath).catch(() => undefined);
+
+  await AuditLog.create({
+    action: "USER_PROFILE_UPDATED",
+    entityType: "USER",
+    entityId: userId,
+    performedBy: userId,
+    performedAt: new Date(),
+    metadata: { fields: ["profileImage"] }
+  });
+  return response.status(200).json({ success: true, message: "Profile image updated.", hasProfileImage: true });
+}
+
+export async function viewProfileImage(request: Request, response: Response) {
+  const userId = getUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+  const user = await User.findById(userId).select("profileImage").lean().exec();
+  const filePath = user?.profileImage?.path;
+  if (!filePath) return response.status(404).json({ success: false, message: "Profile image not found." });
+  response.setHeader("Cache-Control", "private, max-age=300");
+  response.setHeader("Content-Type", user.profileImage?.mimeType || "application/octet-stream");
+  return response.sendFile(filePath);
+}
+
+export async function deleteProfileImage(request: Request, response: Response) {
+  const userId = getUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+  const user = await User.findById(userId).select("profileImage").exec();
+  if (!user) return response.status(404).json({ success: false, message: "Profile not found." });
+  const previousPath = user.profileImage?.path;
+  user.profileImage = null;
+  await user.save();
+  if (previousPath) await fs.promises.unlink(previousPath).catch(() => undefined);
+  await AuditLog.create({
+    action: "USER_PROFILE_UPDATED",
+    entityType: "USER",
+    entityId: userId,
+    performedBy: userId,
+    performedAt: new Date(),
+    metadata: { fields: ["profileImage"], removed: true }
+  });
+  return response.status(200).json({ success: true, message: "Profile image removed.", hasProfileImage: false });
 }

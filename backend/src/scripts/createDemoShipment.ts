@@ -18,6 +18,8 @@ import {
   completeShipmentBookingCharge,
   reserveShipmentBookingCharge
 } from "../services/shipmentBookingBilling.service.js";
+import { buildShipmentBookingSnapshot } from "../services/shipmentBookingSnapshot.service.js";
+import { calculateShipmentPricingEstimate } from "../services/shipmentPricing.service.js";
 import { ensureShipmentInvoiceForDraft } from "../services/shipmentInvoice.service.js";
 import { storeGeneratedLabel } from "../services/dpdShipment.service.js";
 import {
@@ -280,7 +282,7 @@ async function main() {
 
   // The carrier response is mocked, but customer billing follows the same
   // reservation and conversion services used by a normal shipment booking.
-  await reserveShipmentBookingCharge({
+  const reservationResult = await reserveShipmentBookingCharge({
     draft: shipmentDraft,
     createdBy: actorId,
     bookingAttemptId: `DEMO-${String(shipmentDraft._id)}`
@@ -366,6 +368,48 @@ async function main() {
       buffer: await renderSimulatedDpdLabelPdf(labelData)
     });
   }
+
+  // Without a booking snapshot the shipment is not manifest-eligible and the
+  // invoice falls back to the live account instead of the values accepted at
+  // booking, so a seeded shipment behaves unlike a real one. Built through the
+  // same service a genuine booking uses.
+  const branchDocument = await Branch.findById(branchId).exec();
+  if (!branchDocument) throw new Error("The demo branch could not be loaded.");
+  const demoPricing = await calculateShipmentPricingEstimate({
+    businessAccountId: shipmentDraft.businessAccountId,
+    countryCode: destinationAddress.countryCode,
+    serviceType: shipmentDraft.serviceType,
+    parcels: shipmentDraft.parcelList,
+    csbType: shipmentDraft.csbType
+  });
+  if (demoPricing.missingRate) {
+    throw new Error(`No rate card covers ${destinationAddress.countryCode} / ${shipmentDraft.serviceType}.`);
+  }
+
+  const demoSnapshot = buildShipmentBookingSnapshot({
+    draft: shipmentDraft,
+    invoiceUpload,
+    account,
+    branch: branchDocument,
+    pricing: demoPricing,
+    serviceCode: shipmentDraft.serviceCode,
+    bookedAt: now,
+    swiftlineTrackingNumber,
+    carrierShipmentId: dpdShipment.dpdShipmentId ?? "",
+    carrierTransactionId: dpdShipment.dpdTransactionId ?? "",
+    carrierParcelNumbers: shipmentDraft.parcelList.map((_, index) =>
+      `DPDTEST${String(shipmentDraft._id).slice(-8).toUpperCase()}${String(index + 1).padStart(2, "0")}`),
+    providerMode: "SIMULATED",
+    advanceAmountMinor: reservationResult.reservation?.advanceAmountMinor ?? 0,
+    creditAmountMinor: reservationResult.reservation?.creditAmountMinor
+      ?? Math.round(demoPricing.totalAmount * 100)
+  });
+  dpdShipment.bookingSnapshot = demoSnapshot as never;
+  dpdShipment.currentShipmentSnapshot = demoSnapshot as never;
+  await dpdShipment.save();
+
+  shipmentDraft.bookingState = "BOOKED";
+  await shipmentDraft.save();
 
   await completeShipmentBookingCharge({
     shipmentDraftId: shipmentDraft._id as mongoose.Types.ObjectId,

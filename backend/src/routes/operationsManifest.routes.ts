@@ -24,7 +24,6 @@ operationsManifestRouter.get("/:manifestId", controller.getManifest);
 operationsManifestRouter.patch("/:manifestId", controller.updateManifest);
 operationsManifestRouter.post("/:manifestId/bags", controller.createBag);
 operationsManifestRouter.post("/:manifestId/scan", scannerScanLimiter, controller.scanParcel);
-operationsManifestRouter.patch("/:manifestId/consignments/:consignmentId/value", controller.setGoodsValue);
 operationsManifestRouter.post("/:manifestId/consignments/:consignmentId/move", controller.moveConsignment);
 operationsManifestRouter.post("/:manifestId/scans/:scanId/remove", controller.removeScan);
 operationsManifestRouter.post("/:manifestId/bags/:bagId/close", controller.closeBag);

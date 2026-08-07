@@ -118,6 +118,18 @@ describe("business account status transitions", () => {
   });
 });
 
+describe("individual shipment rate-card guard", () => {
+  it("forces the system sentinel to Band A", async () => {
+    const account = new BusinessAccount(validAccountData({
+      accountKind: "INDIVIDUAL_SENTINEL",
+      rateCardBand: "BAND_C"
+    }));
+
+    await account.validate();
+    assert.equal(account.rateCardBand, "BAND_A");
+  });
+});
+
 describe("deriveKycOverallStatus", () => {
   it("stays documents_pending until required documents are present", () => {
     assert.equal(deriveKycOverallStatus({}, emptyReview()), "documents_pending");

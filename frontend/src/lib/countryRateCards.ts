@@ -3,8 +3,15 @@ import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 
 export const countryRateServices = ["COURIER", "CARGO"] as const;
 export type CountryRateService = (typeof countryRateServices)[number];
+export const rateCardBands = ["BAND_A", "BAND_B", "BAND_C"] as const;
+export type RateCardBand = (typeof rateCardBands)[number];
+
+export function formatRateCardBand(band: RateCardBand) {
+  return band.replace("BAND_", "Band ");
+}
 
 export type CountryRateCard = {
+  band: RateCardBand;
   _id: string;
   countryCode: string;
   countryName: string;
@@ -18,6 +25,7 @@ export type CountryRateCard = {
 };
 
 export type CountryRateCardInput = {
+  band: RateCardBand;
   countryCode: string;
   countryName: string;
   service: CountryRateService;
@@ -25,6 +33,54 @@ export type CountryRateCardInput = {
   toKg: number;
   chargesPerKg: number;
   maxBoxKg: number;
+};
+export type ClientCountryRateCard = Omit<CountryRateCard, "band">;
+export type ClientCountryRouteCharge = Omit<CountryRouteCharge, "band">;
+
+/**
+ * Surcharges, insurance and discount for one route (country + service).
+ *
+ * Stored once per route rather than per weight slab, so a fuel percentage is set
+ * in one place and two slabs can never disagree about it. A route with no record
+ * charges none of these.
+ */
+export type CountryRouteCharge = {
+  band: RateCardBand;
+  _id: string;
+  countryCode: string;
+  service: CountryRateService;
+  fuelSurchargePercent: number;
+  remoteAreaCharge: number;
+  remoteAreaPostcodes: string[];
+  handlingCharge: number;
+  insurancePercent: number;
+  insuranceMinimum: number;
+  discountPercent: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CountryRouteChargeInput = {
+  band: RateCardBand;
+  countryCode: string;
+  service: CountryRateService;
+  fuelSurchargePercent: number;
+  remoteAreaCharge: number;
+  // Sent as typed, comma or newline separated; the server splits and de-duplicates.
+  remoteAreaPostcodes: string;
+  handlingCharge: number;
+  insurancePercent: number;
+  insuranceMinimum: number;
+  discountPercent: number;
+};
+
+export type RateCardAssignmentAccount = {
+  _id: string;
+  accountId: string;
+  status: string;
+  company: { companyName?: string };
+  assignedBranch?: { _id: string; name?: string; code?: string; status?: string } | null;
+  rateCardBand?: RateCardBand | null;
 };
 
 function buildAuthHeaders(headers: HeadersInit | undefined, token: string | null) {
@@ -89,8 +145,9 @@ export function formatCountryRateService(service: string) {
   return service.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export async function listCountryRateCards() {
-  const response = await fetchWithAuth(apiUrl("/api/v1/country-rate-cards"));
+export async function listCountryRateCards(band?: RateCardBand) {
+  const path = band ? `/api/v1/country-rate-cards?band=${encodeURIComponent(band)}` : "/api/v1/country-rate-cards";
+  const response = await fetchWithAuth(apiUrl(path));
 
   return parseApiResponse<{
     success: true;
@@ -98,12 +155,34 @@ export async function listCountryRateCards() {
   }>(response);
 }
 
-export async function listClientCountryRateCards() {
-  const response = await fetchWithAuth(apiUrl("/api/v1/client/country-rate-cards"));
+export async function listClientCountryRateCards(businessAccountId?: string) {
+  const path = businessAccountId
+    ? `/api/v1/client/country-rate-cards?businessAccountId=${encodeURIComponent(businessAccountId)}`
+    : "/api/v1/client/country-rate-cards";
+  const response = await fetchWithAuth(apiUrl(path));
 
   return parseApiResponse<{
     success: true;
-    rates: CountryRateCard[];
+    title: "Your Swiftline Rate Card";
+    rateCardAssigned: boolean;
+    rates: ClientCountryRateCard[];
+    routeCharges: ClientCountryRouteCharge[];
+  }>(response);
+}
+
+export async function getDraftRateCardContext(draftId: string, audience: "admin" | "client") {
+  const path = audience === "client"
+    ? `/api/v1/client/dpd-labels/drafts/${draftId}/rate-card-context`
+    : `/api/v1/shipment-drafts/${draftId}/rate-card-context`;
+  const response = await fetchWithAuth(apiUrl(path));
+
+  return parseApiResponse<{
+    success: true;
+    title: "Your Swiftline Rate Card";
+    rateCardAssigned: boolean;
+    band?: RateCardBand;
+    rates: ClientCountryRateCard[];
+    routeCharges: ClientCountryRouteCharge[];
   }>(response);
 }
 
@@ -120,8 +199,40 @@ export async function saveCountryRateCard(input: CountryRateCardInput, rateId?: 
   }>(response);
 }
 
-export async function deleteCountryRateCard(rateId: string) {
-  const response = await fetchWithAuth(apiUrl(`/api/v1/country-rate-cards/${rateId}`), {
+export async function listCountryRouteCharges(band?: RateCardBand) {
+  const path = band
+    ? `/api/v1/country-rate-cards/route-charges?band=${encodeURIComponent(band)}`
+    : "/api/v1/country-rate-cards/route-charges";
+  const response = await fetchWithAuth(apiUrl(path));
+
+  return parseApiResponse<{
+    success: true;
+    routeCharges: CountryRouteCharge[];
+  }>(response);
+}
+
+export async function listRateCardAssignmentAccounts() {
+  const response = await fetchWithAuth(apiUrl("/api/v1/country-rate-cards/assignment-accounts"));
+  return parseApiResponse<{ success: true; accounts: RateCardAssignmentAccount[] }>(response);
+}
+
+/** Creates or replaces the configuration for one route, keyed by country + service. */
+export async function saveCountryRouteCharge(input: CountryRouteChargeInput) {
+  const response = await fetchWithAuth(apiUrl("/api/v1/country-rate-cards/route-charges"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+
+  return parseApiResponse<{
+    success: true;
+    routeCharge: CountryRouteCharge;
+  }>(response);
+}
+
+export async function deleteCountryRateCard(rateId: string, confirmAssignedImpact = false) {
+  const query = confirmAssignedImpact ? "?confirmAssignedImpact=true" : "";
+  const response = await fetchWithAuth(apiUrl(`/api/v1/country-rate-cards/${rateId}${query}`), {
     method: "DELETE"
   });
 
@@ -130,8 +241,9 @@ export async function deleteCountryRateCard(rateId: string) {
 
 export function buildCountryRateCardCsv(rates: CountryRateCard[]) {
   const rows = [
-    ["Country", "Service", "From KG", "To KG", "Charges / KG", "Max Box KG"],
+    ["Band", "Country", "Service", "From KG", "To KG", "Charges / KG", "Max Box KG"],
     ...rates.map((rate) => [
+      formatRateCardBand(rate.band),
       `${rate.countryName} (${rate.countryCode})`,
       formatCountryRateService(rate.service),
       String(rate.fromKg),

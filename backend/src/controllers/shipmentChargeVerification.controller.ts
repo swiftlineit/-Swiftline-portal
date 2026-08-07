@@ -8,6 +8,7 @@ import {
   previewShipmentChargeVerification,
   ShipmentChargeVerificationError
 } from "../services/shipmentChargeVerification.service.js";
+import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
 
 const verifiedParcelSchema = z.object({
   sequence: z.number().int().positive(),
@@ -39,6 +40,9 @@ function shipmentId(request: Request) {
 }
 
 function sendError(response: Response, error: unknown) {
+  if (error instanceof RateCardRequiredError) {
+    return response.status(error.statusCode).json({ success: false, code: error.code, message: error.message });
+  }
   if (error instanceof ShipmentChargeVerificationError || error instanceof AmendmentBillingError) {
     return response.status(error.statusCode).json({ success: false, message: error.message });
   }

@@ -10,6 +10,9 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { AuditLog } from "../models/auditLog.model.js";
 import { BusinessAccountInvitation } from "../models/businessAccountInvitation.model.js";
+import { DriverInvitation } from "../models/driverInvitation.model.js";
+import { DriverProfile } from "../models/driverProfile.model.js";
+import { hashDriverInvitationToken } from "../services/driverInvitation.service.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { sendLoginOtpEmail, sendPasswordResetEmail } from "../services/mail.service.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
@@ -254,12 +257,22 @@ async function findUsableInvitation(token: string) {
     .populate("businessAccount", "accountId company.companyName")
     .exec();
 
-  if (!invitation) return { invitation: null, message: "Invalid invitation link." };
-  if (invitation.revokedAt) return { invitation: null, message: "This invitation has been revoked." };
-  if (invitation.acceptedAt) return { invitation: null, message: "This invitation has already been accepted." };
-  if (invitation.expiresAt <= new Date()) return { invitation: null, message: "This invitation has expired." };
+  if (invitation) {
+    if (invitation.revokedAt) return { kind: null, invitation: null, message: "This invitation has been revoked." };
+    if (invitation.acceptedAt) return { kind: null, invitation: null, message: "This invitation has already been accepted." };
+    if (invitation.expiresAt <= new Date()) return { kind: null, invitation: null, message: "This invitation has expired." };
+    return { kind: "BUSINESS" as const, invitation, message: "" };
+  }
 
-  return { invitation, message: "" };
+  const driverInvitation = await DriverInvitation.findOne({ tokenHash: hashDriverInvitationToken(token) })
+    .populate("userId", "email firstName lastName name userStatus")
+    .populate("driverProfileId", "deliverySubrole engagementType status")
+    .exec();
+  if (!driverInvitation) return { kind: null, invitation: null, message: "Invalid invitation link." };
+  if (driverInvitation.revokedAt) return { kind: null, invitation: null, message: "This invitation has been revoked." };
+  if (driverInvitation.acceptedAt) return { kind: null, invitation: null, message: "This invitation has already been accepted." };
+  if (driverInvitation.expiresAt <= new Date()) return { kind: null, invitation: null, message: "This invitation has expired." };
+  return { kind: "DRIVER" as const, invitation: driverInvitation, message: "" };
 }
 
 export async function login(req: Request, res: Response): Promise<Response> {
@@ -691,8 +704,24 @@ export async function getInvitation(req: Request, res: Response): Promise<Respon
   const token = typeof req.params.token === "string" ? req.params.token : "";
   if (!token) return res.status(400).json({ success: false, message: "Invitation token is required." });
 
-  const { invitation, message } = await findUsableInvitation(token);
+  const { kind, invitation, message } = await findUsableInvitation(token);
   if (!invitation) return res.status(400).json({ success: false, message });
+
+  if (kind === "DRIVER") {
+    const user = invitation.userId as unknown as { email?: string; firstName?: string; lastName?: string; name?: string };
+    const profile = invitation.driverProfileId as unknown as { deliverySubrole?: string; engagementType?: string };
+    return res.status(200).json({
+      success: true,
+      invitation: {
+        kind: "DRIVER",
+        email: user.email ?? "",
+        name: user.name || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
+        deliverySubrole: profile.deliverySubrole ?? "DRIVER",
+        engagementType: profile.engagementType ?? "DIRECT_CONTRACTOR",
+        expiresAt: invitation.expiresAt
+      }
+    });
+  }
 
   const user = invitation.user as unknown as { email?: string; firstName?: string; lastName?: string; name?: string };
   const account = invitation.businessAccount as unknown as { accountId?: string; company?: { companyName?: string } };
@@ -701,6 +730,7 @@ export async function getInvitation(req: Request, res: Response): Promise<Respon
     success: true,
     invitation: {
       email: user.email ?? "",
+      kind: "BUSINESS",
       name: user.name || `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim(),
       businessAccountId: account.accountId ?? "",
       companyName: account.company?.companyName ?? "",
@@ -715,14 +745,46 @@ export async function activateInvitation(req: Request, res: Response): Promise<R
     return res.status(400).json({ success: false, errors: parsed.error.format() });
   }
 
-  const { invitation, message } = await findUsableInvitation(parsed.data.token);
+  const { kind, invitation, message } = await findUsableInvitation(parsed.data.token);
   if (!invitation) return res.status(400).json({ success: false, message });
+
+  if (kind === "DRIVER") {
+    const user = await User.findById(invitation.userId).exec();
+    const profile = await DriverProfile.findById(invitation.driverProfileId).exec();
+    if (!user || !profile || !(["INVITED", "PENDING_APPROVAL"] as string[]).includes(profile.status)) {
+      return res.status(400).json({ success: false, message: "Driver invitation access is no longer valid." });
+    }
+    const now = new Date();
+    user.passwordHash = await hashPassword(parsed.data.password);
+    user.userStatus = "active";
+    user.isVerified = true;
+    user.emailVerifiedAt = now;
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
+    profile.status = "PENDING_APPROVAL";
+    invitation.acceptedAt = now;
+    await Promise.all([user.save(), profile.save(), invitation.save()]);
+    return res.status(200).json({ success: true, message: "Driver account activated. Swiftline approval is required before pickups can be assigned." });
+  }
 
   const user = await User.findById(invitation.user).exec();
   const member = await BusinessAccountMember.findById(invitation.member).exec();
 
   if (!user || !member || member.status === "removed") {
     return res.status(400).json({ success: false, message: "Invitation access record is no longer valid." });
+  }
+
+  const conflictingMembership = await BusinessAccountMember.exists({
+    _id: { $ne: member._id },
+    user: user._id,
+    status: { $in: ["invited", "active", "suspended"] }
+  }).exec();
+  if (conflictingMembership) {
+    return res.status(409).json({
+      success: false,
+      code: "USER_ALREADY_ASSIGNED",
+      message: "This user already belongs to another business account. Restore the existing access instead."
+    });
   }
 
   const now = new Date();

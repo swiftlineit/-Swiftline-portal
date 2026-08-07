@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import mongoose from "mongoose";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { User } from "../models/user.model.js";
+import { excludeSentinel } from "../services/individualCustomer.service.js";
 import { operationsBranchIds, operationsUser } from "./operationsBranchAccess.middleware.js";
 
 /**
@@ -48,15 +49,41 @@ export async function businessAccountBranchFilter(request: Request): Promise<Rec
  * 403 so the response cannot be used to probe which accounts another branch holds.
  */
 export async function requireBusinessAccountBranch(request: Request, response: Response, next: NextFunction) {
-  const scope = await businessAccountBranchFilter(request);
-  if (!scope) return next();
+  // The individual-shipment sentinel is not a customer account: editing it, running
+  // KYC on it or changing its status would break every individual shipment booked
+  // against it. It is closed to every role, not just to branch-scoped ones.
+  const scope = excludeSentinel({
+    ...(await businessAccountBranchFilter(request) ?? {}),
+    accountId: String(request.params.accountId ?? "")
+  });
 
-  const account = await BusinessAccount.findOne({ accountId: request.params.accountId, ...scope })
+  const account = await BusinessAccount.findOne(scope)
     .select("_id")
     .lean()
     .exec();
 
   if (!account) return response.status(404).json({ success: false, message: "Business account was not found." });
 
+  return next();
+}
+
+/**
+ * Strict commercial-write guard. Unlike onboarding reads, an unassigned account
+ * is not inherited from the creator: finance and operations may change a rate
+ * card only after the account belongs to one of their assigned branches.
+ */
+export async function requireAssignedBusinessAccountBranch(request: Request, response: Response, next: NextFunction) {
+  const branchIds = operationsBranchIds(request);
+  const scope: Record<string, unknown> = {
+    accountId: String(request.params.accountId ?? ""),
+    accountKind: { $ne: "INDIVIDUAL_SENTINEL" }
+  };
+  if (branchIds !== null) {
+    scope.assignedBranch = {
+      $in: branchIds.filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id))
+    };
+  }
+  const account = await BusinessAccount.findOne(scope).select("_id").lean().exec();
+  if (!account) return response.status(404).json({ success: false, message: "Business account was not found." });
   return next();
 }

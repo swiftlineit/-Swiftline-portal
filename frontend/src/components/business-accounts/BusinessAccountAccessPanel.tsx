@@ -28,6 +28,7 @@ const statusStyles: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
   invited: "bg-amber-50 text-amber-700 ring-amber-600/20",
   suspended: "bg-rose-50 text-rose-700 ring-rose-600/20",
+  removed: "bg-slate-100 text-slate-600 ring-slate-500/20",
   disabled: "bg-slate-100 text-slate-600 ring-slate-500/20"
 };
 
@@ -179,17 +180,20 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
     }
   }
 
-  async function handleMemberStatusChange(memberId: string, status: Exclude<BusinessAccountMemberStatus, "invited">) {
+  async function handleMemberStatusChange(
+    memberId: string,
+    status: Exclude<BusinessAccountMemberStatus, "invited"> | "restore"
+  ) {
     setSaving(true);
     setError("");
     setEmailNotice("");
 
     try {
       const result = await updateBusinessAccountMemberStatus(account.accountId, memberId, status);
-      // A removed member drops out of the list; other status changes update in place.
-      setMembers((current) => status === "removed"
-        ? current.filter((member) => member._id !== memberId)
-        : current.map((member) => member._id === memberId ? result.member : member));
+      setMembers((current) => current.map((member) => member._id === memberId ? result.member : member));
+      if (status === "restore" && result.member.status === "invited") {
+        setEmailNotice("Access restored. Send or copy the new invitation from this user row.");
+      }
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to update member access.");
     } finally {
@@ -316,9 +320,15 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
                           Reactivate
                         </MemberActionButton>
                       ) : null}
-                      <MemberActionButton onClick={() => void handleMemberStatusChange(member._id, "removed")} disabled={saving} tone="danger">
-                        Remove
-                      </MemberActionButton>
+                      {member.status === "removed" ? (
+                        <MemberActionButton onClick={() => void handleMemberStatusChange(member._id, "restore")} disabled={saving}>
+                          Restore access
+                        </MemberActionButton>
+                      ) : (
+                        <MemberActionButton onClick={() => void handleMemberStatusChange(member._id, "removed")} disabled={saving} tone="danger">
+                          Remove
+                        </MemberActionButton>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -362,7 +372,13 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
               <AccessField label="First Name" value={form.firstName} onChange={(value) => updateForm("firstName", value)} required />
               <AccessField label="Last Name" value={form.lastName} onChange={(value) => updateForm("lastName", value)} required />
               <AccessField label="Email" type="email" value={form.email} onChange={(value) => updateForm("email", value)} required />
-              <AccessField label="Phone Number" value={form.phone} onChange={(value) => updateForm("phone", value)} />
+              <AccessField
+                label="Phone Number"
+                value={form.phone}
+                onChange={(value) => updateForm("phone", value)}
+                placeholder="+919876543210"
+                required
+              />
               <label className="block">
                 <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Client Role</span>
                 <select
@@ -455,13 +471,15 @@ function AccessField({
   value,
   onChange,
   type = "text",
-  required = false
+  required = false,
+  placeholder
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
   required?: boolean;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -472,7 +490,7 @@ function AccessField({
         type={type}
         value={value}
         required={required}
-        placeholder={label}
+        placeholder={placeholder ?? label}
         onChange={(event) => onChange(event.target.value)}
         className="block h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-[#0D1282] outline-none transition placeholder:text-slate-300 focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
       />

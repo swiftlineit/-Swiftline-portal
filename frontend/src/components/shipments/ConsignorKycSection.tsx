@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, useRef, useState } from "react";
-import { FiCheck, FiFileText, FiMapPin, FiSave, FiSearch, FiTrash2, FiUploadCloud } from "react-icons/fi";
+import { FiCheck, FiFileText, FiMapPin, FiSearch, FiTrash2, FiUploadCloud } from "react-icons/fi";
 import { toast } from "react-toastify";
 import {
   ShipmentFieldLabel,
@@ -52,9 +52,6 @@ export function ConsignorKycSection({
   onFormChange,
   fieldIssues,
   submitAttempted,
-  changed,
-  onSave,
-  busy,
   readOnly = false,
   kycUseForAll,
   onKycUseForAllChange,
@@ -71,9 +68,6 @@ export function ConsignorKycSection({
   onFormChange: (next: ConsignorForm) => void;
   fieldIssues: ConsignorFieldIssues;
   submitAttempted: boolean;
-  changed: boolean;
-  onSave: () => void;
-  busy: boolean;
   readOnly?: boolean;
   kycUseForAll: boolean;
   onKycUseForAllChange: (next: boolean) => void;
@@ -141,17 +135,6 @@ export function ConsignorKycSection({
             <h2 className="text-sm font-semibold uppercase text-slate-500">Consignor Details</h2>
             <p className="mt-1 text-xs text-slate-500">The Indian sender. Country and code are fixed to India.</p>
           </div>
-          {!readOnly ? (
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={busy || !changed}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-            >
-              <FiSave aria-hidden="true" className="h-4 w-4" />
-              Save
-            </button>
-          ) : null}
         </div>
         <div className="grid gap-4 p-4 md:grid-cols-2">
           <ShipmentTextField label="Consignor Company" value={form.companyName} onChange={setField("companyName")} readOnly={readOnly} />

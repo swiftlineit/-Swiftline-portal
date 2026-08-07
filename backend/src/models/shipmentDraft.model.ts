@@ -15,6 +15,10 @@ export const addressValidationStatusValues = [
   "UNAVAILABLE"
 ] as const;
 
+/** Who the shipment is for: an onboarded business, or a walk-in individual. */
+export const shipmentCustomerTypeValues = ["BUSINESS", "INDIVIDUAL"] as const;
+export type ShipmentCustomerType = (typeof shipmentCustomerTypeValues)[number];
+
 export const shipmentDraftStatusValues = [
   "NEEDS_REVIEW",
   "ADDRESS_INCOMPLETE",
@@ -136,6 +140,13 @@ export interface ShipmentParcel {
 export interface IShipmentDraft extends mongoose.Document {
   invoiceUploadId: mongoose.Types.ObjectId;
   businessAccountId: mongoose.Types.ObjectId;
+  /**
+   * INDIVIDUAL marks a walk-in shipment booked at the counter. Those drafts point
+   * `businessAccountId` at the system sentinel rather than a real customer, and
+   * the payer's identity lives in `consignorAddress`. Billing skips the credit
+   * system entirely — see `individualCustomer.service.ts`.
+   */
+  customerType: ShipmentCustomerType;
   branchId: mongoose.Types.ObjectId;
   sender: Record<string, unknown>;
   consignorAddress: ShipmentConsignorSnapshot;
@@ -155,6 +166,13 @@ export interface IShipmentDraft extends mongoose.Document {
   // Customs route for the whole shipment. CSB-V attracts a flat clearance charge
   // once per shipment (see csbType.service.ts).
   csbType: CsbType;
+  /**
+   * Whether the customer bought optional transit cover. The premium is priced from
+   * the route configuration against the declared goods value — see
+   * countryRouteCharge.model.ts. Off by default: cover is never added to a
+   * shipment the customer did not ask for it on.
+   */
+  insuranceOptIn: boolean;
   // Printed as the NOTE / NOTES block on the customs (shipment) invoice. Kept
   // separate from consignee deliveryInstructions, which go to the carrier.
   declarationNote: string;
@@ -165,6 +183,18 @@ export interface IShipmentDraft extends mongoose.Document {
   bookingState: ShipmentDraftBookingState;
   bookingAttemptId: string;
   lockedAt?: Date | null;
+  /**
+   * Set when an unbooked draft is deleted. Deletion is soft because a draft is
+   * referenced by its InvoiceUpload, its KYC files on disk, and its AuditLog
+   * rows, and because a rejected carrier booking leaves a DpdShipment pointing
+   * at a draft that is once again EDITABLE.
+   *
+   * Every query for a live draft must filter `deletedAt: null` — including
+   * lookups by `invoiceUploadId`, which stop being one-to-one once a draft has
+   * been deleted and the same invoice re-uploaded.
+   */
+  deletedAt?: Date | null;
+  deletedBy?: mongoose.Types.ObjectId | null;
   createdBy: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -270,16 +300,25 @@ const parcelSchema = new mongoose.Schema<ShipmentParcel>(
 
 const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
   {
+    // Deliberately carries no `index: true`. The partial unique index declared
+    // below covers this field, and declaring both makes Mongoose build a second,
+    // plain `invoiceUploadId_1` that collides with it by name.
     invoiceUploadId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "InvoiceUpload",
-      required: true,
-      unique: true,
-      index: true
+      required: true
     },
     businessAccountId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "BusinessAccount",
+      required: true,
+      index: true
+    },
+    // Defaults to BUSINESS so every existing draft keeps its meaning untouched.
+    customerType: {
+      type: String,
+      enum: shipmentCustomerTypeValues,
+      default: "BUSINESS",
       required: true,
       index: true
     },
@@ -311,6 +350,9 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
     // Drafts created before CSB selection existed default to CSB-IV so their
     // pricing is unchanged on any later reprice.
     csbType: { type: String, enum: csbTypeValues, default: "CSB_IV", required: true, index: true },
+    // Drafts created before insurance existed read as false, so repricing one
+    // never introduces a premium it was not booked with.
+    insuranceOptIn: { type: Boolean, default: false, required: true },
     declarationNote: { type: String, trim: true, maxlength: 500, default: defaultDeclarationNote },
     serviceType: { type: String, enum: shipmentServiceTypeValues, default: "COURIER", index: true },
     serviceCode: { type: String, trim: true, maxlength: 40, default: "" },
@@ -325,12 +367,22 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
     },
     bookingAttemptId: { type: String, trim: true, maxlength: 80, default: "" },
     lockedAt: { type: Date, default: null },
+    deletedAt: { type: Date, default: null, index: true },
+    deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true }
   },
   { timestamps: true }
 );
 
 shipmentDraftSchema.index({ businessAccountId: 1, branchId: 1, status: 1 });
+
+// One live draft per invoice upload. Deleted drafts are excluded so the same
+// invoice can be uploaded again after its draft was discarded; the earlier
+// drafts stay on the record as history.
+shipmentDraftSchema.index(
+  { invoiceUploadId: 1 },
+  { unique: true, partialFilterExpression: { deletedAt: null } }
+);
 
 // The consignor is always an Indian sender, so these stay fixed no matter what
 // a client, an import, or an older draft supplied.

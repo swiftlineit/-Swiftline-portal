@@ -3,6 +3,7 @@ import path from "path";
 import PDFDocument from "pdfkit";
 import { amountMinorToWords } from "./taxInvoice.service.js";
 import type { serializeShipmentInvoice } from "./shipmentInvoice.service.js";
+import { getShipmentLevelInvoiceLines } from "./shipmentPricing.service.js";
 
 type ShipmentInvoiceDocument = ReturnType<typeof serializeShipmentInvoice>;
 
@@ -157,11 +158,11 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
     y += 28;
   }
 
-  // CSB-V shipments carry a flat customs clearance charge for the whole shipment
-  // (not per box), so it is shown as its own line under the per-box rows rather
-  // than folded into any box amount. CSB-IV shipments have none and skip this.
-  const csbClearanceMinor = Math.round(numberValue(pricingSnapshot, "csbClearanceAmount") * 100);
-  if (csbClearanceMinor > 0) {
+  // Charges that apply to the whole shipment rather than to one box: surcharges,
+  // customs clearance, handling, insurance and any discount. Each gets its own
+  // line under the per-box rows, so the rows above plus these always add up to the
+  // taxable value printed below.
+  for (const line of getShipmentLevelInvoiceLines(pricingSnapshot)) {
     if (y + 28 > 640) {
       doc.addPage();
       y = 48;
@@ -170,13 +171,13 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
     doc.rect(42, y, 507, 28).fillAndStroke("#ffffff", "#0f172a");
     doc.lineWidth(0.5).strokeColor("#0f172a").moveTo(columns[5]!, y).lineTo(columns[5]!, y + 28).stroke();
     doc.font("Helvetica-Bold").fontSize(7).fillColor("#0f172a").text(
-      "CSB-V CLEARANCE CHARGE",
+      line.label.toUpperCase(),
       columns[0]! + 4,
       y + 8,
       { width: columns[4]! - columns[0]! - 8, align: "left" }
     );
     doc.font("Helvetica").fontSize(7).text(
-      money(csbClearanceMinor, invoice.currency),
+      `${line.kind === "DEDUCTION" ? "-" : ""}${money(line.amountMinor, invoice.currency)}`,
       columns[5]! + 4,
       y + 8,
       { width: columns[6]! - columns[5]! - 8, align: "center" }
@@ -212,16 +213,18 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
     doc.save().rotate(-35, { origin: [300, 420] }).font("Helvetica-Bold").fontSize(54).fillColor("#dc2626").opacity(0.08).text("DRAFT", 135, 385, { width: 340, align: "center" }).restore().opacity(1);
   }
 
-  const range = doc.bufferedPageRange();
-  for (let index = range.start; index < range.start + range.count; index += 1) {
-    doc.switchToPage(index);
-    doc.font("Helvetica").fontSize(7).fillColor("#64748b").text(
-      `This is a computer generated invoice from Swiftline Portal | Page ${index + 1} of ${range.count}`,
-      42,
-      806,
-      { width: 507, align: "center" }
-    );
-  }
-
+const range = doc.bufferedPageRange();
+for (let index = range.start; index < range.start + range.count; index += 1) {
+  doc.switchToPage(index);
+  const bottomMargin = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0; // prevent auto page-break for footer text
+  doc.font("Helvetica").fontSize(7).fillColor("#64748b").text(
+    `This is a computer generated invoice from Swiftline Portal | Page ${index + 1} of ${range.count}`,
+    42,
+    806,
+    { width: 507, align: "center", lineBreak: false }
+  );
+  doc.page.margins.bottom = bottomMargin;
+}
   return doc;
 }

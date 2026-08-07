@@ -16,7 +16,7 @@ Reference files analysed: `MANIFEST  SLC-012.xlsx`, `EDI RUN SLC012.xls`.
 
 ## 1. What the two files are (unchanged from analysis)
 
-- **Manifest** (`.xlsx`): one sheet, a header block (rows 1–13), headings on row 14, then 63 consignment blocks of **variable height** (8/9/10/22 rows) with address lines stacked vertically in cols E/F.
+- **Manifest** (`.xlsx`): one sheet, a header block (rows 1-13), headings on row 14, then 63 consignment blocks of **variable height** (8/9/10/22 rows) with address lines stacked vertically in cols E/F.
 - **EDI** (`.xls`, BIFF8): flat table, headers on row 1, **36 columns A→AJ**, 63 data rows, one per consignment *in this sample because every consignment had exactly one parcel*. `Sheet2` is an empty artifact — do not reproduce it.
 - **Join:** 63↔63, 1:1, no orphans. All scalar/name/constant/ID columns match 63/63. Per-row **addresses past row ~3 are scrambled test data** and are not used to derive rules.
 
@@ -173,7 +173,7 @@ portal/backend/src/
 ├── services/shipmentValidation.service.ts         EDIT restricted-goods check in validateParcel
 ├── scripts/backfillManifestPartySnapshots.ts      NEW  R7
 └── tests/
-    ├── ediMapping.test.ts                    NEW  transforms + full-row mapping vs sample rows 2–3
+    ├── ediMapping.test.ts                    NEW  transforms + full-row mapping vs sample rows 2-3
     ├── restrictedGoods.test.ts               NEW  every category + clean descriptions
     └── operationsManifest.test.ts            EDIT manifest output unchanged after R5/R6
 

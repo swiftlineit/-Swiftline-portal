@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { FiRefreshCw, FiX } from "react-icons/fi";
+import { FiChevronDown, FiRefreshCw, FiX } from "react-icons/fi";
 import { DashboardLoading } from "@/components/DashboardShell";
 import CancellationReview from "@/components/shipments/CancellationReview";
-import DateFilterInput from "@/components/ui/DateFilterInput";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { emptyDateRange } from "@/lib/dateRange";
 import Pagination from "@/components/ui/Pagination";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import {
@@ -21,7 +22,7 @@ const emptyPagination = { page: 1, limit: 50, total: 0, totalPages: 1 };
 export default function CancellationsPage() {
   const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [status, setStatus] = useState("");
-  const [date, setDate] = useState("");
+  const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState(emptyPagination);
   const [items, setItems] = useState<ShipmentCancellation[]>([]);
@@ -33,7 +34,7 @@ export default function CancellationsPage() {
     setDataLoading(true);
     setError("");
     try {
-      const result = await listShipmentCancellations({ status, date, page });
+      const result = await listShipmentCancellations({ status, dateRange, page });
       setItems(result.cancellations);
       setPagination(result.pagination);
     } catch (caughtError) {
@@ -41,7 +42,7 @@ export default function CancellationsPage() {
     } finally {
       setDataLoading(false);
     }
-  }, [status, date, page]);
+  }, [status, dateRange, page]);
 
   useEffect(() => {
     if (!user) return;
@@ -64,26 +65,29 @@ export default function CancellationsPage() {
           <p className="mt-1 text-sm text-slate-500">Review requests, confirm carrier cancellation, and apply refunds.</p>
         </div>
         <div className="flex gap-2">
-          <DateFilterInput
-            value={date}
+          <DateRangeFilter
+            value={dateRange}
             onChange={(value) => {
-              setDate(value);
+              setDateRange(value);
               setPage(1);
             }}
           />
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-              setPage(1);
-            }}
-            className="h-10 border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
-          >
-            <option value="">All Status</option>
-            <option value="REQUESTED">Requested</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="REJECTED">Rejected</option>
-          </select>
+       <div className="relative">
+  <select
+    value={status}
+    onChange={(event) => {
+      setStatus(event.target.value);
+      setPage(1);
+    }}
+    className="h-10 appearance-none border rounded border-slate-300 bg-white pl-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+  >
+    <option value="">All Status</option>
+    <option value="REQUESTED">Requested</option>
+    <option value="COMPLETED">Completed</option>
+    <option value="REJECTED">Rejected</option>
+  </select>
+  <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 size-4 text-slate-500" />
+</div>
           {/* <button type="button" onClick={() => void load()} disabled={dataLoading} aria-label="Refresh cancellations" title="Refresh cancellations" className="flex h-10 w-10 items-center justify-center border border-slate-300 bg-white text-blue-900 disabled:opacity-50">
             <FiRefreshCw className={dataLoading ? "animate-spin" : ""} aria-hidden="true" />
           </button> */}
@@ -153,7 +157,7 @@ function CancellationModal({ cancellation, onClose, onChanged }: {
   onChanged: () => Promise<void>;
 }) {
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true">
-    <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto bg-white shadow-xl">
+    <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto bg-white shadow-xl rounded-2xl">
       <div className="flex items-start justify-between border-b border-slate-200 p-5">
         <div><p className="text-xs font-semibold uppercase text-slate-500">Shipment Cancellation</p><h2 className="mt-1 text-xl font-semibold text-slate-950">{cancellation.shipmentReference || cancellation.dpdShipmentId}</h2><p className="mt-1 text-sm text-slate-500">{cancellation.consignee}</p></div>
         <button type="button" onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center border border-slate-300 text-slate-600"><FiX /></button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { FiDownload, FiFileText, FiPrinter } from "react-icons/fi";
+import { FiDownload, FiFileText } from "react-icons/fi";
 import {
   downloadCustomsInvoicePdf,
   downloadCustomsInvoiceWorkbook,
@@ -57,9 +57,6 @@ export default function CustomsInvoicePage({
     async function load() {
       try {
         setInvoice(await getCustomsInvoice(draftId, audience));
-        if (new URLSearchParams(window.location.search).get("print") === "1") {
-          window.setTimeout(() => window.print(), 500);
-        }
       } catch (caughtError) {
         setError(caughtError instanceof Error ? caughtError.message : "Unable to load the shipment invoice.");
       }
@@ -103,13 +100,6 @@ export default function CustomsInvoicePage({
           Shipment Invoice | {invoice.invoiceNumber}
         </p>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
-          >
-            <FiPrinter aria-hidden="true" />Print
-          </button>
           <button
             type="button"
             onClick={() => void handleDownload("xlsx")}

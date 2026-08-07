@@ -296,39 +296,53 @@ export default function QuoteDetail({
               }
             />
             <div className="space-y-3 p-5 text-sm">
-              <MoneyLine
-                label="Freight"
-                value={
-                  displayedPricing?.freightMinor ?? quote.estimate.freightMinor
-                }
-              />
-              {/* Flat charge for the whole shipment; absent on CSB-IV. Only shown
-                  against the rate-card estimate, since an approved quote's freight
-                  is priced by the branch as a single figure. */}
-              {!displayedPricing && quote.estimate.csbClearanceMinor > 0 ? (
-                <MoneyLine
-                  label="CSB-V Clearance Charge"
-                  value={quote.estimate.csbClearanceMinor}
-                />
-              ) : null}
-              <MoneyLine
-                label="Fuel Surcharge"
-                value={displayedPricing?.fuelSurchargeMinor ?? null}
-              />
-              <MoneyLine
-                label="Taxable Add-ons"
-                value={displayedPricing?.taxableAddOnsMinor ?? null}
-              />
-              <MoneyLine
-                label="GST"
-                value={displayedPricing?.gstMinor ?? quote.estimate.gstMinor}
-                percentage={
-                  Math.round(
-                    (displayedPricing?.gstRate ?? quote.estimate.gstRate) *
-                      10000,
-                  ) / 100
-                }
-              />
+              {/* An approved quote is priced by the branch as its own set of
+                  figures, so it keeps the fixed rows below. The rate-card estimate
+                  lists exactly the charges the route applies — and falls back to
+                  the freight and clearance split on quotes estimated before route
+                  charges existed. */}
+              {!displayedPricing && quote.estimate.lines?.length ? (
+                quote.estimate.lines.map((line) => (
+                  <MoneyLine
+                    key={line.code}
+                    label={line.label}
+                    value={line.kind === "DEDUCTION" ? -line.amountMinor : line.amountMinor}
+                  />
+                ))
+              ) : (
+                <>
+                  <MoneyLine
+                    label="Freight"
+                    value={
+                      displayedPricing?.freightMinor ?? quote.estimate.freightMinor
+                    }
+                  />
+                  {!displayedPricing && quote.estimate.csbClearanceMinor > 0 ? (
+                    <MoneyLine
+                      label="CSB-V Clearance Charge"
+                      value={quote.estimate.csbClearanceMinor}
+                    />
+                  ) : null}
+                  <MoneyLine
+                    label="Fuel Surcharge"
+                    value={displayedPricing?.fuelSurchargeMinor ?? null}
+                  />
+                  <MoneyLine
+                    label="Taxable Add-ons"
+                    value={displayedPricing?.taxableAddOnsMinor ?? null}
+                  />
+                  <MoneyLine
+                    label="GST"
+                    value={displayedPricing?.gstMinor ?? quote.estimate.gstMinor}
+                    percentage={
+                      Math.round(
+                        (displayedPricing?.gstRate ?? quote.estimate.gstRate) *
+                          10000,
+                      ) / 100
+                    }
+                  />
+                </>
+              )}
               <div className="flex items-end justify-between border-t border-slate-300 pt-4">
                 <span className="font-semibold">Total</span>
                 <span className="text-2xl font-semibold text-blue-950">

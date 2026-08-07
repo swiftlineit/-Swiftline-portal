@@ -199,12 +199,22 @@ describe("business account lifecycle", () => {
     assert.equal(String(stored?.assignedBranch), String(branch._id));
   });
 
-  test("member access can be suspended and removed", async () => {
+  test("member access can be suspended, removed and restored without a second identity", async () => {
     const adminId = new mongoose.Types.ObjectId();
     const account = await createDraftAccount(adminId, "BA-2026-200003");
+    const client = await User.create({
+      firstName: "Existing",
+      lastName: "Client",
+      email: "existing.client@example.com",
+      phone: "+919876543219",
+      role: "client",
+      userStatus: "active",
+      isVerified: true,
+      passwordHash: "stored-password-hash"
+    });
     const member = await BusinessAccountMember.create({
       businessAccount: account._id,
-      user: new mongoose.Types.ObjectId(),
+      user: client._id,
       role: "account_owner",
       assignedBranches: [],
       status: "active",
@@ -227,5 +237,14 @@ describe("business account lifecycle", () => {
 
     const stored = await BusinessAccountMember.findById(member._id).lean().exec();
     assert.equal(stored?.status, "removed");
+
+    const restore = createResponseRecorder();
+    await updateBusinessAccountMemberStatus(
+      controllerRequest({ userId: adminId, params: { accountId: account.accountId, memberId: String(member._id) }, body: { status: "restore" } }),
+      restore.response
+    );
+    assert.equal(restore.statusCode(), 200);
+    assert.equal((await BusinessAccountMember.findById(member._id).lean().exec())?.status, "active");
+    assert.equal(await User.countDocuments({ email: client.email }).exec(), 1);
   });
 });

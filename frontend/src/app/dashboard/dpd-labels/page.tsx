@@ -2,12 +2,32 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
-import { FiChevronDown, FiDownload, FiEdit3, FiExternalLink, FiFileText, FiPrinter, FiUploadCloud } from "react-icons/fi";
+import {
+  ChangeEvent,
+  DragEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  FiChevronDown,
+  FiDownload,
+  FiEdit3,
+  FiExternalLink,
+  FiFileText,
+  FiPrinter,
+  FiUploadCloud,
+} from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
 import ShipmentDraftReadyCard from "@/components/shipments/ShipmentDraftReadyCard";
+import ShipmentDraftsPanel from "@/components/shipments/ShipmentDraftsPanel";
 import { BusinessAccount, listBusinessAccounts } from "@/lib/businessAccounts";
+import {
+  createIndividualShipmentDraft,
+  type IndividualCustomerDetails,
+} from "@/lib/dpdLabels";
 import { Branch, listBranches } from "@/lib/branches";
 import {
   InvoiceUpload,
@@ -25,15 +45,24 @@ import {
   shipmentHoldReasonOptions,
   shipmentOperationalStatusOptions,
   updateDpdShipmentOperationalStatus,
-  uploadInvoice
+  uploadInvoice,
 } from "@/lib/dpdLabels";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
-import { downloadShipmentInvoicePdf, shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
+import {
+  downloadShipmentInvoicePdf,
+  shipmentInvoicePageUrl,
+} from "@/lib/shipmentInvoices";
 import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { RiMenuAddLine } from "react-icons/ri";
 
-function FieldLabel({ children, required = false }: { children: string; required?: boolean }) {
+function FieldLabel({
+  children,
+  required = false,
+}: {
+  children: string;
+  required?: boolean;
+}) {
   return (
     <span className="text-xs font-semibold uppercase text-slate-500">
       {children}
@@ -56,16 +85,26 @@ function formatCapitalized(value?: string | null) {
   const cleaned = value?.trim();
   if (!cleaned) return "";
 
-  return cleaned.toLowerCase().replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+  return cleaned
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 }
 
 function getBranchLocation(item: DpdShipmentHistoryItem) {
-  return formatCapitalized(item.branch?.city || item.branch?.name || item.branch?.code) || "Origin Not Set";
+  return (
+    formatCapitalized(
+      item.branch?.city || item.branch?.name || item.branch?.code,
+    ) || "Origin Not Set"
+  );
 }
 
 function getRouteLabel(item: DpdShipmentHistoryItem) {
   const origin = getBranchLocation(item);
-  const destination = formatCapitalized(item.shipmentDraft?.consigneeTownOrCity || item.shipmentDraft?.deliveryPostcode) || "Destination Not Set";
+  const destination =
+    formatCapitalized(
+      item.shipmentDraft?.consigneeTownOrCity ||
+        item.shipmentDraft?.deliveryPostcode,
+    ) || "Destination Not Set";
   return `${origin} to ${destination}`;
 }
 
@@ -76,9 +115,29 @@ export default function DpdLabelsPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [businessAccountId, setBusinessAccountId] = useState("");
   const [branchId, setBranchId] = useState("");
+  // A walk-in has no account to pick, so their details are captured here instead
+  // and the branch is chosen directly rather than derived from an account.
+  const [customerType, setCustomerType] = useState<"BUSINESS" | "INDIVIDUAL">(
+    "BUSINESS",
+  );
+  const [customer, setCustomer] = useState<IndividualCustomerDetails>({
+    contactName: "",
+    mobileCountryCode: "+91",
+    mobileNumber: "",
+    email: "",
+    aadhaarNumber: "",
+    addressLine1: "",
+    townOrCity: "",
+    county: "",
+    postcode: "",
+  });
   const [file, setFile] = useState<File | null>(null);
-  const [invoiceUpload, setInvoiceUpload] = useState<InvoiceUpload | null>(null);
-  const [shipmentDraft, setShipmentDraft] = useState<ShipmentDraft | null>(null);
+  const [invoiceUpload, setInvoiceUpload] = useState<InvoiceUpload | null>(
+    null,
+  );
+  const [shipmentDraft, setShipmentDraft] = useState<ShipmentDraft | null>(
+    null,
+  );
   const [history, setHistory] = useState<DpdShipmentHistoryItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [creatingManual, setCreatingManual] = useState(false);
@@ -89,45 +148,82 @@ export default function DpdLabelsPage() {
     mode: "hold" | "release" | "status";
     shipment: DpdShipmentHistoryItem;
   } | null>(null);
-  const [holdReason, setHoldReason] = useState<ShipmentHoldReason>("missing_documents");
-  const [nextStatus, setNextStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
+  const [holdReason, setHoldReason] =
+    useState<ShipmentHoldReason>("missing_documents");
+  const [nextStatus, setNextStatus] =
+    useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [actionNote, setActionNote] = useState("");
 
   const activeAccounts = useMemo(
     () => accounts.filter((account) => account.status === "active"),
-    [accounts]
+    [accounts],
   );
 
   const selectedAccount = useMemo(
-    () => activeAccounts.find((account) => account.accountId === businessAccountId) ?? null,
-    [activeAccounts, businessAccountId]
+    () =>
+      activeAccounts.find(
+        (account) => account.accountId === businessAccountId,
+      ) ?? null,
+    [activeAccounts, businessAccountId],
   );
 
   const selectedAssignedBranch = useMemo(() => {
     if (!selectedAccount?.assignedBranch) return null;
 
     if (typeof selectedAccount.assignedBranch === "string") {
-      return branches.find((branch) => branch._id === selectedAccount.assignedBranch || branch.code === selectedAccount.assignedBranch) ?? null;
+      return (
+        branches.find(
+          (branch) =>
+            branch._id === selectedAccount.assignedBranch ||
+            branch.code === selectedAccount.assignedBranch,
+        ) ?? null
+      );
     }
 
     const assignedBranch = selectedAccount.assignedBranch;
-    return branches.find((branch) => branch._id === assignedBranch._id || branch.code === assignedBranch.code) ?? null;
+    return (
+      branches.find(
+        (branch) =>
+          branch._id === assignedBranch._id ||
+          branch.code === assignedBranch.code,
+      ) ?? null
+    );
   }, [branches, selectedAccount]);
 
   const branchOptions = useMemo(() => {
+    // A business shipment must go through the branch its account is assigned to.
+    // A walk-in belongs to no account, so any active branch may take the booking.
+    if (customerType === "INDIVIDUAL") return branches;
     if (!selectedAssignedBranch) return [];
-    return branches.filter((branch) => branch._id === selectedAssignedBranch._id || branch.code === selectedAssignedBranch.code);
-  }, [branches, selectedAssignedBranch]);
+    return branches.filter(
+      (branch) =>
+        branch._id === selectedAssignedBranch._id ||
+        branch.code === selectedAssignedBranch.code,
+    );
+  }, [branches, customerType, selectedAssignedBranch]);
 
   const canUpload = useMemo(
-    () => Boolean(businessAccountId && branchId && file && !busy && !creatingManual),
-    [branchId, businessAccountId, busy, creatingManual, file]
+    () =>
+      Boolean(
+        businessAccountId && branchId && file && !busy && !creatingManual,
+      ),
+    [branchId, businessAccountId, busy, creatingManual, file],
   );
-  const canCreateManual = Boolean(businessAccountId && branchId && !busy && !creatingManual);
-  const draftTotalWeight = shipmentDraft?.parcelList.reduce(
-    (total, parcel) => total + (parcel.weightKg || 0),
-    0
-  ) ?? 0;
+  const canCreateManual = Boolean(
+    businessAccountId && branchId && !busy && !creatingManual,
+  );
+  const canCreateIndividual = Boolean(
+    branchId &&
+    customer.contactName.trim() &&
+    customer.mobileNumber.trim() &&
+    !busy &&
+    !creatingManual,
+  );
+  const draftTotalWeight =
+    shipmentDraft?.parcelList.reduce(
+      (total, parcel) => total + (parcel.weightKg || 0),
+      0,
+    ) ?? 0;
 
   useEffect(() => {
     if (!user) return;
@@ -139,14 +235,18 @@ export default function DpdLabelsPage() {
         const [accountData, branchData, shipmentData] = await Promise.all([
           listBusinessAccounts(),
           listBranches("", "ACTIVE"),
-          listDpdShipments(10)
+          listDpdShipments(10),
         ]);
 
         setAccounts(accountData.accounts);
         setBranches(branchData.branches);
         setHistory(shipmentData.shipments);
       } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : "Unable to load upload options.");
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Unable to load upload options.",
+        );
       }
     }
 
@@ -154,6 +254,10 @@ export default function DpdLabelsPage() {
   }, [user]);
 
   useEffect(() => {
+    // Walk-ins pick their own branch, so leave the selection alone for them —
+    // otherwise this would clear it on every render, since they have no account.
+    if (customerType === "INDIVIDUAL") return;
+
     if (!businessAccountId) {
       setBranchId("");
       return;
@@ -164,7 +268,7 @@ export default function DpdLabelsPage() {
     } else {
       setBranchId("");
     }
-  }, [businessAccountId, selectedAssignedBranch]);
+  }, [businessAccountId, customerType, selectedAssignedBranch]);
 
   function selectFile(nextFile: File | null) {
     if (!nextFile) return;
@@ -197,7 +301,11 @@ export default function DpdLabelsPage() {
       anchor.click();
       window.URL.revokeObjectURL(url);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to download invoice template.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to download invoice template.",
+      );
     } finally {
       setBusy(false);
     }
@@ -212,11 +320,19 @@ export default function DpdLabelsPage() {
     setShipmentDraft(null);
 
     try {
-      const uploadResult = await uploadInvoice({ businessAccountId, branchId, file });
+      const uploadResult = await uploadInvoice({
+        businessAccountId,
+        branchId,
+        file,
+      });
       setInvoiceUpload(uploadResult.invoiceUpload);
 
       if (uploadResult.duplicate && uploadResult.shipmentDraft) {
-        if (uploadResult.alreadyBooked || (uploadResult.bookingState && uploadResult.bookingState !== "EDITABLE")) {
+        if (
+          uploadResult.alreadyBooked ||
+          (uploadResult.bookingState &&
+            uploadResult.bookingState !== "EDITABLE")
+        ) {
           toast.info(uploadResult.message || "Existing shipment opened.");
           router.push(`/dashboard/shipments/${uploadResult.shipmentDraft._id}`);
           return;
@@ -228,8 +344,13 @@ export default function DpdLabelsPage() {
         return;
       }
 
-      const processResult = await processInvoiceUpload(uploadResult.invoiceUpload.id);
-      if (processResult.shipmentDraft && (processResult.alreadyBooked || processResult.bookingState === "BOOKED")) {
+      const processResult = await processInvoiceUpload(
+        uploadResult.invoiceUpload.id,
+      );
+      if (
+        processResult.shipmentDraft &&
+        (processResult.alreadyBooked || processResult.bookingState === "BOOKED")
+      ) {
         toast.info(processResult.message || "Existing shipment opened.");
         router.push(`/dashboard/shipments/${processResult.shipmentDraft._id}`);
         return;
@@ -240,7 +361,11 @@ export default function DpdLabelsPage() {
       const shipmentData = await listDpdShipments(10);
       setHistory(shipmentData.shipments);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Invoice could not be processed.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Invoice could not be processed.",
+      );
     } finally {
       setBusy(false);
     }
@@ -253,18 +378,50 @@ export default function DpdLabelsPage() {
     setError("");
 
     try {
-      const result = await createManualShipmentDraft({ businessAccountId, branchId });
+      const result = await createManualShipmentDraft({
+        businessAccountId,
+        branchId,
+      });
       toast.success("Blank shipment draft created.");
       router.push(`/dashboard/dpd-labels/${result.shipmentDraft._id}`);
     } catch (caughtError) {
-      setError(caughtError instanceof Error
-        ? caughtError.message
-        : "Unable to start a blank shipment draft. Please try again.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to start a blank shipment draft. Please try again.",
+      );
       setCreatingManual(false);
     }
   }
 
-  async function handleLabelDownload(dpdShipmentId: string, labelId: string, parcelNumber?: string) {
+  async function handleIndividualDraft() {
+    if (!canCreateIndividual) return;
+
+    setCreatingManual(true);
+    setError("");
+
+    try {
+      const result = await createIndividualShipmentDraft({
+        branchId,
+        customer,
+      });
+      toast.success("Individual shipment draft created.");
+      router.push(`/dashboard/dpd-labels/${result.shipmentDraft._id}`);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to start an individual shipment draft. Please try again.",
+      );
+      setCreatingManual(false);
+    }
+  }
+
+  async function handleLabelDownload(
+    dpdShipmentId: string,
+    labelId: string,
+    parcelNumber?: string,
+  ) {
     setBusy(true);
     setError("");
 
@@ -277,7 +434,11 @@ export default function DpdLabelsPage() {
       anchor.click();
       window.URL.revokeObjectURL(url);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to download shipment label.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to download shipment label.",
+      );
     } finally {
       setBusy(false);
     }
@@ -291,10 +452,14 @@ export default function DpdLabelsPage() {
       await downloadShipmentInvoicePdf(
         item.shipmentDraft.id,
         "admin",
-        item.shipmentInvoice?.invoiceNumber
+        item.shipmentInvoice?.invoiceNumber,
       );
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to download shipment invoice.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to download shipment invoice.",
+      );
     } finally {
       setBusy(false);
     }
@@ -307,7 +472,8 @@ export default function DpdLabelsPage() {
 
   async function handleShipmentAction() {
     if (!shipmentAction) return;
-    if (shipmentAction.mode !== "status" && actionNote.trim().length < 3) return;
+    if (shipmentAction.mode !== "status" && actionNote.trim().length < 3)
+      return;
 
     setBusy(true);
     setError("");
@@ -317,18 +483,18 @@ export default function DpdLabelsPage() {
         await holdDpdShipment({
           dpdShipmentId: shipmentAction.shipment.dpdShipment.id,
           reason: holdReason,
-          note: actionNote
+          note: actionNote,
         });
       } else if (shipmentAction.mode === "release") {
         await releaseDpdShipment({
           dpdShipmentId: shipmentAction.shipment.dpdShipment.id,
-          note: actionNote
+          note: actionNote,
         });
       } else {
         await updateDpdShipmentOperationalStatus({
           dpdShipmentId: shipmentAction.shipment.dpdShipment.id,
           status: nextStatus,
-          note: actionNote || "Live action updated by Swiftline Operations"
+          note: actionNote || "Live action updated by Swiftline Operations",
         });
       }
 
@@ -336,7 +502,11 @@ export default function DpdLabelsPage() {
       setActionNote("");
       await refreshHistory();
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Shipment action failed.");
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Shipment action failed.",
+      );
     } finally {
       setBusy(false);
     }
@@ -348,9 +518,16 @@ export default function DpdLabelsPage() {
     <>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-        <h1 className="text-2xl  text-[#0D1282]"> <RiMenuAddLine className="inline-block mb-1 mr-1 text-lg" />Create & Manage Shipment  </h1>
-  
-          <p className="mt-1 text-sm text-slate-500">Upload an invoice OR create manually by selecting a business account first.</p>
+          <h1 className="text-2xl  text-[#0D1282]">
+            {" "}
+            <RiMenuAddLine className="inline-block mb-1 mr-1 text-lg" />
+            Create & Manage Shipment{" "}
+          </h1>
+
+          <p className="mt-1 text-sm text-slate-500">
+            Upload an invoice OR create manually by selecting a business account
+            first.
+          </p>
         </div>
         <button
           type="button"
@@ -372,27 +549,188 @@ export default function DpdLabelsPage() {
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section className="border border-slate-200 bg-white rounded-2xl">
           <div className="border-b border-slate-200 px-5 py-4">
-            <h2 className="text-sm font-semibold uppercase text-slate-500">Account Context</h2>
+            <h2 className="text-sm font-semibold uppercase text-slate-500">
+              Account Context
+            </h2>
           </div>
+
+          <div className="flex gap-2 border-b border-slate-200 px-5 py-4">
+            {(
+              [
+                { value: "BUSINESS", label: "Business Account" },
+                { value: "INDIVIDUAL", label: "Individual Customer" },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  setCustomerType(option.value);
+                  setError("");
+                  setBranchId("");
+                  setBusinessAccountId("");
+                }}
+                className={`h-9 rounded-4xl border px-4 text-sm font-semibold transition ${
+                  customerType === option.value
+                    ? "border-blue-900 bg-blue-900 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
           <div className="grid gap-4 p-5 md:grid-cols-2">
-            <label className="block">
-              <FieldLabel required>Business Account</FieldLabel>
-              <div className="relative mt-2">
-                <select
-                  value={businessAccountId}
-                  onChange={(event) => setBusinessAccountId(event.target.value)}
-                  className="h-10 w-full appearance-none border rounded-xl border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                >
-                  <option value="">Select account</option>
-                  {activeAccounts.map((account) => (
-                    <option key={account._id} value={account.accountId}>
-                      {getAccountLabel(account)}
-                    </option>
-                  ))}
-                </select>
-                <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-              </div>
-            </label>
+            {customerType === "BUSINESS" ? (
+              <label className="block">
+                <FieldLabel required>Business Account</FieldLabel>
+                <div className="relative mt-2">
+                  <select
+                    value={businessAccountId}
+                    onChange={(event) =>
+                      setBusinessAccountId(event.target.value)
+                    }
+                    className="h-10 w-full appearance-none border rounded-xl border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  >
+                    <option value="">Select account</option>
+                    {activeAccounts.map((account) => (
+                      <option key={account._id} value={account.accountId}>
+                        {getAccountLabel(account)}
+                      </option>
+                    ))}
+                  </select>
+                  <FiChevronDown
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                  />
+                </div>
+              </label>
+            ) : (
+              <>
+                <label className="block">
+                  <FieldLabel required>Customer Name</FieldLabel>
+                  <input
+                    value={customer.contactName}
+                    onChange={(event) =>
+                      setCustomer((current) => ({
+                        ...current,
+                        contactName: event.target.value,
+                      }))
+                    }
+                    placeholder="Full name as on ID"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <FieldLabel required>Mobile Number</FieldLabel>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={customer.mobileCountryCode}
+                      onChange={(event) =>
+                        setCustomer((current) => ({
+                          ...current,
+                          mobileCountryCode: event.target.value,
+                        }))
+                      }
+                      className="h-10 w-20 rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                    />
+                    <input
+                      value={customer.mobileNumber}
+                      onChange={(event) =>
+                        setCustomer((current) => ({
+                          ...current,
+                          mobileNumber: event.target.value,
+                        }))
+                      }
+                      placeholder="10-digit mobile"
+                      className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </label>
+
+                <label className="block">
+                  <FieldLabel>Email</FieldLabel>
+                  <input
+                    value={customer.email ?? ""}
+                    onChange={(event) =>
+                      setCustomer((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    placeholder="Optional"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <FieldLabel>Aadhaar Number</FieldLabel>
+                  <input
+                    value={customer.aadhaarNumber ?? ""}
+                    onChange={(event) =>
+                      setCustomer((current) => ({
+                        ...current,
+                        aadhaarNumber: event.target.value,
+                      }))
+                    }
+                    placeholder="12 digits, for KYC"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  />
+                </label>
+
+                <label className="block md:col-span-2">
+                  <FieldLabel>Address</FieldLabel>
+                  <input
+                    value={customer.addressLine1 ?? ""}
+                    onChange={(event) =>
+                      setCustomer((current) => ({
+                        ...current,
+                        addressLine1: event.target.value,
+                      }))
+                    }
+                    placeholder="Street address"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                  />
+                  <div className="mt-2 grid gap-2 md:grid-cols-3">
+                    <input
+                      value={customer.townOrCity ?? ""}
+                      onChange={(event) =>
+                        setCustomer((current) => ({
+                          ...current,
+                          townOrCity: event.target.value,
+                        }))
+                      }
+                      placeholder="City"
+                      className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                    />
+                    <input
+                      value={customer.county ?? ""}
+                      onChange={(event) =>
+                        setCustomer((current) => ({
+                          ...current,
+                          county: event.target.value,
+                        }))
+                      }
+                      placeholder="State"
+                      className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                    />
+                    <input
+                      value={customer.postcode ?? ""}
+                      onChange={(event) =>
+                        setCustomer((current) => ({
+                          ...current,
+                          postcode: event.target.value,
+                        }))
+                      }
+                      placeholder="PIN code"
+                      className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                </label>
+              </>
+            )}
 
             <label className="block">
               <FieldLabel required>Branch</FieldLabel>
@@ -400,17 +738,24 @@ export default function DpdLabelsPage() {
                 <select
                   value={branchId}
                   onChange={(event) => setBranchId(event.target.value)}
-                  disabled={!businessAccountId}
+                  disabled={customerType === "BUSINESS" && !businessAccountId}
                   className="h-10 w-full appearance-none border border-slate-300 rounded-xl bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 >
-                  <option value="">{businessAccountId ? "Select branch" : "Choose account first"}</option>
+                  <option value="">
+                    {customerType === "INDIVIDUAL" || businessAccountId
+                      ? "Select branch"
+                      : "Choose account first"}
+                  </option>
                   {branchOptions.map((branch) => (
                     <option key={branch._id} value={branch.code}>
                       {branch.code} - {branch.name}
                     </option>
                   ))}
                 </select>
-                <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <FiChevronDown
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                />
               </div>
             </label>
           </div>
@@ -418,66 +763,120 @@ export default function DpdLabelsPage() {
 
         <aside className="space-y-5">
           <section className="border border-slate-200 bg-white p-5 rounded-2xl">
-            <h2 className="text-sm font-semibold uppercase text-slate-500 text-center">Invoice Upload</h2>
-            <label
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragActive(true);
-              }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={handleDrop}
-              onClick={(event) => {
-                event.preventDefault();
-                invoiceInputRef.current?.click();
-              }}
-              className={`mt-4 flex min-h-36 cursor-pointer rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center transition ${
-                dragActive ? "border-blue-900 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-900"
-              }`}
-            >
-              <FiUploadCloud aria-hidden="true" className="h-8 w-8 text-blue-900" />
-              <span className="mt-3 text-sm font-semibold text-slate-900">
-                {file ? file.name : "Drop .xlsx invoice here"}
-              </span>
-              <span className="mt-1 text-xs font-medium text-slate-500">
-                {file ? formatBytes(file.size) : "or click to choose a file"}
-              </span>
-              <input ref={invoiceInputRef} type="file" accept=".xlsx" onChange={handleFileChange} className="sr-only" />
-            </label>
-            <button
-              type="button"
-              onClick={handleUpload}
-              disabled={!canUpload}
-              className="mt-4 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            >
-              <FiFileText aria-hidden="true" className="h-4 w-4" />
-              {busy ? "Processing..." : "Create Draft"}
-            </button>
-            <div className="my-4 flex items-center gap-3" aria-hidden="true">
-              <span className="h-px flex-1 bg-slate-200" />
-              <span className="text-xs font-semibold uppercase text-slate-400">Or</span>
-              <span className="h-px flex-1 bg-slate-200" />
-            </div>
-            <div className="group relative w-full">
-  <button
-    type="button"
-    onClick={handleManualDraft}
-    disabled={!canCreateManual}
-    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-  >
-    {creatingManual ? "Starting Draft..." : "Create Without Invoice"}
-  </button>
+            <h2 className="text-sm font-semibold uppercase text-slate-500 text-center">
+              {customerType === "INDIVIDUAL"
+                ? "Start Shipment"
+                : "Invoice Upload"}
+            </h2>
+            {/* The invoice template is a business-account artefact, so a walk-in
+                always goes straight to manual entry. */}
+            {customerType === "BUSINESS" ? (
+              <>
+                <label
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={handleDrop}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    invoiceInputRef.current?.click();
+                  }}
+                  className={`mt-4 flex min-h-36 cursor-pointer rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center transition ${
+                    dragActive
+                      ? "border-blue-900 bg-blue-50"
+                      : "border-slate-300 bg-slate-50 hover:border-blue-900"
+                  }`}
+                >
+                  <FiUploadCloud
+                    aria-hidden="true"
+                    className="h-8 w-8 text-blue-900"
+                  />
+                  <span className="mt-3 text-sm font-semibold text-slate-900">
+                    {file ? file.name : "Drop .xlsx invoice here"}
+                  </span>
+                  <span className="mt-1 text-xs font-medium text-slate-500">
+                    {file
+                      ? formatBytes(file.size)
+                      : "or click to choose a file"}
+                  </span>
+                  <input
+                    ref={invoiceInputRef}
+                    type="file"
+                    accept=".xlsx"
+                    onChange={handleFileChange}
+                    className="sr-only"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleUpload}
+                  disabled={!canUpload}
+                  className="mt-4 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  <FiFileText aria-hidden="true" className="h-4 w-4" />
+                  {busy ? "Processing..." : "Create Draft"}
+                </button>
+                <div
+                  className="my-4 flex items-center gap-3"
+                  aria-hidden="true"
+                >
+                  <span className="h-px flex-1 bg-slate-200" />
+                  <span className="text-xs font-semibold uppercase text-slate-400">
+                    Or
+                  </span>
+                  <span className="h-px flex-1 bg-slate-200" />
+                </div>
+                <div className="group relative w-full">
+                  <button
+                    type="button"
+                    onClick={handleManualDraft}
+                    disabled={!canCreateManual}
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                  >
+                    {creatingManual
+                      ? "Starting Draft..."
+                      : "Create Without Invoice"}
+                  </button>
 
-  {!canCreateManual && (
-    <div className="pointer-events-none absolute left-1/2 top-full z-[9999] mt-3 hidden w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-3 text-center shadow-xl group-hover:block">
-      <p className="text-xs font-semibold text-slate-900">
-        Business Account Required
-      </p>
-      <p className="mt-1 text-xs  text-slate-600">
-        Please select a business account before creating a shipment draft.
-      </p>
-    </div>
-  )}
-</div>
+                  {!canCreateManual && (
+                    <div className="pointer-events-none absolute left-1/2 top-full z-9999 mt-3 hidden w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-3 text-center shadow-xl group-hover:block">
+                      <p className="text-xs font-semibold text-slate-900">
+                        Business Account Required
+                      </p>
+                      <p className="mt-1 text-xs  text-slate-600">
+                        Please select a business account before creating a
+                        shipment draft.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="mt-4">
+                <p className="text-sm text-slate-600">
+                  Enter the customer&apos;s details and choose a branch, then
+                  continue to add parcels, the consignee and KYC documents.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleIndividualDraft}
+                  disabled={!canCreateIndividual}
+                  className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-blue-900 px-4 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  <FiFileText aria-hidden="true" className="h-4 w-4" />
+                  {creatingManual
+                    ? "Starting Draft..."
+                    : "Start Individual Shipment"}
+                </button>
+                {!canCreateIndividual ? (
+                  <p className="mt-2 text-xs font-medium text-slate-500">
+                    Customer name, mobile number and branch are required.
+                  </p>
+                ) : null}
+              </div>
+            )}
           </section>
 
           {invoiceUpload?.processingErrors.length ? (
@@ -499,11 +898,17 @@ export default function DpdLabelsPage() {
         </aside>
       </div>
 
+      <ShipmentDraftsPanel branchId={branchId} />
+
       <section className="mt-6 border border-slate-200 bg-white rounded-2xl">
         <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold uppercase text-slate-500">Recent Shipments</h2>
-            <p className="mt-1 text-xs text-slate-500">Open existing shipments without creating duplicates.</p>
+            <h2 className="text-sm font-semibold uppercase text-slate-500">
+              Recent Shipments
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Open existing shipments without creating duplicates.
+            </p>
           </div>
         </div>
         {shipmentAction ? (
@@ -511,41 +916,62 @@ export default function DpdLabelsPage() {
             <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_auto] lg:items-end">
               {shipmentAction.mode === "hold" ? (
                 <label>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hold Reason</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Hold Reason
+                  </span>
                   <select
                     value={holdReason}
-                    onChange={(event) => setHoldReason(event.target.value as ShipmentHoldReason)}
+                    onChange={(event) =>
+                      setHoldReason(event.target.value as ShipmentHoldReason)
+                    }
                     className="mt-2 h-10 w-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
                   >
                     {shipmentHoldReasonOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
                     ))}
                   </select>
                 </label>
               ) : shipmentAction.mode === "status" ? (
                 <label>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Next Status</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Next Status
+                  </span>
                   <select
                     value={nextStatus}
-                    onChange={(event) => setNextStatus(event.target.value as ShipmentOperationalStatus)}
+                    onChange={(event) =>
+                      setNextStatus(
+                        event.target.value as ShipmentOperationalStatus,
+                      )
+                    }
                     className="mt-2 h-10 w-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
                   >
                     {shipmentOperationalStatusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
                     ))}
                   </select>
                 </label>
               ) : (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Release Action</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Release Action
+                  </p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {shipmentAction.shipment.invoiceUpload?.shipmentReference || shipmentAction.shipment.dpdShipment.dpdShipmentId}
+                    {shipmentAction.shipment.invoiceUpload?.shipmentReference ||
+                      shipmentAction.shipment.dpdShipment.dpdShipmentId}
                   </p>
                 </div>
               )}
               <label>
                 <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {shipmentAction.mode === "hold" ? "Hold Note" : shipmentAction.mode === "release" ? "Release Note" : "Status Note"}
+                  {shipmentAction.mode === "hold"
+                    ? "Hold Note"
+                    : shipmentAction.mode === "release"
+                      ? "Release Note"
+                      : "Status Note"}
                 </span>
                 <input
                   value={actionNote}
@@ -564,10 +990,20 @@ export default function DpdLabelsPage() {
                 <button
                   type="button"
                   onClick={handleShipmentAction}
-                  disabled={busy || (shipmentAction.mode !== "status" && actionNote.trim().length < 3)}
+                  disabled={
+                    busy ||
+                    (shipmentAction.mode !== "status" &&
+                      actionNote.trim().length < 3)
+                  }
                   className="h-10 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
-                  {busy ? "Saving..." : shipmentAction.mode === "hold" ? "Hold" : shipmentAction.mode === "release" ? "Release" : "Update"}
+                  {busy
+                    ? "Saving..."
+                    : shipmentAction.mode === "hold"
+                      ? "Hold"
+                      : shipmentAction.mode === "release"
+                        ? "Release"
+                        : "Update"}
                 </button>
                 <button
                   type="button"
@@ -599,99 +1035,200 @@ export default function DpdLabelsPage() {
             <tbody>
               {history.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">No shipments yet.</td>
+                  <td
+                    colSpan={7}
+                    className="px-4 py-8 text-center text-slate-500"
+                  >
+                    No shipments yet.
+                  </td>
                 </tr>
-              ) : history.map((item) => (
-                <tr key={item.dpdShipment.id} className="border-b border-slate-100 last:border-b-0">
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-950">{item.invoiceUpload?.shipmentReference || item.dpdShipment.dpdShipmentId || "Pending"}</p>
-                    <p className="mt-1 text-xs text-slate-500">{item.invoiceUpload?.invoiceNumber || item.dpdShipment.serviceCode}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-slate-800">{item.shipmentDraft?.consigneeName || "Not set"}</p>
-                    <p className="mt-1 text-xs text-slate-500">{item.shipmentDraft?.deliveryPostcode || "Not set"}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-slate-800">{getRouteLabel(item)}</p>
-                    <p className="mt-1 text-xs text-slate-500">{formatCapitalized(item.branch?.name || item.branch?.code) || "Assigned Branch"}</p>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-950">
-                    {item.shipmentInvoice
-                      ? new Intl.NumberFormat("en-IN", { style: "currency", currency: item.shipmentInvoice.currency, minimumFractionDigits: 2 }).format(item.shipmentInvoice.chargeableAmountMinor / 100)
-                      : "-"}
-                  </td>
-                  <td className="px-4 py-3">{item.currentEvent?.statusLabel || item.dpdShipment.status}</td>
-                  <td className="px-4 py-3">{formatDashboardDateTime(item.dpdShipment.createdAt)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-3">
-                      {item.shipmentDraft ? (
-                        <>
-                          <Link href={`/dashboard/shipments/${item.shipmentDraft.id}`} className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700">
-                            <FiExternalLink aria-hidden="true" className="h-4 w-4" />View Details
-                          </Link>
-                          <Link href={shipmentInvoicePageUrl(item.shipmentDraft.id, "admin")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700">
-                            <FiFileText aria-hidden="true" className="h-4 w-4" />Invoice
-                          </Link>
-                          <button type="button" title="Download invoice PDF" aria-label="Download invoice PDF" disabled={busy} onClick={() => void handleInvoiceDownload(item)} className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:opacity-50">
-                            <FiDownload aria-hidden="true" className="h-4 w-4" />
-                          </button>
-                          <Link href={shipmentInvoicePageUrl(item.shipmentDraft.id, "admin", true)} target="_blank" rel="noreferrer" title="Print invoice" aria-label="Print invoice" className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900">
-                            <FiPrinter aria-hidden="true" className="h-4 w-4" />
-                          </Link>
-                        </>
-                      ) : null}
-                      {item.currentEvent?.status === "ON_HOLD" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShipmentAction({ mode: "release", shipment: item });
-                            setActionNote("");
-                          }}
-                          className="font-semibold text-emerald-700 hover:text-emerald-800"
-                        >
-                          Release
-                        </button>
-                      ) : (
-                        <>
+              ) : (
+                history.map((item) => (
+                  <tr
+                    key={item.dpdShipment.id}
+                    className="border-b border-slate-100 last:border-b-0"
+                  >
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-slate-950">
+                        {item.invoiceUpload?.shipmentReference ||
+                          item.dpdShipment.dpdShipmentId ||
+                          "Pending"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.invoiceUpload?.invoiceNumber ||
+                          item.dpdShipment.serviceCode}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-800">
+                        {item.shipmentDraft?.consigneeName || "Not set"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.shipmentDraft?.deliveryPostcode || "Not set"}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-800">
+                        {getRouteLabel(item)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatCapitalized(
+                          item.branch?.name || item.branch?.code,
+                        ) || "Assigned Branch"}
+                      </p>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-950">
+                      {item.shipmentInvoice
+                        ? new Intl.NumberFormat("en-IN", {
+                            style: "currency",
+                            currency: item.shipmentInvoice.currency,
+                            minimumFractionDigits: 2,
+                          }).format(
+                            item.shipmentInvoice.chargeableAmountMinor / 100,
+                          )
+                        : "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {item.currentEvent?.statusLabel ||
+                        item.dpdShipment.status}
+                    </td>
+                    <td className="px-4 py-3">
+                      {formatDashboardDateTime(item.dpdShipment.createdAt)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-3">
+                        {item.shipmentDraft ? (
+                          <>
+                            <Link
+                              href={`/dashboard/shipments/${item.shipmentDraft.id}`}
+                              className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700"
+                            >
+                              <FiExternalLink
+                                aria-hidden="true"
+                                className="h-4 w-4"
+                              />
+                              View Details
+                            </Link>
+                            <Link
+                              href={shipmentInvoicePageUrl(
+                                item.shipmentDraft.id,
+                                "admin",
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700"
+                            >
+                              <FiFileText
+                                aria-hidden="true"
+                                className="h-4 w-4"
+                              />
+                              Invoice
+                            </Link>
+                            <button
+                              type="button"
+                              title="Download invoice PDF"
+                              aria-label="Download invoice PDF"
+                              disabled={busy}
+                              onClick={() => void handleInvoiceDownload(item)}
+                              className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:opacity-50"
+                            >
+                              <FiDownload
+                                aria-hidden="true"
+                                className="h-4 w-4"
+                              />
+                            </button>
+                            <Link
+                              href={shipmentInvoicePageUrl(
+                                item.shipmentDraft.id,
+                                "admin",
+                                true,
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Print invoice"
+                              aria-label="Print invoice"
+                              className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900"
+                            >
+                              <FiPrinter
+                                aria-hidden="true"
+                                className="h-4 w-4"
+                              />
+                            </Link>
+                          </>
+                        ) : null}
+                        {item.currentEvent?.status === "ON_HOLD" ? (
                           <button
                             type="button"
                             onClick={() => {
-                              setShipmentAction({ mode: "status", shipment: item });
+                              setShipmentAction({
+                                mode: "release",
+                                shipment: item,
+                              });
                               setActionNote("");
                             }}
-                            className="font-semibold text-blue-900 hover:text-blue-700"
+                            className="font-semibold text-emerald-700 hover:text-emerald-800"
                           >
-                            Update Status
+                            Release
                           </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShipmentAction({
+                                  mode: "status",
+                                  shipment: item,
+                                });
+                                setActionNote("");
+                              }}
+                              className="font-semibold text-blue-900 hover:text-blue-700"
+                            >
+                              Update Status
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShipmentAction({
+                                  mode: "hold",
+                                  shipment: item,
+                                });
+                                setActionNote("");
+                              }}
+                              className="font-semibold text-amber-700 hover:text-amber-800"
+                            >
+                              Hold
+                            </button>
+                          </>
+                        )}
+                        {item.labels.length ? (
                           <button
                             type="button"
                             onClick={() => {
-                              setShipmentAction({ mode: "hold", shipment: item });
-                              setActionNote("");
+                              const label =
+                                item.labels.find(
+                                  (candidate) => candidate.labelType === "DPD",
+                                ) ?? item.labels[0];
+                              if (label)
+                                void handleLabelDownload(
+                                  item.dpdShipment.id,
+                                  label.id,
+                                  label.parcelNumber,
+                                );
                             }}
-                            className="font-semibold text-amber-700 hover:text-amber-800"
+                            className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800"
                           >
-                            Hold
+                            <FiDownload
+                              aria-hidden="true"
+                              className="h-4 w-4"
+                            />
+                            Label
                           </button>
-                        </>
-                      )}
-                      {item.labels.length ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const label = item.labels.find((candidate) => candidate.labelType === "DPD") ?? item.labels[0];
-                            if (label) void handleLabelDownload(item.dpdShipment.id, label.id, label.parcelNumber);
-                          }}
-                          className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800"
-                        >
-                          <FiDownload aria-hidden="true" className="h-4 w-4" />
-                          Label
-                        </button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

@@ -7,6 +7,7 @@ import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentManifest } from "../models/shipmentManifest.model.js";
+import { dateRangeCondition } from "../utils/dateRangeFilter.js";
 import { normalizeCsbType } from "./csbType.service.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 
@@ -14,7 +15,8 @@ export type ShipmentListingFilter = {
   businessAccountIds?: mongoose.Types.ObjectId[];
   branchIds?: mongoose.Types.ObjectId[];
   status?: string;
-  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   page: number;
   limit: number;
   /** Manifest assignments are per actor role, so eligibility is role-scoped. */
@@ -38,16 +40,8 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   const draftFilter: Record<string, unknown> = {};
   if (filter.businessAccountIds) draftFilter.businessAccountId = { $in: filter.businessAccountIds };
   if (filter.branchIds) draftFilter.branchId = { $in: filter.branchIds };
-  if (filter.date) {
-    const selectedDate = new Date(filter.date);
-    if (!Number.isNaN(selectedDate.getTime())) {
-      const start = new Date(selectedDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(selectedDate);
-      end.setHours(23, 59, 59, 999);
-      draftFilter.createdAt = { $gte: start, $lt: end };
-    }
-  }
+  const createdAt = dateRangeCondition(filter.dateFrom, filter.dateTo);
+  if (createdAt) draftFilter.createdAt = createdAt;
 
   const bookedDraftIds = await DpdShipment.find({ status: "LABEL_RECEIVED" })
     .select("shipmentDraftId")
@@ -74,7 +68,10 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   const totalPages = Math.max(1, Math.ceil(total / filter.limit));
   const page = Math.min(Math.max(1, filter.page), totalPages);
   const drafts = await ShipmentDraft.find(query)
-    .sort({ updatedAt: -1, _id: -1 })
+    // Newest booking first, matching the "Created" column the table shows. Sorting
+    // by updatedAt instead floated old shipments to the top whenever a tracking
+    // event or amendment touched them, which reads as a broken order.
+    .sort({ createdAt: -1, _id: -1 })
     .skip((page - 1) * filter.limit)
     .limit(filter.limit)
     .lean()
@@ -144,8 +141,14 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
     return {
       id: draftId,
       businessAccountId: String(draft.businessAccountId),
-      businessAccountName: account?.company?.companyName ?? "",
-      businessAccountCode: account?.accountId ?? "",
+      // A walk-in is booked against the system sentinel, whose name is bookkeeping.
+      // The list shows the person who actually sent the shipment instead.
+      businessAccountName: draft.customerType === "INDIVIDUAL"
+        ? draft.consignorAddress?.contactName || "Individual customer"
+        : account?.company?.companyName ?? "",
+      businessAccountCode: draft.customerType === "INDIVIDUAL"
+        ? "INDIVIDUAL"
+        : account?.accountId ?? "",
       branchId: String(draft.branchId),
       branch: {
         name: branch?.name ?? "",

@@ -13,6 +13,7 @@ import { findRestrictedCategories } from "@/lib/restrictedGoods";
 import { csbTypeOptions, type CsbType } from "@/lib/csbType";
 import { quoteDocumentOptions, type QuoteDocumentCode } from "@/lib/quoteDocuments";
 import { getVolumetricFormula } from "@/lib/shipmentPricing";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import {
   createShipmentDraftFromQuote,
@@ -99,6 +100,23 @@ export default function QuoteForm({
   const [submitted, setSubmitted] = useState(false);
   // Highlights each box's contents field as the customer types, before any submit is attempted.
   const restrictedContentsByParcel = parcels.map((parcel) => findRestrictedCategories(parcel.contents));
+
+  /**
+   * A quote is only ever submitted, never saved as a draft: its entire content
+   * is the priced estimate, which cannot be produced without the destination,
+   * weights, and goods value. By the time enough is filled in to store, it is
+   * ready to submit — so this guards against losing work, nothing more.
+   */
+  useUnsavedChanges(
+    !submitted && (
+      Boolean(countryCode)
+      || Boolean(goodsValue)
+      || Boolean(csbType)
+      || availableDocuments.length > 0
+      || parcels.some((parcel) => parcel.actualWeightKg || parcel.contents)
+    ),
+    { label: "this quote request" }
+  );
 
   const context =
     contexts.find((item) => item.businessAccountId === businessAccountId) ??
@@ -657,32 +675,37 @@ export default function QuoteForm({
           ))}
 
           <div className="space-y-3 text-sm">
-            <Line
-              label="Freight"
-              value={formatQuoteMoney(estimate?.freightMinor)}
-            />
-            {/* Charged once for the whole shipment, so it sits outside the per-box
-                rows above. Hidden entirely on CSB-IV, which has no such charge. */}
-            {estimate && estimate.csbClearanceMinor > 0 ? (
-              <Line
-                label="CSB-V Clearance Charge"
-                value={formatQuoteMoney(estimate.csbClearanceMinor)}
-              />
-            ) : null}
-            <Line
-              label="Fuel Surcharge"
-              value={estimate ? "Not configured" : "-"}
-              muted
-            />
-            <Line
-              label="Taxable Add-ons"
-              value={estimate ? "Not configured" : "-"}
-              muted
-            />
-            <Line
-              label="GST (18%)"
-              value={estimate ? formatQuoteMoney(estimate.gstMinor) : "-"}
-            />
+            {/* Only the charges that actually apply to this route, in the order
+                they are applied. Quotes estimated before route charges existed
+                carry no lines and fall back to the freight and clearance split. */}
+            {estimate?.lines?.length ? (
+              estimate.lines.map((line) => (
+                <Line
+                  key={line.code}
+                  label={line.label}
+                  value={`${line.kind === "DEDUCTION" ? "-" : ""}${formatQuoteMoney(line.amountMinor)}`}
+                />
+              ))
+            ) : (
+              <>
+                <Line
+                  label="Freight"
+                  value={formatQuoteMoney(estimate?.freightMinor)}
+                />
+                {/* Charged once for the whole shipment, so it sits outside the
+                    per-box rows above. Absent on CSB-IV. */}
+                {estimate && estimate.csbClearanceMinor > 0 ? (
+                  <Line
+                    label="CSB-V Clearance Charge"
+                    value={formatQuoteMoney(estimate.csbClearanceMinor)}
+                  />
+                ) : null}
+                <Line
+                  label="GST (18%)"
+                  value={estimate ? formatQuoteMoney(estimate.gstMinor) : "-"}
+                />
+              </>
+            )}
             <div className="flex items-end justify-between gap-4 border-t border-slate-300 pt-4">
               <span className="font-semibold text-slate-900">
                 Estimated Total

@@ -13,6 +13,7 @@ import {
 } from "../models/businessAccountMember.model.js";
 import { IUser, User } from "../models/user.model.js";
 import { sendClientInvitationEmail } from "../services/mail.service.js";
+import { normalizeUserPhone } from "../services/userIdentity.service.js";
 
 const invitationLifetimeMs = 24 * 60 * 60 * 1000;
 
@@ -20,7 +21,7 @@ const createClientAccessSchema = z.object({
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
   email: z.string().trim().email().toLowerCase(),
-  phone: z.string().trim().max(30).optional().default(""),
+  phone: z.string().trim().min(8, "Enter the phone number in international format.").max(30),
   role: z.enum(businessAccountMemberRoleValues),
   assignedBranches: z.array(z.string().trim()).optional().default([]),
   sendInvitationEmail: z.boolean().optional().default(true)
@@ -188,7 +189,7 @@ export async function listBusinessAccountMembers(request: Request, response: Res
     return response.status(404).json({ success: false, message: "Business account not found." });
   }
 
-  const members = await BusinessAccountMember.find({ businessAccount: account._id, status: { $ne: "removed" } })
+  const members = await BusinessAccountMember.find({ businessAccount: account._id })
     .populate("user", "firstName lastName name email phone userStatus lastLogin")
     .populate("assignedBranches", "name code")
     .sort({ createdAt: -1 })
@@ -227,49 +228,57 @@ export async function createBusinessAccountClientAccess(request: Request, respon
     return response.status(400).json({ success: false, message: error instanceof Error ? error.message : "Invalid assigned branches." });
   }
 
-  const existingUser = await User.findOne({ email: parsed.data.email }).exec();
-
-  // A staff login (admin, operations, etc.) must never be silently converted to a
-  // client account, as that would revoke the person's portal access.
-  if (existingUser && existingUser.role !== "client") {
-    return response.status(409).json({
+  const normalizedPhone = normalizeUserPhone(parsed.data.phone);
+  if (!normalizedPhone) {
+    return response.status(400).json({
       success: false,
-      message: "This email belongs to a staff account and cannot be used for client access."
+      message: "Enter a valid phone number in international format, for example +919876543210."
     });
   }
 
-  const user = existingUser ?? await User.create({
-    firstName: parsed.data.firstName,
-    lastName: parsed.data.lastName,
-    name: formatUserName(parsed.data.firstName, parsed.data.lastName),
-    email: parsed.data.email,
-    phone: parsed.data.phone,
-    role: "client",
-    userStatus: "invited",
-    isVerified: false,
-    invitedBy: adminId
-  });
-
+  // A login is one global identity. Existing users are restored through their
+  // original business account; they are never silently reused for another one.
+  const existingUser = await User.findOne({
+    $or: [{ email: parsed.data.email }, { phone: normalizedPhone }]
+  }).select("email phone").lean().exec();
   if (existingUser) {
-    user.firstName = user.firstName || parsed.data.firstName;
-    user.lastName = user.lastName || parsed.data.lastName;
-    user.name = user.name || formatUserName(parsed.data.firstName, parsed.data.lastName);
-    user.phone = user.phone || parsed.data.phone;
-    if ((user.userStatus ?? "invited") === "disabled") {
-      return response.status(409).json({ success: false, message: "This user login is disabled." });
-    }
-    if (!user.passwordHash) user.userStatus = "invited";
-    await user.save();
+    const emailExists = existingUser.email === parsed.data.email;
+    return response.status(409).json({
+      success: false,
+      code: emailExists ? "USER_EMAIL_EXISTS" : "USER_PHONE_EXISTS",
+      message: emailExists
+        ? "A user with this email address already exists. Restore their existing access instead of creating another login."
+        : "A user with this phone number already exists. Restore their existing access instead of creating another login."
+    });
   }
 
-  const duplicateMember = await BusinessAccountMember.findOne({
-    businessAccount: account._id,
-    user: user._id,
-    status: { $in: ["invited", "active", "suspended"] }
-  }).exec();
-
-  if (duplicateMember) {
-    return response.status(409).json({ success: false, message: "This user already has access to this business account." });
+  let user: InstanceType<typeof User>;
+  try {
+    user = await User.create({
+      firstName: parsed.data.firstName,
+      lastName: parsed.data.lastName,
+      name: formatUserName(parsed.data.firstName, parsed.data.lastName),
+      email: parsed.data.email,
+      phone: normalizedPhone,
+      role: "client",
+      userStatus: "invited",
+      isVerified: false,
+      invitedBy: adminId
+    });
+  } catch (error) {
+    // The unique indexes close the race where two invitations pass the preflight
+    // together. Map that database error to the same friendly contract.
+    if (error instanceof mongoose.mongo.MongoServerError && error.code === 11000) {
+      const phoneConflict = Boolean(error.keyPattern?.phone);
+      return response.status(409).json({
+        success: false,
+        code: phoneConflict ? "USER_PHONE_EXISTS" : "USER_EMAIL_EXISTS",
+        message: phoneConflict
+          ? "A user with this phone number already exists. Restore their existing access instead of creating another login."
+          : "A user with this email address already exists. Restore their existing access instead of creating another login."
+      });
+    }
+    throw error;
   }
 
   const member = await BusinessAccountMember.create({
@@ -397,15 +406,21 @@ export async function createBusinessAccountInvitationLink(request: Request, resp
 // Suspend, reactivate, or remove a member. Removing or suspending also revokes
 // any pending invitation so its token can no longer be used.
 const memberStatusUpdateSchema = z.object({
-  status: z.enum(["active", "suspended", "removed"])
+  status: z.enum(["active", "suspended", "removed", "restore"])
 });
 
 const memberStatusTransitions: Record<string, string[]> = {
   invited: ["removed"],
   active: ["suspended", "removed"],
   suspended: ["active", "removed"],
-  removed: []
+  removed: ["active", "invited"]
 };
+
+export function resolveRestoredMemberStatus(
+  user: Pick<IUser, "isVerified" | "passwordHash">
+): "active" | "invited" {
+  return user.isVerified && Boolean(user.passwordHash) ? "active" : "invited";
+}
 
 export async function updateBusinessAccountMemberStatus(request: Request, response: Response): Promise<Response> {
   const adminId = getAuthenticatedUserId(request);
@@ -422,11 +437,24 @@ export async function updateBusinessAccountMemberStatus(request: Request, respon
   }
 
   const member = await BusinessAccountMember.findById(request.params.memberId).exec();
-  if (!member || member.status === "removed" || String(member.businessAccount) !== String(account._id)) {
+  if (!member || String(member.businessAccount) !== String(account._id)) {
     return response.status(404).json({ success: false, message: "Account member not found." });
   }
 
-  const targetStatus = parsed.data.status;
+  let targetStatus: "invited" | "active" | "suspended" | "removed";
+  if (parsed.data.status === "restore") {
+    if (member.status !== "removed") {
+      return response.status(409).json({ success: false, message: "Only removed access can be restored." });
+    }
+
+    const user = await User.findById(member.user).select("isVerified passwordHash").lean().exec();
+    if (!user) {
+      return response.status(404).json({ success: false, message: "The existing user record could not be found." });
+    }
+    targetStatus = resolveRestoredMemberStatus(user);
+  } else {
+    targetStatus = parsed.data.status;
+  }
   if (targetStatus !== member.status && !(memberStatusTransitions[member.status] ?? []).includes(targetStatus)) {
     return response.status(409).json({
       success: false,
@@ -442,7 +470,18 @@ export async function updateBusinessAccountMemberStatus(request: Request, respon
   }
 
   member.status = targetStatus;
-  await member.save();
+  try {
+    await member.save();
+  } catch (error) {
+    if (error instanceof mongoose.mongo.MongoServerError && error.code === 11000) {
+      return response.status(409).json({
+        success: false,
+        code: "USER_ALREADY_ASSIGNED",
+        message: "This user already has current access. Resolve that membership before restoring this one."
+      });
+    }
+    throw error;
+  }
 
   const populatedMember = await BusinessAccountMember.findById(member._id)
     .populate("user", "firstName lastName name email phone userStatus lastLogin")

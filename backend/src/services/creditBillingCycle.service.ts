@@ -12,7 +12,7 @@ import { appendCreditLedgerEntry } from "./creditAccount.service.js";
 import { notifyBusinessFinancialMembers } from "./portalNotification.service.js";
 import { getCreditRestrictionState } from "./creditOverdue.service.js";
 import { formatIndiaDate } from "../utils/dateFormat.js";
-import { dayBounds } from "../utils/dateRangeFilter.js";
+import { dateRangeCondition } from "../utils/dateRangeFilter.js";
 
 export type ClosedBillingPeriod = {
   start: Date;
@@ -412,7 +412,8 @@ export async function closeDueCreditBillingCycles(input: {
 
 export type CreditBillingStatementListFilter = {
   status?: string;
-  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   page?: number;
   limit?: number;
 };
@@ -431,8 +432,8 @@ export async function listCreditBillingStatements(
   }
   const query: Record<string, unknown> = { businessAccountId };
   if (filter.status) query.status = filter.status;
-  const bounds = dayBounds(filter.date);
-  if (bounds) query.issuedAt = { $gte: bounds.start, $lte: bounds.end };
+  const issuedAt = dateRangeCondition(filter.dateFrom, filter.dateTo);
+  if (issuedAt) query.issuedAt = issuedAt;
 
   const limit = Math.min(100, Math.max(1, filter.limit ?? 100));
   const total = await CreditBillingStatement.countDocuments(query).exec();

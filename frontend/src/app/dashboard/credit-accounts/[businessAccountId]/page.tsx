@@ -7,17 +7,21 @@ import { FiDownload, FiRefreshCw,FiChevronDown  } from "react-icons/fi";
 import { DashboardLoading } from "@/components/DashboardShell";
 import CreditSummaryCards from "@/components/credit/CreditSummaryCards";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
-import DateFilterInput from "@/components/ui/DateFilterInput";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
 import Pagination from "@/components/ui/Pagination";
+import { emptyDateRange } from "@/lib/dateRange";
 import {
   closeAdminCycle,
+  ledgerExportRanges,
   listAdminCreditPayments,
   listAdminLedger,
   listAdminStatements,
   openAuthenticatedFile,
   recordAdminOfflinePayment,
   verifyAdminOfflinePayment,
+  withLedgerExportRange,
   writeOffAdminStatement,
+  MAX_OFFLINE_PAYMENT_RUPEES,
   type CreditLedgerEntry,
   type CreditListPagination,
   type CreditPayment,
@@ -72,16 +76,18 @@ export default function AdminCreditAccountDetailPage() {
 
   // Independent filter + pagination state for each of the three tables below.
   const [statementStatus, setStatementStatus] = useState("");
-  const [statementDate, setStatementDate] = useState("");
+  const [statementRange, setStatementRange] = useState(emptyDateRange);
   const [statementPage, setStatementPage] = useState(1);
   const [statementPagination, setStatementPagination] = useState(emptyListPagination);
   const [paymentStatus, setPaymentStatus] = useState("");
-  const [paymentDate, setPaymentDate] = useState("");
+  const [paymentRange, setPaymentRange] = useState(emptyDateRange);
   const [paymentPage, setPaymentPage] = useState(1);
   const [paymentPagination, setPaymentPagination] = useState(emptyListPagination);
-  const [ledgerDate, setLedgerDate] = useState("");
+  const [ledgerRange, setLedgerRange] = useState(emptyDateRange);
   const [ledgerPage, setLedgerPage] = useState(1);
   const [ledgerPagination, setLedgerPagination] = useState(emptyListPagination);
+  // Reporting window for the ledger export; empty exports the full history.
+  const [exportRange, setExportRange] = useState("");
 
   // "Record Offline Payment" form state.
   const [statementId, setStatementId] = useState("");
@@ -101,9 +107,9 @@ export default function AdminCreditAccountDetailPage() {
   const load = useCallback(async () => {
     const [accountResult, statementResult, paymentResult, ledgerResult] = await Promise.all([
       getAdminCreditAccount(accountId),
-      listAdminStatements(accountId, { status: statementStatus, date: statementDate, page: statementPage, limit: 10 }),
-      listAdminCreditPayments(accountId, { status: paymentStatus, date: paymentDate, page: paymentPage, limit: 10 }),
-      listAdminLedger(accountId, { date: ledgerDate, page: ledgerPage, limit: 20 })
+      listAdminStatements(accountId, { status: statementStatus, dateRange: statementRange, page: statementPage, limit: 10 }),
+      listAdminCreditPayments(accountId, { status: paymentStatus, dateRange: paymentRange, page: paymentPage, limit: 10 }),
+      listAdminLedger(accountId, { dateRange: ledgerRange, page: ledgerPage, limit: 20 })
     ]);
 
     setAccount(accountResult.creditAccount);
@@ -117,7 +123,7 @@ export default function AdminCreditAccountDetailPage() {
     const unpaid = statementResult.statements.find((item) => item.outstandingAmountMinor > 0);
     setStatementId((current) => current || unpaid?.id || "");
     setAmountRupees((current) => current || (unpaid ? String(unpaid.outstandingAmountMinor / 100) : ""));
-  }, [accountId, statementStatus, statementDate, statementPage, paymentStatus, paymentDate, paymentPage, ledgerDate, ledgerPage]);
+  }, [accountId, statementStatus, statementRange, statementPage, paymentStatus, paymentRange, paymentPage, ledgerRange, ledgerPage]);
 
   // Initial load and any re-fetch triggered by a filter or page change below.
   useEffect(() => {
@@ -155,6 +161,10 @@ export default function AdminCreditAccountDetailPage() {
     const amountMinor = Math.round(Number(amountRupees) * 100);
     if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
       setError("Enter a valid payment amount.");
+      return;
+    }
+    if (amountMinor > MAX_OFFLINE_PAYMENT_RUPEES * 100) {
+      setError(`A single offline payment cannot exceed ${money(MAX_OFFLINE_PAYMENT_RUPEES * 100)}.`);
       return;
     }
     if (reference.trim().length < 3) {
@@ -275,9 +285,25 @@ export default function AdminCreditAccountDetailPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <div className="relative">
+              <select
+                value={exportRange}
+                onChange={(event) => setExportRange(event.target.value)}
+                aria-label="Ledger export period"
+                className="h-10 appearance-none rounded-4xl border border-slate-300 bg-white pl-4 pr-11 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+              >
+                {ledgerExportRanges.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            </div>
             <button
               type="button"
-              onClick={() => void openAuthenticatedFile(`/api/v1/credit-accounts/${accountId}/ledger/export`, "credit-account-statement.csv")}
+              onClick={() => void openAuthenticatedFile(
+                withLedgerExportRange(`/api/v1/credit-accounts/${accountId}/ledger/export`, exportRange),
+                "credit-account-statement.csv"
+              )}
               className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900"
             >
               <FiDownload /> Export Ledger
@@ -357,10 +383,10 @@ export default function AdminCreditAccountDetailPage() {
               <p className="mt-1 text-sm text-slate-500">Finalized shipment invoices grouped by completed billing period.</p>
             </div>
             <div className="flex items-center gap-2">
-              <DateFilterInput
-                value={statementDate}
+              <DateRangeFilter
+                value={statementRange}
                 onChange={(value) => {
-                  setStatementDate(value);
+                  setStatementRange(value);
                   setStatementPage(1);
                 }}
               />
@@ -371,14 +397,14 @@ export default function AdminCreditAccountDetailPage() {
                     setStatementStatus(event.target.value);
                     setStatementPage(1);
                   }}
-                  className="h-10 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+                  className="h-10 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
                 >
                   <option value="">All Status</option>
                   {statementStatuses.map((item) => (
                     <option key={item} value={item}>{title(item)}</option>
                   ))}
                 </select>
-                <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
           </div>
@@ -447,10 +473,10 @@ export default function AdminCreditAccountDetailPage() {
                 <p className="mt-1 text-sm text-slate-500">Verify submitted offline payments and review applied payments.</p>
               </div>
               <div className="flex items-center gap-2">
-                <DateFilterInput
-                  value={paymentDate}
+                <DateRangeFilter
+                  value={paymentRange}
                   onChange={(value) => {
-                    setPaymentDate(value);
+                    setPaymentRange(value);
                     setPaymentPage(1);
                   }}
                 />
@@ -461,14 +487,14 @@ export default function AdminCreditAccountDetailPage() {
                       setPaymentStatus(event.target.value);
                       setPaymentPage(1);
                     }}
-                    className="h-10 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
+                    className="h-10 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm font-semibold text-slate-700 outline-none focus:border-blue-900"
                   >
                     <option value="">All Status</option>
                     {paymentStatuses.map((item) => (
                       <option key={item} value={item}>{title(item)}</option>
                     ))}
                   </select>
-                  <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
               </div>
             </div>
@@ -537,7 +563,7 @@ export default function AdminCreditAccountDetailPage() {
                     const selected = statements.find((item) => item.id === event.target.value);
                     if (selected) setAmountRupees(String(selected.outstandingAmountMinor / 100));
                   }}
-                  className="h-11 w-full border border-slate-300 bg-white px-3 pr-9 font-normal rounded-xl appearance-none"
+                  className="h-11 w-full border border-slate-300 bg-white px-3 pr-11 font-normal rounded-xl appearance-none"
                 >
                   <option value="">Oldest outstanding first</option>
                   {statements
@@ -548,7 +574,7 @@ export default function AdminCreditAccountDetailPage() {
                       </option>
                     ))}
                 </select>
-                <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
             </label>
 
@@ -557,12 +583,16 @@ export default function AdminCreditAccountDetailPage() {
               <input
                 type="number"
                 min="0.01"
+                max={MAX_OFFLINE_PAYMENT_RUPEES}
                 step="0.01"
                 value={amountRupees}
                 onChange={(event) => setAmountRupees(event.target.value)}
                 className="mt-2 h-11 w-full border border-slate-300 px-3 font-normal rounded-xl"
                 placeholder="Payment amount in INR"
               />
+              <p className="mt-1 text-xs font-normal text-slate-500">
+                Maximum {money(MAX_OFFLINE_PAYMENT_RUPEES * 100)} per payment.
+              </p>
             </label>
 
             <label className="mt-4 block text-sm font-semibold text-slate-700">
@@ -571,7 +601,7 @@ export default function AdminCreditAccountDetailPage() {
                 <select
                   value={method}
                   onChange={(event) => setMethod(event.target.value as typeof method)}
-                  className="h-11 w-full border border-slate-300 bg-white px-3 pr-9 font-normal rounded-xl appearance-none"
+                  className="h-11 w-full border border-slate-300 bg-white px-3 pr-11 font-normal rounded-xl appearance-none"
                   aria-label="Payment method"
                 >
                   <option value="BANK_TRANSFER">Bank Transfer</option>
@@ -579,7 +609,7 @@ export default function AdminCreditAccountDetailPage() {
                   <option value="CASH">Cash</option>
                   <option value="CHEQUE">Cheque</option>
                 </select>
-                <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
             </label>
 
@@ -621,10 +651,10 @@ export default function AdminCreditAccountDetailPage() {
               <h2 className="font-semibold text-slate-950">Credit Ledger</h2>
               <p className="mt-1 text-sm text-slate-500">Latest financial movements and resulting balances.</p>
             </div>
-            <DateFilterInput
-              value={ledgerDate}
+            <DateRangeFilter
+              value={ledgerRange}
               onChange={(value) => {
-                setLedgerDate(value);
+                setLedgerRange(value);
                 setLedgerPage(1);
               }}
             />

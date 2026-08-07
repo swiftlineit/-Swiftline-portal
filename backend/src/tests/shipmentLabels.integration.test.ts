@@ -187,6 +187,7 @@ describe("Swiftline tracking sequence", () => {
     const account = await BusinessAccount.create({
       accountId: "BA-2026-800823",
       status: "active",
+      rateCardBand: "BAND_A",
       contact: {
         title: "mr.",
         firstName: "Drifter",
@@ -221,6 +222,7 @@ describe("Swiftline tracking sequence", () => {
     });
 
     await CountryRateCard.create({
+      band: "BAND_A",
       countryCode: "GB",
       countryName: "United Kingdom",
       service: "COURIER",
@@ -335,10 +337,14 @@ describe("Swiftline tracking sequence", () => {
     const account = await BusinessAccount.create({
       accountId: `BOOKING-TEST-${Date.now()}`,
       status: "active",
+      rateCardBand: "BAND_A",
       contact: {
         title: "mr.", firstName: "Booking", lastName: "Owner",
         email: `booking-${Date.now()}@example.test`, mobileType: "mobile",
-        countryCode: "+91", mobileNumber: "9000000000", jobTitle: "Owner",
+        // Unique like the email above: live accounts carry a unique index on
+        // (countryCode, mobileNumber), so a shared number collides with the
+        // other account this suite creates.
+        countryCode: "+91", mobileNumber: `9${String(Date.now()).slice(-9)}`, jobTitle: "Owner",
         department: "Operations", shipmentTypes: ["international_courier"]
       },
       company: {
@@ -354,6 +360,7 @@ describe("Swiftline tracking sequence", () => {
       createdBy: userId
     });
     await CountryRateCard.create({
+      band: "BAND_A",
       countryCode: "GB",
       countryName: "United Kingdom",
       service: "COURIER",

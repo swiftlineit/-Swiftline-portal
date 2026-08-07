@@ -16,6 +16,15 @@ import {
   type IShipmentEvent
 } from "../models/shipmentEvent.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
+import { counterPaymentMethodValues } from "../models/counterPayment.model.js";
+import { recordCounterCollection } from "../services/individualCustomer.service.js";
+
+// Present only on walk-in bookings; business shipments ignore it entirely.
+const counterCollectionSchema = z.object({
+  method: z.enum(counterPaymentMethodValues),
+  reference: z.string().trim().max(80).optional(),
+  note: z.string().trim().max(300).optional()
+});
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentChargeVerification } from "../models/shipmentChargeVerification.model.js";
 import { ShipmentCancellation } from "../models/shipmentCancellation.model.js";
@@ -29,6 +38,8 @@ import {
   readShipmentBookingSnapshot,
   serializeShipmentBookingConfirmation
 } from "../services/shipmentBookingSnapshot.service.js";
+import { buildPricingHash, ShipmentPriceChangedError } from "../services/shipmentCostEstimate.service.js";
+import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
 
 const holdShipmentSchema = z.object({
   reason: z.enum(shipmentHoldReasonValues),
@@ -42,6 +53,13 @@ const releaseShipmentSchema = z.object({
 const updateShipmentStatusSchema = z.object({
   status: z.enum(shipmentOperationalStatusValues),
   note: z.string().trim().max(500).optional().default("")
+});
+
+// The price the customer accepted, as returned by the cost estimate endpoint.
+// Optional: booking paths that were never quoted through the estimator have no
+// accepted price to check against.
+const acceptedPricingSchema = z.object({
+  acceptedPricingHash: z.string().trim().min(1).max(128).optional()
 });
 
 function getAuthenticatedUserId(request: Request): mongoose.Types.ObjectId | null {
@@ -440,12 +458,43 @@ async function createShipment(
     return response.status(404).json({ success: false, message: "Shipment draft not found" });
   }
 
+  // A walk-in has already paid into a company account, so how that happened is
+  // captured at booking. The draft decides the payment source: it cannot be
+  // chosen by the caller, so a business shipment can never be booked as a counter
+  // sale and skip its credit reservation.
+  const draft = await ShipmentDraft.findById(shipmentDraftId).select("customerType branchId").lean().exec();
+  if (!draft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  const isIndividual = draft.customerType === "INDIVIDUAL";
+
+  const collection = counterCollectionSchema.safeParse(request.body ?? {});
+  if (isIndividual && !collection.success) {
+    return response.status(400).json({
+      success: false,
+      message: "Record how the customer paid before booking this shipment."
+    });
+  }
+
+  const acceptedPricing = acceptedPricingSchema.safeParse(request.body ?? {});
+
   try {
     const result = await createLabelForShipmentDraft(shipmentDraftId, userId, {
       actor: "admin",
-      paymentSource: "BUSINESS_ACCOUNT",
-      bookingProvider
+      paymentSource: isIndividual ? "ADMIN_DIRECT" : "BUSINESS_ACCOUNT",
+      bookingProvider,
+      acceptedPricingHash: acceptedPricing.success ? acceptedPricing.data.acceptedPricingHash : undefined
     });
+
+    if (isIndividual && collection.success) {
+      // Written after the booking succeeds: a failed booking must not leave a
+      // record of money the branch never took.
+      await recordCounterCollection({
+        shipmentDraftId: new mongoose.Types.ObjectId(shipmentDraftId),
+        branchId: draft.branchId,
+        amountMinor: result.shipmentInvoice.totalAmountMinor,
+        payment: collection.data,
+        recordedBy: userId
+      });
+    }
     await ensureShipmentBookedEvent({
       shipmentDraftId: new mongoose.Types.ObjectId(shipmentDraftId),
       dpdShipmentId: result.dpdShipment._id as mongoose.Types.ObjectId,
@@ -469,6 +518,22 @@ async function createShipment(
       }
     });
   } catch (error) {
+    if (error instanceof RateCardRequiredError) {
+      return response.status(error.statusCode).json({ success: false, code: error.code, message: error.message });
+    }
+    // The price moved between the estimate the booker accepted and this booking.
+    // Nothing has been reserved or sent to the carrier; the updated breakdown goes
+    // back so the panel can show what changed and ask for an explicit re-accept.
+    if (error instanceof ShipmentPriceChangedError) {
+      return response.status(error.statusCode).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+        pricing: error.currentPricing,
+        pricingHash: buildPricingHash(error.currentPricing)
+      });
+    }
+
     if (error instanceof DpdShipmentServiceError) {
       return response.status(error.statusCode).json({
         success: false,

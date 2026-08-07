@@ -13,7 +13,7 @@ export interface IOperationsManifestConsignment extends mongoose.Document {
   expectedParcelNumbers: string[];
   scannedParcelNumbers: string[];
   // Per-parcel facts captured at scan time. Each one prints as its own manifest row.
-  // `valueMinor` is the box's own declared goods value, entered on the manifest.
+  // `valueMinor` is the box's own declared goods value from the shipment snapshot.
   parcelWeightSnapshots: Array<{ parcelNumber: string; weightKg: number; contentsDescription?: string; valueMinor?: number | null }>;
   manifestPieces: 1;
   weightKg: number;
@@ -51,7 +51,7 @@ const operationsManifestConsignmentSchema = new mongoose.Schema<IOperationsManif
   consignorSnapshot: { type: mongoose.Schema.Types.Mixed, required: true },
   consigneeSnapshot: { type: mongoose.Schema.Types.Mixed, required: true },
   description: { type: String, required: true, trim: true, maxlength: 1000 },
-  declaredValueMinor: { type: Number, min: 1, default: null },
+  declaredValueMinor: { type: Number, min: 0, default: null },
   currency: { type: String, enum: ["INR"], required: true, default: "INR" },
   serviceInfo: { type: String, required: true, trim: true, maxlength: 40 },
   dpdLabelGenerated: { type: Boolean, required: true, default: false }

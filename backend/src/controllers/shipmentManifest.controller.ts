@@ -10,10 +10,10 @@ import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ShipmentManifest, type IShipmentManifest } from "../models/shipmentManifest.model.js";
 import { User } from "../models/user.model.js";
 import { clientCanAccessShipmentDraft } from "../services/shipmentDraftPolicy.service.js";
-import { readShipmentBookingSnapshot } from "../services/shipmentBookingSnapshot.service.js";
+import { readShipmentBookingSnapshot, snapshotDeclaredGoodsValueMinor } from "../services/shipmentBookingSnapshot.service.js";
 import { notifyAdminsOfClientManifest } from "../services/shipmentManifestNotification.service.js";
 import { buildShipmentManifestPdf } from "../services/shipmentManifestPdf.service.js";
-import { dayBounds } from "../utils/dateRangeFilter.js";
+import { dateRangeCondition, dateRangeParams } from "../utils/dateRangeFilter.js";
 import {
   allocateShipmentManifestNumber,
   buildHandoverManifestLine,
@@ -25,7 +25,6 @@ import {
 
 const manifestLineInputSchema = z.object({
   shipmentDraftId: z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Select a valid shipment."),
-  declaredValueMinor: z.number().int().min(1, "Declared goods value must be greater than zero.").max(100_000_000_00),
   bagNumber: z.string().trim().min(1, "Bag number is required.").max(40)
 });
 
@@ -42,8 +41,7 @@ const createManifestSchema = z.object({
 });
 
 const createClientManifestSchema = z.object({
-  currentShipmentDraftId: z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Shipment not found."),
-  declaredValueMinor: z.number().int().min(1, "Goods value must be greater than zero.").max(100_000_000_00)
+  currentShipmentDraftId: z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Shipment not found.")
 });
 
 type NormalizedManifestInput = z.infer<typeof createManifestSchema>;
@@ -78,6 +76,30 @@ function sendManifestError(response: Response, error: unknown) {
   throw error;
 }
 
+/**
+ * Keeps one manifest to one walk-in customer.
+ *
+ * A manifest is a customer-facing document whose header names a single customer,
+ * which the "same business account" rule above normally guarantees. That rule
+ * stops guaranteeing it for individual shipments: every walk-in is booked against
+ * the same system sentinel, so unrelated customers would pass it and end up on one
+ * manifest headed with whichever name came first. Their identity lives on the
+ * draft instead, so it is compared there — by mobile number, the field the counter
+ * always captures.
+ */
+export function assertSameIndividualCustomer(drafts: IShipmentDraft[], reference: IShipmentDraft) {
+  if (reference.customerType !== "INDIVIDUAL") return;
+
+  const customerKey = (draft: IShipmentDraft) => [
+    draft.consignorAddress?.mobileCountryCode ?? "",
+    draft.consignorAddress?.mobileNumber ?? ""
+  ].join("|").trim();
+
+  if (drafts.some((draft) => customerKey(draft) !== customerKey(reference))) {
+    throw new ShipmentManifestServiceError("All manifest shipments must belong to the same individual customer.");
+  }
+}
+
 async function assertClientAccess(userId: mongoose.Types.ObjectId, draft: IShipmentDraft, requireCreate: boolean) {
   const allowed = await clientCanAccessShipmentDraft({
     userId,
@@ -100,6 +122,7 @@ function serializeEligibleShipment(draft: IShipmentDraft, dpdShipment: IDpdShipm
     destination: [snapshot.consignee.townOrCity, snapshot.consignee.countryName || snapshot.consignee.countryCode].filter(Boolean).join(", "),
     pieces: snapshot.parcels.length,
     weightKg: Number(snapshot.parcels.reduce((sum, parcel) => sum + parcel.actualWeightKg, 0).toFixed(3)),
+    declaredValueMinor: snapshotDeclaredGoodsValueMinor(snapshot),
     serviceInfo: snapshot.service.type === "CARGO" ? "CARGO" : "EXP"
   };
 }
@@ -121,7 +144,18 @@ async function loadManifestContext(draftId: mongoose.Types.ObjectId, userId: mon
     }).sort({ generatedAt: -1 }).exec(),
     ShipmentDraft.find({
       businessAccountId: currentDraft.businessAccountId,
-      branchId: currentDraft.branchId
+      branchId: currentDraft.branchId,
+      // Every walk-in shares the sentinel account, so filtering on it alone would
+      // offer one customer's manifest the shipments of everyone else who used the
+      // counter that day. Their identity lives on the draft, so it is matched
+      // there — the same rule `assertSameIndividualCustomer` enforces on submit.
+      ...(currentDraft.customerType === "INDIVIDUAL"
+        ? {
+            customerType: "INDIVIDUAL",
+            "consignorAddress.mobileCountryCode": currentDraft.consignorAddress?.mobileCountryCode ?? "",
+            "consignorAddress.mobileNumber": currentDraft.consignorAddress?.mobileNumber ?? ""
+          }
+        : {})
     }).sort({ updatedAt: -1 }).limit(100).exec()
   ]);
 
@@ -175,7 +209,6 @@ async function createManifest(request: Request, response: Response, actorRole: "
       valueType: "",
       lines: [{
         shipmentDraftId: parsed.data.currentShipmentDraftId,
-        declaredValueMinor: parsed.data.declaredValueMinor,
         bagNumber: "1"
       }]
     };
@@ -217,6 +250,7 @@ async function createManifest(request: Request, response: Response, actorRole: "
     if (drafts.some((draft) => String(draft.businessAccountId) !== String(currentDraft.businessAccountId) || String(draft.branchId) !== String(currentDraft.branchId))) {
       throw new ShipmentManifestServiceError("All manifest shipments must belong to the same business account and branch.");
     }
+    assertSameIndividualCustomer(drafts, currentDraft);
 
     const bookingByDraft = new Map(bookings.map((booking) => [String(booking.shipmentDraftId), booking]));
     const inputByDraft = new Map(manifestInput.lines.map((line) => [line.shipmentDraftId, line]));
@@ -232,6 +266,13 @@ async function createManifest(request: Request, response: Response, actorRole: "
       if (!booking || !lineInput || !snapshot) {
         throw new ShipmentManifestServiceError("Shipment booking information is incomplete.", 409);
       }
+      const declaredValueMinor = snapshotDeclaredGoodsValueMinor(snapshot);
+      if (declaredValueMinor <= 0) {
+        throw new ShipmentManifestServiceError(
+          "Goods value is unavailable for one of the selected shipments. Update the shipment contents before creating a manifest.",
+          409
+        );
+      }
       if (!businessAccountName) businessAccountName = manifestBusinessAccountName(snapshot);
       // Handover columns are captured here too, so this manifest's PDF carries
       // the same detail as one raised from the shipments list.
@@ -239,7 +280,7 @@ async function createManifest(request: Request, response: Response, actorRole: "
         shipmentDraftId: new mongoose.Types.ObjectId(draftId),
         dpdShipmentId: booking._id,
         snapshot,
-        declaredValueMinor: lineInput.declaredValueMinor,
+        declaredValueMinor,
         bagNumber: lineInput.bagNumber,
         remark: "DONE"
       });
@@ -429,8 +470,9 @@ async function listManifests(request: Request, response: Response, actorRole: "a
   if (businessAccountId && mongoose.Types.ObjectId.isValid(businessAccountId)) {
     query.businessAccountId = new mongoose.Types.ObjectId(businessAccountId);
   }
-  const bounds = dayBounds(typeof request.query.date === "string" ? request.query.date : undefined);
-  if (bounds) query.generatedAt = { $gte: bounds.start, $lte: bounds.end };
+  const { dateFrom, dateTo } = dateRangeParams(request.query);
+  const generatedAt = dateRangeCondition(dateFrom, dateTo);
+  if (generatedAt) query.generatedAt = generatedAt;
 
   const total = await ShipmentManifest.countDocuments(query).exec();
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -514,6 +556,7 @@ async function createBulkManifest(request: Request, response: Response, actorRol
       || String(draft.branchId) !== String(firstDraft.branchId))) {
       throw new ShipmentManifestServiceError("All manifest shipments must belong to the same business account and branch.");
     }
+    assertSameIndividualCustomer(drafts, firstDraft);
     if (actorRole === "client") await assertClientAccess(userId, firstDraft, true);
 
     const [bookings, existingAssignment, cancelledEvent, assignedBranch] = await Promise.all([

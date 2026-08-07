@@ -354,9 +354,29 @@ export function validateBusinessAccountForm(formData: BusinessAccountFormData): 
   };
 }
 
+/**
+ * The least a draft can be saved with.
+ *
+ * These are the fields the server keys its duplicate-account indexes off, so a
+ * draft without them could not be de-duplicated and blank values would collide
+ * between drafts. Everything else on the form can be filled in later.
+ */
+export const draftRequiredFieldKeys = [
+  "firstName",
+  "lastName",
+  "email",
+  "countryCode",
+  "mobileNumber"
+];
+
 // Field keys of a step that are not yet acceptable, in display order.
 export function getStepIssues(validation: BusinessAccountValidation, step: number) {
   return (stepFieldKeys[step] ?? []).filter((key) => Boolean(validation[key]?.error));
+}
+
+/** Whether the identity fields a draft needs are all acceptable. */
+export function isDraftSavable(validation: BusinessAccountValidation) {
+  return draftRequiredFieldKeys.every((key) => !validation[key]?.error && validation[key]?.filled);
 }
 
 export function isStepValid(validation: BusinessAccountValidation, step: number) {

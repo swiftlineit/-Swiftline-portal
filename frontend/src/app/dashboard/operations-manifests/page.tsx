@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { FiArrowRight, FiPlus, FiRefreshCw, FiChevronDown } from "react-icons/fi";
 import { DashboardLoading } from "@/components/DashboardShell";
-import DateFilterInput from "@/components/ui/DateFilterInput";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { emptyDateRange } from "@/lib/dateRange";
 import {
   listOperationsManifests,
   type ManifestStatus,
@@ -26,7 +27,7 @@ export default function OperationsManifestListPage() {
   const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [items, setItems] = useState<OperationsManifest[]>([]);
   const [status, setStatus] = useState("");
-  const [date, setDate] = useState("");
+  const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [busy, setBusy] = useState(true);
@@ -35,7 +36,7 @@ export default function OperationsManifestListPage() {
     setBusy(true);
     setError("");
     try {
-      const data = await listOperationsManifests(page, status, date);
+      const data = await listOperationsManifests(page, status, dateRange);
       setItems(data.items);
       setPages(data.pagination.pages);
     } catch (caught) {
@@ -47,7 +48,7 @@ export default function OperationsManifestListPage() {
     } finally {
       setBusy(false);
     }
-  }, [page, status, date]);
+  }, [page, status, dateRange]);
   useEffect(() => {
     if (!user) return;
     let active = true;
@@ -73,10 +74,10 @@ export default function OperationsManifestListPage() {
             </p>
           </div>
           <div className="flex gap-2">
-           <DateFilterInput
-             value={date}
+           <DateRangeFilter
+             value={dateRange}
              onChange={(value) => {
-               setDate(value);
+               setDateRange(value);
                setPage(1);
              }}
            />

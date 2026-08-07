@@ -51,16 +51,27 @@ function bookingInput(businessAccountId: mongoose.Types.ObjectId, amountMinor: n
 function pricing(totalAmountMinor: number) {
   return {
     parcels: [],
-    // CSB-IV, so freight is the whole taxable base and no clearance charge applies.
+    // CSB-IV on a route with no surcharge configuration, so freight is the whole
+    // taxable base: no clearance charge, no surcharges, no insurance, no discount.
     freightAmount: totalAmountMinor / 118,
+    fuelSurchargeAmount: 0,
+    remoteAreaAmount: 0,
+    remoteAreaApplied: false,
     csbType: "CSB_IV" as const,
     csbClearanceAmount: 0,
+    handlingAmount: 0,
+    insuranceAmount: 0,
+    insuranceApplied: false,
+    declaredGoodsValue: 0,
+    discountAmount: 0,
     baseAmount: totalAmountMinor / 118,
     gstAmount: totalAmountMinor / 100 - totalAmountMinor / 118,
     totalAmount: totalAmountMinor / 100,
     missingRate: false,
     exceedsMaxBoxKg: false,
-    gstRate: 0.18
+    gstRate: 0.18,
+    lines: [],
+    pricingBasis: { rateCardIds: [], routeChargesUpdatedAt: null }
   };
 }
 

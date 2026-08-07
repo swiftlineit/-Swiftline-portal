@@ -1,7 +1,12 @@
 import mongoose from "mongoose";
+import { BalanceReservation } from "../models/balanceReservation.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
+import { OperationsManifestConsignment } from "../models/operationsManifestConsignment.model.js";
+import { PickupRequestShipment } from "../models/pickupRequestShipment.model.js";
+import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
+import { ShipmentManifest } from "../models/shipmentManifest.model.js";
 import {
   ShipmentDraft,
   type IShipmentDraft,
@@ -45,6 +50,13 @@ function getBookingStateMessage(bookingState: ShipmentDraftBookingState) {
 }
 
 export async function assertShipmentDraftEditable(draft: IShipmentDraft) {
+  // Checked here rather than at each call site so every mutation path — field
+  // edits, KYC uploads, address selection, booking, amendments — refuses a
+  // deleted draft without needing its own filter.
+  if (draft.deletedAt) {
+    throw new ShipmentDraftPolicyError("This shipment draft has been deleted.", 404);
+  }
+
   const bookingState = await resolveDraftBookingState(draft);
   if (bookingState === "EDITABLE") return;
 
@@ -123,7 +135,7 @@ export async function clientCanAccessShipmentDraft(input: {
   if (!membership) return false;
   if (input.requireEditPermission && !clientShipmentEditorRoles.has(membership.role)) return false;
 
-  const explicitBranchIds = membership.assignedBranches.map(String);
+  const explicitBranchIds = (membership.assignedBranches ?? []).map(String);
   if (explicitBranchIds.length) return explicitBranchIds.includes(String(input.draft.branchId));
 
   const account = await BusinessAccount.findById(input.draft.businessAccountId)
@@ -163,7 +175,60 @@ export async function syncLegacyDraftBookingState(draft: IShipmentDraft) {
 }
 
 export async function findEditableDraftByInvoiceUpload(invoiceUploadId: mongoose.Types.ObjectId) {
-  const draft = await ShipmentDraft.findOne({ invoiceUploadId }).exec();
+  const draft = await ShipmentDraft.findOne({ invoiceUploadId, deletedAt: null }).exec();
   if (!draft) return null;
   return await resolveDraftBookingState(draft) === "EDITABLE" ? draft : null;
+}
+
+/**
+ * Why a draft cannot be deleted, or null when it can be.
+ *
+ * `EDITABLE` is necessary but not sufficient. A rejected carrier booking sends a
+ * draft back to EDITABLE while leaving its DpdShipment behind, so the carrier
+ * record is checked directly rather than inferred from booking state. The
+ * remaining checks cover records that would be orphaned by the removal.
+ */
+export async function findShipmentDraftDeletionBlocker(
+  draftId: mongoose.Types.ObjectId
+): Promise<string | null> {
+  const [carrierBooking, invoice, consignment, manifested, pickup, reservation] = await Promise.all([
+    DpdShipment.countDocuments({ shipmentDraftId: draftId }).exec(),
+    ShipmentInvoice.countDocuments({ shipmentDraftId: draftId }).exec(),
+    OperationsManifestConsignment.countDocuments({
+      shipmentDraftId: draftId,
+      status: { $ne: "REMOVED" }
+    }).exec(),
+    ShipmentManifest.countDocuments({ shipmentDraftIds: draftId }).exec(),
+    PickupRequestShipment.countDocuments({
+      shipmentDraftId: draftId,
+      status: { $ne: "CANCELLED" }
+    }).exec(),
+    BalanceReservation.countDocuments({
+      shipmentDraftId: draftId,
+      status: { $in: ["ACTIVE", "CONSUMING", "REVIEW_REQUIRED"] }
+    }).exec()
+  ]);
+
+  if (carrierBooking) {
+    return "This shipment has already been sent to the carrier and cannot be deleted. Cancel the shipment instead.";
+  }
+  if (invoice) return "This shipment has an invoice and cannot be deleted. Cancel the shipment instead.";
+  if (consignment || manifested) return "This shipment is on a manifest. Remove it from the manifest first.";
+  if (pickup) return "This shipment is on a pickup request. Remove it from the pickup first.";
+  if (reservation) return "This shipment is holding a credit or prepaid reservation. Contact Swiftline Operations.";
+
+  return null;
+}
+
+export async function assertShipmentDraftDeletable(input: {
+  draft: IShipmentDraft;
+  userId: string | mongoose.Types.ObjectId;
+  portalRole: string;
+}) {
+  // Covers permission plus the EDITABLE requirement; deletion is a mutation like
+  // any other, so it must not be reachable on a draft that cannot be edited.
+  await assertShipmentDraftMutationAllowed(input);
+
+  const blocker = await findShipmentDraftDeletionBlocker(input.draft._id as mongoose.Types.ObjectId);
+  if (blocker) throw new ShipmentDraftPolicyError(blocker, 409);
 }

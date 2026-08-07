@@ -23,7 +23,7 @@ export interface IShipmentChargeVerification extends mongoose.Document {
   verifiedPricingSnapshot: Record<string, unknown>;
   previousAmountMinor: number;
   verifiedAmountMinor: number;
-  billingMode: "BUSINESS_ACCOUNT" | "TEST";
+  billingMode: "BUSINESS_ACCOUNT" | "DIRECT" | "TEST";
   billingAdjustment: Record<string, unknown>;
   invoiceNumber: string;
   invoiceRevision: number;
@@ -56,7 +56,7 @@ const shipmentChargeVerificationSchema = new mongoose.Schema<IShipmentChargeVeri
   verifiedPricingSnapshot: { type: mongoose.Schema.Types.Mixed, required: true },
   previousAmountMinor: { type: Number, required: true, min: 0 },
   verifiedAmountMinor: { type: Number, required: true, min: 0 },
-  billingMode: { type: String, enum: ["BUSINESS_ACCOUNT", "TEST"], required: true },
+  billingMode: { type: String, enum: ["BUSINESS_ACCOUNT", "DIRECT", "TEST"], required: true },
   billingAdjustment: { type: mongoose.Schema.Types.Mixed, required: true },
   invoiceNumber: { type: String, required: true, trim: true, maxlength: 32 },
   invoiceRevision: { type: Number, required: true, min: 1 },

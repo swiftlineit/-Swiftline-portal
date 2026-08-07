@@ -1,4 +1,5 @@
 import { apiUrl } from "@/lib/api";
+import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 
 export type ShipmentCancellation = {
@@ -37,6 +38,11 @@ export type ShipmentCancellation = {
   completedAt: string | null;
   shipmentReference?: string;
   consignee?: string;
+  /**
+   * INDIVIDUAL means the shipment was paid at the counter, so any refund leaves
+   * the company outside the portal and has to be recorded on approval.
+   */
+  customerType?: "BUSINESS" | "INDIVIDUAL";
   branch?: { id: string; name: string; code: string } | null;
   businessAccount?: { id: string; accountId: string; companyName: string } | null;
 };
@@ -90,10 +96,10 @@ export async function requestAdminShipmentCancellation(draftId: string, reason: 
   return parse<{ success: true; cancellation: ShipmentCancellation }>(response);
 }
 
-export async function listShipmentCancellations(input: { status?: string; date?: string; page?: number } = {}) {
+export async function listShipmentCancellations(input: { status?: string; dateRange?: DateRange; page?: number } = {}) {
   const url = new URL(apiUrl("/api/v1/shipment-cancellations"));
   if (input.status) url.searchParams.set("status", input.status);
-  if (input.date) url.searchParams.set("date", input.date);
+  setDateRangeParams(url.searchParams, input.dateRange);
   url.searchParams.set("page", String(input.page ?? 1));
   const response = await fetchWithAuth(url.toString());
   return parse<{
@@ -112,6 +118,16 @@ export async function approveShipmentCancellation(
     settlementConfirmed: true;
     carrierReference: string;
     reviewNote: string;
+    /**
+     * How the refund was paid back to a walk-in customer. Required only when the
+     * shipment was a counter sale with something to refund — account-backed
+     * cancellations settle through the credit ledger instead.
+     */
+    refundPayout?: {
+      method: "CASH" | "UPI" | "BANK_TRANSFER" | "CARD" | "CHEQUE";
+      reference?: string;
+      note?: string;
+    };
   }
 ) {
   const response = await fetchWithAuth(apiUrl("/api/v1/shipment-cancellations/" + id + "/approve"), {

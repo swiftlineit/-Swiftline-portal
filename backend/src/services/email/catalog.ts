@@ -65,6 +65,10 @@ const catalog: Record<string, CatalogEntry> = {
   BUSINESS_ACCOUNT_STATUS_CHANGED: { category: "TRANSACTIONAL", priority: 80 },
   BUSINESS_ACCOUNT_KYC_REVIEWED: { category: "TRANSACTIONAL", priority: 80 },
 
+  // Rate cards. Commercial rather than contractual, so it is preference-
+  // controlled and carries List-Unsubscribe like every other operational mail.
+  RATE_CARD_SHARED: { category: "OPERATIONAL", priority: 55 },
+
   // Support
   SUPPORT_TICKET_CREATED: { category: "TRANSACTIONAL", priority: 70 },
   SUPPORT_TICKET_REPLY: { category: "TRANSACTIONAL", priority: 70 },
@@ -75,7 +79,8 @@ const catalog: Record<string, CatalogEntry> = {
   PASSWORD_RESET: { category: "TRANSACTIONAL", priority: 95 },
   // Highest priority in the catalogue: someone is sitting on the sign-in screen
   // watching a countdown, so this must overtake every queued invoice and digest.
-  LOGIN_OTP: { category: "TRANSACTIONAL", priority: 99 }
+  LOGIN_OTP: { category: "TRANSACTIONAL", priority: 99 },
+  PICKUP_OTP: { category: "TRANSACTIONAL", priority: 98 }
 };
 
 export function getEmailPolicy(notificationType: string): CatalogEntry | null {

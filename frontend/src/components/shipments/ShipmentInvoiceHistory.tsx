@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { FiDownload, FiEye, FiFileText, FiPrinter } from "react-icons/fi";
+import { FiDownload, FiEye, FiFileText } from "react-icons/fi";
 import {
   downloadShipmentInvoicePdf,
   getShipmentInvoice,
@@ -133,15 +133,6 @@ export default function ShipmentInvoiceHistory({
                       >
                         <FiEye aria-hidden="true" />
                         View
-                      </Link>
-                      <Link
-                        href={shipmentInvoicePageUrl(draftId, audience, true, version.revision)}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={`Print Invoice ${version.revision}`}
-                        className="inline-flex h-9 w-9 rounded items-center justify-center border border-slate-300 text-slate-700 hover:border-blue-900 hover:text-blue-900"
-                      >
-                        <FiPrinter aria-hidden="true" />
                       </Link>
                       <button
                         type="button"

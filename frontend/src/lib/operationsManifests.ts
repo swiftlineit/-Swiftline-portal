@@ -1,4 +1,5 @@
 import { apiUrl } from "@/lib/api";
+import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, readJsonSafely, refreshAccessToken } from "@/lib/auth";
 
 export type ManifestStatus =
@@ -151,14 +152,20 @@ export const listManifestBranches = () =>
     success: true;
     branches: Array<{ id: string; name: string; code: string }>;
   }>("/api/v1/operations-manifests/branches/options");
-export const listOperationsManifests = (page = 1, status = "", date = "") =>
-  request<{
+export const listOperationsManifests = (
+  page = 1,
+  status = "",
+  dateRange?: DateRange,
+) => {
+  const params = new URLSearchParams({ page: String(page), limit: "15" });
+  if (status) params.set("status", status);
+  setDateRangeParams(params, dateRange);
+  return request<{
     success: true;
     items: OperationsManifest[];
     pagination: { page: number; pages: number; total: number };
-  }>(
-    `/api/v1/operations-manifests?page=${page}&limit=15${status ? `&status=${status}` : ""}${date ? `&date=${date}` : ""}`,
-  );
+  }>(`/api/v1/operations-manifests?${params.toString()}`);
+};
 export const createOperationsManifest = (body: {
   branchId: string;
   header: ManifestHeader;
@@ -248,16 +255,6 @@ export const disconnectOperationsScanSession = (
   }>(`/api/v1/operations-manifests/${manifestId}/scan-sessions/${sessionId}`, {
     method: "DELETE",
   });
-export const setOperationsParcelValue = (
-  id: string,
-  consignmentId: string,
-  parcelNumber: string,
-  valueMinor: number,
-) =>
-  request(
-    `/api/v1/operations-manifests/${id}/consignments/${consignmentId}/value`,
-    { method: "PATCH", body: JSON.stringify({ parcelNumber, valueMinor }) },
-  );
 export const runManifestAction = (
   id: string,
   action: "seal" | "dispatch" | "cancel",

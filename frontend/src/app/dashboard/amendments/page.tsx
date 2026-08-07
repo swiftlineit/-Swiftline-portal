@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { DashboardLoading } from "@/components/DashboardShell";
-import DateFilterInput from "@/components/ui/DateFilterInput";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { emptyDateRange } from "@/lib/dateRange";
 import Pagination from "@/components/ui/Pagination";
 import {
   approveShipmentAmendment,
   listShipmentAmendments,
   rejectShipmentAmendment,
   ShipmentAmendment,
-  ShipmentAmendmentPricingEstimate
+  ShipmentAmendmentPricingEstimate,
+  type CounterPaymentInput
 } from "@/lib/dpdLabels";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatMoney, getVolumetricFormula } from "@/lib/shipmentPricing";
@@ -47,6 +49,7 @@ function formatChangedField(fieldName: string) {
 
   const parcelMatch = fieldName.match(/^parcelList\.(\d+)\.(.+)$/);
   if (parcelMatch) {
+    if (parcelMatch[2] === "items") return `Parcel ${Number(parcelMatch[1]) + 1} Contents`;
     const fieldLabel = parcelMatch[2] === "weightKg" ? "Actual Weight KG" : titleize(parcelMatch[2]);
     return `Parcel ${Number(parcelMatch[1]) + 1} ${fieldLabel}`;
   }
@@ -97,6 +100,17 @@ function formatChangeValue(value: unknown) {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 }).format(value);
   if (typeof value === "string" && /^[A-Z_]+$/.test(value)) return titleize(value.toLowerCase());
+  if (Array.isArray(value)) {
+    return value.map((item, index) => {
+      if (!item || typeof item !== "object") return `${index + 1}. ${String(item)}`;
+      const row = item as Record<string, unknown>;
+      const quantity = Number(row.quantity) || 0;
+      const unitRate = Number(row.unitRate) || 0;
+      const amount = quantity * unitRate;
+      return `${index + 1}. ${String(row.description || "Item")} | HS: ${String(row.hsnCode || "Not set")} | Unit: ${String(row.unitType || "Not set")} | Qty: ${quantity} | Rate: ${unitRate.toFixed(2)} | Amount: ${amount.toFixed(2)}`;
+    }).join("\n");
+  }
+  if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
@@ -111,7 +125,7 @@ function AmendmentReviewModal({
   busy: boolean;
   error: string;
   onClose: () => void;
-  onReview: (action: "approve" | "reject", note: string) => Promise<void>;
+  onReview: (action: "approve" | "reject", note: string, counterPayment?: CounterPaymentInput) => Promise<void>;
 }) {
   const [note, setNote] = useState(amendment.reviewNote ?? "");
   const pricingImpact = amendment.pricingImpact;
@@ -120,6 +134,14 @@ function AmendmentReviewModal({
   const isRequested = amendment.status === "REQUESTED";
   const requestFundingAdjustment = amendment.fundingPreview?.adjustment;
   const requestReducesCharge = (amendment.fundingPreview?.deltaAmountMinor ?? 0) < 0;
+
+  // A walk-in settles any price difference at the counter, so it is recorded with
+  // the approval. DIRECT is the billing mode a counter sale books under.
+  const counterDeltaMinor = amendment.fundingPreview?.billingMode === "DIRECT"
+    ? amendment.fundingPreview.deltaAmountMinor ?? 0
+    : 0;
+  const [counterMethod, setCounterMethod] = useState<CounterPaymentInput["method"]>("UPI");
+  const [counterReference, setCounterReference] = useState("");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="amendment-review-title">
@@ -162,8 +184,8 @@ function AmendmentReviewModal({
                   {amendment.changePreview.map((change) => (
                     <tr key={change.fieldName} className="border-b border-slate-100 last:border-b-0">
                       <td className="px-4 py-3 font-semibold text-slate-800">{formatChangedField(change.fieldName)}</td>
-                      <td className="px-4 py-3 text-slate-600">{formatChangeValue(change.originalValue)}</td>
-                      <td className="px-4 py-3 font-semibold text-blue-950">{formatChangeValue(change.newValue)}</td>
+                      <td className="whitespace-pre-line px-4 py-3 text-slate-600">{formatChangeValue(change.originalValue)}</td>
+                      <td className="whitespace-pre-line px-4 py-3 font-semibold text-blue-950">{formatChangeValue(change.newValue)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -261,10 +283,64 @@ function AmendmentReviewModal({
           {isRequested ? (
             <div className="border-t border-slate-200 pt-5">
               <label className="block"><span className="text-xs font-semibold uppercase text-slate-500">Review Note</span><textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} maxLength={500} placeholder="Optional note for the amendment record" className="mt-2 w-full border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-900" /></label>
+
+              {counterDeltaMinor !== 0 ? (
+                <div className="mt-4 border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-semibold text-amber-900">
+                    {counterDeltaMinor > 0 ? "Additional Amount Collected" : "Amount Refunded"}
+                    {" — "}
+                    {formatMinorAmount(Math.abs(counterDeltaMinor))}
+                  </p>
+                  <p className="mt-1 text-sm text-amber-800">
+                    This is an individual customer, so the difference is settled at the
+                    counter. Record how it moved before approving.
+                  </p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase text-amber-900">Method</span>
+                      <select
+                        value={counterMethod}
+                        onChange={(event) => setCounterMethod(event.target.value as CounterPaymentInput["method"])}
+                        className="mt-2 h-10 w-full border border-amber-300 bg-white px-3 text-sm outline-none focus:border-amber-500"
+                      >
+                        <option value="UPI">UPI</option>
+                        <option value="BANK_TRANSFER">Bank transfer</option>
+                        <option value="CASH">Cash</option>
+                        <option value="CARD">Card</option>
+                        <option value="CHEQUE">Cheque</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase text-amber-900">Reference</span>
+                      <input
+                        value={counterReference}
+                        onChange={(event) => setCounterReference(event.target.value)}
+                        maxLength={80}
+                        placeholder={counterMethod === "CASH" ? "Receipt number (optional)" : "UTR or transaction reference"}
+                        className="mt-2 h-10 w-full border border-amber-300 bg-white px-3 text-sm outline-none focus:border-amber-500"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+
               {error ? <p className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
               <div className="mt-4 flex flex-wrap justify-end gap-3">
                 <button type="button" onClick={() => void onReview("reject", note)} disabled={busy} className="h-10 border border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-slate-400">Reject</button>
-                <button type="button" onClick={() => void onReview("approve", note)} disabled={busy || requestedPricing?.missingRate || amendment.fundingPreview?.canFund === false} className="h-10 bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400">{busy ? "Processing..." : "Approve Amendment"}</button>
+                <button
+                  type="button"
+                  onClick={() => void onReview(
+                    "approve",
+                    note,
+                    counterDeltaMinor !== 0
+                      ? { method: counterMethod, reference: counterReference.trim() }
+                      : undefined
+                  )}
+                  disabled={busy || requestedPricing?.missingRate || amendment.fundingPreview?.canFund === false}
+                  className="h-10 bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  {busy ? "Processing..." : "Approve Amendment"}
+                </button>
               </div>
             </div>
           ) : null}
@@ -318,7 +394,7 @@ export default function AmendmentsPage() {
   const [amendments, setAmendments] = useState<ShipmentAmendment[]>([]);
   const [pagination, setPagination] = useState(emptyPagination);
   const [status, setStatus] = useState("");
-  const [date, setDate] = useState("");
+  const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
   const [dataLoading, setDataLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
@@ -331,7 +407,7 @@ export default function AmendmentsPage() {
     setError("");
 
     try {
-      const result = await listShipmentAmendments({ status, date, page });
+      const result = await listShipmentAmendments({ status, dateRange, page });
       setAmendments(result.amendments);
       setPagination(result.pagination);
     } catch (caughtError) {
@@ -339,20 +415,25 @@ export default function AmendmentsPage() {
     } finally {
       setDataLoading(false);
     }
-  }, [status, date, page]);
+  }, [status, dateRange, page]);
 
   useEffect(() => {
     if (!user) return;
     void loadAmendments();
   }, [loadAmendments, user]);
 
-  async function reviewAmendment(amendmentId: string, action: "approve" | "reject", note: string) {
+  async function reviewAmendment(
+    amendmentId: string,
+    action: "approve" | "reject",
+    note: string,
+    counterPayment?: CounterPaymentInput
+  ) {
     setBusyId(amendmentId);
     setReviewError("");
 
     try {
       if (action === "approve") {
-        await approveShipmentAmendment(amendmentId, note);
+        await approveShipmentAmendment(amendmentId, note, counterPayment);
       } else {
         await rejectShipmentAmendment(amendmentId, note);
       }
@@ -376,10 +457,10 @@ export default function AmendmentsPage() {
           <p className="mt-1 text-sm text-slate-500">Review client and admin shipment amendment requests.</p>
         </div>
         <div className="flex items-center gap-2">
-          <DateFilterInput
-            value={date}
+          <DateRangeFilter
+            value={dateRange}
             onChange={(value) => {
-              setDate(value);
+              setDateRange(value);
               setPage(1);
             }}
           />
@@ -520,7 +601,7 @@ export default function AmendmentsPage() {
             setReviewError("");
             setSelectedAmendment(null);
           }}
-          onReview={(action, note) => reviewAmendment(selectedAmendment.id, action, note)}
+          onReview={(action, note, counterPayment) => reviewAmendment(selectedAmendment.id, action, note, counterPayment)}
         />
       ) : null}
     </>

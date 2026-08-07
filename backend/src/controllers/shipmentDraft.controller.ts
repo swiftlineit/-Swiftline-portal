@@ -26,13 +26,47 @@ import {
   syncLegacyDraftBookingState
 } from "../services/shipmentDraftPolicy.service.js";
 import {
+  deleteShipmentDraft as softDeleteShipmentDraft,
+  restoreShipmentDraft as undoShipmentDraftDeletion
+} from "../services/shipmentDraftDeletion.service.js";
+import {
   createBlankShipmentDraft,
+  createIndividualShipmentDraft,
   ManualShipmentDraftError
 } from "../services/manualShipmentDraft.service.js";
+import { buildShipmentCostEstimate } from "../services/shipmentCostEstimate.service.js";
+import { getDeclaredGoodsValue } from "../services/parcelItems.service.js";
+import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
+import { resolveRateCardBand } from "../services/shipmentPricing.service.js";
+import { CountryRateCard } from "../models/countryRateCard.model.js";
+import { CountryRouteCharge } from "../models/countryRouteCharge.model.js";
+import { Branch } from "../models/branch.model.js";
+import { BusinessAccount } from "../models/businessAccount.model.js";
+import { operationsBranchIds } from "../middleware/operationsBranchAccess.middleware.js";
 
 const manualDraftSchema = z.object({
   businessAccountId: z.string().trim().min(1),
   branchId: z.string().trim().min(1)
+});
+
+// A walk-in has no account to select, so the payer's identity is captured here
+// instead. Only name and mobile are mandatory: the rest of the address is
+// completed during draft review like any other shipment.
+const individualDraftSchema = z.object({
+  branchId: z.string().trim().min(1),
+  customer: z.object({
+    contactName: z.string().trim().min(1).max(120),
+    mobileCountryCode: z.string().trim().min(1).max(8),
+    mobileNumber: z.string().trim().min(1).max(30),
+    email: z.string().trim().max(160).optional(),
+    aadhaarNumber: z.string().trim().max(20).optional(),
+    addressLine1: z.string().trim().max(120).optional(),
+    addressLine2: z.string().trim().max(120).optional(),
+    townOrCity: z.string().trim().max(80).optional(),
+    county: z.string().trim().max(80).optional(),
+    postcode: z.string().trim().max(20).optional(),
+    pickupInstructions: z.string().trim().max(500).optional()
+  })
 });
 
 const addressPatchSchema = z.object({
@@ -41,7 +75,9 @@ const addressPatchSchema = z.object({
   email: z.string().trim().max(160).optional(),
   mobileCountryCode: z.string().trim().max(8).optional(),
   mobileNumber: z.string().trim().max(30).optional(),
-  countryCode: z.string().trim().toUpperCase().length(2).optional(),
+  // Blank is accepted so an incomplete draft can be saved; a real two-letter code
+  // is still required before booking, which validateShipmentDraftFields enforces.
+  countryCode: z.string().trim().toUpperCase().length(2).or(z.literal("")).optional(),
   countryName: z.string().trim().max(80).optional(),
   postcode: z.string().trim().toUpperCase().max(20).optional(),
   addressLine1: z.string().trim().max(120).optional(),
@@ -100,6 +136,8 @@ const draftPatchSchema = z.object({
   parcelList: z.array(parcelPatchSchema).min(1).max(10).optional(),
   // Customs route for the shipment; drives the CSB-V clearance charge.
   csbType: z.enum(csbTypeValues).optional(),
+  // Optional transit cover; drives the insurance premium on the estimate.
+  insuranceOptIn: z.boolean().optional(),
   // Printed as the NOTE block on the customs (shipment) invoice.
   declarationNote: z.string().trim().max(500).optional(),
   serviceType: z.enum(shipmentServiceTypeValues).optional(),
@@ -141,7 +179,11 @@ function getDraftId(request: Request) {
 }
 
 async function writeShipmentDraftAuditLog(
-  action: "SHIPMENT_DRAFT_UPDATED" | "SHIPMENT_VALIDATION_COMPLETED",
+  action:
+    | "SHIPMENT_DRAFT_UPDATED"
+    | "SHIPMENT_VALIDATION_COMPLETED"
+    | "SHIPMENT_DRAFT_DELETED"
+    | "SHIPMENT_DRAFT_RESTORED",
   shipmentDraftId: mongoose.Types.ObjectId,
   userId: mongoose.Types.ObjectId,
   metadata: Record<string, unknown>
@@ -249,7 +291,7 @@ export async function getShipmentDraft(request: Request, response: Response): Pr
   const draftId = getDraftId(request);
   if (!draftId) return response.status(404).json({ success: false, message: "Shipment draft not found" });
 
-  const shipmentDraft = await ShipmentDraft.findById(draftId).exec();
+  const shipmentDraft = await ShipmentDraft.findOne({ _id: draftId, deletedAt: null }).exec();
   if (!shipmentDraft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
 
   try {
@@ -268,6 +310,128 @@ export async function getShipmentDraft(request: Request, response: Response): Pr
     // Lets the review form show the "prefilled from your invoice" banner and any
     // fields the import could not fill.
     invoiceImport: await getInvoiceImportSummary(shipmentDraft)
+  });
+}
+
+/**
+ * The in-progress form values the estimator prices.
+ *
+ * Every field is optional: the panel posts whatever the customer has filled in so
+ * far, and anything missing falls back to what is stored on the draft. Only the
+ * inputs that affect price are accepted — this endpoint reads, it never writes.
+ */
+const costEstimateSchema = z.object({
+  countryCode: z.string().trim().toUpperCase().max(2).optional(),
+  destinationPostcode: z.string().trim().max(20).optional(),
+  serviceType: z.enum(shipmentServiceTypeValues).optional(),
+  csbType: z.enum(csbTypeValues).optional(),
+  insuranceOptIn: z.boolean().optional(),
+  parcels: z.array(z.object({
+    sequence: z.coerce.number().int().positive().optional(),
+    weightKg: z.coerce.number().nonnegative().optional(),
+    lengthCm: z.coerce.number().nonnegative().optional(),
+    widthCm: z.coerce.number().nonnegative().optional(),
+    heightCm: z.coerce.number().nonnegative().optional(),
+    // Priced only for the declared goods value that the insurance premium uses.
+    items: z.array(z.object({
+      quantity: z.coerce.number().nonnegative().optional(),
+      unitRate: z.coerce.number().nonnegative().optional()
+    })).max(maxParcelItems).optional()
+  })).max(10).optional()
+});
+
+/**
+ * Prices a shipment draft and previews how it would be paid for.
+ *
+ * Read-only, and safe to call on every keystroke the booking form debounces. The
+ * returned `pricingHash` is what the customer is accepting: it goes back with the
+ * booking call, and the booking is refused if the price has moved since.
+ */
+export async function getShipmentDraftCostEstimate(request: Request, response: Response): Promise<Response> {
+  const draftId = getDraftId(request);
+  if (!draftId) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+
+  const shipmentDraft = await ShipmentDraft.findById(draftId).exec();
+  if (!shipmentDraft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+
+  const parsed = costEstimateSchema.safeParse(request.body ?? {});
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: "Shipment details are invalid.",
+      errors: parsed.error.issues.map((issue) => issue.message)
+    });
+  }
+
+  const { parcels, ...scalarOverrides } = parsed.data;
+  let estimate;
+  try {
+    estimate = await buildShipmentCostEstimate({
+      draft: shipmentDraft,
+      overrides: {
+        ...scalarOverrides,
+        ...(parcels
+          ? {
+            parcels,
+            // Recomputed from the submitted items so the insurance premium tracks
+            // the value the customer is currently declaring.
+            declaredGoodsValue: getDeclaredGoodsValue(parcels)
+          }
+          : {})
+      }
+    });
+  } catch (error) {
+    if (error instanceof RateCardRequiredError) {
+      return response.status(error.statusCode).json({ success: false, code: error.code, message: error.message });
+    }
+    throw error;
+  }
+
+  return response.status(200).json({ success: true, estimate });
+}
+
+export async function getShipmentDraftRateCardContext(request: Request, response: Response): Promise<Response> {
+  const draftId = getDraftId(request);
+  if (!draftId) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+
+  const draft = await ShipmentDraft.findById(draftId).select("businessAccountId").lean().exec();
+  if (!draft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+
+  let band;
+  try {
+    band = await resolveRateCardBand({ businessAccountId: draft.businessAccountId });
+  } catch (error) {
+    if (error instanceof RateCardRequiredError && error.code === "RATE_CARD_REQUIRED") {
+      return response.status(200).json({
+        success: true,
+        title: "Your Swiftline Rate Card",
+        rateCardAssigned: false,
+        rates: [],
+        routeCharges: []
+      });
+    }
+    throw error;
+  }
+
+  const [rates, routeCharges] = await Promise.all([
+    CountryRateCard.find({ band })
+      .select("-band -createdBy -updatedBy")
+      .sort({ countryName: 1, service: 1, fromKg: 1 })
+      .lean().exec(),
+    CountryRouteCharge.find({ band })
+      .select("-band -createdBy -updatedBy")
+      .sort({ countryCode: 1, service: 1 })
+      .lean().exec()
+  ]);
+  const role = String((request as Request & { user?: { role?: string } }).user?.role ?? "");
+
+  return response.status(200).json({
+    success: true,
+    title: "Your Swiftline Rate Card",
+    rateCardAssigned: true,
+    ...(role === "client" ? {} : { band }),
+    rates,
+    routeCharges
   });
 }
 
@@ -305,6 +469,33 @@ export async function createManualShipmentDraft(request: Request, response: Resp
 
   try {
     const shipmentDraft = await createBlankShipmentDraft({
+      ...parsed.data,
+      createdBy: userId
+    });
+
+    return response.status(201).json({ success: true, shipmentDraft });
+  } catch (error) {
+    if (error instanceof ManualShipmentDraftError) {
+      return response.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    throw error;
+  }
+}
+
+export async function createIndividualShipmentDraftHandler(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = individualDraftSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: "Enter the customer's name and mobile number, and select a sender branch."
+    });
+  }
+
+  try {
+    const shipmentDraft = await createIndividualShipmentDraft({
       ...parsed.data,
       createdBy: userId
     });
@@ -519,6 +710,19 @@ export async function updateShipmentDraft(request: Request, response: Response):
     shipmentDraft.csbType = parsed.data.csbType;
   }
 
+  // Audited for the same reason as csbType: opting in or out moves the price.
+  if (parsed.data.insuranceOptIn !== undefined) {
+    recordFieldChange(
+      changedFields,
+      "insuranceOptIn",
+      shipmentDraft.insuranceOptIn,
+      parsed.data.insuranceOptIn,
+      userId,
+      changedAt
+    );
+    shipmentDraft.insuranceOptIn = parsed.data.insuranceOptIn;
+  }
+
   if (parsed.data.declarationNote !== undefined) {
     shipmentDraft.declarationNote = parsed.data.declarationNote;
   }
@@ -596,5 +800,161 @@ export async function validateShipmentDraft(request: Request, response: Response
     readyForDpd: shipmentDraft.status === "READY_FOR_DPD",
     validationIssues: shipmentDraft.validationIssues,
     shipmentDraft
+  });
+}
+
+export async function deleteShipmentDraftHandler(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = getDraftId(request);
+  if (!draftId) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+
+  const shipmentDraft = await ShipmentDraft.findOne({ _id: draftId, deletedAt: null }).exec();
+  if (!shipmentDraft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+
+  try {
+    await softDeleteShipmentDraft({
+      draft: shipmentDraft,
+      userId,
+      portalRole: getAuthenticatedPortalRole(request)
+    });
+  } catch (error) {
+    const handled = sendDraftPolicyError(response, error);
+    if (handled) return handled;
+    throw error;
+  }
+
+  return response.status(200).json({
+    success: true,
+    message: "Shipment draft deleted.",
+    shipmentDraftId: draftId
+  });
+}
+
+export async function restoreShipmentDraftHandler(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = getDraftId(request);
+  if (!draftId) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+
+  try {
+    const shipmentDraft = await undoShipmentDraftDeletion({
+      draftId: new mongoose.Types.ObjectId(draftId),
+      userId,
+      portalRole: getAuthenticatedPortalRole(request)
+    });
+
+    return response.status(200).json({
+      success: true,
+      message: "Shipment draft restored.",
+      shipmentDraft
+    });
+  } catch (error) {
+    const handled = sendDraftPolicyError(response, error);
+    if (handled) return handled;
+    throw error;
+  }
+}
+
+/**
+ * Unbooked drafts, newest first.
+ *
+ * Booked shipments have their own listing built from DpdShipment records; this
+ * one exists because a draft that never reached the carrier appeared in no admin
+ * list at all, leaving it unreachable once the operator navigated away.
+ */
+export async function listEditableShipmentDrafts(request: Request, response: Response): Promise<Response> {
+  const page = Math.max(1, Number.parseInt(String(request.query.page ?? "1"), 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(String(request.query.limit ?? "20"), 10) || 20));
+
+  const query: Record<string, unknown> = { deletedAt: null, bookingState: "EDITABLE" };
+
+  // Operations sees only its own branches; admin passes through unscoped.
+  const allowedBranchIds = operationsBranchIds(request);
+  if (allowedBranchIds) {
+    query.branchId = { $in: allowedBranchIds.map((id) => new mongoose.Types.ObjectId(id)) };
+  }
+
+  const requestedBranchId = typeof request.query.branchId === "string" ? request.query.branchId : "";
+  if (requestedBranchId && mongoose.Types.ObjectId.isValid(requestedBranchId)) {
+    if (allowedBranchIds && !allowedBranchIds.includes(requestedBranchId)) {
+      return response.status(403).json({ success: false, message: "You do not have access to this branch." });
+    }
+    query.branchId = new mongoose.Types.ObjectId(requestedBranchId);
+  }
+
+  const requestedAccountId = typeof request.query.businessAccountId === "string"
+    ? request.query.businessAccountId
+    : "";
+  if (requestedAccountId && mongoose.Types.ObjectId.isValid(requestedAccountId)) {
+    query.businessAccountId = new mongoose.Types.ObjectId(requestedAccountId);
+  }
+
+  const total = await ShipmentDraft.countDocuments(query).exec();
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const currentPage = Math.min(page, totalPages);
+  const drafts = await ShipmentDraft.find(query)
+    // Most recently worked on first: a draft list is a resume-where-you-left-off
+    // list, unlike the booked listing which is ordered by creation.
+    .sort({ updatedAt: -1, _id: -1 })
+    .skip((currentPage - 1) * limit)
+    .limit(limit)
+    .lean()
+    .exec();
+
+  const [branches, accounts, uploads] = await Promise.all([
+    Branch.find({ _id: { $in: drafts.map((draft) => draft.branchId) } })
+      .select("name code")
+      .lean()
+      .exec(),
+    BusinessAccount.find({ _id: { $in: drafts.map((draft) => draft.businessAccountId) } })
+      .select("accountId company.companyName")
+      .lean()
+      .exec(),
+    InvoiceUpload.find({ _id: { $in: drafts.map((draft) => draft.invoiceUploadId) } })
+      .select("invoiceNumber shipmentReference")
+      .lean()
+      .exec()
+  ]);
+
+  const branchesById = new Map(branches.map((branch) => [String(branch._id), branch]));
+  const accountsById = new Map(accounts.map((account) => [String(account._id), account]));
+  const uploadsById = new Map(uploads.map((upload) => [String(upload._id), upload]));
+
+  return response.status(200).json({
+    success: true,
+    drafts: drafts.map((draft) => {
+      const branch = branchesById.get(String(draft.branchId));
+      const account = accountsById.get(String(draft.businessAccountId));
+      const upload = uploadsById.get(String(draft.invoiceUploadId));
+
+      return {
+        id: String(draft._id),
+        customerType: draft.customerType ?? "BUSINESS",
+        status: draft.status,
+        bookingState: draft.bookingState,
+        invoiceNumber: upload?.invoiceNumber ?? "",
+        shipmentReference: upload?.shipmentReference ?? "",
+        consigneeName: draft.consigneeEnteredAddress?.contactName
+          ?? draft.consigneeEnteredAddress?.companyName
+          ?? "",
+        destination: draft.consigneeEnteredAddress?.townOrCity
+          ?? draft.consigneeEnteredAddress?.postcode
+          ?? "",
+        parcelCount: draft.parcelList?.length ?? 0,
+        totalWeightKg: (draft.parcelList ?? []).reduce((sum, parcel) => sum + (parcel.weightKg || 0), 0),
+        businessAccount: {
+          accountId: account?.accountId ?? "",
+          companyName: account?.company?.companyName ?? ""
+        },
+        branch: { name: branch?.name ?? "", code: branch?.code ?? "" },
+        validationIssues: draft.validationIssues ?? [],
+        createdAt: draft.createdAt,
+        updatedAt: draft.updatedAt
+      };
+    }),
+    pagination: { page: currentPage, limit, total, totalPages }
   });
 }

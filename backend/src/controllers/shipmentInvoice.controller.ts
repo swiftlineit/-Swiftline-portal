@@ -9,6 +9,7 @@ import {
   ShipmentInvoiceServiceError
 } from "../services/shipmentInvoice.service.js";
 import { createShipmentInvoicePdf } from "../services/shipmentInvoicePdf.service.js";
+import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
 
 function getAuthenticatedUserId(request: Request) {
   const user = (request as Request & { user?: { _id?: unknown } }).user;
@@ -52,6 +53,9 @@ async function resolveInvoice(request: Request) {
 }
 
 function sendInvoiceError(response: Response, error: unknown) {
+  if (error instanceof RateCardRequiredError) {
+    return response.status(error.statusCode).json({ success: false, code: error.code, message: error.message });
+  }
   if (error instanceof ShipmentInvoiceServiceError) {
     return response.status(error.statusCode).json({ success: false, message: error.message });
   }

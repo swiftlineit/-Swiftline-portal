@@ -1,5 +1,6 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
+import type { RateCardBand } from "@/lib/countryRateCards";
 
 export type ShipmentType = "international_cargo" | "international_courier";
 export const businessAccountStatuses = [
@@ -154,6 +155,7 @@ export type BusinessAccount = {
     code: string;
     status?: string;
   } | string | null;
+  rateCardBand?: RateCardBand | null;
   createdBy?: { email?: string; name?: string };
   createdAt: string;
   submittedAt?: string | null;
@@ -231,7 +233,7 @@ export type CreateClientAccessInput = {
   firstName: string;
   lastName: string;
   email: string;
-  phone?: string;
+  phone: string;
   role: BusinessAccountMemberRole;
   assignedBranches: string[];
   sendInvitationEmail: boolean;
@@ -369,10 +371,14 @@ export function createIdempotencyKey() {
 export async function createBusinessAccount(
   data: BusinessAccountFormData,
   files: BusinessAccountFiles,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  { saveAsDraft = false } = {}
 ) {
   const formData = new FormData();
   appendPayload(formData, data, files);
+  // Switches the server to the relaxed draft schema so a partially filled form
+  // can be stored. Completeness is enforced when the account is submitted.
+  if (saveAsDraft) formData.append("saveAsDraft", "true");
 
   const response = await fetchWithAuth(apiUrl("/api/v1/business-accounts"), {
     method: "POST",
@@ -386,10 +392,12 @@ export async function createBusinessAccount(
 export async function updateBusinessAccount(
   accountId: string,
   data: BusinessAccountFormData,
-  files: BusinessAccountFiles
+  files: BusinessAccountFiles,
+  { saveAsDraft = false } = {}
 ) {
   const formData = new FormData();
   appendPayload(formData, data, files);
+  if (saveAsDraft) formData.append("saveAsDraft", "true");
 
   const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}`), {
     method: "PATCH",
@@ -397,6 +405,15 @@ export async function updateBusinessAccount(
   });
 
   return parseApiResponse<{ success: true; account: BusinessAccount }>(response);
+}
+
+/** Draft accounts only; anything under review is rejected or suspended instead. */
+export async function deleteBusinessAccountDraft(accountId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}`), {
+    method: "DELETE"
+  });
+
+  return parseApiResponse<{ success: true; message: string }>(response);
 }
 
 export async function submitBusinessAccount(accountId: string) {
@@ -435,6 +452,39 @@ export async function assignBusinessAccountBranch(accountId: string, branchId: s
   });
 
   return parseApiResponse<{ success: true; account: BusinessAccount; message: string }>(response);
+}
+
+export async function assignBusinessAccountRateCard(
+  accountId: string,
+  rateCardBand: RateCardBand | null,
+  expectedRateCardBand: RateCardBand | null,
+  reason: string,
+) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/rate-card`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rateCardBand, expectedRateCardBand, reason }),
+  });
+  return parseApiResponse<{
+    success: true;
+    message: string;
+    coverageWarning: string | null;
+    account: BusinessAccount;
+  }>(response);
+}
+
+export type RateCardAssignmentHistoryEntry = {
+  id: string;
+  previousRateCardBand: RateCardBand | null;
+  rateCardBand: RateCardBand | null;
+  reason: string;
+  performedAt: string;
+  performedBy: { name: string; email: string };
+};
+
+export async function getBusinessAccountRateCardHistory(accountId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/rate-card-history`));
+  return parseApiResponse<{ success: true; history: RateCardAssignmentHistoryEntry[] }>(response);
 }
 
 export async function getBusinessAccountDocument(accountId: string, documentType: DocumentType) {
@@ -501,7 +551,7 @@ export async function getBusinessAccountInvitationLink(accountId: string, member
 export async function updateBusinessAccountMemberStatus(
   accountId: string,
   memberId: string,
-  status: Exclude<BusinessAccountMemberStatus, "invited">
+  status: Exclude<BusinessAccountMemberStatus, "invited"> | "restore"
 ) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/members/${memberId}/status`), {
     method: "PATCH",

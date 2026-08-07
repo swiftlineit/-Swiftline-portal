@@ -8,10 +8,12 @@ import type { ClientShipmentSummary } from "@/lib/clientDashboard";
 
 export default function ClientShipmentPipelineCard({
   summary,
-  refreshing
+  refreshing,
+  canCreateShipment
 }: {
   summary: ClientShipmentSummary;
   refreshing: boolean;
+  canCreateShipment: boolean;
 }) {
   const pipeline = buildShipmentPipeline(summary);
   // const meters = buildCompletionMeters(summary);
@@ -34,9 +36,11 @@ export default function ClientShipmentPipelineCard({
         <EmptyState
           icon={FiPackage}
           title="No shipments yet"
-          message="Create a shipment to start building dashboard activity."
-          actionLabel="Create Shipment"
-          actionHref="/client/dpd-labels"
+          message={canCreateShipment
+            ? "Create a shipment to start building dashboard activity."
+            : "Shipment creation is paused until a rate card is assigned."}
+          actionLabel={canCreateShipment ? "Create Shipment" : undefined}
+          actionHref={canCreateShipment ? "/client/dpd-labels" : undefined}
         />
       )}
     </SectionCard>

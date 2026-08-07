@@ -1,9 +1,13 @@
 import fs from "fs/promises";
 import { env } from "../../config/env.js";
 import { LabelDocument } from "../../models/labelDocument.model.js";
+import { RateCardShare } from "../../models/rateCardShare.model.js";
 import { ShipmentInvoice } from "../../models/shipmentInvoice.model.js";
 import { ShipmentManifest } from "../../models/shipmentManifest.model.js";
 import type { EmailAttachmentKind, IEmailAttachmentRef } from "../../models/emailOutbox.model.js";
+import { resolveShareRecipientLabel, shareDocumentBasename } from "../rateCardShare.service.js";
+import { createRateCardSharePdf } from "../rateCardSharePdf.service.js";
+import { buildRateCardShareWorkbook } from "../rateCardShareWorkbook.service.js";
 import { serializeShipmentInvoice } from "../shipmentInvoice.service.js";
 import { createShipmentInvoicePdf } from "../shipmentInvoicePdf.service.js";
 import { buildShipmentManifestPdf } from "../shipmentManifestPdf.service.js";
@@ -85,10 +89,38 @@ async function resolveShipmentManifestPdf(ref: IEmailAttachmentRef): Promise<Res
   };
 }
 
+async function resolveRateCardSharePdf(ref: IEmailAttachmentRef): Promise<ResolvedAttachment | null> {
+  const share = await RateCardShare.findById(ref.refId).exec();
+  if (!share) return null;
+
+  const content = await bufferPdfDocument(createRateCardSharePdf(share, resolveShareRecipientLabel(share)));
+
+  return {
+    kind: "RATE_CARD_SHARE_PDF",
+    filename: safeFilename(ref.filename || `${shareDocumentBasename(share)}.pdf`),
+    content,
+    contentType: "application/pdf"
+  };
+}
+
+async function resolveRateCardShareWorkbook(ref: IEmailAttachmentRef): Promise<ResolvedAttachment | null> {
+  const share = await RateCardShare.findById(ref.refId).exec();
+  if (!share) return null;
+
+  return {
+    kind: "RATE_CARD_SHARE_XLSX",
+    filename: safeFilename(ref.filename || `${shareDocumentBasename(share)}.xlsx`),
+    content: await buildRateCardShareWorkbook(share, resolveShareRecipientLabel(share)),
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  };
+}
+
 const resolvers: Partial<Record<EmailAttachmentKind, (ref: IEmailAttachmentRef) => Promise<ResolvedAttachment | null>>> = {
   SHIPMENT_INVOICE_PDF: resolveShipmentInvoicePdf,
   LABEL_DOCUMENT: resolveLabelDocument,
-  SHIPMENT_MANIFEST_PDF: resolveShipmentManifestPdf
+  SHIPMENT_MANIFEST_PDF: resolveShipmentManifestPdf,
+  RATE_CARD_SHARE_PDF: resolveRateCardSharePdf,
+  RATE_CARD_SHARE_XLSX: resolveRateCardShareWorkbook
 };
 
 /**

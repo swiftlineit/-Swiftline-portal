@@ -1,8 +1,42 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
+import type { ShipmentChargeLine } from "@/lib/shipmentCostEstimate";
 
 export type ShipmentInvoiceParty = Record<string, string>;
+
+/**
+ * The charges an invoice lists below its per-box freight rows: surcharges,
+ * clearance, handling, insurance and any discount.
+ *
+ * Freight is already itemised per box and GST is totalled separately, so both are
+ * excluded here — listing them again would double them on the invoice.
+ *
+ * Invoices raised before route charges existed carry no `lines`. Their flat CSB-V
+ * clearance charge is rebuilt from the stored amount so they print exactly as they
+ * were issued.
+ */
+export function getShipmentLevelInvoiceLines(
+  pricingSnapshot: ShipmentInvoice["pricingSnapshot"]
+): ShipmentChargeLine[] {
+  if (!pricingSnapshot) return [];
+
+  if (pricingSnapshot.lines?.length) {
+    return pricingSnapshot.lines.filter((line) => line.code !== "FREIGHT" && line.code !== "GST");
+  }
+
+  const csbClearanceAmount = pricingSnapshot.csbClearanceAmount ?? 0;
+  if (csbClearanceAmount <= 0) return [];
+
+  return [{
+    code: "CUSTOMS_CLEARANCE",
+    label: "CSB-V Clearance Charge",
+    kind: "CHARGE",
+    amount: csbClearanceAmount,
+    amountMinor: Math.round(csbClearanceAmount * 100),
+    basis: "Flat charge for the CSB-V customs route, once per shipment"
+  }];
+}
 
 export type ShipmentInvoiceParcel = {
   sequence: number;
@@ -58,12 +92,14 @@ export type ShipmentInvoice = {
   totalAmountMinor: number;
   advanceAppliedMinor: number;
   creditOutstandingMinor: number;
-  // Carries the freight / CSB-V clearance split behind the taxable value.
-  // Absent on invoices issued before CSB selection existed.
+  // The full charge breakdown behind the taxable value. `lines` is absent on
+  // invoices issued before route charges existed; those carry only the freight and
+  // CSB-V clearance split, which is enough to print them as they were issued.
   pricingSnapshot?: {
     csbType?: CsbType;
     csbClearanceAmount?: number;
     freightAmount?: number;
+    lines?: ShipmentChargeLine[];
   } | null;
   reverseCharge: boolean;
   status: "DRAFT" | "ISSUED";

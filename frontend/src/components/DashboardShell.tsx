@@ -1,14 +1,16 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { FiLogOut, FiUser } from "react-icons/fi";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
+import UnsavedChangesDialog from "@/components/UnsavedChangesDialog";
 import { AuthenticatedUser } from "@/lib/useAdminUser";
 import { logout } from "@/lib/auth";
 import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
+import OperationsCalendarIcon from "@/components/OperationsCalendarIcon";
 
 // Shared chrome for every authenticated dashboard page: sidebar, header, and
 // scrollable content area.
@@ -20,6 +22,17 @@ export default function DashboardShell({
   children: ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+
+  // The dashboard uses an inner scroll container. Reset it on route changes so
+  // a previously scrolled detail screen cannot hide the next page's heading.
+  useEffect(() => {
+    contentScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    document
+      .querySelector<HTMLElement>("[data-dashboard-sidebar-scroll]")
+      ?.scrollTo({ top: 0, behavior: "auto" });
+  }, [pathname]);
 
   async function handleLogout() {
     await logout();
@@ -27,7 +40,7 @@ export default function DashboardShell({
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#EEEDED]/60">
+    <div className="fixed inset-0 flex h-dvh max-h-dvh flex-col overflow-hidden overscroll-none bg-[#EEEDED]/60">
       <div className="h-1 shrink-0 bg-[#0D1282]" />
       <div className="flex min-h-0 flex-1">
         <Sidebar userRole={user.role} />
@@ -64,6 +77,7 @@ export default function DashboardShell({
                   <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900" />
                 </div>
               </div>
+              <OperationsCalendarIcon variant="staff" />
               <NotificationBell />
               <div className="group relative inline-flex">
                 <button
@@ -89,12 +103,20 @@ export default function DashboardShell({
               </div>
             </div>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 [overflow-anchor:none] scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <div
+            ref={contentScrollRef}
+            data-dashboard-scroll
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [overflow-anchor:none] scrollbar-none [-ms-overflow-style:none] sm:px-8 sm:py-6 [&::-webkit-scrollbar]:hidden"
+          >
             {children}
           </div>
           <DeepLinkTarget />
         </main>
       </div>
+
+      {/* One instance per shell: the prompt is driven by a module-level registry
+          that any open form writes to, so it must not be mounted per page. */}
+      <UnsavedChangesDialog />
     </div>
   );
 }

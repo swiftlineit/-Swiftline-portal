@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { listBookedShipments } from "../services/shipmentListing.service.js";
+import { dateRangeParams } from "../utils/dateRangeFilter.js";
 
 function getUserId(request: Request) {
   const value = (request as Request & { user?: { _id?: unknown } }).user?._id;
@@ -31,7 +32,7 @@ export async function listAdminBookedShipments(request: Request, response: Respo
     ...pagination(request),
     actorRole: "admin",
     status: typeof request.query.status === "string" ? request.query.status : "",
-    date: typeof request.query.date === "string" ? request.query.date : "",
+    ...dateRangeParams(request.query),
     businessAccountIds: businessAccountId ? [businessAccountId] : undefined,
     branchIds: branchId ? [branchId] : undefined
   });
@@ -84,7 +85,7 @@ export async function listClientBookedShipments(request: Request, response: Resp
     ...pagination(request),
     actorRole: "client",
     status: typeof request.query.status === "string" ? request.query.status : "",
-    date: typeof request.query.date === "string" ? request.query.date : "",
+    ...dateRangeParams(request.query),
     businessAccountIds,
     branchIds: requestedBranchId ? [requestedBranchId] : branchIds
   });

@@ -1,6 +1,7 @@
 import fs from "fs";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
+import { z } from "zod";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
@@ -12,7 +13,11 @@ import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { createInvoiceUpload, processInvoiceUpload } from "./invoiceUpload.controller.js";
 import {
   createManualShipmentDraft,
+  deleteShipmentDraftHandler,
   getShipmentDraft,
+  getShipmentDraftRateCardContext,
+  getShipmentDraftCostEstimate,
+  restoreShipmentDraftHandler,
   updateShipmentDraft
 } from "./shipmentDraft.controller.js";
 import {
@@ -27,6 +32,7 @@ import {
   uploadShipmentKycDocument,
   uploadShipmentParcelKycDocument
 } from "./shipmentKyc.controller.js";
+import { serializeKycDocuments } from "./shipmentKyc.controller.js";
 import { downloadShipmentInvoicePdf, getShipmentInvoice } from "./shipmentInvoice.controller.js";
 import { buildStoredLabelAccess } from "./dpdShipment.controller.js";
 import {
@@ -35,6 +41,8 @@ import {
 } from "../services/dpdShipment.service.js";
 import { buildCustomsInvoiceTemplateWorkbook } from "../services/customsInvoice/customsInvoice.service.js";
 import { normalizeCsbType } from "../services/csbType.service.js";
+import { buildPricingHash, ShipmentPriceChangedError } from "../services/shipmentCostEstimate.service.js";
+import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
 import {
   downloadCustomsInvoicePdf,
   downloadCustomsInvoiceWorkbook,
@@ -91,6 +99,7 @@ type ClientShipmentDraftSnapshot = {
   invoiceUploadId?: unknown;
   parcelCount?: number;
   status?: string;
+  bookingState?: string;
   addressValidationStatus?: string;
   consigneeEnteredAddress?: {
     companyName?: string;
@@ -144,6 +153,7 @@ async function buildClientShipmentDashboard(accountId: string, branchIds: string
     .map((branchId) => new mongoose.Types.ObjectId(branchId));
   const query = {
     businessAccountId: new mongoose.Types.ObjectId(accountId),
+    deletedAt: null,
     ...(branchObjectIds.length ? { branchId: { $in: branchObjectIds } } : {})
   };
   const drafts = await ShipmentDraft.find(query)
@@ -261,7 +271,7 @@ async function getActiveClientMembership(userId: string, branchId?: string) {
   })
     .populate({
       path: "businessAccount",
-      select: "accountId status contact company kycReview assignedBranch",
+      select: "accountId status contact company kycReview assignedBranch rateCardBand",
       populate: { path: "assignedBranch", select: "name code status address city state" }
     })
     .populate("assignedBranches", "name code status address city state")
@@ -276,6 +286,7 @@ async function getActiveClientMembership(userId: string, branchId?: string) {
     status?: string;
     kycReview?: { overallStatus?: string };
     assignedBranch?: ClientBranchSnapshot | null;
+    rateCardBand?: string | null;
   };
 
   // Every operational client path funnels through here, so the business account
@@ -335,10 +346,20 @@ function getDashboardAccess(account: {
   };
 }
 
+function getBookingAccess(account: { rateCardBand?: string | null }) {
+  const message = "Shipment booking is paused until a rate card is assigned. Please contact Swiftline support.";
+
+  return account.rateCardBand
+    ? { state: "READY" as const, code: null, message: null }
+    : { state: "PAUSED" as const, code: "RATE_CARD_REQUIRED" as const, message };
+}
+
 export async function clientCanAccessDraft(userId: string, draftId: string, requireEditPermission = false) {
   if (!mongoose.Types.ObjectId.isValid(draftId)) return false;
 
-  const draft = await ShipmentDraft.findById(draftId).lean().exec();
+  // A deleted draft is invisible to clients, so every route gated on this helper
+  // answers 404 for one without needing its own check.
+  const draft = await ShipmentDraft.findOne({ _id: draftId, deletedAt: null }).lean().exec();
   if (!draft) return false;
   return clientCanAccessShipmentDraft({ userId, draft, requireEditPermission });
 }
@@ -358,7 +379,7 @@ export async function getClientDashboard(request: Request, response: Response): 
     })
       .populate({
         path: "businessAccount",
-        select: "accountId status contact company kycReview assignedBranch submittedAt createdAt",
+        select: "accountId status contact company kycReview assignedBranch rateCardBand submittedAt createdAt",
         populate: { path: "assignedBranch", select: "name code status address city state" }
       })
       .populate("assignedBranches", "name code status address city state")
@@ -394,6 +415,7 @@ export async function getClientDashboard(request: Request, response: Response): 
       };
       kycReview?: { overallStatus?: string };
       assignedBranch?: { _id?: unknown; name?: string; code?: string; status?: string } | null;
+      rateCardBand?: string | null;
       submittedAt?: Date | null;
       createdAt?: Date;
     };
@@ -406,6 +428,7 @@ export async function getClientDashboard(request: Request, response: Response): 
         ? [account.assignedBranch]
         : [];
     const dashboardAccess = getDashboardAccess(account, membership);
+    const bookingAccess = getBookingAccess(account);
 
     return {
       membership: {
@@ -431,9 +454,14 @@ export async function getClientDashboard(request: Request, response: Response): 
               code: account.assignedBranch.code ?? "",
               status: account.assignedBranch.status ?? ""
             }
-          : null
+          : null,
+        rateCard: {
+          title: "Your Swiftline Rate Card",
+          assigned: Boolean(account.rateCardBand)
+        }
       },
       dashboardAccess,
+      bookingAccess,
       assignedBranches: effectiveBranches.map(serializeClientBranch)
     };
   });
@@ -508,7 +536,8 @@ export async function listClientShipments(request: Request, response: Response):
   const branchObjectIds = (branchId ? [branchId] : allowedBranchIds).map((id) => new mongoose.Types.ObjectId(id));
   const query = {
     businessAccountId: new mongoose.Types.ObjectId(businessAccountId),
-    branchId: { $in: branchObjectIds }
+    branchId: { $in: branchObjectIds },
+    deletedAt: null
   };
   const total = await ShipmentDraft.countDocuments(query).exec();
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -591,6 +620,16 @@ export async function listClientShipments(request: Request, response: Response):
         ? formatShipmentEventLabel(currentEvent.status)
         : formatStatus(dpdShipment?.status ?? draft.status),
       dpdStatus: dpdShipment?.status ?? "",
+      bookingState: draft.bookingState ?? "EDITABLE",
+      /**
+       * Whether to offer Delete on this row. Optimistic on purpose: it rules out
+       * the states the list already knows about, and the delete endpoint re-runs
+       * the full dependency check (manifest, pickup, reservation) and answers 409
+       * with a reason if the row turns out not to be deletable after all.
+       */
+      canDelete: (draft.bookingState ?? "EDITABLE") === "EDITABLE"
+        && !dpdShipment
+        && !shipmentInvoice,
       shipmentInvoice: shipmentInvoice ? {
         invoiceNumber: shipmentInvoice.invoiceNumber,
         currency: shipmentInvoice.currency,
@@ -634,6 +673,15 @@ export async function createClientInvoiceUpload(request: Request, response: Resp
   }
   if (!canCreateClientShipment(clientContext.membership.role)) return sendShipmentRoleError(response);
 
+  const bookingAccess = getBookingAccess(clientContext.account);
+  if (bookingAccess.state !== "READY") {
+    return response.status(409).json({
+      success: false,
+      code: bookingAccess.code,
+      message: bookingAccess.message
+    });
+  }
+
   // Client uploads are scoped from membership, so the browser never decides the account id.
   request.body.businessAccountId = String(clientContext.account._id);
   request.body.branchId = clientContext.branchId;
@@ -656,12 +704,13 @@ export async function createClientManualShipmentDraft(request: Request, response
   }
   if (!canCreateClientShipment(clientContext.membership.role)) return sendShipmentRoleError(response);
 
-  const access = getDashboardAccess(
-    clientContext.account as { status?: string; kycReview?: { overallStatus?: string } },
-    clientContext.membership
-  );
-  if (access.state !== "READY") {
-    return response.status(403).json({ success: false, message: access.blockers[0] });
+  const bookingAccess = getBookingAccess(clientContext.account);
+  if (bookingAccess.state !== "READY") {
+    return response.status(409).json({
+      success: false,
+      code: bookingAccess.code,
+      message: bookingAccess.message
+    });
   }
 
   request.body.businessAccountId = String(clientContext.account._id);
@@ -687,6 +736,15 @@ export async function processClientInvoiceUpload(request: Request, response: Res
   }
   if (!canCreateClientShipment(clientContext.membership.role)) return sendShipmentRoleError(response);
 
+  const bookingAccess = getBookingAccess(clientContext.account);
+  if (bookingAccess.state !== "READY") {
+    return response.status(409).json({
+      success: false,
+      code: bookingAccess.code,
+      message: bookingAccess.message
+    });
+  }
+
   return processInvoiceUpload(request, response);
 }
 
@@ -702,6 +760,18 @@ export async function getClientShipmentDraft(request: Request, response: Respons
   return getShipmentDraft(request, response);
 }
 
+export async function getClientShipmentDraftRateCardContext(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!await clientCanAccessDraft(userId, draftId)) {
+    return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  }
+
+  return getShipmentDraftRateCardContext(request, response);
+}
+
 export async function updateClientShipmentDraft(request: Request, response: Response): Promise<Response> {
   const userId = getAuthenticatedUserId(request);
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
@@ -712,6 +782,46 @@ export async function updateClientShipmentDraft(request: Request, response: Resp
   }
 
   return updateShipmentDraft(request, response);
+}
+
+export async function deleteClientShipmentDraft(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!await clientCanAccessDraft(userId, draftId, true)) {
+    return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  }
+
+  return deleteShipmentDraftHandler(request, response);
+}
+
+/**
+ * Undo for the delete above. Access is not checked with `clientCanAccessDraft`
+ * here because that helper hides deleted drafts by design; the restore service
+ * runs the same membership check against the deleted record itself.
+ */
+export async function restoreClientShipmentDraft(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  return restoreShipmentDraftHandler(request, response);
+}
+
+/**
+ * Prices the client's own draft. Access is checked here; the pricing itself is
+ * the same handler the admin booking form uses, so both see identical figures.
+ */
+export async function getClientShipmentDraftCostEstimate(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!await clientCanAccessDraft(userId, draftId, true)) {
+    return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  }
+
+  return getShipmentDraftCostEstimate(request, response);
 }
 
 export async function uploadClientShipmentKycDocument(request: Request, response: Response): Promise<Response> {
@@ -968,6 +1078,10 @@ function serializeClientShipmentDetails(params: {
     : null;
   const parcelList = currentShipmentSnapshot
     ? currentShipmentSnapshot.parcels.map((parcel) => ({
+        ...(() => {
+          const sourceParcel = draft.parcelList.find((draftParcel) => draftParcel.sequence === parcel.sequence);
+          return { kycDocuments: serializeKycDocuments(sourceParcel?.kycDocuments) };
+        })(),
         sequence: parcel.sequence,
         weightKg: parcel.actualWeightKg,
         lengthCm: typeof parcel.lengthCm === "number" ? parcel.lengthCm : null,
@@ -980,11 +1094,17 @@ function serializeClientShipmentDetails(params: {
           items: Array.isArray(parcel.items) ? parcel.items : null,
           contentsDescription: parcel.contentsDescription
         }),
+        declaredGoodsValueMinor: typeof parcel.declaredGoodsValueMinor === "number"
+          ? parcel.declaredGoodsValueMinor
+          : null,
         contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : "",
         shipmentReference1: typeof parcel.reference === "string" ? parcel.reference : "",
         shipmentReference2: ""
       }))
-    : draft.parcelList;
+    : draft.parcelList.map((parcel) => ({
+        ...parcel,
+        kycDocuments: serializeKycDocuments(parcel.kycDocuments)
+      }));
 
   return {
     shipmentDraft: {
@@ -994,6 +1114,8 @@ function serializeClientShipmentDetails(params: {
       addressValidationStatus: draft.addressValidationStatus,
       serviceType: currentShipmentSnapshot?.service.type ?? draft.serviceType,
       serviceCode: currentShipmentSnapshot?.service.code ?? draft.serviceCode,
+      kycUseForAllParcels: draft.kycUseForAllParcels,
+      kycDocuments: serializeKycDocuments(draft.kycDocuments),
       // Shown on the shipment detail page and in the shipment list.
       csbType: normalizeCsbType(draft.csbType),
       parcelCount: parcelList.length,
@@ -1177,6 +1299,11 @@ export async function downloadClientCustomsInvoiceWorkbook(request: Request, res
   return downloadCustomsInvoiceWorkbook(request, response);
 }
 
+// The price the customer accepted, as returned by the cost estimate endpoint.
+const clientAcceptedPricingSchema = z.object({
+  acceptedPricingHash: z.string().trim().min(1).max(128).optional()
+});
+
 async function createClientShipment(
   request: Request,
   response: Response,
@@ -1192,11 +1319,18 @@ async function createClientShipment(
     return response.status(404).json({ success: false, message: "Shipment draft not found" });
   }
 
+  const acceptedPricing = clientAcceptedPricingSchema.safeParse(request.body ?? {});
+
   try {
     const result = await createLabelForShipmentDraft(
       draftId,
       new mongoose.Types.ObjectId(userId),
-      { actor: "client", paymentSource: "BUSINESS_ACCOUNT", bookingProvider }
+      {
+        actor: "client",
+        paymentSource: "BUSINESS_ACCOUNT",
+        bookingProvider,
+        acceptedPricingHash: acceptedPricing.success ? acceptedPricing.data.acceptedPricingHash : undefined
+      }
     );
     await ensureClientShipmentBookedEvent({
       shipmentDraftId: new mongoose.Types.ObjectId(draftId),
@@ -1221,6 +1355,22 @@ async function createClientShipment(
       }
     });
   } catch (error) {
+    if (error instanceof RateCardRequiredError) {
+      return response.status(error.statusCode).json({ success: false, code: error.code, message: error.message });
+    }
+    // The price moved between the estimate the customer accepted and this
+    // booking. Nothing was reserved; the updated breakdown goes back so the panel
+    // can show what changed and ask for an explicit re-accept.
+    if (error instanceof ShipmentPriceChangedError) {
+      return response.status(error.statusCode).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+        pricing: error.currentPricing,
+        pricingHash: buildPricingHash(error.currentPricing)
+      });
+    }
+
     if (error instanceof DpdShipmentServiceError) {
       return response.status(error.statusCode).json({
         success: false,

@@ -188,24 +188,36 @@ export function BusinessAccountsTable({
                       <option value={`current:${account.status}`}>
                         {isUpdating ? "Updating..." : formatAccountStatus(account.status)}
                       </option>
-                      <option value="view">View</option>
-                      <option value="kyc">KYC</option>
-                      <option value="assign_branch">Assign Branch</option>
-                      {account.status === "draft" ? <option value="submit">Submit for Review</option> : null}
-                      {lifecycleActions
-                        .filter((action) => businessAccountStatusTransitions[account.status].includes(action.status))
-                        .map((action) => (
-                          <option key={action.status} value={`status:${action.status}`}>
-                            {action.label}
-                          </option>
-                        ))}
-                      {["approved", "active"].includes(account.status)
-                        ? operationalActions.map((action) => (
-                            <option key={action.action} value={`operation:${action.action}`}>
-                              {action.label}
-                            </option>
-                          ))
-                        : null}
+                      {/* A draft is an unfinished form, so it only offers the two
+                          things that can be done with one. View, KYC and branch
+                          assignment need a complete account and come back once it
+                          has been submitted. */}
+                      {account.status === "draft" ? (
+                        <>
+                          <option value="open_draft">Open Draft</option>
+                          <option value="delete">Delete Draft</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="view">View</option>
+                          <option value="kyc">KYC</option>
+                          <option value="assign_branch">Assign Branch</option>
+                          {lifecycleActions
+                            .filter((action) => businessAccountStatusTransitions[account.status].includes(action.status))
+                            .map((action) => (
+                              <option key={action.status} value={`status:${action.status}`}>
+                                {action.label}
+                              </option>
+                            ))}
+                          {["approved", "active"].includes(account.status)
+                            ? operationalActions.map((action) => (
+                                <option key={action.action} value={`operation:${action.action}`}>
+                                  {action.label}
+                                </option>
+                              ))
+                            : null}
+                        </>
+                      )}
                     </select>
                     <FiChevronDown
                       aria-hidden="true"

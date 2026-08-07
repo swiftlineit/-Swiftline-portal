@@ -28,8 +28,13 @@ import {
   parseSealedSnapshot,
   type SealedSnapshot
 } from "./manifestDocument.service.js";
-import { readShipmentBookingSnapshot, type ShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
-import { dayBounds } from "../utils/dateRangeFilter.js";
+import {
+  parcelDeclaredGoodsValueMinor,
+  readShipmentBookingSnapshot,
+  snapshotDeclaredGoodsValueMinor,
+  type ShipmentBookingSnapshot
+} from "./shipmentBookingSnapshot.service.js";
+import { dateRangeCondition } from "../utils/dateRangeFilter.js";
 
 export class OperationsManifestServiceError extends Error {
   constructor(message: string, public readonly statusCode = 400) {
@@ -92,6 +97,34 @@ export function calculateScannedParcelWeight(consignment: {
 }
 
 type ParcelValueSnapshot = { parcelNumber: string; valueMinor?: number | null };
+
+function snapshotParcelValueMinor(parcel: ShipmentBookingSnapshot["parcels"][number]) {
+  const stored = parcel.declaredGoodsValueMinor;
+  if (typeof stored === "number" && stored > 0) return stored;
+  const derived = parcelDeclaredGoodsValueMinor(parcel);
+  return derived > 0 ? derived : null;
+}
+
+function fillMissingParcelValues(
+  snapshots: Array<{ parcelNumber: string; valueMinor?: number | null }>,
+  shipmentSnapshot: ShipmentBookingSnapshot
+) {
+  const values = new Map(
+    shipmentSnapshot.parcels.map((parcel) => [
+      parcel.swiftlineParcelNumber.toUpperCase(),
+      snapshotParcelValueMinor(parcel)
+    ])
+  );
+  let changed = false;
+  for (const parcel of snapshots) {
+    if (parcel.valueMinor != null) continue;
+    const value = values.get(parcel.parcelNumber.toUpperCase());
+    if (value == null) continue;
+    parcel.valueMinor = value;
+    changed = true;
+  }
+  return changed;
+}
 
 /** The declared value of each scanned parcel, in scan order. */
 export function scannedParcelValues(consignment: {
@@ -223,7 +256,8 @@ export async function listOperationsManifests(input: {
   limit: number;
   status?: string;
   branchId?: string;
-  date?: string;
+  dateFrom?: string;
+  dateTo?: string;
   allowedBranchIds?: string[] | null;
 }) {
   const filter: Record<string, unknown> = {};
@@ -233,8 +267,8 @@ export async function listOperationsManifests(input: {
   } else if (input.allowedBranchIds !== null && input.allowedBranchIds !== undefined) {
     filter.branchId = { $in: input.allowedBranchIds };
   }
-  const bounds = dayBounds(input.date);
-  if (bounds) filter.createdAt = { $gte: bounds.start, $lte: bounds.end };
+  const createdAt = dateRangeCondition(input.dateFrom, input.dateTo);
+  if (createdAt) filter.createdAt = createdAt;
   const skip = (input.page - 1) * input.limit;
   const [items, total] = await Promise.all([
     OperationsManifest.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(input.limit).lean().exec(),
@@ -411,7 +445,7 @@ export async function scanOperationsParcel(input: {
     parcelNumber: parcel.swiftlineParcelNumber.toUpperCase(),
     weightKg: roundWeight(parcel.actualWeightKg),
     contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : "",
-    valueMinor: null
+    valueMinor: snapshotParcelValueMinor(parcel)
   }));
   const incomingWeightKg = parcelWeightSnapshots.find((parcel) => parcel.parcelNumber === parcelNumber)?.weightKg ?? 0;
   if (!expectedParcelNumbers.includes(parcelNumber)) {
@@ -458,10 +492,12 @@ export async function scanOperationsParcel(input: {
   // Otherwise the selected bag simply fills up and packing rolls onto a fresh bag.
   const overflowsSelectedBag = !isOperationsBagWeightAllowed(roundWeight(bag.totalWeightKg + incomingWeightKg));
 
-  const [dpdLabelCount, declaredValueMinor] = await Promise.all([
+  const [dpdLabelCount, previousValueMinor] = await Promise.all([
     LabelDocument.countDocuments({ dpdShipmentId: shipment._id, labelType: "DPD", voidedAt: null }).exec(),
     previousDeclaredValue(shipment.shipmentDraftId)
   ]);
+  const declaredValueFromSnapshot = snapshotDeclaredGoodsValueMinor(snapshot);
+  const declaredValueMinor = declaredValueFromSnapshot > 0 ? declaredValueFromSnapshot : (previousValueMinor ?? 0);
   const line = buildManifestLine({
     shipmentDraftId: shipment.shipmentDraftId,
     dpdShipmentId: shipment._id as mongoose.Types.ObjectId,
@@ -509,8 +545,13 @@ export async function scanOperationsParcel(input: {
         consignment.bagId = packedBagId;
         consignment.scannedParcelNumbers = [];
       }
-      if (!consignment.parcelWeightSnapshots.length) consignment.parcelWeightSnapshots = parcelWeightSnapshots;
+      if (!consignment.parcelWeightSnapshots.length) {
+        consignment.parcelWeightSnapshots = parcelWeightSnapshots;
+      } else if (fillMissingParcelValues(consignment.parcelWeightSnapshots, snapshot)) {
+        consignment.markModified("parcelWeightSnapshots");
+      }
       if (!consignment.scannedParcelNumbers.includes(parcelNumber)) consignment.scannedParcelNumbers.push(parcelNumber);
+      consignment.declaredValueMinor = consignmentDeclaredValueMinor(consignment) ?? declaredValueMinor;
       consignment.weightKg = calculateScannedParcelWeight(consignment);
       consignment.status = consignment.scannedParcelNumbers.length === consignment.expectedParcelNumbers.length ? "COMPLETE" : "PARTIAL";
       await consignment.save({ session });
@@ -558,33 +599,6 @@ export async function scanOperationsParcel(input: {
   }
   const accepted = await OperationsManifestScan.findOne({ scanRequestId }).lean().exec();
   return getOperationsManifestDetail(input.manifestId, { latestScanId: accepted ? String(accepted._id) : undefined });
-}
-
-export async function updateParcelValue(input: {
-  manifestId: string;
-  consignmentId: string;
-  parcelNumber: string;
-  valueMinor: number;
-  userId: mongoose.Types.ObjectId;
-}) {
-  const manifest = await OperationsManifest.findById(asObjectId(input.manifestId, "Operations manifest")).exec();
-  if (!manifest || !isEditable(manifest)) throw new OperationsManifestServiceError("This manifest can no longer be edited.", 409);
-  const consignment = await OperationsManifestConsignment.findOne({
-    _id: asObjectId(input.consignmentId, "Consignment"), manifestId: manifest._id, status: { $ne: "REMOVED" }
-  }).exec();
-  if (!consignment) throw new OperationsManifestServiceError("Consignment was not found.", 404);
-
-  const parcelNumber = input.parcelNumber.trim().toUpperCase();
-  const parcel = consignment.parcelWeightSnapshots.find((item) => item.parcelNumber === parcelNumber);
-  if (!parcel) throw new OperationsManifestServiceError("That parcel is not part of this consignment.", 404);
-
-  parcel.valueMinor = input.valueMinor;
-  // The consignment value stays the sum of its parcels' values, for display and totals.
-  consignment.declaredValueMinor = consignmentDeclaredValueMinor(consignment);
-  consignment.markModified("parcelWeightSnapshots");
-  await consignment.save();
-  await audit("OPERATIONS_MANIFEST_UPDATED", manifest._id as mongoose.Types.ObjectId, input.userId, { consignmentId: consignment._id, parcelNumber, parcelValueUpdated: true });
-  return consignment;
 }
 
 export async function closeOperationsBag(manifestIdValue: string, bagIdValue: string, userId: mongoose.Types.ObjectId) {
@@ -904,7 +918,11 @@ async function normalizeEditableManifestData(manifest: IOperationsManifest) {
     OperationsManifestConsignment.find({
       manifestId: manifest._id,
       status: { $ne: "REMOVED" },
-      $or: [{ parcelWeightSnapshots: { $exists: false } }, { parcelWeightSnapshots: { $size: 0 } }]
+      $or: [
+        { parcelWeightSnapshots: { $exists: false } },
+        { parcelWeightSnapshots: { $size: 0 } },
+        { "parcelWeightSnapshots.valueMinor": null }
+      ]
     }).exec()
   ]);
   let changed = false;
@@ -927,15 +945,29 @@ async function normalizeEditableManifestData(manifest: IOperationsManifest) {
         ? readShipmentBookingSnapshot(shipment.currentShipmentSnapshot) ?? readShipmentBookingSnapshot(shipment.bookingSnapshot)
         : null;
       if (!snapshot) continue;
-      consignment.parcelWeightSnapshots = snapshot.parcels.map((parcel) => ({
-        parcelNumber: parcel.swiftlineParcelNumber.toUpperCase(),
-        weightKg: roundWeight(parcel.actualWeightKg),
-        contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : "",
-        valueMinor: null
-      }));
-      consignment.weightKg = calculateScannedParcelWeight(consignment);
-      await consignment.save();
-      changed = true;
+      let valueChanged = false;
+      if (!consignment.parcelWeightSnapshots.length) {
+        consignment.parcelWeightSnapshots = snapshot.parcels.map((parcel) => ({
+          parcelNumber: parcel.swiftlineParcelNumber.toUpperCase(),
+          weightKg: roundWeight(parcel.actualWeightKg),
+          contentsDescription: typeof parcel.contentsDescription === "string" ? parcel.contentsDescription : "",
+          valueMinor: snapshotParcelValueMinor(parcel)
+        }));
+        valueChanged = true;
+      } else {
+        valueChanged = fillMissingParcelValues(consignment.parcelWeightSnapshots, snapshot);
+      }
+      const declaredValueMinor = snapshotDeclaredGoodsValueMinor(snapshot);
+      if (consignment.declaredValueMinor !== declaredValueMinor) {
+        consignment.declaredValueMinor = declaredValueMinor;
+        valueChanged = true;
+      }
+      if (valueChanged) {
+        consignment.markModified("parcelWeightSnapshots");
+        consignment.weightKg = calculateScannedParcelWeight(consignment);
+        await consignment.save();
+        changed = true;
+      }
     }
   }
 

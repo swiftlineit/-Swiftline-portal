@@ -1,4 +1,5 @@
 import { apiUrl } from "@/lib/api";
+import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 
 export type ShipmentManifestAudience = "admin" | "client";
@@ -50,6 +51,7 @@ export type ManifestEligibleShipment = {
   destination: string;
   pieces: number;
   weightKg: number;
+  declaredValueMinor: number;
   serviceInfo: string;
 };
 
@@ -71,14 +73,12 @@ export type CreateAdminShipmentManifestInput = {
   valueType: string;
   lines: Array<{
     shipmentDraftId: string;
-    declaredValueMinor: number;
     bagNumber: string;
   }>;
 };
 
 export type CreateClientShipmentManifestInput = {
   currentShipmentDraftId: string;
-  declaredValueMinor: number;
 };
 
 export type CreateShipmentManifestInput = CreateAdminShipmentManifestInput | CreateClientShipmentManifestInput;
@@ -153,13 +153,13 @@ export async function listShipmentManifests(audience: ShipmentManifestAudience, 
   page?: number;
   limit?: number;
   businessAccountId?: string;
-  date?: string;
+  dateRange?: DateRange;
 } = {}) {
   const params = new URLSearchParams();
   params.set("page", String(input.page ?? 1));
   params.set("limit", String(input.limit ?? 15));
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
-  if (input.date) params.set("date", input.date);
+  setDateRangeParams(params, input.dateRange);
   const response = await fetchWithAuth(apiUrl(`${manifestRoot(audience)}?${params.toString()}`));
   return readJson<{
     success: true;

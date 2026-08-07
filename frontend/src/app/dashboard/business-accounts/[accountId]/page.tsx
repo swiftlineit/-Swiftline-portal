@@ -13,6 +13,7 @@ import {
 import { BiEdit } from "react-icons/bi";
 import { DashboardLoading } from "@/components/DashboardShell";
 import { BusinessAccountAccessPanel } from "@/components/business-accounts/BusinessAccountAccessPanel";
+import RateCardAssignmentPanel from "@/components/business-accounts/RateCardAssignmentPanel";
 import {
   canadaRegistrationTypeOptions,
   companyTypeOptions,
@@ -484,6 +485,9 @@ export default function BusinessAccountDetailsPage() {
       <div id={activeTab} className="mt-5">
         {activeTab === "overview" ? (
           <div className="grid gap-5 lg:grid-cols-2">
+            <div className="lg:col-span-2">
+              <RateCardAssignmentPanel account={account} onAssigned={setAccount} />
+            </div>
             <DetailSection
               title="Contact Details"
               rows={[

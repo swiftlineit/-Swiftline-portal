@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiArchive, FiChevronDown, FiExternalLink, FiFileText, FiPlus, FiRefreshCw } from "react-icons/fi";
 import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { emptyDateRange } from "@/lib/dateRange";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatCsbType } from "@/lib/csbType";
 import { createBulkShipmentManifest, manifestsHref } from "@/lib/shipmentManifests";
@@ -42,7 +44,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
   const [selected, setSelected] = useState<Map<string, ShipmentListItem>>(new Map());
   const [manifestFlowActive, setManifestFlowActive] = useState(false);
   const [status, setStatus] = useState("");
-  const [date, setDate] = useState("");
+  const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -56,7 +58,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     setLoading(true);
     setError("");
     try {
-      const data = await listShipments(audience, { page, status, date });
+      const data = await listShipments(audience, { page, status, dateRange });
       setShipments(data.shipments);
       setPagination(data.pagination);
       // Refresh or drop only the selections that belong to this page - a shipment
@@ -77,7 +79,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     } finally {
       setLoading(false);
     }
-  }, [audience, date, page, status]);
+  }, [audience, dateRange, page, status]);
 
   // Deferred so the fetch's setState lands after the first paint rather than
   // cascading a render, matching the other listing screens.
@@ -154,17 +156,11 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <label className="block">
-            {/* <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Date</span> */}
-            <div className="relative mt-2">
-              <input
-                type="date"
-                value={date}
-                onChange={(event) => { setDate(event.target.value); setPage(1); }}
-                className="h-10 w-44 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-          </label>
+          <DateRangeFilter
+            className="mt-2"
+            value={dateRange}
+            onChange={(value) => { setDateRange(value); setPage(1); }}
+          />
 
           <label className="block">
             {/* <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</span> */}

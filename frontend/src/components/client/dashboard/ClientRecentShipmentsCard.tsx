@@ -8,30 +8,46 @@ import type { ClientRecentShipment } from "@/lib/clientDashboard";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { titleCase } from "@/lib/dashboardOverview";
 
-export default function ClientRecentShipmentsCard({ shipments }: { shipments: ClientRecentShipment[] }) {
+export default function ClientRecentShipmentsCard({
+  shipments,
+  canCreateShipment
+}: {
+  shipments: ClientRecentShipment[];
+  canCreateShipment: boolean;
+}) {
   return (
     <SectionCard
       icon={FiTruck}
       title="Recent shipments"
       subtitle="Latest shipment drafts from the current account and branch"
-      action={<Link href="/client/dpd-labels" className="text-xs font-semibold text-[#0D1282] hover:underline">Create Shipment</Link>}
+      action={canCreateShipment
+        ? <Link href="/client/dpd-labels" className="text-xs font-semibold text-[#0D1282] hover:underline">Create Shipment</Link>
+        : undefined}
       bodyClassName="p-0"
     >
-      <RecentShipmentsTable shipments={shipments} />
+      <RecentShipmentsTable shipments={shipments} canCreateShipment={canCreateShipment} />
     </SectionCard>
   );
 }
 
-function RecentShipmentsTable({ shipments }: { shipments: ClientRecentShipment[] }) {
+function RecentShipmentsTable({
+  shipments,
+  canCreateShipment
+}: {
+  shipments: ClientRecentShipment[];
+  canCreateShipment: boolean;
+}) {
   if (!shipments.length) {
     return (
       <div className="p-5">
         <EmptyState
           icon={FiTruck}
           title="No shipments yet"
-          message="Create a shipment to start building dashboard activity."
-          actionLabel="Create Shipment"
-          actionHref="/client/dpd-labels"
+          message={canCreateShipment
+            ? "Create a shipment to start building dashboard activity."
+            : "Shipment creation is paused until a rate card is assigned."}
+          actionLabel={canCreateShipment ? "Create Shipment" : undefined}
+          actionHref={canCreateShipment ? "/client/dpd-labels" : undefined}
         />
       </div>
     );

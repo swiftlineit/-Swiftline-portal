@@ -36,6 +36,7 @@ export type ShipmentQuoteRequestInput = {
 
 export type QuoteContext = {
   businessAccountId: mongoose.Types.ObjectId;
+  rateCardBand: import("../models/countryRateCard.model.js").RateCardBand;
   accountId: string;
   companyName: string;
   branchId: mongoose.Types.ObjectId;
@@ -74,7 +75,11 @@ async function nextQuoteNumber(now: Date) {
   return `QT/${financialYear}/${String(counter.sequence).padStart(5, "0")}`;
 }
 
-function contextFrom(account: InstanceType<typeof BusinessAccount>, branch: InstanceType<typeof Branch>, role?: BusinessAccountMemberRole): QuoteContext {
+function displayContextFrom(
+  account: InstanceType<typeof BusinessAccount>,
+  branch: InstanceType<typeof Branch>,
+  role?: BusinessAccountMemberRole
+) {
   return {
     businessAccountId: account._id,
     accountId: account.accountId,
@@ -85,6 +90,14 @@ function contextFrom(account: InstanceType<typeof BusinessAccount>, branch: Inst
     originCity: branch.address.city ?? "",
     branchContact: { email: branch.contact.email ?? "", phone: branch.contact.phone ?? "" },
     membershipRole: role
+  };
+}
+
+function contextFrom(account: InstanceType<typeof BusinessAccount>, branch: InstanceType<typeof Branch>, role?: BusinessAccountMemberRole): QuoteContext {
+  if (!account.rateCardBand) throw new ShipmentQuoteError("A rate card must be assigned before requesting or estimating a quote.", 409);
+  return {
+    ...displayContextFrom(account, branch, role),
+    rateCardBand: account.rateCardBand
   };
 }
 
@@ -124,6 +137,8 @@ export async function resolveClientQuoteContext(userId: string, accountValue?: s
 
 export async function calculateQuoteEstimate(context: QuoteContext, input: ShipmentQuoteRequestInput) {
   const pricing = await calculateShipmentPricingEstimate({
+    businessAccountId: context.businessAccountId,
+    rateCardBand: context.rateCardBand,
     countryCode: input.destinationCountryCode,
     serviceType: input.serviceType,
     csbType: input.csbType,
@@ -147,8 +162,13 @@ export async function calculateQuoteEstimate(context: QuoteContext, input: Shipm
     // Flat CSB-V clearance charge for the whole shipment; zero on CSB-IV.
     csbType: pricing.csbType,
     csbClearanceMinor: minor(pricing.csbClearanceAmount),
-    fuelSurchargeMinor: null,
-    taxableAddOnsMinor: null,
+    fuelSurchargeMinor: minor(pricing.fuelSurchargeAmount),
+    // Everything taxable that is neither freight, clearance nor fuel: handling,
+    // and any route discount netted off. A quote has no destination postcode and
+    // no insurance choice yet, so remote area and insurance never apply here.
+    taxableAddOnsMinor: minor(pricing.handlingAmount - pricing.discountAmount),
+    // The full breakdown, so the quote shows the same charges the booking will.
+    lines: pricing.lines,
     gstRate: pricing.gstRate,
     gstMinor: minor(pricing.gstAmount),
     totalMinor: minor(pricing.totalAmount),
@@ -250,6 +270,14 @@ export async function loadQuoteContext(quote: InstanceType<typeof ShipmentQuote>
   ]);
   if (!account || !branch) throw new ShipmentQuoteError("Quote account information is no longer available.", 409);
   return contextFrom(account, branch);
+}
+
+export async function loadQuoteDisplayContext(quote: InstanceType<typeof ShipmentQuote>) {
+  const [account, branch] = await Promise.all([
+    BusinessAccount.findById(quote.businessAccountId).exec(), Branch.findById(quote.branchId).exec()
+  ]);
+  if (!account || !branch) return undefined;
+  return displayContextFrom(account, branch);
 }
 
 export async function publishShipmentQuote(input: {

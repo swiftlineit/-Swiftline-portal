@@ -27,7 +27,7 @@ import {
   serializeCreditPayment
 } from "../services/creditPayment.service.js";
 import { createRazorpayOrder, fetchRazorpayPayment, captureRazorpayPayment, getRazorpayPublicConfig } from "../services/razorpay/client.js";
-import { dayBounds } from "../utils/dateRangeFilter.js";
+import { dateRangeCondition, dateRangeParams } from "../utils/dateRangeFilter.js";
 import { verifyRazorpayCheckoutSignature } from "../services/razorpay/signatures.js";
 import { notifyActiveAdmins } from "../services/portalNotification.service.js";
 import {
@@ -36,8 +36,13 @@ import {
   getCurrentPaymentTerms
 } from "../services/creditAccount.service.js";
 
+/** A single offline payment is capped at INR 5,00,000; larger settlements are split. */
+const MAX_OFFLINE_PAYMENT_MINOR = 50_000_000;
+
 const offlinePaymentSchema = z.object({
-  amountMinor: z.number().int().positive("Payment amount must be greater than zero."),
+  amountMinor: z.number().int()
+    .positive("Payment amount must be greater than zero.")
+    .max(MAX_OFFLINE_PAYMENT_MINOR, "A single offline payment cannot exceed INR 5,00,000."),
   method: z.enum(["BANK_TRANSFER", "UPI", "CASH", "CHEQUE"]),
   externalReference: z.string().trim().min(3, "Enter the offline payment reference.").max(160),
   notes: z.string().trim().max(500).optional().default(""),
@@ -73,7 +78,7 @@ function adminBusinessAccountId(request: Request) {
 function listFilter(request: Request) {
   return {
     status: typeof request.query.status === "string" ? request.query.status : "",
-    date: typeof request.query.date === "string" ? request.query.date : "",
+    ...dateRangeParams(request.query),
     page: Math.max(1, Number.parseInt(String(request.query.page ?? "1"), 10) || 1),
     // Undefined (rather than a hardcoded default) when the caller doesn't ask for a
     // specific page size, so callers that still expect "the full recent history in
@@ -495,10 +500,13 @@ function serializeLedgerEntry(entry: InstanceType<typeof CreditLedgerEntry>) {
   };
 }
 
-async function ledgerEntries(businessAccountId: mongoose.Types.ObjectId, filter: { date?: string; page?: number; limit?: number } = {}) {
+async function ledgerEntries(
+  businessAccountId: mongoose.Types.ObjectId,
+  filter: { dateFrom?: string; dateTo?: string; page?: number; limit?: number } = {}
+) {
   const query: Record<string, unknown> = { businessAccountId };
-  const bounds = dayBounds(filter.date);
-  if (bounds) query.createdAt = { $gte: bounds.start, $lte: bounds.end };
+  const createdAt = dateRangeCondition(filter.dateFrom, filter.dateTo);
+  if (createdAt) query.createdAt = createdAt;
 
   const limit = Math.min(500, Math.max(1, filter.limit ?? 500));
   const total = await CreditLedgerEntry.countDocuments(query).exec();
@@ -533,9 +541,10 @@ function csvCell(value: string | number) {
   return `"${text}"`;
 }
 
-async function exportLedger(response: Response, businessAccountId: mongoose.Types.ObjectId) {
+async function exportLedger(request: Request, response: Response, businessAccountId: mongoose.Types.ObjectId) {
   // The export is a full statement, not a page of it, so request the max cap.
-  const { entries } = await ledgerEntries(businessAccountId, { limit: 500 });
+  // Without a range the report covers the account's entire history.
+  const { entries } = await ledgerEntries(businessAccountId, { ...dateRangeParams(request.query), limit: 500 });
   const rows = [
     ["Date", "Type", "Reference", "Description", "Amount INR", "Available Credit INR", "Customer Advance INR"],
     ...entries.map((entry) => [
@@ -556,7 +565,7 @@ async function exportLedger(response: Response, businessAccountId: mongoose.Type
 export async function exportAdminLedger(request: Request, response: Response): Promise<void | Response> {
   const businessAccountId = adminBusinessAccountId(request);
   if (!businessAccountId) return response.status(400).json({ success: false, message: "Business account is invalid." });
-  await exportLedger(response, businessAccountId);
+  await exportLedger(request, response, businessAccountId);
 }
 
 export async function exportClientLedger(request: Request, response: Response): Promise<void | Response> {
@@ -564,7 +573,7 @@ export async function exportClientLedger(request: Request, response: Response): 
   if (!businessAccountId || !await financialMembership(request, businessAccountId)) {
     return response.status(403).json({ success: false, message: "Account statement access is not available for this account." });
   }
-  await exportLedger(response, businessAccountId);
+  await exportLedger(request, response, businessAccountId);
 }
 
 export function handleCreditBillingError(error: unknown, response: Response) {

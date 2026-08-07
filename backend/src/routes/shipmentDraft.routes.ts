@@ -1,7 +1,13 @@
 import { Router } from "express";
 import {
+  createIndividualShipmentDraftHandler,
   createManualShipmentDraft,
+  deleteShipmentDraftHandler,
   getShipmentDraft,
+  getShipmentDraftRateCardContext,
+  getShipmentDraftCostEstimate,
+  listEditableShipmentDrafts,
+  restoreShipmentDraftHandler,
   updateShipmentDraft,
   validateShipmentDraft
 } from "../controllers/shipmentDraft.controller.js";
@@ -32,7 +38,21 @@ shipmentDraftRouter.use(requireRole("admin", "operations", "delivery"));
 const requireOperations = requireRole("admin", "operations");
 
 shipmentDraftRouter.post("/manual", requireOperations, createManualShipmentDraft);
+// Walk-in counter booking. Same guard as the manual draft above: admin and
+// operations book on the customer's behalf; individuals have no portal login.
+shipmentDraftRouter.post("/individual", requireOperations, createIndividualShipmentDraftHandler);
+// Collection route first: it is answered before the "/:id" guard below, which
+// would otherwise read "editable" as a draft id.
+shipmentDraftRouter.get("/editable", requireOperations, listEditableShipmentDrafts);
 shipmentDraftRouter.get("/:id", getShipmentDraft);
+// Only an unbooked draft can be deleted, and deletion is soft — see
+// shipmentDraftDeletion.service.ts. Restore backs the undo on the delete toast.
+shipmentDraftRouter.delete("/:id", requireOperations, deleteShipmentDraftHandler);
+shipmentDraftRouter.post("/:id/restore", requireOperations, restoreShipmentDraftHandler);
+shipmentDraftRouter.get("/:id/rate-card-context", requireOperations, getShipmentDraftRateCardContext);
+// POST because the booking form prices the values it currently holds, which are
+// sent in the body. Nothing is written.
+shipmentDraftRouter.post("/:id/cost-estimate", requireOperations, getShipmentDraftCostEstimate);
 shipmentDraftRouter.patch("/:id", requireOperations, updateShipmentDraft);
 shipmentDraftRouter.post("/:id/amendments/preview", requireOperations, previewShipmentAmendment);
 shipmentDraftRouter.post("/:id/amendments", requireOperations, createAdminShipmentAmendment);

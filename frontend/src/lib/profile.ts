@@ -28,6 +28,7 @@ export type ProfileUser = {
   lastLogin: string | null;
   createdAt: string | null;
   assignedBranches: ProfileBranch[];
+  hasProfileImage: boolean;
   /** Present for internal staff; null for clients and pre-staff-form accounts. */
   staffProfile: StaffProfile | null;
 };
@@ -91,7 +92,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const send = () => fetch(apiUrl(path), {
     ...init,
     headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...init?.headers,
       Authorization: `Bearer ${token}`
     }
@@ -112,6 +113,35 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getProfile() {
   return request<{ success: true } & Profile>("/api/v1/profile");
+}
+
+export function uploadProfileImage(file: File) {
+  const form = new FormData();
+  form.append("profileImage", file);
+  return request<{ success: true; message: string; hasProfileImage: boolean }>("/api/v1/profile/image", {
+    method: "POST",
+    body: form
+  });
+}
+
+export function deleteProfileImage() {
+  return request<{ success: true; message: string; hasProfileImage: boolean }>("/api/v1/profile/image", {
+    method: "DELETE"
+  });
+}
+
+export async function loadProfileImageUrl() {
+  let token = getAccessToken() ?? await refreshAccessToken();
+  if (!token) throw new Error("Your session has expired. Please sign in again.");
+  const send = () => fetch(apiUrl("/api/v1/profile/image"), { headers: { Authorization: `Bearer ${token}` } });
+  let response = await send();
+  if (response.status === 401) {
+    token = await refreshAccessToken();
+    if (!token) throw new Error("Your session has expired. Please sign in again.");
+    response = await send();
+  }
+  if (!response.ok) throw new Error("Profile image not found.");
+  return URL.createObjectURL(await response.blob());
 }
 
 /**

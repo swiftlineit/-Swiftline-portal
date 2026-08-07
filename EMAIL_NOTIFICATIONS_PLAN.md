@@ -108,7 +108,7 @@ Domain service (in txn)
 
 **Why nodemailer stays:** SESv2 `SendEmail` with `Content.Simple` cannot do attachments. Invoice/statement PDFs require `Content.Raw` with a full MIME blob — nodemailer's `MailComposer` builds that correctly (encoding, multipart boundaries, headers). Rewriting MIME by hand is a bug farm.
 
-### 3.3 AWS setup (prerequisite, ~2–3 days of DNS + approval latency)
+### 3.3 AWS setup (prerequisite, ~2-3 days of DNS + approval latency)
 1. Verify sending **domain** (not just an address) in SES, region `ap-south-1` (matches India-centric portal; confirm against existing infra).
 2. Enable **Easy DKIM** (3 CNAMEs), add **SPF** TXT (`include:amazonses.com`), add **DMARC** (`p=none` → tighten to `quarantine` after 2 weeks of clean reports).
 3. Create a **Configuration Set** with event destination → SNS topic → HTTPS subscription to our webhook. Subscribe to: `Bounce`, `Complaint`, `Delivery`, `Reject`, `RenderingFailure`.
@@ -352,7 +352,7 @@ The single biggest operational hazard is **staging emailing real clients**.
 
 | Phase | Scope | Outcome |
 |---|---|---|
-| **0 — AWS setup** | Domain verification, DKIM/SPF/DMARC, config set, SNS topic, production access request | Can send from the domain; ~2–3 days of external latency, start immediately |
+| **0 — AWS setup** | Domain verification, DKIM/SPF/DMARC, config set, SNS topic, production access request | Can send from the domain; ~2-3 days of external latency, start immediately |
 | **1 — Foundation** | `EmailOutbox`/`EmailPreference`/`EmailSuppression` models, SES transport, template renderer + base layout, dispatcher with retry, `job:email:drain`, SNS webhook, env-safety guard | Infrastructure proven end-to-end with the 2 existing emails migrated off raw SMTP |
 | **2 — Wire existing events** | Extend `emitNotification` so all 18 current in-app types also email; ~20 templates | Immediate coverage with zero new domain logic — lowest risk, highest ratio |
 | **3 — P0 gaps** | Shipment booked/label/delivered/hold (§4.5, §4.6), amendments (§4.7), invoices (§4.9), payments (§4.11), onboarding (§4.2) | The events the business actually asked for |

@@ -1,4 +1,5 @@
 import { apiUrl } from "@/lib/api";
+import { setDateRangeParams, toRangeDay, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 
 export type CreditStatementStatus = "ISSUED" | "PARTIALLY_PAID" | "PAID" | "OVERDUE" | "VOID";
@@ -97,11 +98,11 @@ export function createPaymentRequestId() {
 }
 
 export type CreditListPagination = { page: number; limit: number; total: number; totalPages: number };
-export type CreditListFilter = { status?: string; date?: string; page?: number; limit?: number };
+export type CreditListFilter = { status?: string; dateRange?: DateRange; page?: number; limit?: number };
 
 function withFilter(url: URL, filter: CreditListFilter = {}) {
   if (filter.status) url.searchParams.set("status", filter.status);
-  if (filter.date) url.searchParams.set("date", filter.date);
+  setDateRangeParams(url.searchParams, filter.dateRange);
   url.searchParams.set("page", String(filter.page ?? 1));
   // Omitted (rather than defaulted) so callers that want "the full recent
   // history in one call" keep that behavior; only pass this for paginated UIs.
@@ -224,7 +225,31 @@ export async function verifyClientOnlinePayment(input: {
   ));
 }
 
-export type CreditLedgerListFilter = { date?: string; page?: number; limit?: number };
+/** A single offline payment is capped at INR 5,00,000, matching the API limit. */
+export const MAX_OFFLINE_PAYMENT_RUPEES = 500_000;
+
+/** Reporting windows offered for the ledger export; "" exports the full history. */
+export const ledgerExportRanges = [
+  { value: "1", label: "Last Month" },
+  { value: "3", label: "Last 3 Months" },
+  { value: "6", label: "Last 6 Months" },
+  { value: "", label: "All Time" }
+];
+
+/**
+ * Appends the chosen "last N months" window to a ledger export URL. An empty
+ * range leaves the URL untouched so the export covers the whole account.
+ */
+export function withLedgerExportRange(url: string, months: string) {
+  if (!months) return url;
+  const to = new Date();
+  const from = new Date(to);
+  from.setMonth(from.getMonth() - Number(months));
+  const params = new URLSearchParams({ dateFrom: toRangeDay(from), dateTo: toRangeDay(to) });
+  return `${url}${url.includes("?") ? "&" : "?"}${params.toString()}`;
+}
+
+export type CreditLedgerListFilter = { dateRange?: DateRange; page?: number; limit?: number };
 
 export async function listClientLedger(businessAccountId: string, filter: CreditLedgerListFilter = {}) {
   const url = withFilter(new URL(apiUrl("/api/v1/client/credit/ledger")), filter);
@@ -257,17 +282,30 @@ export async function openAuthenticatedFile(url: string, downloadName?: string) 
 }
 
 export async function printAuthenticatedPdf(url: string) {
-  const response = await fetchWithAuth(apiUrl(url));
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.message || "The document could not be printed.");
-  }
-  const objectUrl = URL.createObjectURL(await response.blob());
-  const printWindow = window.open(objectUrl, "_blank");
+  // Open the tab before awaiting the authenticated request. Browsers treat a
+  // window opened after an await as an unsolicited popup and block it, even
+  // when this function was called directly from a Print button.
+  const printWindow = window.open("", "_blank");
   if (!printWindow) {
-    URL.revokeObjectURL(objectUrl);
     throw new Error("Allow pop-ups to print this statement.");
   }
-  printWindow.addEventListener("load", () => printWindow.print(), { once: true });
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+
+  printWindow.opener = null;
+  printWindow.document.title = "Preparing statement for printing...";
+
+  try {
+    const response = await fetchWithAuth(apiUrl(url));
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || "The document could not be printed.");
+    }
+
+    const objectUrl = URL.createObjectURL(await response.blob());
+    printWindow.addEventListener("load", () => printWindow.print(), { once: true });
+    printWindow.location.href = objectUrl;
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    printWindow.close();
+    throw error;
+  }
 }

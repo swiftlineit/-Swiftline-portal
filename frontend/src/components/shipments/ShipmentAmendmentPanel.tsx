@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { toast } from "react-toastify";
 import {
   ShipmentAddress,
   ShipmentAmendmentInput,
@@ -10,6 +9,12 @@ import {
   ShipmentServiceType,
   shipmentContentTypeOptions
 } from "@/lib/dpdLabels";
+import { ParcelItemsEditor } from "@/components/shipments/ParcelItemsEditor";
+import {
+  composeContentsDescription,
+  normalizeParcelItems as normalizeContentItems,
+  type ParcelItem
+} from "@/lib/parcelItems";
 import { findRestrictedCategories, isRestrictedDescription } from "@/lib/restrictedGoods";
 
 type Props = {
@@ -27,6 +32,19 @@ function text(value?: string | null) {
   return value ?? "";
 }
 
+type AmendmentParcelForm = {
+  sequence: number;
+  weightKg: number;
+  lengthCm: number | null;
+  widthCm: number | null;
+  heightCm: number | null;
+  shipmentContentType: ShipmentDraft["parcelList"][number]["shipmentContentType"];
+  items: ParcelItem[];
+  contentsDescription: string;
+  shipmentReference1: string;
+  shipmentReference2: string;
+};
+
 function comparable(value: unknown) {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value.trim();
@@ -41,6 +59,7 @@ function normalizeParcelList(parcelList: ShipmentDraft["parcelList"]) {
     widthCm: parcel.widthCm ?? null,
     heightCm: parcel.heightCm ?? null,
     shipmentContentType: parcel.shipmentContentType || "PARCEL",
+    items: normalizeContentItems(parcel),
     contentsDescription: parcel.contentsDescription || "",
     shipmentReference1: parcel.shipmentReference1 || "",
     shipmentReference2: parcel.shipmentReference2 || ""
@@ -68,7 +87,7 @@ export default function ShipmentAmendmentPanel({
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [addressForm, setAddressForm] = useState(address);
-  const [parcels, setParcels] = useState(normalizeParcelList(parcelList));
+  const [parcels, setParcels] = useState<AmendmentParcelForm[]>(normalizeParcelList(parcelList));
   const [selectedServiceType, setSelectedServiceType] = useState<ShipmentServiceType>(serviceType);
   const [formError, setFormError] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -94,6 +113,15 @@ export default function ShipmentAmendmentPanel({
 
       return { ...parcel, [field]: value };
     }));
+    clearPreview();
+  }
+
+  function updateParcelItems(index: number, items: ParcelItem[]) {
+    setParcels((current) => current.map((parcel, parcelIndex) => (
+      parcelIndex === index
+        ? { ...parcel, items, contentsDescription: composeContentsDescription(items) }
+        : parcel
+    )));
     clearPreview();
   }
 
@@ -123,9 +151,16 @@ export default function ShipmentAmendmentPanel({
   }
 
   function buildInput(): ShipmentAmendmentInput | null {
-    const restrictedParcel = parcels.findIndex((parcel) => isRestrictedDescription(parcel.contentsDescription));
+    const restrictedParcel = parcels.findIndex((parcel) =>
+      parcel.items.some((item) => isRestrictedDescription(item.description))
+      || isRestrictedDescription(parcel.contentsDescription)
+    );
     if (restrictedParcel >= 0) {
-      const categories = findRestrictedCategories(parcels[restrictedParcel]!.contentsDescription).join(", ");
+      const parcel = parcels[restrictedParcel]!;
+      const categories = [
+        ...parcel.items.flatMap((item) => findRestrictedCategories(item.description)),
+        ...findRestrictedCategories(parcel.contentsDescription)
+      ].filter((category, index, all) => all.indexOf(category) === index).join(", ");
       setFormError(`Parcel ${restrictedParcel + 1}: ${categories} is a restricted item and cannot be shipped.`);
       return null;
     }
@@ -136,7 +171,19 @@ export default function ShipmentAmendmentPanel({
     if (selectedServiceType !== serviceType) changes.serviceType = selectedServiceType;
     if (Object.keys(changedAddress).length) changes.consigneeEnteredAddress = changedAddress;
     // Parcel amendments are submitted as a full parcel list so approval can safely replace the parcel set.
-    if (parcelsChanged()) changes.parcelList = parcels;
+    if (parcelsChanged()) {
+      changes.parcelList = parcels.map((parcel) => ({
+        ...parcel,
+        items: parcel.items.map((item) => ({
+          description: item.description.trim(),
+          hsnCode: item.hsnCode.trim(),
+          unitType: item.unitType.trim(),
+          quantity: Number(item.quantity) || 0,
+          unitRate: Number(item.unitRate) || 0
+        })),
+        contentsDescription: composeContentsDescription(parcel.items)
+      }));
+    }
 
     if (!changes.serviceType && !changes.consigneeEnteredAddress && !changes.parcelList) {
       setFormError("Change at least one shipment detail before submitting an amendment.");
@@ -284,8 +331,11 @@ export default function ShipmentAmendmentPanel({
                       ))}
                     </select>
                   </label>
-                  <div className="md:col-span-5">
-                    <AmendmentInput label="Contents Description" value={parcel.contentsDescription} onChange={(value) => updateParcel(index, "contentsDescription", value)} onBlur={() => { if (isRestrictedDescription(parcel.contentsDescription)) toast.error("This item is restricted."); }} />
+                  <div className="md:col-span-5 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <ParcelItemsEditor
+                      items={parcel.items}
+                      onChange={(items) => updateParcelItems(index, items)}
+                    />
                   </div>
                 </div>
               ))}

@@ -5,10 +5,12 @@ import { useEffect, useState } from "react";
 import { FiChevronDown, FiEdit2, FiExternalLink } from "react-icons/fi";
 import { BiEdit } from "react-icons/bi";
 import { DashboardLoading } from "@/components/DashboardShell";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import {
   Branch,
   BranchStatus,
   branchStatusTransitions,
+  deleteBranchDraft,
   formatBranchLabel,
   listBranches,
   updateBranchStatus,
@@ -65,6 +67,8 @@ export default function BranchesPage() {
   const [status, setStatus] = useState("");
   const [branchesLoading, setBranchesLoading] = useState(true);
   const [updatingBranchId, setUpdatingBranchId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Branch | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -123,8 +127,37 @@ export default function BranchesPage() {
     }
   }
 
+  async function handleDeleteDraft() {
+    if (!pendingDelete) return;
+
+    setDeleting(true);
+    setError("");
+
+    try {
+      await deleteBranchDraft(pendingDelete._id);
+      setBranches((current) =>
+        current.filter((item) => item._id !== pendingDelete._id),
+      );
+      setPendingDelete(null);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to delete this draft branch.",
+      );
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleStatusMenuChange(branch: Branch, value: string) {
     if (!value || value.startsWith("current:")) return;
+
+    if (value === "delete") {
+      setPendingDelete(branch);
+      return;
+    }
 
     if (value.startsWith("status:")) {
       await handleStatusChange(
@@ -308,6 +341,11 @@ export default function BranchesPage() {
                                 </option>
                               ),
                             )}
+                            {/* A branch that has operated is closed, not
+                                deleted, so this is offered on drafts only. */}
+                            {branch.status === "DRAFT" ? (
+                              <option value="delete">Delete Draft</option>
+                            ) : null}
                           </select>
                           <FiChevronDown
                             aria-hidden="true"
@@ -377,6 +415,23 @@ export default function BranchesPage() {
             </button>
           </div>
         </div>
+      ) : null}
+
+      {pendingDelete ? (
+        <ConfirmDialog
+          title="Delete draft branch?"
+          description={(
+            <>
+              <span className="font-semibold text-slate-900">{pendingDelete.name}</span>{" "}
+              ({pendingDelete.code}) will be permanently removed. This cannot be undone.
+            </>
+          )}
+          confirmLabel="Delete Draft"
+          busyLabel="Deleting..."
+          busy={deleting}
+          onConfirm={handleDeleteDraft}
+          onCancel={() => setPendingDelete(null)}
+        />
       ) : null}
     </div>
   );

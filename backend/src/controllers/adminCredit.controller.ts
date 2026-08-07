@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { AuditLog, type AuditAction } from "../models/auditLog.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
+import { excludeSentinel } from "../services/individualCustomer.service.js";
 import { BusinessCreditAccount, creditAccountStatusValues, type CreditAccountStatus, type IBusinessCreditAccount } from "../models/businessCreditAccount.model.js";
 import { type CreditLedgerEntryType } from "../models/creditLedgerEntry.model.js";
 import { CreditLimitHistory } from "../models/creditLimitHistory.model.js";
@@ -81,7 +82,9 @@ export async function listAdminCreditAccounts(request: Request, response: Respon
     ? requestedStatus as CreditAccountStatus
     : "";
 
-  const businesses = await BusinessAccount.find({ status: { $in: ["approved", "active"] } })
+  // The individual-shipment sentinel is approved but is not a customer: it must
+  // never be offered a credit account.
+  const businesses = await BusinessAccount.find(excludeSentinel({ status: { $in: ["approved", "active"] } }))
     .select("accountId status company.companyName kycReview.overallStatus agreementStatus depositStatus")
     .sort({ updatedAt: -1 }).lean().exec();
   const creditAccounts = await BusinessCreditAccount.find({ businessAccountId: { $in: businesses.map((account) => account._id) } }).exec();

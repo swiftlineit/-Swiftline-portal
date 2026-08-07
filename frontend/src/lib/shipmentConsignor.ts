@@ -75,46 +75,79 @@ export type ConsigneeContact = {
   mobileNumber: string;
 };
 
-export function getConsignorFormIssues(form: ConsignorForm, consignee: ConsigneeContact) {
-  const issues: string[] = [];
+/**
+ * Form problems split by whether the user can defer them.
+ *
+ * `missing` is a field left blank — allowed in a saved draft, blocked at booking.
+ * `invalid` is a field filled in wrongly, which is never storable: keeping it
+ * would mean a draft reopens holding data the form itself rejects.
+ */
+export type ShipmentFormIssues = {
+  missing: string[];
+  invalid: string[];
+};
 
-  if (!form.contactName.trim()) issues.push("Consignor contact name is required");
+export function allShipmentFormIssues(issues: ShipmentFormIssues) {
+  return [...issues.missing, ...issues.invalid];
+}
+
+export function mergeShipmentFormIssues(...groups: ShipmentFormIssues[]): ShipmentFormIssues {
+  return {
+    missing: groups.flatMap((group) => group.missing),
+    invalid: groups.flatMap((group) => group.invalid)
+  };
+}
+
+export function getConsignorFormIssueDetail(
+  form: ConsignorForm,
+  consignee: ConsigneeContact
+): ShipmentFormIssues {
+  const missing: string[] = [];
+  const invalid: string[] = [];
+
+  if (!form.contactName.trim()) missing.push("Consignor contact name is required");
   if (!form.mobileNumber.trim()) {
-    issues.push("Consignor mobile number is required");
+    missing.push("Consignor mobile number is required");
   } else if (getShipmentMobileError(consignorMobileCountryCode, form.mobileNumber)) {
-    issues.push("Enter a valid consignor mobile number");
+    invalid.push("Enter a valid consignor mobile number");
   }
   if (!form.email.trim()) {
-    issues.push("Consignor email is required");
+    missing.push("Consignor email is required");
   } else if (!isAcceptableShipmentEmail(form.email)) {
-    issues.push("Enter a valid consignor email address");
+    invalid.push("Enter a valid consignor email address");
   }
   // Aadhaar now lives in the KYC section (shared or per parcel); see getKycIssues.
-  if (!form.addressLine1.trim()) issues.push("Consignor address line 1 is required");
-  if (!form.townOrCity.trim()) issues.push("Consignor town or city is required");
+  if (!form.addressLine1.trim()) missing.push("Consignor address line 1 is required");
+  if (!form.townOrCity.trim()) missing.push("Consignor town or city is required");
   if (!form.postcode.trim()) {
-    issues.push("Consignor PIN code is required");
+    missing.push("Consignor PIN code is required");
   } else if (!/^[1-9]\d{5}$/.test(form.postcode.trim())) {
-    issues.push("Enter a valid 6 digit consignor PIN code");
+    invalid.push("Enter a valid 6 digit consignor PIN code");
   }
 
-  // The consignor and the consignee must be different parties.
+  // The consignor and the consignee must be different parties. Only reachable
+  // once both sides are filled in, so a clash is always a genuine conflict.
   const consignorName = comparableText(form.contactName);
   if (consignorName && consignorName === comparableText(consignee.contactName)) {
-    issues.push("Consignor and consignee contact names must be different");
+    invalid.push("Consignor and consignee contact names must be different");
   }
 
   const consignorPhone = comparablePhone(consignorMobileCountryCode, form.mobileNumber);
   if (consignorPhone && consignorPhone === comparablePhone(consignee.mobileCountryCode, consignee.mobileNumber)) {
-    issues.push("Consignor and consignee mobile numbers must be different");
+    invalid.push("Consignor and consignee mobile numbers must be different");
   }
 
   const consignorEmail = comparableText(form.email);
   if (consignorEmail && consignorEmail === comparableText(consignee.email)) {
-    issues.push("Consignor and consignee email addresses must be different");
+    invalid.push("Consignor and consignee email addresses must be different");
   }
 
-  return issues;
+  return { missing, invalid };
+}
+
+/** Every consignor problem, blank fields included. Use before booking. */
+export function getConsignorFormIssues(form: ConsignorForm, consignee: ConsigneeContact) {
+  return allShipmentFormIssues(getConsignorFormIssueDetail(form, consignee));
 }
 
 export type ParcelKycState = {

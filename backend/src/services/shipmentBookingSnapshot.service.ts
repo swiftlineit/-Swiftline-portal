@@ -5,6 +5,7 @@ import type { IShipmentDraft } from "../models/shipmentDraft.model.js";
 import type { ShipmentPricingEstimate } from "./shipmentPricing.service.js";
 import type { ShipmentLabelData } from "./shipmentLabelPdf.service.js";
 import { maskAadhaarNumber } from "./aadhaarValidation.service.js";
+import { getParcelItemAmount, normalizeParcelItems } from "./parcelItems.service.js";
 import { formatSwiftlineParcelNumber } from "./swiftlineTracking.service.js";
 
 export type ShipmentBookingSnapshot = {
@@ -38,6 +39,8 @@ export type ShipmentBookingSnapshot = {
     actualWeightKg: number;
     carrierParcelNumber: string;
     swiftlineParcelNumber: string;
+    items?: Array<{ description: string; hsnCode: string; unitType: string; quantity: number; unitRate: number }>;
+    declaredGoodsValueMinor?: number | null;
   }>;
   pricing: ShipmentPricingEstimate;
   payment: {
@@ -94,6 +97,27 @@ function plain<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** Goods value for one parcel, stored in minor currency units in the booking snapshot. */
+export function parcelDeclaredGoodsValueMinor(parcel: {
+  items?: Array<{ quantity?: unknown; unitRate?: unknown }> | null;
+  contentsDescription?: unknown;
+}) {
+  const amount = normalizeParcelItems(parcel).reduce(
+    (total, item) => total + getParcelItemAmount(item),
+    0
+  );
+  return Math.round(amount * 100);
+}
+
+export function snapshotDeclaredGoodsValueMinor(snapshot: Pick<ShipmentBookingSnapshot, "parcels">) {
+  return snapshot.parcels.reduce(
+    (total, parcel) => total + (typeof parcel.declaredGoodsValueMinor === "number" && parcel.declaredGoodsValueMinor > 0
+      ? parcel.declaredGoodsValueMinor
+      : parcelDeclaredGoodsValueMinor(parcel)),
+    0
+  );
+}
+
 /**
  * Booking snapshots feed labels, invoices, and manifests. The full Aadhaar number
  * stays on the draft only; the snapshot keeps the masked form for reconciliation.
@@ -106,6 +130,57 @@ function redactConsignorAadhaar(consignor: IShipmentDraft["consignorAddress"] | 
       ? (consignor as unknown as { toObject: () => IShipmentDraft["consignorAddress"] }).toObject()
       : consignor),
     aadhaarNumber: maskAadhaarNumber(consignor.aadhaarNumber)
+  };
+}
+
+/**
+ * The buyer recorded on the booking snapshot, which is what the shipment invoice
+ * bills — it reads this block first and only falls back to the live account.
+ *
+ * A walk-in is billed as themselves. Their draft points `businessAccountId` at
+ * the system sentinel so the shipment chain has an account to reference, but the
+ * sentinel is bookkeeping and must never appear on a customer's invoice, so the
+ * block is rebuilt from the identity captured at the counter. The account `id` is
+ * still the sentinel's: manifests group by it, and they are internal documents.
+ *
+ * Derived from the draft rather than passed in by callers, so a new booking path
+ * cannot forget it and silently bill a customer as "Individual Customers".
+ */
+function buildAccountBlock(draft: IShipmentDraft, account: IBusinessAccount) {
+  if (draft.customerType !== "INDIVIDUAL") {
+    return {
+      id: account._id,
+      accountId: account.accountId,
+      contact: account.contact,
+      company: account.company
+    };
+  }
+
+  const consignor = draft.consignorAddress;
+  return {
+    id: account._id,
+    accountId: "INDIVIDUAL",
+    contact: {
+      // The invoice joins first and last name, so the whole name goes in first.
+      firstName: consignor.contactName ?? "",
+      lastName: "",
+      email: consignor.email ?? "",
+      countryCode: consignor.mobileCountryCode ?? "",
+      mobileNumber: consignor.mobileNumber ?? ""
+    },
+    company: {
+      // Individuals trade under their own name and hold no GSTIN, so the invoice
+      // is raised without one and GST is charged accordingly.
+      companyName: consignor.contactName ?? "",
+      gstin: "",
+      registeredAddress: consignor.addressLine1 ?? "",
+      city: consignor.townOrCity ?? "",
+      stateOrProvince: consignor.county ?? "",
+      postalCode: consignor.postcode ?? "",
+      addressCountry: consignor.countryName ?? "",
+      useCompanyAddressAsBillingAddress: true,
+      billingAddress: null
+    }
   };
 }
 
@@ -133,12 +208,7 @@ export function buildShipmentBookingSnapshot(input: {
       invoiceNumber: input.invoiceUpload.invoiceNumber,
       shipmentReference: input.invoiceUpload.shipmentReference
     },
-    account: {
-      id: input.account._id,
-      accountId: input.account.accountId,
-      contact: input.account.contact,
-      company: input.account.company
-    },
+    account: buildAccountBlock(input.draft, input.account),
     sender: {
       branchId: input.branch._id,
       name: input.branch.name,
@@ -161,18 +231,23 @@ export function buildShipmentBookingSnapshot(input: {
       carrierTransactionId: input.carrierTransactionId,
       providerMode: input.providerMode
     },
-    parcels: input.draft.parcelList.map((parcel, index) => ({
-      sequence: index + 1,
-      actualWeightKg: parcel.weightKg,
-      lengthCm: parcel.lengthCm ?? null,
-      widthCm: parcel.widthCm ?? null,
-      heightCm: parcel.heightCm ?? null,
-      shipmentContentType: parcel.shipmentContentType,
-      contentsDescription: parcel.contentsDescription,
-      reference: parcel.shipmentReference1 ?? "",
-      carrierParcelNumber: input.carrierParcelNumbers[index] ?? "",
-      swiftlineParcelNumber: formatSwiftlineParcelNumber(input.swiftlineTrackingNumber, index)
-    })),
+    parcels: input.draft.parcelList.map((parcel, index) => {
+      const items = normalizeParcelItems(parcel);
+      return {
+        sequence: index + 1,
+        actualWeightKg: parcel.weightKg,
+        lengthCm: parcel.lengthCm ?? null,
+        widthCm: parcel.widthCm ?? null,
+        heightCm: parcel.heightCm ?? null,
+        shipmentContentType: parcel.shipmentContentType,
+        items,
+        declaredGoodsValueMinor: parcelDeclaredGoodsValueMinor(parcel),
+        contentsDescription: parcel.contentsDescription,
+        reference: parcel.shipmentReference1 ?? "",
+        carrierParcelNumber: input.carrierParcelNumbers[index] ?? "",
+        swiftlineParcelNumber: formatSwiftlineParcelNumber(input.swiftlineTrackingNumber, index)
+      };
+    }),
     pricing: input.pricing,
     payment: {
       currency: "INR",
@@ -209,6 +284,8 @@ export function buildRevisedShipmentSnapshot(input: {
       widthCm: parcel.widthCm ?? null,
       heightCm: parcel.heightCm ?? null,
       shipmentContentType: parcel.shipmentContentType,
+      items: normalizeParcelItems(parcel),
+      declaredGoodsValueMinor: parcelDeclaredGoodsValueMinor(parcel),
       contentsDescription: parcel.contentsDescription,
       reference: parcel.shipmentReference1 ?? "",
       carrierParcelNumber: input.previousSnapshot.parcels[index]?.carrierParcelNumber ?? "",

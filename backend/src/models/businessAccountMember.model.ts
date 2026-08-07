@@ -45,12 +45,15 @@ const businessAccountMemberSchema = new mongoose.Schema<IBusinessAccountMember>(
   { timestamps: true }
 );
 
-// A user must not have two simultaneous memberships for the same business account.
+// A portal identity belongs to one business account only. Removed memberships
+// remain as audit history, but the user record stays reserved and is restored
+// instead of being recreated under a different account.
 businessAccountMemberSchema.index(
-  { businessAccount: 1, user: 1 },
+  { user: 1 },
   {
     unique: true,
-    partialFilterExpression: { status: { $in: ["invited", "active", "suspended"] } }
+    partialFilterExpression: { status: { $in: ["invited", "active", "suspended"] } },
+    name: "uniq_current_business_membership_per_user"
   }
 );
 

@@ -294,6 +294,20 @@ export async function updateBranchStatus(branchId: string, status: BranchStatus)
   return parseApiResponse<{ success: true; branch: Branch }>(response);
 }
 
+/**
+ * Removes a branch that was never activated.
+ *
+ * Draft branches only — an activated branch is closed instead, so its history
+ * survives. The server refuses the delete if anything still points at it.
+ */
+export async function deleteBranchDraft(branchId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/branches/${branchId}`), {
+    method: "DELETE"
+  });
+
+  return parseApiResponse<{ success: true; message: string }>(response);
+}
+
 // Branch images and documents live under private_uploads and are served by
 // /api/v1/files, which requires a Bearer token. A plain <img src> or <a href>
 // cannot send that header, so the bytes are fetched with auth and handed to the

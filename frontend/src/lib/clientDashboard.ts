@@ -1,5 +1,6 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
+import { toPriceChangedError } from "@/lib/shipmentCostEstimate";
 import {
   AddressPrediction,
   AddressValidationResult,
@@ -64,10 +65,19 @@ export type ClientDashboardAccount = {
       code: string;
       status: string;
     } | null;
+    rateCard: {
+      title: "Your Swiftline Rate Card";
+      assigned: boolean;
+    };
   };
   dashboardAccess: {
     state: "READY" | "BLOCKED";
     blockers: string[];
+  };
+  bookingAccess: {
+    state: "READY" | "PAUSED";
+    code: "RATE_CARD_REQUIRED" | null;
+    message: string | null;
   };
   assignedBranches: Array<{
     _id: string;
@@ -149,6 +159,13 @@ export type ClientShipmentListItem = {
   status: string;
   statusLabel: string;
   dpdStatus: string;
+  bookingState: "EDITABLE" | "BOOKING" | "BOOKED" | "REVIEW_REQUIRED";
+  /**
+   * Whether to offer Delete on this row. Decided by the server, which also
+   * re-checks on the delete itself — so a true here is an invitation to try,
+   * not a guarantee the delete will succeed.
+   */
+  canDelete: boolean;
   shipmentInvoice: {
     invoiceNumber: string;
     currency: string;
@@ -180,6 +197,8 @@ export type ClientShipmentDetails = {
     addressValidationStatus: string;
     serviceType: ShipmentDraft["serviceType"];
     serviceCode: string;
+    kycUseForAllParcels?: boolean;
+    kycDocuments?: ShipmentKycDocuments;
     // Customs route. Absent on shipments booked before CSB selection existed.
     csbType?: ShipmentDraft["csbType"];
     parcelCount: number;
@@ -540,10 +559,25 @@ export async function updateClientShipmentDraft(shipmentDraftId: string, patch: 
   }>(response);
 }
 
-async function createClientShipmentBooking(shipmentDraftId: string, action: "create-dpd-label" | "create-swiftline-shipment") {
+async function createClientShipmentBooking(
+  shipmentDraftId: string,
+  action: "create-dpd-label" | "create-swiftline-shipment",
+  acceptedPricingHash?: string
+) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/${action}`), {
-    method: "POST"
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(acceptedPricingHash ? { acceptedPricingHash } : {})
   });
+
+  // A refusal because the price moved carries the new breakdown, so it is raised
+  // as a typed error the booking page can render as a comparison rather than as
+  // an opaque message.
+  if (response.status === 409) {
+    const data = await response.clone().json().catch(() => ({}));
+    const priceChanged = toPriceChangedError(data);
+    if (priceChanged) throw priceChanged;
+  }
 
   return parseApiResponse<{
     success: true;
@@ -577,12 +611,12 @@ async function createClientShipmentBooking(shipmentDraftId: string, action: "cre
   }>(response);
 }
 
-export function createClientDpdLabel(shipmentDraftId: string) {
-  return createClientShipmentBooking(shipmentDraftId, "create-dpd-label");
+export function createClientDpdLabel(shipmentDraftId: string, acceptedPricingHash?: string) {
+  return createClientShipmentBooking(shipmentDraftId, "create-dpd-label", acceptedPricingHash);
 }
 
-export function createClientSwiftlineShipment(shipmentDraftId: string) {
-  return createClientShipmentBooking(shipmentDraftId, "create-swiftline-shipment");
+export function createClientSwiftlineShipment(shipmentDraftId: string, acceptedPricingHash?: string) {
+  return createClientShipmentBooking(shipmentDraftId, "create-swiftline-shipment", acceptedPricingHash);
 }
 
 export async function getClientShipmentLabelAccessUrl(

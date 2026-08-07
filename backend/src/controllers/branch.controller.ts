@@ -271,7 +271,7 @@ function buildBranchDiff(before: Record<string, unknown>, after: Record<string, 
 // Audit writes must never fail a branch change that already succeeded, so a
 // logging error is reported but swallowed.
 async function writeBranchAuditLog(
-  action: "BRANCH_CREATED" | "BRANCH_DRAFT_CREATED" | "BRANCH_UPDATED" | "BRANCH_STATUS_CHANGED",
+  action: "BRANCH_CREATED" | "BRANCH_DRAFT_CREATED" | "BRANCH_UPDATED" | "BRANCH_STATUS_CHANGED" | "BRANCH_DRAFT_DELETED",
   branchId: mongoose.Types.ObjectId,
   branch: BranchAuditSnapshot,
   userId: mongoose.Types.ObjectId,
@@ -725,4 +725,51 @@ export async function deleteBranchDocument(request: Request, response: Response)
   fs.promises.unlink(path.resolve(privateUploadRoot, removedDocPath)).catch(() => undefined);
 
   return response.status(200).json({ success: true, branch });
+}
+
+/**
+ * Removes a branch that never went live.
+ *
+ * Hard delete, unlike shipment drafts: a DRAFT branch has never been activated,
+ * so nothing can legitimately reference it, and the dependency check below
+ * refuses the delete outright if anything does. There is no history worth
+ * keeping on a branch that never operated.
+ */
+export async function deleteBranchDraft(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const branchId = String(request.params.branchId ?? "");
+  if (!mongoose.Types.ObjectId.isValid(branchId)) {
+    return response.status(404).json({ success: false, message: "Branch not found" });
+  }
+
+  const branch = await Branch.findById(branchId).exec();
+  if (!branch) return response.status(404).json({ success: false, message: "Branch not found" });
+
+  if (branch.status !== "DRAFT") {
+    return response.status(409).json({
+      success: false,
+      message: "Only draft branches can be deleted. Set this branch to inactive or closed instead."
+    });
+  }
+
+  const dependents = await countBranchDependents(branch._id as mongoose.Types.ObjectId);
+  const dependentSummary = describeBranchDependents(dependents);
+  if (dependentSummary) {
+    return response.status(409).json({
+      success: false,
+      message: `This branch is still referenced by ${dependentSummary}. Reassign them before deleting it.`
+    });
+  }
+
+  await writeBranchAuditLog(
+    "BRANCH_DRAFT_DELETED",
+    branch._id as mongoose.Types.ObjectId,
+    { name: branch.name, code: branch.code, status: branch.status },
+    userId
+  );
+  await branch.deleteOne();
+
+  return response.status(200).json({ success: true, message: "Branch draft deleted." });
 }

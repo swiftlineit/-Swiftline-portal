@@ -16,7 +16,11 @@ import {
   ensureShipmentInvoiceForDraft,
   ShipmentInvoiceServiceError
 } from "./shipmentInvoice.service.js";
-import { calculateShipmentPricingEstimate, type ShipmentPricingEstimate } from "./shipmentPricing.service.js";
+import {
+  buildPricingInputFromDraft,
+  calculateShipmentPricingEstimate,
+  type ShipmentPricingEstimate
+} from "./shipmentPricing.service.js";
 import { formatMinorRupees } from "./prepaid/dailyTopUpLimit.service.js";
 import { notifyBusinessShipmentMembers } from "./portalNotification.service.js";
 
@@ -163,10 +167,12 @@ async function calculateVerificationPricing(
   session?: mongoose.ClientSession
 ) {
   const pricing = await calculateShipmentPricingEstimate({
-    countryCode: draft.consigneeEnteredAddress.countryCode,
-    serviceType: draft.serviceType,
+    // The draft supplies the route, the CSB type, the insurance choice and the
+    // declared goods value; only the measurements are replaced by what the
+    // warehouse actually weighed. Re-deriving the declared value from `parcels`
+    // would read zero, because verified parcels carry no item lines.
+    ...buildPricingInputFromDraft(draft),
     parcels,
-    csbType: draft.csbType,
     session
   });
   if (pricing.missingRate) {

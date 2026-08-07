@@ -5,6 +5,7 @@ import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
+import { getOrCreateIndividualSentinel } from "./individualCustomer.service.js";
 import { validateShipmentDraftFields } from "./shipmentValidation.service.js";
 
 export class ManualShipmentDraftError extends Error {
@@ -30,6 +31,171 @@ async function resolveBranch(value: string) {
   }
 
   return Branch.findOne({ code: value.toUpperCase() }).exec();
+}
+
+/** Identity of a walk-in customer, captured at the counter. */
+export type IndividualCustomerInput = {
+  contactName: string;
+  mobileCountryCode: string;
+  mobileNumber: string;
+  email?: string;
+  aadhaarNumber?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  townOrCity?: string;
+  county?: string;
+  postcode?: string;
+  pickupInstructions?: string;
+};
+
+/**
+ * Opens a blank draft for a walk-in customer.
+ *
+ * Structurally the same as `createBlankShipmentDraft` — including the internal
+ * `InvoiceUpload` that keeps label, invoice and billing references stable — with
+ * two differences: it books against the system sentinel rather than a customer
+ * account, and the person paying is written into `consignorAddress`, which is
+ * where the booking snapshot and the invoice bill-to already read the sender
+ * from. The sentinel serves every branch, so the assigned-branch checks that
+ * ordinary accounts go through do not apply.
+ */
+export async function createIndividualShipmentDraft(input: {
+  branchId: string;
+  customer: IndividualCustomerInput;
+  createdBy: mongoose.Types.ObjectId;
+}) {
+  const branch = await resolveBranch(input.branchId);
+  if (!branch) throw new ManualShipmentDraftError("Sender branch not found.", 404);
+  if (branch.status !== "ACTIVE") {
+    throw new ManualShipmentDraftError("The selected branch is not active.", 409);
+  }
+  if (!input.customer.contactName.trim()) {
+    throw new ManualShipmentDraftError("Enter the customer's name.", 400);
+  }
+  if (!input.customer.mobileNumber.trim()) {
+    throw new ManualShipmentDraftError("Enter the customer's mobile number.", 400);
+  }
+
+  const sentinel = await getOrCreateIndividualSentinel(input.createdBy);
+
+  const sourceToken = crypto.randomUUID().replace(/-/g, "").toUpperCase();
+  const sourceReference = sourceToken.slice(0, 16);
+  const session = await mongoose.startSession();
+  let shipmentDraft: InstanceType<typeof ShipmentDraft> | null = null;
+
+  try {
+    await session.withTransaction(async () => {
+      const invoiceUpload = new InvoiceUpload({
+        businessAccountId: sentinel._id,
+        branchId: branch._id,
+        templateVersion: "INDIVIDUAL-1.0",
+        invoiceNumber: `IND-INV-${sourceReference}`,
+        shipmentReference: `IND-SHIP-${sourceReference}`,
+        originalFilename: "Individual shipment entry",
+        storagePath: `individual://shipment-draft/${sourceToken}`,
+        fileChecksum: crypto.createHash("sha256").update(sourceToken).digest("hex"),
+        extractedData: { creationSource: "INDIVIDUAL" },
+        status: "PARSED",
+        processingErrors: [],
+        uploadedBy: input.createdBy,
+        uploadedAt: new Date()
+      });
+      await invoiceUpload.save({ session });
+
+      const draft = new ShipmentDraft({
+        invoiceUploadId: invoiceUpload._id,
+        businessAccountId: sentinel._id,
+        customerType: "INDIVIDUAL",
+        branchId: branch._id,
+        sender: {
+          branchId: branch._id,
+          name: branch.name,
+          code: branch.code,
+          address: branch.address,
+          contact: branch.contact
+        },
+        consignorAddress: {
+          companyName: "",
+          contactName: input.customer.contactName.trim(),
+          email: (input.customer.email ?? "").trim(),
+          mobileCountryCode: input.customer.mobileCountryCode.trim(),
+          mobileNumber: input.customer.mobileNumber.trim(),
+          aadhaarNumber: (input.customer.aadhaarNumber ?? "").replace(/\D/g, ""),
+          addressLine1: (input.customer.addressLine1 ?? "").trim(),
+          addressLine2: (input.customer.addressLine2 ?? "").trim(),
+          townOrCity: (input.customer.townOrCity ?? "").trim(),
+          county: (input.customer.county ?? "").trim(),
+          postcode: (input.customer.postcode ?? "").trim(),
+          pickupInstructions: (input.customer.pickupInstructions ?? "").trim()
+        },
+        consigneeEnteredAddress: {
+          companyName: "",
+          contactName: "",
+          email: "",
+          mobileCountryCode: "",
+          mobileNumber: "",
+          countryCode: "",
+          countryName: "",
+          postcode: "",
+          addressLine1: "",
+          addressLine2: "",
+          townOrCity: "",
+          county: "",
+          deliveryInstructions: ""
+        },
+        consigneeSelectedAddress: null,
+        consigneeValidatedAddress: null,
+        googlePlaceId: "",
+        addressValidationStatus: "NOT_VALIDATED",
+        addressValidationResult: {},
+        parcelCount: 1,
+        parcelList: [{
+          sequence: 1,
+          weightKg: 0,
+          shipmentContentType: "PARCEL",
+          contentsDescription: "",
+          shipmentReference1: "",
+          shipmentReference2: ""
+        }],
+        serviceType: "COURIER",
+        serviceCode: "",
+        validationIssues: [],
+        status: "NEEDS_REVIEW",
+        createdBy: input.createdBy
+      });
+      draft.validationIssues = validateShipmentDraftFields(draft);
+      await draft.save({ session });
+
+      await new AuditLog({
+        action: "SHIPMENT_DRAFT_CREATED",
+        entityType: "SHIPMENT_DRAFT",
+        entityId: draft._id,
+        performedBy: input.createdBy,
+        performedAt: new Date(),
+        metadata: {
+          creationSource: "INDIVIDUAL",
+          customerType: "INDIVIDUAL",
+          businessAccountId: sentinel._id,
+          branchId: branch._id,
+          invoiceUploadId: invoiceUpload._id
+        }
+      }).save({ session });
+
+      shipmentDraft = draft;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  // Read through a widened alias: the assignment happens inside the transaction
+  // callback, which control-flow analysis cannot see, so narrowing the original
+  // binding here would collapse the return type to `never`.
+  const created = shipmentDraft as InstanceType<typeof ShipmentDraft> | null;
+  if (!created) {
+    throw new ManualShipmentDraftError("The individual shipment draft could not be created. Please try again.", 500);
+  }
+
+  return created;
 }
 
 export async function createBlankShipmentDraft(input: {

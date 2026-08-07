@@ -9,6 +9,7 @@ import { DpdShipment } from "../models/dpdShipment.model.js";
 import { ShipmentAmendment } from "../models/shipmentAmendment.model.js";
 import { ShipmentCancellation, type IShipmentCancellation } from "../models/shipmentCancellation.model.js";
 import { ShipmentCharge } from "../models/shipmentCharge.model.js";
+import { CounterPayment, type CounterPaymentMethod } from "../models/counterPayment.model.js";
 import { ShipmentCreditNote } from "../models/shipmentCreditNote.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent, type ShipmentEventStatus } from "../models/shipmentEvent.model.js";
@@ -325,6 +326,16 @@ export async function approveShipmentCancellation(input: {
   settlementConfirmed: boolean;
   carrierReference: string;
   reviewNote: string;
+  /**
+   * How the refund was paid back to a walk-in customer. Required only when the
+   * shipment was a counter sale with something to refund; account-backed
+   * cancellations settle through the credit ledger instead.
+   */
+  refundPayout?: {
+    method: CounterPaymentMethod;
+    reference?: string;
+    note?: string;
+  };
 }) {
   if (!input.carrierConfirmed) {
     throw new ShipmentCancellationError(400, "Confirm carrier cancellation before completing the refund.");
@@ -374,6 +385,37 @@ export async function approveShipmentCancellation(input: {
         shipmentDraftId: cancellation.shipmentDraftId,
         paymentSource: "BUSINESS_ACCOUNT"
       }).session(session);
+
+      // A walk-in paid into a company account before the shipment was booked, so
+      // the refund has to leave the same way. The credit note below is only the
+      // document; requiring the payout to be recorded in the same transaction is
+      // what stops the paperwork and the money that actually moved from drifting
+      // apart, and is what makes the counter-sales report reconcile.
+      const counterCharge = await ShipmentCharge.findOne({
+        shipmentDraftId: cancellation.shipmentDraftId,
+        paymentSource: "ADMIN_DIRECT"
+      }).session(session).exec();
+
+      if (counterCharge && amounts.refundableAmountMinor > 0) {
+        if (!input.refundPayout) {
+          throw new ShipmentCancellationError(
+            400,
+            "Record how the refund was paid back to the customer before completing this cancellation."
+          );
+        }
+
+        await CounterPayment.create([{
+          shipmentDraftId: cancellation.shipmentDraftId,
+          branchId: counterCharge.branchId,
+          direction: "REFUNDED",
+          amountMinor: amounts.refundableAmountMinor,
+          method: input.refundPayout.method,
+          reference: input.refundPayout.reference ?? "",
+          note: input.refundPayout.note ?? "",
+          recordedBy: input.reviewedBy,
+          recordedAt: new Date()
+        }], { session });
+      }
 
       const settlement = businessCharge
         ? calculateCancellationSettlement({

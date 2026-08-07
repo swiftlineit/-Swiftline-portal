@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { FiPlus, FiRefreshCw, FiChevronDown } from "react-icons/fi";
 
 import { DashboardLoading } from "@/components/DashboardShell";
-import DateFilterInput from "@/components/ui/DateFilterInput";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { emptyDateRange } from "@/lib/dateRange";
 import Pagination from "@/components/ui/Pagination";
 import QuoteList from "@/components/quotes/QuoteList";
 import {
@@ -23,7 +24,7 @@ export default function AdminQuoteRequestsPage() {
   const [quotes, setQuotes] = useState<ShipmentQuote[]>([]);
   const [pagination, setPagination] = useState(emptyPagination);
   const [status, setStatus] = useState<"" | QuoteStatus>("");
-  const [date, setDate] = useState("");
+  const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState("");
@@ -32,7 +33,7 @@ export default function AdminQuoteRequestsPage() {
     setDataLoading(true);
     setError("");
     try {
-      const result = await listShipmentQuotes("admin", { status, date, page });
+      const result = await listShipmentQuotes("admin", { status, dateRange, page });
       setQuotes(result.quotes);
       setPagination(result.pagination);
     } catch (caught) {
@@ -44,7 +45,7 @@ export default function AdminQuoteRequestsPage() {
     } finally {
       setDataLoading(false);
     }
-  }, [status, date, page]);
+  }, [status, dateRange, page]);
 
   useEffect(() => {
     if (!user) return;
@@ -70,10 +71,10 @@ export default function AdminQuoteRequestsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <DateFilterInput
-            value={date}
+          <DateRangeFilter
+            value={dateRange}
             onChange={(value) => {
-              setDate(value);
+              setDateRange(value);
               setPage(1);
             }}
           />

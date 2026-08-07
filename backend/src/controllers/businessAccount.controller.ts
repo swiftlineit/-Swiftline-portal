@@ -17,7 +17,12 @@ import {
   IBusinessKycReview
 } from "../models/businessAccount.model.js";
 import { Branch } from "../models/branch.model.js";
+import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
+import { ShipmentDraft } from "../models/shipmentDraft.model.js";
+import { AuditLog } from "../models/auditLog.model.js";
+import { CountryRateCard, rateCardBandValues } from "../models/countryRateCard.model.js";
 import { businessAccountBranchFilter } from "../middleware/businessAccountBranchAccess.middleware.js";
+import { excludeSentinel } from "../services/individualCustomer.service.js";
 import { notifyActiveAdmins, notifyBusinessAccountManagers } from "../services/portalNotification.service.js";
 import {
   BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX,
@@ -107,6 +112,11 @@ const businessKycCheckKeySchema = z.enum([
 const businessKycCheckStatusSchema = z.enum(businessKycCheckStatuses);
 const assignBranchBodySchema = z.object({
   branchId: z.string().trim().refine((value) => mongoose.Types.ObjectId.isValid(value), "Invalid branch ID")
+});
+const assignRateCardBodySchema = z.object({
+  rateCardBand: z.enum(rateCardBandValues).nullable(),
+  expectedRateCardBand: z.enum(rateCardBandValues).nullable(),
+  reason: z.string().trim().min(3, "Enter a reason for this rate-card change.").max(500)
 });
 const nullableCreditLimitSchema = z.preprocess(
   (value) => typeof value === "string" && value.trim() === "" ? null : value,
@@ -372,7 +382,14 @@ const businessAccountBodySchema = z.object({
   }
 });
 
-type BusinessAccountBody = z.infer<typeof businessAccountBodySchema>;
+/**
+ * The shape the account builders accept.
+ *
+ * Taken from the draft schema rather than the strict one because it is the wider
+ * of the two — a fully validated body is assignable to it, so one set of helpers
+ * serves both the draft save and the real submission.
+ */
+type BusinessAccountBody = z.infer<typeof businessAccountDraftBodySchema>;
 
 const businessKycReviewBodySchema = z.object({
   checks: z.partialRecord(
@@ -533,13 +550,86 @@ function parseJsonField(value: unknown): unknown {
   }
 }
 
-function parseBusinessAccountBody(request: Request) {
-  const body = request.body as Record<string, unknown>;
+/**
+ * What a draft must carry.
+ *
+ * Only the identity fields, because those are what the live-account unique
+ * indexes key off and what duplicate detection needs; a draft that could not be
+ * de-duplicated would let the same customer be onboarded twice. Everything else
+ * is accepted as-is and re-validated in full by `submitBusinessAccount`.
+ */
+const businessAccountDraftBodySchema = z.object({
+  contact: z.object({
+    title: z.enum(["mr.", "mrs.", "ms.", "dr.", "prof."]).or(z.literal("")).optional().default(""),
+    firstName: z.string().trim().min(2).max(22),
+    lastName: z.string().trim().min(1).max(22),
+    email: z.string().trim().email().toLowerCase().refine(isValidBusinessContactEmail, emailValidationMessage),
+    mobileType: z.enum(["mobile", "office"]).optional().default("mobile"),
+    countryCode: z.string().trim().min(1).max(8),
+    mobileNumber: z.string().trim().regex(/^\d{6,15}$/, "Mobile number must contain 6 to 15 digits"),
+    jobTitle: z.string().trim().max(80).optional().default(""),
+    department: z.string().trim().max(80).optional().default(""),
+    shipmentTypes: z.array(shipmentTypeSchema).optional().default([])
+  }),
+  company: z.object({
+    registrationCountry: registrationCountrySchema.or(z.literal("")).optional().default(""),
+    registrationIdType: z.string().trim().max(80).optional().default(""),
+    registrationId: z.string().trim().max(50).optional().default(""),
+    gstin: z.string().trim().max(20).optional().default(""),
+    gstExempt: z.coerce.boolean().optional().default(false),
+    gstExemptReason: z.string().trim().max(GST_EXEMPT_REASON_MAX).optional().default(""),
+    secondaryRegistrationId: z.string().trim().max(50).optional().default(""),
+    noCompanyRegistration: z.coerce.boolean().optional().default(false),
+    noCompany: z.coerce.boolean().optional().default(false),
+    companyType: companyTypeSchema.optional().default(""),
+    companyName: z.string().trim().max(160).optional().default(""),
+    registeredAddress: z.string().trim().max(500).optional().default(""),
+    addressLine2: z.string().trim().max(200).optional().default(""),
+    city: z.string().trim().max(80).optional().default(""),
+    stateOrProvince: z.string().trim().max(80).optional().default(""),
+    postalCode: z.string().trim().max(20).optional().default(""),
+    addressCountry: z.string().trim().max(80).optional().default(""),
+    useCompanyAddressAsBillingAddress: z.coerce.boolean().optional().default(true),
+    billingAddress: z.object({
+      addressLine1: z.string().trim().max(500).optional().default(""),
+      addressLine2: z.string().trim().max(200).optional().default(""),
+      city: z.string().trim().max(80).optional().default(""),
+      stateOrProvince: z.string().trim().max(80).optional().default(""),
+      postalCode: z.string().trim().max(20).optional().default(""),
+      country: z.string().trim().max(80).optional().default("")
+    }).optional().default({
+      addressLine1: "",
+      addressLine2: "",
+      city: "",
+      stateOrProvince: "",
+      postalCode: "",
+      country: ""
+    }),
+    operatingCountries: z.array(z.string().trim().min(1).max(80)).optional().default([]),
+    website: z.string().trim().max(200).optional().or(z.literal("")).or(z.null()),
+    industry: z.string().trim().max(100).optional().default(""),
+    monthlyShipmentVolume: z.string().trim().max(80).optional().default(""),
+    requestedCreditCurrency: z.string().trim().min(3).max(3).optional().default("INR"),
+    requestedCreditLimit: nullableCreditLimitSchema
+  })
+});
 
-  return businessAccountBodySchema.safeParse({
+/** True when the caller asked to store the form as a draft rather than submit it. */
+function isDraftSave(request: Request) {
+  const body = request.body as Record<string, unknown>;
+  return String(body.saveAsDraft ?? request.query.draft ?? "") === "true";
+}
+
+function parseBusinessAccountBody(request: Request, { draft = false } = {}) {
+  const body = request.body as Record<string, unknown>;
+  const payload = {
     contact: parseJsonField(body.contact),
     company: parseJsonField(body.company)
-  });
+  };
+
+  return draft
+    ? businessAccountDraftBodySchema.safeParse(payload)
+    : businessAccountBodySchema.safeParse(payload);
 }
 
 function getUploadedFiles(request: Request): Partial<Record<DocumentType, Express.Multer.File>> {
@@ -1053,7 +1143,9 @@ export async function validateBusinessAccountUniqueness(request: Request, respon
 
 export async function listBusinessAccounts(request: Request, response: Response): Promise<Response> {
   const { status, search, branchId } = request.query;
-  const filters: Record<string, unknown> = {};
+  // The individual-shipment sentinel is bookkeeping rather than a customer, so it
+  // is kept out of the list, the counts and every search result.
+  const filters: Record<string, unknown> = excludeSentinel({});
 
   if (typeof status === "string" && status) {
     filters.status = status;
@@ -1119,7 +1211,7 @@ export async function createBusinessAccount(request: Request, response: Response
     return response.status(401).json({ success: false, message: "Unauthorized" });
   }
 
-  const parsed = parseBusinessAccountBody(request);
+  const parsed = parseBusinessAccountBody(request, { draft: isDraftSave(request) });
   if (!parsed.success) {
     await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, errors: parsed.error.format() });
@@ -1224,7 +1316,7 @@ export async function updateBusinessAccount(request: Request, response: Response
     return response.status(404).json({ success: false, message: "Business account not found" });
   }
 
-  const parsed = parseBusinessAccountBody(request);
+  const parsed = parseBusinessAccountBody(request, { draft: isDraftSave(request) });
   if (!parsed.success) {
     await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, errors: parsed.error.format() });
@@ -1316,6 +1408,21 @@ export async function submitBusinessAccount(request: Request, response: Response
   if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
   if (account.status !== "draft") {
     return response.status(409).json({ success: false, message: "Only draft accounts can be submitted" });
+  }
+
+  // Drafts are stored against a relaxed schema, so this is the first point the
+  // full rules are applied. Without it, saving as a draft would be a route around
+  // every onboarding requirement.
+  const completeness = businessAccountBodySchema.safeParse({
+    contact: account.contact,
+    company: account.company
+  });
+  if (!completeness.success) {
+    return response.status(400).json({
+      success: false,
+      message: "Complete every required field before submitting this account for review.",
+      errors: completeness.error.format()
+    });
   }
 
   const requirementError = getDocumentRequirementError(account.documents ?? {});
@@ -1492,6 +1599,148 @@ export async function assignBusinessAccountBranch(request: Request, response: Re
   });
 }
 
+export async function assignBusinessAccountRateCard(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = assignRateCardBodySchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: parsed.error.issues[0]?.message ?? "Select a valid rate card."
+    });
+  }
+
+  const account = await BusinessAccount.findOne({
+    accountId: request.params.accountId,
+    accountKind: { $ne: "INDIVIDUAL_SENTINEL" }
+  }).exec();
+  if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
+
+  const nextBand = parsed.data.rateCardBand;
+  if (nextBand) {
+    const hasRates = await CountryRateCard.exists({ band: nextBand }).exec();
+    if (!hasRates) {
+      return response.status(409).json({
+        success: false,
+        code: "RATE_CARD_EMPTY",
+        message: "Add at least one valid rate to this card before assigning it."
+      });
+    }
+  }
+
+  const previousBand = account.rateCardBand ?? null;
+  if (previousBand !== parsed.data.expectedRateCardBand) {
+    return response.status(409).json({
+      success: false,
+      code: "RATE_CARD_ASSIGNMENT_CHANGED",
+      message: "This account's rate card changed while you were editing. Refresh and try again."
+    });
+  }
+
+  const updated = await BusinessAccount.findOneAndUpdate(
+    {
+      _id: account._id,
+      rateCardBand: parsed.data.expectedRateCardBand
+    },
+    {
+      $set: {
+        rateCardBand: nextBand,
+        updatedBy: userId
+      }
+    },
+    { returnDocument: "after", runValidators: true }
+  ).exec();
+  if (!updated) {
+    return response.status(409).json({
+      success: false,
+      code: "RATE_CARD_ASSIGNMENT_CHANGED",
+      message: "This account's rate card changed while you were editing. Refresh and try again."
+    });
+  }
+
+  await AuditLog.create({
+    action: "BUSINESS_ACCOUNT_RATE_CARD_ASSIGNED",
+    entityType: "BUSINESS_ACCOUNT",
+    entityId: updated._id,
+    performedBy: userId,
+    performedAt: new Date(),
+    metadata: {
+      previousRateCardBand: previousBand,
+      rateCardBand: nextBand,
+      reason: parsed.data.reason
+    }
+  });
+
+  const updatedAccount = await getPopulatedBusinessAccount(updated.accountId);
+  const configuredRoutes = await CountryRateCard.find({})
+    .select("band countryCode service")
+    .lean()
+    .exec();
+  const allRoutes = new Set(configuredRoutes.map((rate) => `${rate.countryCode}:${rate.service}`));
+  const selectedRoutes = new Set(
+    configuredRoutes
+      .filter((rate) => rate.band === nextBand)
+      .map((rate) => `${rate.countryCode}:${rate.service}`)
+  );
+  const missingRouteCount = nextBand
+    ? [...allRoutes].filter((route) => !selectedRoutes.has(route)).length
+    : 0;
+  const coverageWarning = missingRouteCount
+    ? `This card has no configured slabs for ${missingRouteCount} route(s) available in other bands. Those routes will remain blocked.`
+    : null;
+
+  return response.status(200).json({
+    success: true,
+    message: nextBand
+      ? "Rate card assigned successfully. New and ongoing pricing will use it."
+      : "Rate card removed. New estimates, quotes and bookings are now paused.",
+    coverageWarning,
+    account: updatedAccount
+  });
+}
+
+export async function listBusinessAccountRateCardHistory(request: Request, response: Response): Promise<Response> {
+  const account = await BusinessAccount.findOne({
+    accountId: request.params.accountId,
+    accountKind: { $ne: "INDIVIDUAL_SENTINEL" }
+  }).select("_id").lean().exec();
+  if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
+
+  const history = await AuditLog.find({
+    action: "BUSINESS_ACCOUNT_RATE_CARD_ASSIGNED",
+    entityType: "BUSINESS_ACCOUNT",
+    entityId: account._id
+  })
+    .populate("performedBy", "firstName lastName email")
+    .sort({ performedAt: -1 })
+    .limit(100)
+    .lean()
+    .exec();
+
+  return response.status(200).json({
+    success: true,
+    history: history.map((entry) => {
+      const performer = entry.performedBy as unknown as {
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+      } | null;
+      return {
+        id: String(entry._id),
+        previousRateCardBand: entry.metadata.previousRateCardBand ?? null,
+        rateCardBand: entry.metadata.rateCardBand ?? null,
+        reason: String(entry.metadata.reason ?? ""),
+        performedAt: entry.performedAt,
+        performedBy: {
+          name: [performer?.firstName, performer?.lastName].filter(Boolean).join(" "),
+          email: performer?.email ?? ""
+        }
+      };
+    })
+  });
+}
+
 export async function viewBusinessAccountDocument(request: Request, response: Response): Promise<void | Response> {
   const parsed = documentTypeSchema.safeParse(request.params.documentType);
   if (!parsed.success) {
@@ -1601,4 +1850,58 @@ export async function updateBusinessAccountKycReview(request: Request, response:
     account: updatedAccount ?? account,
     kycReview: (updatedAccount ?? account).kycReview
   });
+}
+
+/**
+ * Removes a business account that was never submitted for review.
+ *
+ * Hard delete, unlike shipment drafts: a draft account has no branch, no
+ * members, no credit, and no shipments — nothing downstream can reference it,
+ * and the checks below refuse the delete if anything does. Its uploaded KYC
+ * documents go with it, since holding identity documents for an abandoned
+ * application is exactly what should not happen.
+ */
+export async function deleteBusinessAccountDraft(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
+  if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
+
+  if (account.status !== "draft") {
+    return response.status(409).json({
+      success: false,
+      message: "Only draft accounts can be deleted. Reject or suspend this account instead."
+    });
+  }
+
+  const [members, shipments] = await Promise.all([
+    BusinessAccountMember.countDocuments({
+      businessAccount: account._id,
+      status: { $ne: "removed" }
+    }).exec(),
+    ShipmentDraft.countDocuments({ businessAccountId: account._id, deletedAt: null }).exec()
+  ]);
+
+  if (members || shipments) {
+    return response.status(409).json({
+      success: false,
+      message: "This account already has users or shipments and cannot be deleted."
+    });
+  }
+
+  // Audited before the record goes, so the log can describe what was removed.
+  await recordBusinessAccountAudit("BUSINESS_ACCOUNT_DRAFT_DELETED", account, userId);
+
+  // Best effort: a document that cannot be removed from disk must not leave the
+  // account stranded in draft forever.
+  await Promise.all(
+    Object.values(account.documents ?? {})
+      .filter((document): document is IBusinessDocument => Boolean(document?.path))
+      .map((document) => fs.promises.unlink(document.path).catch(() => undefined))
+  );
+
+  await account.deleteOne();
+
+  return response.status(200).json({ success: true, message: "Business account draft deleted." });
 }

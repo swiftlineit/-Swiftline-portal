@@ -10,8 +10,10 @@ import {
   createClientShipmentLabelAccess,
   createClientManualShipmentDraft,
   createClientInvoiceUpload,
+  deleteClientShipmentDraft,
   deleteClientShipmentKycDocument,
   deleteClientShipmentParcelKycDocument,
+  restoreClientShipmentDraft,
   downloadClientDpdInvoiceTemplate,
   downloadClientShipmentKycDocument,
   downloadClientShipmentParcelKycDocument,
@@ -23,6 +25,8 @@ import {
   trackClientShipment,
   getClientShipmentInvoice,
   getClientShipmentDraft,
+  getClientShipmentDraftRateCardContext,
+  getClientShipmentDraftCostEstimate,
   previewClientShipmentAmendment,
   processClientInvoiceUpload,
   updateClientShipmentDraft
@@ -52,7 +56,14 @@ import {
   listClientShipmentManifests
 } from "../controllers/shipmentManifest.controller.js";
 import { listClientBookedShipments } from "../controllers/shipmentListing.controller.js";
-import { listCountryRateCards } from "../controllers/countryRateCard.controller.js";
+import { listClientCountryRateCards } from "../controllers/clientRateCard.controller.js";
+import {
+  downloadClientRateCardSharePdf,
+  downloadClientRateCardShareWorkbook,
+  getClientRateCardShare,
+  listClientRateCardShares,
+  markClientRateCardShareRead
+} from "../controllers/rateCardShare.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { invoiceUpload } from "../middleware/invoiceUpload.middleware.js";
 import { shipmentKycUpload } from "../middleware/shipmentKycUpload.middleware.js";
@@ -91,11 +102,21 @@ import {
 import {
   createClientTicket, getClientTicket, listClientTickets, replyClientTicket
 } from "../controllers/supportTicket.controller.js";
+import {
+  listClientCalendarEntries,
+  listClientServiceDisruptions
+} from "../controllers/operationsAdvisory.controller.js";
+import { cancelClientPickupRequest, createClientPickupRequest, getClientPickupRequest, listClientEligiblePickups, listClientPickupRequests, viewClientPickupProof } from "../controllers/pickup.controller.js";
+import { createPodDispute, getClientPod, viewPodEvidence } from "../controllers/pod.controller.js";
 
 export const clientRouter = Router();
 
 clientRouter.use(attachUser);
 clientRouter.use(requireRole("client"));
+
+// Operations advisory: the header marquee and the Holiday & Cut-Off Calendar.
+clientRouter.get("/service-disruptions", listClientServiceDisruptions);
+clientRouter.get("/calendar-entries", listClientCalendarEntries);
 
 clientRouter.get("/support-tickets", listClientTickets);
 clientRouter.post("/support-tickets", createClientTicket);
@@ -128,7 +149,12 @@ clientRouter.get("/credit-agreements", listClientCreditAgreements);
 clientRouter.get("/credit-agreements/:agreementId/pdf", getClientCreditAgreementPdf);
 clientRouter.post("/credit-agreements/:agreementId/sign", signClientCreditAgreement);
 clientRouter.get("/credit-agreements/:agreementId", getClientCreditAgreement);
-clientRouter.get("/country-rate-cards", listCountryRateCards);
+clientRouter.get("/country-rate-cards", listClientCountryRateCards);
+clientRouter.get("/rate-card-shares", listClientRateCardShares);
+clientRouter.get("/rate-card-shares/:shareId", getClientRateCardShare);
+clientRouter.get("/rate-card-shares/:shareId/pdf", downloadClientRateCardSharePdf);
+clientRouter.get("/rate-card-shares/:shareId/xlsx", downloadClientRateCardShareWorkbook);
+clientRouter.post("/rate-card-shares/:shareId/read", markClientRateCardShareRead);
 clientRouter.get("/prepaid-account", getClientPrepaidAccount);
 clientRouter.get("/prepaid-transactions", listClientPrepaidTransactions);
 clientRouter.post("/prepaid-topups", createClientPrepaidTopUp);
@@ -140,7 +166,15 @@ clientRouter.post("/dpd-labels/invoice-uploads", invoiceUpload, createClientInvo
 clientRouter.post("/dpd-labels/invoice-uploads/:id/process", processClientInvoiceUpload);
 clientRouter.post("/dpd-labels/drafts/manual", createClientManualShipmentDraft);
 clientRouter.get("/dpd-labels/drafts/:id", getClientShipmentDraft);
+clientRouter.get("/dpd-labels/drafts/:id/rate-card-context", getClientShipmentDraftRateCardContext);
 clientRouter.patch("/dpd-labels/drafts/:id", updateClientShipmentDraft);
+// Unbooked drafts only; deletion is soft and the restore below backs the undo
+// action on the delete toast.
+clientRouter.delete("/dpd-labels/drafts/:id", deleteClientShipmentDraft);
+clientRouter.post("/dpd-labels/drafts/:id/restore", restoreClientShipmentDraft);
+// POST because the booking form prices the values it currently holds, which are
+// sent in the body. Nothing is written.
+clientRouter.post("/dpd-labels/drafts/:id/cost-estimate", getClientShipmentDraftCostEstimate);
 clientRouter.post("/dpd-labels/drafts/:id/kyc-documents/:type", shipmentKycUpload, uploadClientShipmentKycDocument);
 clientRouter.delete("/dpd-labels/drafts/:id/kyc-documents/:type", deleteClientShipmentKycDocument);
 clientRouter.get("/dpd-labels/drafts/:id/kyc-documents/:type", downloadClientShipmentKycDocument);
@@ -151,6 +185,15 @@ clientRouter.post("/dpd-labels/drafts/:id/create-dpd-label", createClientDpdLabe
 clientRouter.post("/dpd-labels/drafts/:id/create-swiftline-shipment", createClientSwiftlineShipment);
 clientRouter.get("/shipments", listClientShipments);
 clientRouter.get("/booked-shipments", listClientBookedShipments);
+clientRouter.get("/pickups/eligible-shipments", listClientEligiblePickups);
+clientRouter.post("/pickups", createClientPickupRequest);
+clientRouter.get("/pickups", listClientPickupRequests);
+clientRouter.get("/pickups/:pickupId", getClientPickupRequest);
+clientRouter.post("/pickups/:pickupId/cancel", cancelClientPickupRequest);
+clientRouter.get("/pickups/:pickupId/proofs/:proofId", viewClientPickupProof);
+clientRouter.get("/shipments/:shipmentId/pod", getClientPod);
+clientRouter.post("/shipments/:shipmentId/pod/disputes", createPodDispute);
+clientRouter.get("/pod/assignments/:assignmentId/revisions/:revisionId/evidence/:evidenceId", viewPodEvidence);
 clientRouter.get("/tracking/:trackingNumber", trackClientShipment);
 clientRouter.get("/shipments/:draftId/labels/:labelId/access", createClientShipmentLabelAccess);
 clientRouter.get("/shipments/:id", getClientShipmentDetails);

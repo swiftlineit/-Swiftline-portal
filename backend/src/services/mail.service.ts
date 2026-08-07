@@ -26,6 +26,14 @@ type LoginOtpEmailInput = {
   expiresAt: Date;
 };
 
+type PickupOtpEmailInput = {
+  to: string;
+  name: string;
+  code: string;
+  requestNumber: string;
+  expiresAt: Date;
+};
+
 export type MailDeliveryResult = {
   sent: boolean;
   skipped: boolean;
@@ -53,7 +61,7 @@ function keyForSecret(prefix: string, secret: string) {
  * instead and is never awaited on a request.
  */
 async function enqueueAndSendNow(params: {
-  notificationType: "CLIENT_INVITATION" | "PASSWORD_RESET" | "LOGIN_OTP";
+  notificationType: "CLIENT_INVITATION" | "PASSWORD_RESET" | "LOGIN_OTP" | "PICKUP_OTP";
   idempotencyKey: string;
   to: string;
   name: string;
@@ -128,6 +136,19 @@ export async function sendLoginOtpEmail(input: LoginOtpEmailInput): Promise<Mail
       expiresInMinutes
     },
     context: { to: input.to }
+  });
+}
+
+export async function sendPickupOtpEmail(input: PickupOtpEmailInput): Promise<MailDeliveryResult> {
+  const expiresInMinutes = Math.max(1, Math.round((input.expiresAt.getTime() - Date.now()) / 60_000));
+  return enqueueAndSendNow({
+    notificationType: "PICKUP_OTP",
+    idempotencyKey: keyForSecret("PICKUP_OTP", `${input.to.toLowerCase()}:${input.code}:${input.expiresAt.getTime()}`),
+    to: input.to,
+    name: input.name,
+    subject: `Pickup verification code for ${input.requestNumber}`,
+    payload: { code: input.code, requestNumber: input.requestNumber, expiresAt: input.expiresAt, expiresInMinutes },
+    context: { to: input.to, requestNumber: input.requestNumber }
   });
 }
 

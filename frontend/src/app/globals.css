@@ -12,6 +12,25 @@
   --font-sans: Helvetica, "Helvetica Neue", "Nimbus Sans", Arial, sans-serif;
 }
 
+/* Interactive controls should consistently look interactive throughout the
+   portal, including icon-only buttons and elements implemented with ARIA. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+summary,
+input[type="button"]:not(:disabled),
+input[type="submit"]:not(:disabled),
+input[type="reset"]:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input[type="button"]:disabled,
+input[type="submit"]:disabled,
+input[type="reset"]:disabled {
+  cursor: not-allowed;
+}
+
 /* The sign-in card is sized to fit a desktop viewport without scrolling. A
    1366x768 laptop leaves only ~650px of usable height, which is not enough for
    the full card, so the support strip drops out below that. Nothing is lost —
@@ -58,4 +77,41 @@
   width: 0 !important;
   height: 0 !important;
   display: none !important;              /* Chrome/Safari/WebKit */
+}
+
+/* The header advisory ticker. The track is always at least twice the width of
+   its container (the component measures one content pass, repeats it to fill
+   the viewport, then duplicates it), so translating by -50% loops a seamless
+   scroll. Negative X is right-to-left: text enters from the right edge and
+   exits at the left, reading from start to end. Hover pausing lives in the
+   component via the Tailwind arbitrary variant. */
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee-scroll 40s linear infinite;
+  will-change: transform;
+}
+
+/* The pulsing glow behind the red dot on the marquee's Advisory pill. It only
+   renders while a disruption published in the last 48 hours is live, so a
+   fresh advisory stands out the moment the header loads. */
+@keyframes advisory-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(255, 77, 77, 0);
+  }
+}
+
+.animate-advisory-glow {
+  animation: advisory-glow 1.8s ease-out infinite;
 }

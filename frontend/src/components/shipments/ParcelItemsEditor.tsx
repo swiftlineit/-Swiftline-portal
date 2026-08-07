@@ -10,7 +10,7 @@ import {
   getPositiveNumberError,
   maxParcelItems,
   parcelItemUnitTypeValues,
-  type ParcelItem
+  type ParcelItem,
 } from "@/lib/parcelItems";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
 
@@ -30,7 +30,7 @@ export function ParcelItemsEditor({
   items,
   onChange,
   revealError = false,
-  maxItems = maxParcelItems
+  maxItems = maxParcelItems,
 }: {
   items: ParcelItem[];
   onChange: (items: ParcelItem[]) => void;
@@ -38,7 +38,11 @@ export function ParcelItemsEditor({
   maxItems?: number;
 }) {
   function updateItem(index: number, field: keyof ParcelItem, value: string) {
-    onChange(items.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item)));
+    onChange(
+      items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: value } : item,
+      ),
+    );
   }
 
   function addItem() {
@@ -55,12 +59,18 @@ export function ParcelItemsEditor({
     onChange(items.filter((_, itemIndex) => itemIndex !== index));
   }
 
-  const declaredTotal = items.reduce((total, item) => total + getParcelItemAmount(item), 0);
+  const declaredTotal = items.reduce(
+    (total, item) => total + getParcelItemAmount(item),
+    0,
+  );
 
   return (
     <div className="min-w-0">
       <div className="flex items-center justify-between gap-3">
-        <ShipmentFieldLabel required tooltip="Each distinct item in this box, with its HS code, quantity and unit rate">
+        <ShipmentFieldLabel
+          required
+          tooltip="Each distinct item in this box, with its HS code, quantity and unit rate"
+        >
           Contents
         </ShipmentFieldLabel>
         <button
@@ -74,7 +84,9 @@ export function ParcelItemsEditor({
       </div>
 
       {/* Column captions, so the compact inputs below stay readable. */}
-      <div className={`mt-2 hidden gap-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 lg:grid ${rowGrid}`}>
+      <div
+        className={`mt-2 hidden gap-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 lg:grid ${rowGrid}`}
+      >
         <span>Description</span>
         <span>HS Code</span>
         <span>Unit Type</span>
@@ -88,10 +100,18 @@ export function ParcelItemsEditor({
         {items.map((item, index) => {
           const restricted = findRestrictedCategories(item.description);
           const hsnError = getHsnCodeError(item.hsnCode);
-          const quantityError = getPositiveNumberError(item.quantity, "Quantity");
-          const unitRateError = getPositiveNumberError(item.unitRate, "Unit rate");
+          const quantityError = getPositiveNumberError(
+            item.quantity,
+            "Quantity",
+          );
+          const unitRateError = getPositiveNumberError(
+            item.unitRate,
+            "Unit rate",
+          );
           const showDescriptionError = restricted.length > 0;
-          const showHsnError = Boolean(hsnError) && (revealError || item.hsnCode.trim().length > 0);
+          const showHsnError =
+            Boolean(hsnError) &&
+            (revealError || item.hsnCode.trim().length > 0);
           const rowError = showDescriptionError
             ? `${restricted.join(", ")} is a restricted item and cannot be shipped.`
             : showHsnError
@@ -105,12 +125,17 @@ export function ParcelItemsEditor({
               <input
                 type="text"
                 value={item.description}
-                onChange={(event) => updateItem(index, "description", event.target.value)}
+                onChange={(event) =>
+                  updateItem(index, "description", event.target.value)
+                }
                 onBlur={() => {
                   if (restricted.length) {
-                    toast.error(`${restricted.join(", ")} is a restricted item and cannot be shipped.`, {
-                      toastId: `restricted-${restricted.join("-")}`
-                    });
+                    toast.error(
+                      `${restricted.join(", ")} is a restricted item and cannot be shipped.`,
+                      {
+                        toastId: `restricted-${restricted.join("-")}`,
+                      },
+                    );
                   }
                 }}
                 placeholder={`Item ${index + 1} description`}
@@ -130,9 +155,16 @@ export function ParcelItemsEditor({
                 inputMode="numeric"
                 value={item.hsnCode}
                 // Digits only: an HS code is 4, 6, 8 or 10 numerals.
-                onChange={(event) => updateItem(index, "hsnCode", event.target.value.replace(/\D/g, "").slice(0, 10))}
+                onChange={(event) =>
+                  updateItem(
+                    index,
+                    "hsnCode",
+                    event.target.value.replace(/\D/g, "").slice(0, 10),
+                  )
+                }
                 onBlur={() => {
-                  if (hsnError && item.hsnCode.trim()) toast.error(hsnError, { toastId: hsnError });
+                  if (hsnError && item.hsnCode.trim())
+                    toast.error(hsnError, { toastId: hsnError });
                 }}
                 placeholder="HS code"
                 aria-label={`Item ${index + 1} HS code`}
@@ -143,23 +175,43 @@ export function ParcelItemsEditor({
                     : "border-slate-300 bg-white focus:border-blue-900 focus:ring-blue-100"
                 }`}
               />
-              <select
-                value={item.unitType}
-                onChange={(event) => updateItem(index, "unitType", event.target.value)}
-                aria-label={`Item ${index + 1} unit type`}
-                className="h-11 w-full min-w-0 rounded-xl border border-slate-300 bg-white px-2 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-              >
-                {parcelItemUnitTypeValues.map((unit) => (
-                  <option key={unit} value={unit}>{unit}</option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={item.unitType}
+                  onChange={(event) =>
+                    updateItem(index, "unitType", event.target.value)
+                  }
+                  aria-label={`Item ${index + 1} unit type`}
+                  className="h-11 w-full appearance-none rounded-xl border border-slate-300 bg-white pl-3 pr-10 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                >
+                  {parcelItemUnitTypeValues.map((unit) => (
+                    <option key={unit} value={unit}>
+                      {unit}
+                    </option>
+                  ))}
+                </select>
+
+                <svg
+                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
               <input
                 type="number"
                 inputMode="numeric"
                 min="0"
                 step="1"
                 value={item.quantity}
-                onChange={(event) => updateItem(index, "quantity", event.target.value)}
+                onChange={(event) =>
+                  updateItem(index, "quantity", event.target.value)
+                }
                 placeholder="Qty"
                 aria-label={`Item ${index + 1} quantity`}
                 aria-invalid={Boolean(revealError && quantityError)}
@@ -175,7 +227,9 @@ export function ParcelItemsEditor({
                 min="0"
                 step="0.01"
                 value={item.unitRate}
-                onChange={(event) => updateItem(index, "unitRate", event.target.value)}
+                onChange={(event) =>
+                  updateItem(index, "unitRate", event.target.value)
+                }
                 placeholder="Rate"
                 aria-label={`Item ${index + 1} unit rate`}
                 aria-invalid={Boolean(revealError && unitRateError)}
@@ -188,14 +242,16 @@ export function ParcelItemsEditor({
               {/* Derived, never entered, so it cannot drift from quantity x rate. */}
               <div
                 aria-label={`Item ${index + 1} amount`}
-                className="flex h-11 w-full min-w-0 items-center justify-end rounded-xl border border-slate-200 bg-slate-100 px-2.5 text-sm font-semibold text-slate-700"
+                className="flex h-11 w-full min-w-0 items-center justify-start rounded-xl border border-slate-200 bg-slate-100 px-2.5 text-sm font-semibold text-slate-700"
               >
                 {getParcelItemAmount(item).toFixed(2)}
               </div>
               <button
                 type="button"
                 onClick={() => removeItem(index)}
-                disabled={items.length <= 1 && !item.description && !item.hsnCode}
+                disabled={
+                  items.length <= 1 && !item.description && !item.hsnCode
+                }
                 aria-label={`Remove item ${index + 1}`}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-red-600 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:border-slate-300 disabled:hover:bg-transparent"
               >
@@ -203,7 +259,9 @@ export function ParcelItemsEditor({
               </button>
 
               {rowError ? (
-                <p className="text-xs font-semibold text-red-600 lg:col-span-7">{rowError}</p>
+                <p className="text-xs font-semibold text-red-600 lg:col-span-7">
+                  {rowError}
+                </p>
               ) : null}
             </div>
           );
@@ -212,8 +270,12 @@ export function ParcelItemsEditor({
 
       {/* Declared value for this box, matching what the customs invoice will show. */}
       <div className="mt-2 flex justify-end gap-3 px-1 text-xs">
-        <span className="font-semibold uppercase tracking-wide text-slate-500">Box Declared Value</span>
-        <span className="font-semibold text-slate-900">{declaredTotal.toFixed(2)}</span>
+        <span className="font-semibold uppercase tracking-wide text-slate-500">
+          Box Declared Value
+        </span>
+        <span className="font-semibold text-slate-900">
+          {declaredTotal.toFixed(2)}
+        </span>
       </div>
     </div>
   );

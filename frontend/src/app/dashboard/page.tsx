@@ -14,6 +14,7 @@ import AdminTasksCard from "@/components/dashboard/admin/AdminTasksCard";
 import AdminTrendCard from "@/components/dashboard/admin/AdminTrendCard";
 import AdminUnavailableNotice from "@/components/dashboard/admin/AdminUnavailableNotice";
 import WelcomeModal from "@/components/WelcomeModal";
+import OperationsMarquee from "@/components/OperationsMarquee";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, readJsonSafely, refreshAccessToken } from "@/lib/auth";
 import {
@@ -131,6 +132,7 @@ export default function DashboardPage() {
     <>
       <div className="-m-6 min-h-full bg-[#EEEDED]/60 p-6 lg:-m-8 lg:p-8">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-6">
+          <OperationsMarquee variant="staff" />
           <AdminDashboardHeader user={user} />
           <AdminUnavailableNotice sections={overview?.unavailable ?? []} />
 

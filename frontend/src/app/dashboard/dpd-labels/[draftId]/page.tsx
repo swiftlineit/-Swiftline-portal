@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { FiArrowLeft, FiCheckCircle, FiExternalLink, FiMapPin, FiSave, FiSearch, FiTruck } from "react-icons/fi";
+import { FiArrowLeft, FiCheckCircle, FiChevronDown, FiExternalLink, FiMapPin, FiPackage, FiSave, FiSearch, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
 import {
@@ -25,10 +25,15 @@ import {
   consignorFormToPatch,
   consignorFormsMatch,
   createEmptyConsignorForm,
+  getConsignorFormIssueDetail,
   getConsignorFormIssues,
-  getKycIssues
+  getKycIssues,
+  mergeShipmentFormIssues,
+  allShipmentFormIssues,
+  type ShipmentFormIssues
 } from "@/lib/shipmentConsignor";
-import { CountryRateCard, formatCountryRateService, listCountryRateCards } from "@/lib/countryRateCards";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
+import { getDraftRateCardContext, type ClientCountryRateCard } from "@/lib/countryRateCards";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
 import { normalizeCsbType, type CsbType } from "@/lib/csbType";
 import { defaultDeclarationNote } from "@/lib/customsInvoice";
@@ -58,6 +63,7 @@ import {
   confirmAddress,
   createDpdLabel,
   createSwiftlineShipment,
+  type CounterPaymentInput,
   deleteShipmentKycDocument,
   deleteShipmentParcelKycDocument,
   formatShipmentValidationIssues,
@@ -76,10 +82,16 @@ import {
   validateShipmentDraft,
   type InvoiceImportSummary
 } from "@/lib/dpdLabels";
-import { calculateShipmentEstimate, formatMoney, getVolumetricFormula } from "@/lib/shipmentPricing";
-import InfoTooltip from "@/components/ui/InfoTooltip";
+import ShipmentCostEstimatePanel from "@/components/shipments/ShipmentCostEstimatePanel";
+import ShipmentPriceChangeDialog from "@/components/shipments/ShipmentPriceChangeDialog";
+import {
+  ShipmentPriceChangedError,
+  type ShipmentCostEstimateInput
+} from "@/lib/shipmentCostEstimate";
+import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
 import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
+import { FaRegWindowClose, FaWeight } from "react-icons/fa";
 
 type DpdShipmentResult = Awaited<ReturnType<typeof createDpdLabel>>;
 type AddressForm = {
@@ -117,7 +129,7 @@ type ParcelForm = {
   aadhaarNumber: string;
 };
 
-const maxParcelCount = 10;
+const maxParcelCount = 100;
 const prohibitedItems = [
   "Alcohol / Liquor",
   "Tobacco / Nicotine / Vape",
@@ -141,7 +153,18 @@ const prohibitedItems = [
 ];
 
 function getCountryName(countryCode: string) {
-  return new Intl.DisplayNames(["en"], { type: "region" }).of(countryCode.toUpperCase()) ?? countryCode;
+  // Intl.DisplayNames throws RangeError("invalid_argument") on anything that is
+  // not a region code, blanks included. A draft may well have no destination
+  // country yet, so an empty code has to resolve to an empty name rather than
+  // taking down the save that is trying to store it.
+  const code = countryCode.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return "";
+
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 function createEmptyParcelForm(sequence: number): ParcelForm {
@@ -172,73 +195,103 @@ function getFieldIssue(issues: string[], patterns: string[]) {
   return issues.find((issue) => patterns.every((pattern) => issue.toLowerCase().includes(pattern)));
 }
 
-function getReviewFormIssues(addressForm: AddressForm, draftCorrectionForm: DraftCorrectionForm, parcelForms: ParcelForm[]) {
-  const issues: string[] = [];
+/**
+ * Review-form problems split into blank fields and wrongly filled ones.
+ *
+ * A blank field is deferrable: the draft stores it and booking blocks on it
+ * later. A wrongly filled one is not, because saving it would put data into the
+ * draft that the form refuses to reopen cleanly.
+ */
+function getReviewFormIssueDetail(
+  addressForm: AddressForm,
+  draftCorrectionForm: DraftCorrectionForm,
+  parcelForms: ParcelForm[]
+): ShipmentFormIssues {
+  const missing: string[] = [];
+  const invalid: string[] = [];
 
-  if (!draftCorrectionForm.contactName.trim()) issues.push("Contact name is required");
-  if (!draftCorrectionForm.mobileCountryCode.trim()) issues.push("Mobile country code is required");
+  if (!draftCorrectionForm.contactName.trim()) missing.push("Contact name is required");
+  if (!draftCorrectionForm.mobileCountryCode.trim()) missing.push("Mobile country code is required");
   if (!draftCorrectionForm.mobileNumber.trim()) {
-    issues.push("Mobile number is required");
+    missing.push("Mobile number is required");
   } else {
     const mobileError = getShipmentMobileError(draftCorrectionForm.mobileCountryCode, draftCorrectionForm.mobileNumber);
-    if (mobileError) issues.push(mobileError);
+    if (mobileError) invalid.push(mobileError);
   }
   if (!draftCorrectionForm.email.trim()) {
-    issues.push("Email is required");
+    missing.push("Email is required");
   } else {
     const emailError = getShipmentEmailError(draftCorrectionForm.email);
-    if (emailError) issues.push(emailError);
+    if (emailError) invalid.push(emailError);
   }
-  if (!addressForm.countryCode.trim()) issues.push("Country is required");
-  if (!addressForm.addressLine1.trim()) issues.push("Address line 1 is required");
-  if (!addressForm.townOrCity.trim()) issues.push("Town or city is required");
+  if (!addressForm.countryCode.trim()) missing.push("Country is required");
+  if (!addressForm.addressLine1.trim()) missing.push("Address line 1 is required");
+  if (!addressForm.townOrCity.trim()) missing.push("Town or city is required");
   if (!addressForm.postcode.trim()) {
-    issues.push("Postcode is required");
+    missing.push("Postcode is required");
   } else {
     const postcodeError = getPostcodeError(addressForm.countryCode, addressForm.postcode);
-    if (postcodeError) issues.push(postcodeError);
+    if (postcodeError) invalid.push(postcodeError);
   }
-  if (!parcelForms.length) issues.push("At least one parcel is required");
-  if (parcelForms.length > maxParcelCount) issues.push(`Number of Parcels (PCS) must be ${maxParcelCount} or fewer`);
+  if (!parcelForms.length) missing.push("At least one parcel is required");
+  if (parcelForms.length > maxParcelCount) invalid.push(`Number of Parcels (PCS) must be ${maxParcelCount} or fewer`);
   parcelForms.forEach((parcel, index) => {
     const weightKg = Number(parcel.weightKg);
     const label = `Parcel ${index + 1}`;
-    if (parcel.sequence !== index + 1) issues.push(`${label}: sequence must be ${index + 1}`);
-    if (!parcel.weightKg.trim() || !Number.isFinite(weightKg) || weightKg <= 0) {
-      issues.push(`${label}: weight must be greater than zero`);
+    if (parcel.sequence !== index + 1) invalid.push(`${label}: sequence must be ${index + 1}`);
+    if (!parcel.weightKg.trim()) {
+      missing.push(`${label}: weight is required`);
+    } else if (!Number.isFinite(weightKg) || weightKg <= 0) {
+      invalid.push(`${label}: weight must be greater than zero`);
     }
     for (const [field, value] of [["length", parcel.lengthCm], ["width", parcel.widthCm], ["height", parcel.heightCm]]) {
-      if (!value.trim() || !Number.isFinite(Number(value)) || Number(value) <= 0) {
-        issues.push(`${label}: ${field} must be greater than zero`);
+      if (!value.trim()) {
+        missing.push(`${label}: ${field} is required`);
+      } else if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+        invalid.push(`${label}: ${field} must be greater than zero`);
       }
     }
-    if (!parcel.shipmentContentType) issues.push(`${label}: shipment content type is required`);
-    if (!parcel.shipmentReference1.trim()) issues.push(`${label}: reference is required`);
+    if (!parcel.shipmentContentType) missing.push(`${label}: shipment content type is required`);
+    if (!parcel.shipmentReference1.trim()) missing.push(`${label}: reference is required`);
     // Every declared item needs a description and a valid HSN code for customs.
     const items = parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim());
     if (!items.length) {
-      issues.push(`${label}: contents are required`);
+      missing.push(`${label}: contents are required`);
     }
     items.forEach((item, itemIndex) => {
       const itemLabel = `${label} item ${itemIndex + 1}`;
       if (!item.description.trim()) {
-        issues.push(`${itemLabel}: description is required`);
+        missing.push(`${itemLabel}: description is required`);
       } else {
         const restricted = findRestrictedCategories(item.description);
         if (restricted.length) {
-          issues.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
+          invalid.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
         }
       }
+      // Each of these reports a blank and a malformed value differently, so the
+      // empty check decides which bucket the message lands in.
       const hsnError = getHsnCodeError(item.hsnCode);
-      if (hsnError) issues.push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
+      if (hsnError) {
+        (item.hsnCode.trim() ? invalid : missing).push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
+      }
       // Quantity and unit rate print on the customs invoice, so both are required.
       const quantityError = getPositiveNumberError(item.quantity, "Quantity");
-      if (quantityError) issues.push(`${itemLabel}: ${quantityError.replace(/\.$/, "").toLowerCase()}`);
+      if (quantityError) {
+        (item.quantity.trim() ? invalid : missing).push(`${itemLabel}: ${quantityError.replace(/\.$/, "").toLowerCase()}`);
+      }
       const unitRateError = getPositiveNumberError(item.unitRate, "Unit rate");
-      if (unitRateError) issues.push(`${itemLabel}: ${unitRateError.replace(/\.$/, "").toLowerCase()}`);
+      if (unitRateError) {
+        (item.unitRate.trim() ? invalid : missing).push(`${itemLabel}: ${unitRateError.replace(/\.$/, "").toLowerCase()}`);
+      }
     });
   });
-  return issues;
+
+  return { missing, invalid };
+}
+
+/** Every review-form problem, blank fields included. Use before booking. */
+function getReviewFormIssues(addressForm: AddressForm, draftCorrectionForm: DraftCorrectionForm, parcelForms: ParcelForm[]) {
+  return allShipmentFormIssues(getReviewFormIssueDetail(addressForm, draftCorrectionForm, parcelForms));
 }
 
 function normalizeParcelForms(parcels: ShipmentDraft["parcelList"]): ParcelForm[] {
@@ -315,7 +368,10 @@ export default function DpdLabelDraftPage() {
   const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const [draft, setDraft] = useState<ShipmentDraft | null>(null);
   const [result, setResult] = useState<DpdShipmentResult | null>(null);
-  const [rates, setRates] = useState<CountryRateCard[]>([]);
+  // Walk-in payment capture. Ignored entirely for business shipments.
+  const [counterMethod, setCounterMethod] = useState<CounterPaymentInput["method"]>("CASH");
+  const [counterReference, setCounterReference] = useState("");
+  const [rates, setRates] = useState<ClientCountryRateCard[]>([]);
   const [addressForm, setAddressForm] = useState<AddressForm>({
     countryCode: "GB",
     countryName: "United Kingdom",
@@ -341,9 +397,20 @@ export default function DpdLabelDraftPage() {
   const [kycDocuments, setKycDocuments] = useState<ShipmentKycDocuments>({});
   const [parcelKyc, setParcelKyc] = useState<Record<number, ShipmentKycDocuments>>({});
   const [parcelForms, setParcelForms] = useState<ParcelForm[]>([createEmptyParcelForm(1)]);
+  const [parcelCountInput, setParcelCountInput] = useState(String(parcelForms.length));
+  useEffect(() => {
+    setParcelCountInput(String(parcelForms.length));
+  }, [parcelForms.length]);
+
   // Customs route for the shipment. Drafts saved before CSB selection existed
   // read as CSB-IV, matching how the backend prices them.
   const [csbType, setCsbType] = useState<CsbType>("CSB_IV");
+  // Optional transit cover. Off unless the customer asks for it.
+  const [insuranceOptIn, setInsuranceOptIn] = useState(false);
+  // Set when the server refuses a booking because the price moved after it was
+  // quoted. Holds the new breakdown until it is accepted or cancelled.
+  const [priceChange, setPriceChange] = useState<ShipmentPriceChangedError | null>(null);
+  // Which button opened the price change dialog, so accepting re-books the same way.
   // Present only on drafts created from an uploaded invoice.
   const [invoiceImport, setInvoiceImport] = useState<InvoiceImportSummary | null>(null);
   // Printed as the NOTE block on the shipment (customs) invoice.
@@ -369,9 +436,10 @@ export default function DpdLabelDraftPage() {
       draftCorrectionForm.deliveryInstructions !== (draft.consigneeEnteredAddress.deliveryInstructions ?? "") ||
       JSON.stringify(parcelForms) !== JSON.stringify(normalizeParcelForms(draft.parcelList)) ||
       draftCorrectionForm.serviceType !== (draft.serviceType ?? "COURIER") ||
-      draftCorrectionForm.serviceCode !== (draft.serviceCode ?? "")
+      draftCorrectionForm.serviceCode !== (draft.serviceCode ?? "") ||
+      insuranceOptIn !== (draft.insuranceOptIn ?? false)
     );
-  }, [draft, draftCorrectionForm, parcelForms]);
+  }, [draft, draftCorrectionForm, insuranceOptIn, parcelForms]);
 
   const addressChanged = useMemo(() => {
     if (!draft) return false;
@@ -388,15 +456,40 @@ export default function DpdLabelDraftPage() {
     );
   }, [addressForm, draft]);
 
-  // Recalculates when the CSB type is toggled so the panel always reflects the
-  // clearance charge the backend will apply at booking.
-  const chargeEstimate = useMemo(() => calculateShipmentEstimate({
-    parcels: parcelForms,
-    rates,
+  // Priced by the server, not here. The booking charges whatever this returns, so
+  // there is deliberately no second implementation in the browser to drift from it.
+  const estimateValues = useMemo<ShipmentCostEstimateInput>(() => ({
     countryCode: addressForm.countryCode,
+    destinationPostcode: addressForm.postcode,
     serviceType: draftCorrectionForm.serviceType,
-    csbType
-  }), [addressForm.countryCode, csbType, draftCorrectionForm.serviceType, parcelForms, rates]);
+    csbType,
+    insuranceOptIn,
+    parcels: parcelForms.map((parcel, index) => ({
+      sequence: index + 1,
+      weightKg: Number(parcel.weightKg) || 0,
+      lengthCm: Number(parcel.lengthCm) || 0,
+      widthCm: Number(parcel.widthCm) || 0,
+      heightCm: Number(parcel.heightCm) || 0,
+      // Carried so the insurance premium tracks the value being declared.
+      items: parcel.items.map((item) => ({
+        quantity: Number(item.quantity) || 0,
+        unitRate: Number(item.unitRate) || 0
+      }))
+    }))
+  }), [addressForm.countryCode, addressForm.postcode, csbType, draftCorrectionForm.serviceType, insuranceOptIn, parcelForms]);
+
+  const {
+    estimate: costEstimate,
+    loading: costEstimateLoading,
+    error: costEstimateError,
+    refresh: refreshCostEstimate,
+    acceptEstimate
+  } = useShipmentCostEstimate({
+    shipmentDraftId: params.draftId,
+    audience: "admin",
+    values: estimateValues,
+    enabled: Boolean(draft)
+  });
 
   const consignorChanged = useMemo(
     () => (draft
@@ -427,6 +520,18 @@ export default function DpdLabelDraftPage() {
   );
 
   const draftChanged = correctionChanged || addressChanged || consignorChanged;
+
+  // This form used to lose everything on navigation: nothing was stored until the
+  // whole form validated, and there was no guard on the way out.
+  useUnsavedChanges(draftChanged, {
+    label: "this shipment",
+    saveDraft: async () => {
+      const saved = await handleSaveDraft({ silentWhenUnchanged: true });
+      // Rejecting holds the user here; handleSaveDraft has already named the
+      // field that has to be corrected first.
+      if (!saved) throw new Error("Shipment draft was not saved.");
+    }
+  });
 
   const currentReviewIssues = useMemo(
     () => getReviewFormIssues(addressForm, draftCorrectionForm, parcelForms),
@@ -498,6 +603,7 @@ export default function DpdLabelDraftPage() {
     });
     setParcelForms(normalizeParcelForms(nextDraft.parcelList));
     setCsbType(normalizeCsbType(nextDraft.csbType));
+    setInsuranceOptIn(nextDraft.insuranceOptIn ?? false);
     setDeclarationNote(nextDraft.declarationNote ?? defaultDeclarationNote);
   }
 
@@ -535,7 +641,7 @@ export default function DpdLabelDraftPage() {
       try {
         const [data, rateData] = await Promise.all([
           getShipmentDraft(params.draftId),
-          listCountryRateCards()
+          getDraftRateCardContext(params.draftId, "admin")
         ]);
         if (data.shipmentDraft.bookingState && data.shipmentDraft.bookingState !== "EDITABLE") {
           toast.info("This shipment is already locked for booking. Opening its shipment details.");
@@ -615,8 +721,18 @@ export default function DpdLabelDraftPage() {
   }
 
   function handleParcelCountChange(event: ChangeEvent<HTMLInputElement>) {
-    const nextCount = Number(event.target.value);
-    if (!Number.isInteger(nextCount) || nextCount < 1 || nextCount > maxParcelCount) return;
+    const nextValue = event.target.value;
+    if (nextValue === "") {
+      setParcelCountInput("");
+      return;
+    }
+
+    if (!/^\d+$/.test(nextValue)) return;
+    const nextCount = Number(nextValue);
+    if (nextCount > maxParcelCount) return;
+
+    setParcelCountInput(nextValue);
+    if (!Number.isInteger(nextCount) || nextCount < 1) return;
 
     setParcelForms((current) => {
       if (nextCount > current.length) {
@@ -637,6 +753,44 @@ export default function DpdLabelDraftPage() {
       return current.slice(0, nextCount).map((parcel, index) => ({ ...parcel, sequence: index + 1 }));
     });
     setReviewIssues([]);
+  }
+
+  function handleParcelCountBlur() {
+    if (!/^[0-9]+$/.test(parcelCountInput)) {
+      setParcelCountInput(String(parcelForms.length));
+      return;
+    }
+
+    const nextCount = Number(parcelCountInput);
+    if (!Number.isInteger(nextCount) || nextCount < 1 || nextCount > maxParcelCount) {
+      setParcelCountInput(String(parcelForms.length));
+    }
+  }
+
+  function removeParcel(index: number) {
+    setParcelForms((current) => {
+      if (index < 0 || index >= current.length) return current;
+      const removedParcel = current[index];
+      const shouldConfirm = !isParcelFormEmpty(removedParcel) || current.length > 1;
+      if (shouldConfirm) {
+        const confirmed = window.confirm(`Remove Parcel ${index + 1}? This will delete its details.`);
+        if (!confirmed) return current;
+      }
+
+      const nextParcels = current.filter((_, parcelIndex) => parcelIndex !== index);
+      const updated = nextParcels.map((parcel, parcelIndex) => ({ ...parcel, sequence: parcelIndex + 1 }));
+      setParcelCountInput(String(updated.length));
+      return updated;
+    });
+  }
+
+  function removeAllParcels() {
+    if (!parcelForms.length) return;
+    const confirmed = window.confirm("Remove all boxes? This will clear every parcel entry.");
+    if (!confirmed) return;
+
+    setParcelForms([]);
+    setParcelCountInput("");
   }
 
   async function saveDraftCorrectionsIfNeeded(): Promise<ShipmentDraft> {
@@ -688,6 +842,7 @@ export default function DpdLabelDraftPage() {
         aadhaarNumber: parcel.aadhaarNumber
       })),
       csbType,
+      insuranceOptIn,
       declarationNote,
       serviceType: draftCorrectionForm.serviceType,
       serviceCode: draftCorrectionForm.serviceCode
@@ -701,30 +856,46 @@ export default function DpdLabelDraftPage() {
     return data.shipmentDraft;
   }
 
-  async function handleSaveCorrections() {
-    if (!draft || !draftChanged) return;
+  /**
+   * Stores whatever the form currently holds.
+   *
+   * Blank fields are kept as-is — that is the point of a draft, and booking
+   * still refuses to proceed without them. Fields filled in wrongly are refused,
+   * because a draft holding data the form rejects cannot be reopened cleanly.
+   *
+   * Returns whether anything was stored, so the leave prompt can keep the user
+   * here when it was not.
+   */
+  async function handleSaveDraft({ silentWhenUnchanged = false } = {}): Promise<boolean> {
+    if (!draft) return false;
+    if (!draftChanged) {
+      if (!silentWhenUnchanged) toast.info("No changes to save.");
+      return true;
+    }
 
     setBusy(true);
     setError("");
     setReviewIssues([]);
 
     try {
-      const preflightIssues = [
-        ...getReviewFormIssues(addressForm, draftCorrectionForm, parcelForms),
-        ...getConsignorFormIssues(consignorForm, consigneeContactFrom(draftCorrectionForm))
-      ];
-      if (preflightIssues.length) {
+      const { invalid } = mergeShipmentFormIssues(
+        getReviewFormIssueDetail(addressForm, draftCorrectionForm, parcelForms),
+        getConsignorFormIssueDetail(consignorForm, consigneeContactFrom(draftCorrectionForm))
+      );
+      if (invalid.length) {
         setSubmitAttempted(true);
-        setReviewIssues(preflightIssues);
-        toast.error(preflightIssues[0]);
-        return;
+        setReviewIssues(invalid);
+        toast.error(`Correct this before saving: ${invalid[0]}`);
+        return false;
       }
 
       await saveDraftCorrectionsIfNeeded();
       setSubmitAttempted(false);
       toast.success("Shipment draft saved.");
+      return true;
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Shipment changes could not be saved.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -780,7 +951,11 @@ export default function DpdLabelDraftPage() {
     }
   }
 
- async function handleCreateLabel(bookingProvider: "DPD" | "SWIFTLINE" = "DPD") {
+ async function handleCreateLabel(
+  bookingProvider: "DPD" | "SWIFTLINE" = "DPD",
+  // Supplied when re-booking after a changed price was accepted.
+  acceptedPricingHash = costEstimate?.pricingHash
+) {
   if (!draft) return;
 
   setBusy(true);
@@ -809,7 +984,7 @@ export default function DpdLabelDraftPage() {
       return;
     }
 
-    if (chargeEstimate.missingRate) {
+    if (costEstimate?.pricing.missingRate) {
       const message = `Rates are not available for ${
         addressForm.countryName || addressForm.countryCode
       } with ${
@@ -818,6 +993,19 @@ export default function DpdLabelDraftPage() {
 
       setError(message);
       toast.error(message);
+      return;
+    }
+
+    // Booking before the first estimate lands would send no accepted price, which
+    // the server would let through unchecked.
+    if (!costEstimate) {
+      toast.info("Charges are still being calculated. Try again in a moment.");
+      return;
+    }
+
+    if (!costEstimate.funding.canFund) {
+      setError(costEstimate.funding.message);
+      toast.error(costEstimate.funding.message);
       return;
     }
 
@@ -877,11 +1065,19 @@ export default function DpdLabelDraftPage() {
       return;
     }
 
+    // A walk-in has already paid into a company account, so how that happened is
+    // recorded with the booking. Business shipments settle through credit and
+    // send nothing here.
+    const counterPayment = draftForValidation.customerType === "INDIVIDUAL"
+      ? { method: counterMethod, reference: counterReference.trim(), note: "" }
+      : undefined;
+
     const data =
       bookingProvider === "DPD"
-        ? await createDpdLabel(draftForValidation._id)
-        : await createSwiftlineShipment(draftForValidation._id);
+        ? await createDpdLabel(draftForValidation._id, counterPayment, acceptedPricingHash)
+        : await createSwiftlineShipment(draftForValidation._id, counterPayment, acceptedPricingHash);
 
+    setPriceChange(null);
     setResult(data);
     toast.success(
       data.reused
@@ -889,6 +1085,13 @@ export default function DpdLabelDraftPage() {
         : "Shipment booked successfully."
     );
   } catch (caughtError) {
+    // Nothing was booked or reserved. The change is shown for explicit approval
+    // before this can be retried.
+    if (caughtError instanceof ShipmentPriceChangedError) {
+      setPriceChange(caughtError);
+      return;
+    }
+
     const message =
       caughtError instanceof Error
         ? caughtError.message
@@ -899,6 +1102,22 @@ export default function DpdLabelDraftPage() {
     setBusy(false);
   }
 }
+
+  /** Re-books at the price that has just been shown and approved. */
+  async function handleAcceptChangedPrice() {
+    if (!priceChange) return;
+
+    if (costEstimate) {
+      acceptEstimate({
+        ...costEstimate,
+        pricing: priceChange.pricing,
+        pricingHash: priceChange.pricingHash
+      });
+    }
+    setPriceChange(null);
+    refreshCostEstimate();
+    toast.success("New charges accepted. Review the updated summary, then create the shipment.");
+  }
 
   async function handleConfirmEnteredAddress() {
     if (!draft) return;
@@ -952,15 +1171,6 @@ export default function DpdLabelDraftPage() {
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Type</h2>
-                <button
-                  type="button"
-                  onClick={handleSaveCorrections}
-                  disabled={busy || !draftChanged}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  <FiSave aria-hidden="true" className="h-4 w-4" />
-                  Save
-                </button>
               </div>
               <div className="p-4">
                 <ShipmentCsbTypeField
@@ -987,9 +1197,6 @@ export default function DpdLabelDraftPage() {
               onFormChange={(next) => { setConsignorForm(next); setReviewIssues([]); }}
               fieldIssues={consignorFieldIssues}
               submitAttempted={submitAttempted}
-              changed={consignorChanged}
-              onSave={handleSaveCorrections}
-              busy={busy}
               kycUseForAll={kycUseForAll}
               onKycUseForAllChange={(next) => { setKycUseForAll(next); setReviewIssues([]); }}
               sharedKycDocuments={kycDocuments}
@@ -1015,15 +1222,6 @@ export default function DpdLabelDraftPage() {
                     {draftChanged ? <SourceBadge>Manually changed</SourceBadge> : null}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSaveCorrections}
-                  disabled={busy || !draftChanged}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  <FiSave aria-hidden="true" className="h-4 w-4" />
-                  Save
-                </button>
               </div>
               <div className="grid gap-4 p-4 md:grid-cols-2">
                 <ShipmentTextField label="Consignee Company" value={draftCorrectionForm.companyName} onChange={handleCorrectionFieldChange("companyName")} />
@@ -1081,7 +1279,7 @@ export default function DpdLabelDraftPage() {
                 </div> : null}
 
                 {predictions.length ? (
-                  <div className="max-h-[340px] overflow-y-auto rounded-xl border border-slate-200 [scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400">
+                  <div className="max-h-85 overflow-y-auto rounded-xl border border-slate-200 scrollbar-thin [scrollbar-color:#94a3b8_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400">
                     {predictions.map((prediction) => (
                       <button
                         key={prediction.placeId}
@@ -1142,15 +1340,6 @@ export default function DpdLabelDraftPage() {
                     <SourceBadge>Account default</SourceBadge>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSaveCorrections}
-                  disabled={busy || !draftChanged}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  <FiSave aria-hidden="true" className="h-4 w-4" />
-                  Save
-                </button>
               </div>
               <div className="space-y-4 p-4">
                 <div className="grid gap-4 ">
@@ -1161,29 +1350,74 @@ export default function DpdLabelDraftPage() {
                       min="1"
                       max={maxParcelCount}
                       step="1"
-                      value={parcelForms.length}
+                      value={parcelCountInput}
                       onChange={handleParcelCountChange}
+                      onBlur={handleParcelCountBlur}
                       className="mt-2 h-11 w-full rounded-xl border border-slate-300 px-3.5 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                     />
                   </label>
-                  {/* <div className="grid mt-4 p-3 gap-2 rounded-xl border border-slate-300 bg-slate-50 text-sm sm:grid-cols-2">
-                    <div>
-                      <span className=" text-xs font-semibold uppercase text-slate-500">Total Parcels</span>
-                      <span className="mt-1 ml-3  font-semibold text-slate-950">{parcelForms.length}</span>
-                    </div>
-                    <div>
-                      <span className=" text-xs font-semibold uppercase text-slate-500">Total Weight</span>
-                      <span className=" ml-3  font-semibold text-slate-950">
-                        {parcelForms.reduce((total, parcel) => total + (Number(parcel.weightKg) || 0), 0).toFixed(2)} kg
-                      </span>
-                    </div>
-                  </div> */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    {/* Summary */}
+    <div className="flex flex-wrap items-center gap-6">
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded bg-[#0D1282]/10 text-xl">
+         <FiPackage className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Total Parcels
+          </p>
+          <p className="text-lg font-bold text-slate-900">
+            {parcelForms.length}
+          </p>
+        </div>
+      </div>
+
+      <div className="hidden h-10 w-px bg-slate-200 lg:block" />
+
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded bg-[#0D1282]/10 text-xl">
+           <FaWeight className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Total Weight
+          </p>
+          <p className="text-lg font-bold text-slate-900">
+            {parcelForms
+              .reduce((total, parcel) => total + (Number(parcel.weightKg) || 0), 0)
+              .toFixed(2)}
+            <span className="ml-1 text-sm font-semibold text-slate-500">kg</span>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {/* Action */}
+    <button
+      type="button"
+      onClick={removeAllParcels}
+      disabled={!parcelForms.length}
+      className="inline-flex h-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-600 transition hover:bg-red-100 hover:border-red-300 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+    >
+      Remove All Boxes
+    </button>
+  </div>
+</div>
                 </div>
 
                 {parcelForms.map((parcel, index) => (
                   <div key={parcel.sequence} className="overflow-hidden rounded-xl border border-slate-200">
-                    <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Parcel {index + 1} of {parcelForms.length}
+                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <span>Parcel {index + 1} of {parcelForms.length}</span>
+                       <button
+                        type="button"
+                        onClick={() => removeParcel(index)}
+                        className="rounded-full px-3 py-1 text-lg font-semibold uppercase tracking-[0.08em] text-red-500 hover:text-xl"
+                      >
+                      <FaRegWindowClose/>
+                      </button>
                     </div>
                     <div className="grid gap-4 p-3 md:grid-cols-4">
                       <ShipmentTextField label="Actual Weight KG" required type="number" inputMode="decimal" value={parcel.weightKg} onChange={handleParcelFieldChange(index, "weightKg")} error={getParcelFieldIssue(index, ["weight"])} revealError={submitAttempted} />
@@ -1226,6 +1460,37 @@ export default function DpdLabelDraftPage() {
 
           <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              {draft?.customerType === "INDIVIDUAL" ? (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">
+                    Payment Received
+                  </p>
+                  <p className="mt-1 text-xs text-amber-800">
+                    This customer pays before the shipment is booked. Record how the
+                    money reached the company account.
+                  </p>
+                <div className="relative mt-3">
+  <select
+    value={counterMethod}
+    onChange={(event) => setCounterMethod(event.target.value as CounterPaymentInput["method"])}
+    className="h-10 w-full appearance-none rounded-xl border border-amber-300 bg-white pl-3 pr-9 text-sm outline-none focus:border-amber-500"
+  >
+    <option value="CASH">Cash</option>
+    <option value="UPI">UPI</option>
+    <option value="BANK_TRANSFER">Bank transfer</option>
+    <option value="CARD">Card</option>
+    <option value="CHEQUE">Cheque</option>
+  </select>
+  <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 size-4 text-amber-600" />
+</div>
+                  <input
+                    value={counterReference}
+                    onChange={(event) => setCounterReference(event.target.value)}
+                    placeholder="UTR, receipt or cheque number"
+                    className="mt-2 h-10 w-full rounded-xl border border-amber-300 bg-white px-3 text-sm outline-none focus:border-amber-500"
+                  />
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleCreateLabel("DPD")}
@@ -1244,70 +1509,32 @@ export default function DpdLabelDraftPage() {
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
                 {busy ? "Creating..." : "Create Without DPD Label"}
               </button>
-              <div className="mt-4 rounded-xl border border-slate-400 bg-slate-50 p-3 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-semibold text-slate-600">Service</span>
-                  <span className="font-semibold text-slate-950">{formatCountryRateService(draftCorrectionForm.serviceType)}</span>
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <span className="font-semibold text-slate-600">Destination</span>
-                  <span className="font-semibold text-slate-950"> {addressForm.countryName}</span>
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  {/* <span className="font-semibold text-slate-600">Volumetric Divisor</span> */}
-                  {/* <span className="font-semibold text-slate-950">{getVolumetricDivisor(draftCorrectionForm.serviceType)}</span> */}
-                </div>
-                <div className="mt-3 space-y-2 border-t border-slate-200 pt-3 ">
-                  {chargeEstimate.parcels.map((parcel, index) => (
-                    <div key={index} className="text-xs text-slate-600 leading-5.5">
-                      <p className="font-semibold text-slate-900">
-                        Box {index + 1}: {parcel.chargeableWeightKg.toFixed(2)} kg chargeable
-                      </p>
-                      <p className="flex items-center gap-1">
-                        Actual {parcel.actualWeightKg.toFixed(2)} kg / Volumetric {parcel.volumetricWeightKg.toFixed(2)} kg
-                        <InfoTooltip text={getVolumetricFormula(draftCorrectionForm.serviceType)} />
-                      </p>
-                      <p>{parcel.rate ? `${formatMoney(parcel.rate.chargesPerKg)} / KG` : "No matching rate slab"}</p>
-                      {parcel.exceedsMaxBoxKg && parcel.rate ? (
-                        <p className="mt-1 font-semibold text-amber-700">
-                          Max box weight limit is {parcel.rate.maxBoxKg} KG. Estimated charges are still calculated.
-                        </p>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-3 border-t border-slate-200 pt-3">
-                  {/* Flat charge for the whole shipment, not per box. Shown with the
-                      freight it is added to so the taxable base is auditable. */}
-                  {chargeEstimate.csbClearanceAmount > 0 ? (
-                    <>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="font-semibold text-slate-600">Freight</span>
-                        <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.freightAmount)}</span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <span className="font-semibold text-slate-600">CSB-V Clearance Charge</span>
-                        <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.csbClearanceAmount)}</span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <span className="font-semibold text-slate-600">Subtotal</span>
-                        <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.baseAmount)}</span>
-                      </div>
-                    </>
-                  ) : null}
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <span className="font-semibold text-slate-600">GST 18%</span>
-                    <span className="font-semibold text-slate-950">{formatMoney(chargeEstimate.gstAmount)}</span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-3 text-base">
-                    <span className="font-semibold text-slate-950">Total Charges incl. GST</span>
-                    <span className="font-bold text-blue-900">{formatMoney(chargeEstimate.totalAmount)}</span>
-                  </div>
-                  {chargeEstimate.missingRate ? (
-                    <p className="mt-2 text-xs font-semibold text-red-700">Add a matching country rate card slab to calculate all boxes.</p>
-                  ) : null}
-                </div>
-              </div>
+              {/* Sits with the booking actions rather than in its own bar: this is
+                  where the operator already looks to finish the shipment, and
+                  saving for later is the third choice alongside the two. */}
+              <button
+                type="button"
+                onClick={() => void handleSaveDraft()}
+                disabled={busy || !draftChanged}
+                className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+              >
+                <FiSave aria-hidden="true" className="h-4 w-4" />
+                {busy ? "Saving..." : "Save as Draft"}
+              </button>
+              {draftChanged ? (
+                <p className="mt-2 text-center text-xs font-semibold text-amber-700">Unsaved changes</p>
+              ) : null}
+              <ShipmentCostEstimatePanel
+                estimate={costEstimate}
+                loading={costEstimateLoading}
+                error={costEstimateError}
+                serviceType={draftCorrectionForm.serviceType}
+                countryCode={addressForm.countryCode}
+                countryName={addressForm.countryName}
+                insuranceOptIn={insuranceOptIn}
+                onInsuranceOptInChange={setInsuranceOptIn}
+                insuranceDisabled={busy}
+              />
               <div className="mt-4 rounded-xl border border-red-400 bg-amber-50 p-3">
                 <h3 className="text-sm font-semibold text-amber-900">Prohibited Items Reminder</h3>
                 <ul className="mt-2 text-xs font-medium text-amber-800">
@@ -1383,6 +1610,20 @@ export default function DpdLabelDraftPage() {
           </aside>
         </div>
       )}
+
+      {priceChange ? (
+        <ShipmentPriceChangeDialog
+          previousPricing={costEstimate?.pricing ?? null}
+          currentPricing={priceChange.pricing}
+          message={priceChange.message}
+          busy={busy}
+          onAccept={() => void handleAcceptChangedPrice()}
+          onCancel={() => {
+            setPriceChange(null);
+            refreshCostEstimate();
+          }}
+        />
+      ) : null}
     </>
   );
 }

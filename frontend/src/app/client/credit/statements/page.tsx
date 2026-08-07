@@ -5,7 +5,8 @@ import Link from "next/link";
 import { FiDownload, FiFileText, FiRefreshCw } from "react-icons/fi";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
-import DateFilterInput from "@/components/ui/DateFilterInput";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { emptyDateRange, type DateRange } from "@/lib/dateRange";
 import {
   closeClientCycle,
   listClientStatements,
@@ -36,7 +37,7 @@ export default function ClientCreditStatementsPage() {
   const [businessAccountId, setBusinessAccountId] = useState("");
   const [statements, setStatements] = useState<CreditStatement[]>([]);
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
-  const [date, setDate] = useState("");
+  const [dateRange, setDateRange] = useState(emptyDateRange);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -47,9 +48,9 @@ export default function ClientCreditStatementsPage() {
     [accounts, businessAccountId]
   );
 
-  const loadStatements = useCallback(async (accountId: string, dateFilter: string) => {
+  const loadStatements = useCallback(async (accountId: string, filter: DateRange) => {
     const [statementResult, creditResult] = await Promise.all([
-      listClientStatements(accountId, { date: dateFilter }),
+      listClientStatements(accountId, { dateRange: filter }),
       getClientCreditAccount(accountId)
     ]);
     setStatements(statementResult.statements);
@@ -81,10 +82,10 @@ export default function ClientCreditStatementsPage() {
     if (!businessAccountId) return;
     setLoading(true);
     setError("");
-    loadStatements(businessAccountId, date)
+    loadStatements(businessAccountId, dateRange)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "Statements could not be loaded."))
       .finally(() => setLoading(false));
-  }, [businessAccountId, date, loadStatements]);
+  }, [businessAccountId, dateRange, loadStatements]);
 
   async function closeCycle() {
     if (!businessAccountId) return;
@@ -94,7 +95,7 @@ export default function ClientCreditStatementsPage() {
     try {
       const result = await closeClientCycle(businessAccountId);
       setMessage(result.message);
-      await loadStatements(businessAccountId, date);
+      await loadStatements(businessAccountId, dateRange);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The billing cycle could not be closed.");
     } finally {
@@ -112,7 +113,7 @@ export default function ClientCreditStatementsPage() {
             <p className="mt-1 text-sm text-slate-600">Review shipment invoices grouped for credit collection.</p>
           </div>
           <div className="flex gap-2">
-            <DateFilterInput value={date} onChange={setDate} />
+            <DateRangeFilter value={dateRange} onChange={setDateRange} />
             <Link href={businessAccountId ? `/client/credit/ledger?businessAccountId=${businessAccountId}` : "/client/credit/ledger"} className="inline-flex h-10 rounded-4xl items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900">
               <FiFileText /> Account Statement
             </Link>

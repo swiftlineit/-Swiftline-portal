@@ -14,6 +14,15 @@ export type StaffRole = (typeof staffRoleValues)[number];
 export type InternalRole = (typeof internalRoleValues)[number];
 export type UserStatus = "invited" | "active" | "suspended" | "disabled";
 
+export interface IUserProfileImage {
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  size: number;
+  path: string;
+  uploadedAt: Date;
+}
+
 // Role names the product has retired. Documents written before a rename still
 // carry the old value, so each stays a valid enum member and is translated on
 // write (the schema setter below) and on read (`normalizePortalRole`).
@@ -71,6 +80,7 @@ export interface IUser extends mongoose.Document {
   emailVerifiedAt?: Date | null;
   invitedBy?: mongoose.Types.ObjectId | null;
   hasSeenWelcome: boolean;
+  profileImage?: IUserProfileImage | null;
   failedLoginAttempts: number;
   lockedUntil?: Date | null;
   lastLogin?: Date | null;
@@ -153,6 +163,16 @@ const userSchema = new mongoose.Schema<IUser>(
     emailVerifiedAt: { type: Date, default: null },
     invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     hasSeenWelcome: { type: Boolean, default: false },
+    // Optional for every portal identity. The stored path is never serialized;
+    // images are served through authenticated, scope-checked endpoints.
+    profileImage: {
+      originalName: { type: String, trim: true, default: "" },
+      storedName: { type: String, trim: true, default: "" },
+      mimeType: { type: String, trim: true, default: "" },
+      size: { type: Number, min: 0, default: 0 },
+      path: { type: String, trim: true, default: "" },
+      uploadedAt: { type: Date, default: null }
+    },
     failedLoginAttempts: { type: Number, default: 0 },
     lockedUntil: { type: Date, default: null },
     lastLogin: { type: Date, default: null },
@@ -180,6 +200,19 @@ const userSchema = new mongoose.Schema<IUser>(
 userSchema.index(
   { googleId: 1 },
   { unique: true, partialFilterExpression: { googleId: { $type: "string" } } }
+);
+
+// Every login is one global identity, regardless of whether it belongs to a
+// client or an internal team member. Phone values are stored as E.164; blanks on
+// legacy records are excluded until the identity migration reports and repairs
+// them.
+userSchema.index(
+  { phone: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { phone: { $type: "string", $gt: "" } },
+    name: "uniq_user_phone"
+  }
 );
 
 export const User = mongoose.model<IUser>("User", userSchema);

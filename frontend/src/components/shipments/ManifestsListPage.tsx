@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { FiDownload, FiEye, FiRefreshCw,FiPlus } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
-import DateFilterInput from "@/components/ui/DateFilterInput";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { emptyDateRange } from "@/lib/dateRange";
 import Pagination from "@/components/ui/Pagination";
 import {
   downloadShipmentManifest,
@@ -27,7 +28,7 @@ export default function ManifestsListPage({
     totalPages: 1,
   });
   const [page, setPage] = useState(1);
-  const [date, setDate] = useState("");
+  const [dateRange, setDateRange] = useState(emptyDateRange);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
@@ -36,7 +37,7 @@ export default function ManifestsListPage({
     setLoading(true);
     setError("");
     try {
-      const data = await listShipmentManifests(audience, { page, date });
+      const data = await listShipmentManifests(audience, { page, dateRange });
       setManifests(data.manifests);
       setPagination(data.pagination);
     } catch (caught) {
@@ -46,7 +47,7 @@ export default function ManifestsListPage({
     } finally {
       setLoading(false);
     }
-  }, [audience, date, page]);
+  }, [audience, dateRange, page]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -82,10 +83,10 @@ export default function ManifestsListPage({
         </div>
         {/* create manifest button */}
       <div className="flex items-center gap-2">
-      <DateFilterInput
-        value={date}
+      <DateRangeFilter
+        value={dateRange}
         onChange={(value) => {
-          setDate(value);
+          setDateRange(value);
           setPage(1);
         }}
       />

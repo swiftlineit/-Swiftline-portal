@@ -12,6 +12,7 @@ import ShipmentChargeVerificationPanel from "@/components/shipments/ShipmentChar
 import ShipmentInvoiceHistory from "@/components/shipments/ShipmentInvoiceHistory";
 import CustomsInvoiceCard from "@/components/shipments/CustomsInvoiceCard";
 import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel";
+import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/components/shipments/ShipmentKycDocumentsPanel";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import {
   DpdShipmentHistoryItem,
@@ -24,6 +25,8 @@ import {
   getShipmentDraft,
   holdDpdShipment,
   listDpdShipments,
+  openShipmentKycDocument,
+  openShipmentParcelKycDocument,
   previewShipmentAmendment,
   reconcileDpdShipmentDocuments,
   releaseDpdShipment,
@@ -188,6 +191,10 @@ export default function AdminShipmentDetailsPage() {
   const totalWeight = useMemo(() => (
     draft?.parcelList.reduce((total, parcel) => total + (Number(parcel.weightKg) || 0), 0) ?? 0
   ), [draft]);
+  const kycDocuments = useMemo(
+    () => draft ? collectShipmentKycDocuments({ documents: draft.kycDocuments, parcels: draft.parcelList, kycUseForAllParcels: draft.kycUseForAllParcels }) : [],
+    [draft]
+  );
   const isOnHold = history?.currentEvent?.status === "ON_HOLD";
   const cancellationLocked = cancellation?.status === "REQUESTED" || cancellation?.status === "COMPLETED";
 
@@ -335,7 +342,7 @@ export default function AdminShipmentDetailsPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="mx-auto max-w-8xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <Link href="/dashboard/dpd-labels" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-900 hover:text-blue-700">
@@ -517,7 +524,6 @@ export default function AdminShipmentDetailsPage() {
                 </DetailPanel>
 
                 <DetailPanel title="Booking" icon={<FiFileText aria-hidden="true" className="h-4 w-4" />}>
-                  <DetailRow label="Label Provider" value={history?.dpdShipment.bookingProvider === "SWIFTLINE" ? "Swiftline Only" : "DPD"} />
                   {history?.dpdShipment.bookingProvider !== "SWIFTLINE" ? <DetailRow label="DPD Shipment ID" value={history?.dpdShipment.dpdShipmentId || "Pending"} /> : null}
                   <DetailRow label="Swiftline Tracking" value={history?.dpdShipment.swiftlineTrackingNumber || "Pending"} />
                   {history?.dpdShipment.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Parcels" value={history?.dpdShipment.parcelNumbers.join(", ") || "Pending"} /> : null}
@@ -527,7 +533,7 @@ export default function AdminShipmentDetailsPage() {
                 <DetailPanel title="Parcels" icon={<FiPackage aria-hidden="true" className="h-4 w-4" />}>
                   <DetailRow label="Parcel Count" value={String(draft.parcelCount || draft.parcelList.length)} />
                   <DetailRow label="Total Weight" value={`${totalWeight.toFixed(2)} kg`} />
-                  <DetailRow label="Service" value={draft.serviceCode || formatLabel(draft.serviceType)} />
+                  <DetailRow label="Service" value={draft.serviceType === "CARGO" ? "Cargo" : draft.serviceType === "COURIER" ? "Courier" : formatLabel(draft.serviceCode)} />
                   <DetailRow label="Shipment Type" value={formatCsbType(draft.csbType)} />
                 </DetailPanel>
               </div>
@@ -636,6 +642,12 @@ export default function AdminShipmentDetailsPage() {
                     />
                     <DetailRow label="Instructions" value={draft.consigneeEnteredAddress.deliveryInstructions} />
                   </div>
+                  <ShipmentKycDocumentsPanel
+                    documents={kycDocuments}
+                    onOpen={(document) => document.sequence
+                      ? openShipmentParcelKycDocument(draft._id, document.sequence, document.type)
+                      : openShipmentKycDocument(draft._id, document.type)}
+                  />
                 </div>
               </div>
 

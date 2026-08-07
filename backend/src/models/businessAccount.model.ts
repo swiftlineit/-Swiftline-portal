@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { rateCardBandValues, type RateCardBand } from "./countryRateCard.model.js";
 
 export type ShipmentType = "international_cargo" | "international_courier";
 export const businessAccountStatuses = [
@@ -65,6 +66,16 @@ export interface IBusinessDocument {
   uploadedAt: Date;
 }
 
+/**
+ * Nearly every account is a real onboarded business. `INDIVIDUAL_SENTINEL` marks
+ * the single system-owned record that individual (walk-in) shipments are booked
+ * against: those customers have no company, no KYC file and no portal login, but
+ * the shipment chain requires a business account to point at. The sentinel is
+ * excluded from every account listing — see `individualCustomer.service.ts`.
+ */
+export const businessAccountKinds = ["BUSINESS", "INDIVIDUAL_SENTINEL"] as const;
+export type BusinessAccountKind = (typeof businessAccountKinds)[number];
+
 export interface IBusinessKycCheck {
   status: BusinessKycCheckStatus;
   note?: string | null;
@@ -82,6 +93,7 @@ export interface IBusinessKycReview {
 
 export interface IBusinessAccount extends mongoose.Document {
   accountId: string;
+  accountKind: BusinessAccountKind;
   status: BusinessAccountStatus;
   contact: {
     title: string;
@@ -143,6 +155,7 @@ export interface IBusinessAccount extends mongoose.Document {
   agreementStatus: AgreementStatus;
   ledgerViewedAt?: Date | null;
   assignedBranch?: mongoose.Types.ObjectId | null;
+  rateCardBand?: RateCardBand | null;
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
   submittedAt?: Date | null;
@@ -229,34 +242,42 @@ const businessKycReviewSchema = new mongoose.Schema<IBusinessKycReview>(
 const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
   {
     accountId: { type: String, required: true, unique: true, index: true },
+    // Defaults to BUSINESS so every existing account keeps its meaning without a
+    // migration; only the sentinel is ever written as INDIVIDUAL_SENTINEL.
+    accountKind: { type: String, enum: businessAccountKinds, default: "BUSINESS", required: true, index: true },
     status: {
       type: String,
       enum: businessAccountStatuses,
       default: "draft",
       index: true
     },
+    /**
+     * Identity fields (name, email, mobile) stay required: they are what the
+     * live-account unique indexes below key off, so a draft without them could
+     * not be de-duplicated and blanks would collide with each other.
+     *
+     * The descriptive fields are optional so a draft can be saved from the first
+     * step. Completeness is enforced on the way out of draft, by
+     * `submitBusinessAccount` — never here, or drafts could not be saved at all.
+     */
     contact: {
-      title: { type: String, enum: ["mr.", "mrs.", "ms.", "dr.", "prof."], required: true, trim: true },
+      title: { type: String, enum: ["mr.", "mrs.", "ms.", "dr.", "prof.", ""], default: "", trim: true },
       firstName: { type: String, required: true, trim: true },
       lastName: { type: String, required: true, trim: true },
       email: { type: String, required: true, lowercase: true, trim: true, index: true },
       mobileType: { type: String, enum: ["mobile", "office"], required: true, default: "mobile", trim: true },
       countryCode: { type: String, required: true, trim: true },
       mobileNumber: { type: String, required: true, trim: true, index: true },
-      jobTitle: { type: String, required: true, trim: true },
-      department: { type: String, required: true, trim: true },
+      jobTitle: { type: String, default: "", trim: true },
+      department: { type: String, default: "", trim: true },
       shipmentTypes: {
         type: [String],
         enum: ["international_cargo", "international_courier"],
-        required: true,
-        validate: {
-          validator: (value: ShipmentType[]) => value.length > 0,
-          message: "At least one shipment type is required"
-        }
+        default: []
       }
     },
     company: {
-      registrationCountry: { type: String, required: true, trim: true },
+      registrationCountry: { type: String, default: "", trim: true },
       registrationIdType: { type: String, default: "", trim: true },
       registrationId: { type: String, default: "", trim: true, index: true },
       // AES-256-GCM, keyed by TAX_ID_ENCRYPTION_KEY. Never indexed and never
@@ -339,6 +360,10 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
     },
     ledgerViewedAt: { type: Date, default: null },
     assignedBranch: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", default: null, index: true },
+    // New business accounts stay paused until an authorised team member assigns
+    // their commercial rate card. The individual-shipment sentinel is backfilled
+    // to BAND_A and continues to use the legacy counter tariff.
+    rateCardBand: { type: String, enum: [...rateCardBandValues, null], default: null, index: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     submittedAt: { type: Date, default: null }
@@ -360,7 +385,14 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
  * `npm run check:duplicate-accounts` and clear anything it reports before
  * deploying.
  */
-const liveAccountFilter = { status: { $ne: "rejected" } };
+// Spelled as the list of live statuses rather than `{ $ne: "rejected" }`, which
+// MongoDB rewrites to `$not: { $eq: ... }` and rejects: `$not` is outside the
+// operator set a partial index filter allows, so an index defined that way is
+// silently never built and enforces nothing. Any new status must be added here or
+// accounts holding it fall outside the uniqueness guarantee.
+const liveAccountFilter = {
+  status: { $in: businessAccountStatuses.filter((status) => status !== "rejected") }
+};
 
 businessAccountSchema.index(
   { "contact.email": 1 },
@@ -388,6 +420,10 @@ businessAccountSchema.index(
 businessAccountSchema.pre("validate", function normalizeLegacyWorkflowStatus() {
   const account = this as IBusinessAccount & { status: BusinessAccountStatus | string };
   const status = String(account.status);
+
+  if (account.accountKind === "INDIVIDUAL_SENTINEL") {
+    account.rateCardBand = "BAND_A";
+  }
 
   // Historical workflow milestones used to live in `status`. Keep lifecycle
   // status permanent and move those legacy values into their dedicated fields.

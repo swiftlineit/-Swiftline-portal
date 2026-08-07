@@ -3,10 +3,11 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useConfirmLeave } from "@/lib/useUnsavedChanges";
+import { useGuardedNavigate } from "@/lib/useUnsavedChanges";
 import { usePathname } from "next/navigation";
 import type { IconType } from "react-icons";
 import {
+  FiAlertOctagon,
   FiArchive,
   FiBriefcase,
   FiChevronLeft,
@@ -30,6 +31,7 @@ import {
   ALL_STAFF_AREA,
   BRANCH_VIEW_AREA,
   BUSINESS_ACCOUNT_AREA,
+  COUNTER_SALES_AREA,
   CREDIT_VIEW_AREA,
   FINANCE_AREA,
   OPERATIONS_AREA,
@@ -64,6 +66,12 @@ const navigationItems = [
     href: "/dashboard/credit-accounts",
     icon: FiCreditCard,
     roles: withAdmin(CREDIT_VIEW_AREA),
+  },
+  {
+    label: "Counter Sales",
+    href: "/dashboard/counter-sales",
+    icon: BsCurrencyRupee,
+    roles: withAdmin(COUNTER_SALES_AREA),
   },
   {
     label: "Branches",
@@ -126,6 +134,30 @@ const navigationItems = [
     roles: withAdmin(FINANCE_AREA),
   },
   {
+    label: "Operations Advisory",
+    href: "/dashboard/operations-advisory",
+    icon: FiAlertOctagon,
+    roles: withAdmin(OPERATIONS_AREA),
+  },
+  {
+    label: "Pickup Requests",
+    href: "/dashboard/pickups",
+    icon: FiTruck,
+    roles: withAdmin(OPERATIONS_AREA),
+  },
+  {
+    label: "Pickup Drivers",
+    href: "/dashboard/drivers",
+    icon: FiUsers,
+    roles: withAdmin(OPERATIONS_AREA),
+  },
+  {
+    label: "International POD",
+    href: "/dashboard/pod",
+    icon: FiTruck,
+    roles: withAdmin(OPERATIONS_AREA),
+  },
+  {
     label: "Users",
     href: "/dashboard/users",
     icon: FiUsers,
@@ -149,7 +181,7 @@ export default function Sidebar({
   items?: SidebarNavItem[];
 }) {
   const pathname = usePathname();
-  const confirmLeaveIfDirty = useConfirmLeave();
+  const guardNavigation = useGuardedNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const visibleNavigationItems: SidebarNavItem[] =
@@ -169,7 +201,7 @@ export default function Sidebar({
       >
         {sidebarOpen ? (
           <div className="flex min-w-0 items-center gap-3">
-           <Link href="/dashboard" onNavigate={(event) => { if (!confirmLeaveIfDirty()) event.preventDefault(); }}>
+           <Link href="/dashboard" onNavigate={guardNavigation("/dashboard")}>
         <Image
   src="/slclogo1.png"
   alt="Swiftline Cargo"
@@ -201,7 +233,10 @@ export default function Sidebar({
         </button>
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-6 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+      <nav
+        data-dashboard-sidebar-scroll
+        className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-6 scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+      >
         {visibleNavigationItems.map((item) => {
           const Icon = item.icon;
 
@@ -219,9 +254,7 @@ export default function Sidebar({
               // Navigating away from a half-filled form would discard it
               // silently. One guard here covers every form in the portal,
               // because the dirty state is held in a shared registry.
-              onNavigate={(event) => {
-                if (!confirmLeaveIfDirty()) event.preventDefault();
-              }}
+              onNavigate={guardNavigation(item.href)}
               className={`group flex h-11 items-center rounded-lg text-sm font-medium transition ${
                 isActive
                   ? "text-slate-900"

@@ -29,13 +29,15 @@ import {
   isValidBusinessContactEmail
 } from "@/lib/businessAccountContactRules";
 import {
+  draftRequiredFieldKeys,
   fieldLabels,
   getStepIssues,
+  isDraftSavable,
   isStepValid,
   stepFieldKeys,
   validateBusinessAccountForm
 } from "@/lib/businessAccountValidation";
-import { confirmLeave, useUnsavedChanges } from "@/lib/useUnsavedChanges";
+import { requestLeave, useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import { documentTooltips, reviewTooltips } from "@/lib/businessAccountTooltips";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { isSensitiveUsTaxIdType, isUsTaxIdType, type UsTaxIdType } from "@/lib/usTaxId";
@@ -155,6 +157,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<UniqueField, string>>>({});
   const [validatingFields, setValidatingFields] = useState<Partial<Record<UniqueField, boolean>>>({});
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [persisted, setPersisted] = useState(false);
   const idempotencyKeyRef = useRef("");
 
@@ -164,12 +167,24 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
   const hasUnsavedChanges = !persisted
     && (JSON.stringify(formData) !== initialSnapshot || Object.values(files).some(Boolean));
 
-  useUnsavedChanges(hasUnsavedChanges);
-
   const existingDocuments = account?.documents ?? {};
   const steps = businessAccountSteps;
   const isEdit = Boolean(account);
   const isDraftEdit = account?.status === "draft";
+
+  useUnsavedChanges(hasUnsavedChanges, {
+    label: "this business account",
+    // An account already under review has left draft for good, so there is
+    // nothing to save it back to.
+    saveDraft: !isEdit || isDraftEdit
+      ? async () => {
+        const saved = await saveAsDraft({ navigateAfterSave: false });
+        // Rejecting keeps the user on the form; saveAsDraft has already set the
+        // error message explaining why.
+        if (!saved) throw new Error("Business account draft was not saved.");
+      }
+      : undefined
+  });
   const isCheckingUnique = Object.values(validatingFields).some(Boolean);
 
   // The whole form's field state, recomputed on every keystroke. One call feeds
@@ -458,8 +473,21 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
     return nextErrors;
   }
 
-  async function validateStep(stepToValidate: number) {
+  async function validateStep(stepToValidate: number, { fieldsRequiredForDraft = false } = {}) {
     setError("");
+
+    // A draft only has to carry the identity fields, so the usual step gates are
+    // bypassed in favour of that smaller set.
+    if (fieldsRequiredForDraft) {
+      for (const key of draftRequiredFieldKeys) markTouched(key);
+
+      if (!isDraftSavable(validation)) {
+        setError("Enter the contact name, email, and mobile number before saving a draft.");
+        return false;
+      }
+
+      return validateStepUniqueFields(0);
+    }
 
     if (stepToValidate === 2) {
       const nextDocumentErrors = getDocumentValidationErrors();
@@ -539,6 +567,50 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
     }
   }
 
+  /**
+   * Stores the form without submitting it for review.
+   *
+   * Only the contact identity fields are required, matching the relaxed schema
+   * the server applies to drafts — the account keeps its `draft` status and the
+   * accounts table offers "Submit for Review" when it is complete.
+   *
+   * Returns whether it was saved, so the leave prompt can keep the user on the
+   * form when it was not.
+   */
+  async function saveAsDraft({ navigateAfterSave = true } = {}): Promise<boolean> {
+    // The identity fields are what the server needs to de-duplicate the account,
+    // so they are the one thing a draft cannot skip.
+    if (!(await validateStep(0, { fieldsRequiredForDraft: true }))) {
+      setStep(0);
+      return false;
+    }
+
+    setSavingDraft(true);
+    setError("");
+
+    try {
+      idempotencyKeyRef.current ||= createIdempotencyKey();
+
+      if (isEdit && account) {
+        await updateBusinessAccount(account.accountId, formData, files, { saveAsDraft: true });
+      } else {
+        await createBusinessAccount(formData, files, idempotencyKeyRef.current, { saveAsDraft: true });
+      }
+
+      setPersisted(true);
+      // Back to the list, not the account page. A draft is an unfinished form,
+      // not an onboarded customer, and landing on its detail page reads as though
+      // a real account had just been created.
+      if (navigateAfterSave) router.push("/dashboard/business-accounts");
+      return true;
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to save this draft.");
+      return false;
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
   async function handleContinue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!(await validateStep(step))) return;
@@ -573,7 +645,11 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
         <button
           type="button"
           onClick={() => {
-            if (confirmLeave(hasUnsavedChanges)) router.push("/dashboard/business-accounts");
+            // Goes through the shared prompt so Cancel offers to keep the work
+            // as a draft, exactly as leaving via the sidebar does.
+            void requestLeave().then((canLeave) => {
+              if (canLeave) router.push("/dashboard/business-accounts");
+            });
           }}
           className="rounded-xl border border-[#EEEDED] bg-white px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition hover:border-[#0D1282]/30 hover:bg-[#EEEDED]/60 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/40"
         >
@@ -688,10 +764,26 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
             Back
           </button>
           <div className="flex gap-3">
+            {/* Available on every step, unlike Continue: the point of a draft is
+                to leave from wherever you happen to be. Hidden once the account
+                is past review, where there is no draft state to return to. */}
+            {!isEdit || isDraftEdit ? (
+              <button
+                type="button"
+                onClick={() => void saveAsDraft()}
+                disabled={saving || savingDraft || isCheckingUnique || !isDraftSavable(validation)}
+                title={isDraftSavable(validation)
+                  ? undefined
+                  : "Enter the contact name, email, and mobile number first."}
+                className="rounded-xl border border-[#EEEDED] bg-white px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition hover:border-[#0D1282]/30 hover:bg-[#EEEDED]/60 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/40 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingDraft ? "Saving..." : "Save as Draft"}
+              </button>
+            ) : null}
             {step < steps.length - 1 ? (
               <button
                 type="submit"
-                disabled={saving || isCheckingUnique || !canLeaveStep}
+                disabled={saving || savingDraft || isCheckingUnique || !canLeaveStep}
                 className="rounded-xl bg-[#0D1282] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0D1282]/90 focus:outline-none focus:ring-2 focus:ring-[#F0DE36]/50 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-[#0D1282]/55"
               >
                 {isCheckingUnique ? "Checking..." : "Continue"}

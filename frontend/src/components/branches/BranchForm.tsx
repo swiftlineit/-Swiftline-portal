@@ -547,7 +547,19 @@ export default function BranchForm({
   // as unsaved work.
   const branchSnapshot = useMemo(() => JSON.stringify(initialData ?? initialForm), [initialData]);
 
-  useUnsavedChanges(!branchPersisted && JSON.stringify(form) !== branchSnapshot);
+  useUnsavedChanges(!branchPersisted && JSON.stringify(form) !== branchSnapshot, {
+    label: "this branch",
+    // An already-activated branch has no draft state to fall back to, so the
+    // leave prompt offers only discard-or-stay there.
+    saveDraft: !isEditMode || initialStatus === "DRAFT"
+      ? async () => {
+        const saved = await handleSubmit("draft", { navigateAfterSave: false });
+        // Rejecting keeps the user on the form; handleSubmit has already
+        // explained what went wrong.
+        if (!saved) throw new Error("Branch draft was not saved.");
+      }
+      : undefined
+  });
   const [codeExists, setCodeExists] = useState<boolean | null>(null);
   const [savingMode, setSavingMode] = useState<SubmitMode | null>(null);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -693,7 +705,14 @@ export default function BranchForm({
     });
   }
 
-  async function handleSubmit(mode: SubmitMode) {
+  /**
+   * Saves the form. Returns whether it was persisted.
+   *
+   * `navigateAfterSave` is off when the save is driven by the leave prompt: that
+   * flow already has a destination in mind, and pushing to the branch page first
+   * would bounce the user somewhere they did not ask to go.
+   */
+  async function handleSubmit(mode: SubmitMode, { navigateAfterSave = true } = {}): Promise<boolean> {
     // The policy is accepted once, at activation. Editing an already-active (or
     // previously-activated) branch must not demand a second acceptance, so only
     // actual activations gate on it.
@@ -707,7 +726,7 @@ export default function BranchForm({
     if (requiresPolicyAcceptance && !policyAccepted) {
       setSubmitAttempted(true);
       toast.error("Please accept the branch operating policy.");
-      return;
+      return false;
     }
 
     const errors = validateForm(form, requiresActiveValidation ? "ACTIVE" : "DRAFT", codeExists);
@@ -719,7 +738,7 @@ export default function BranchForm({
         ...Object.fromEntries(Object.keys(errors).map((field) => [field, true]))
       }));
       toast.error("Please fix the highlighted fields before saving.");
-      return;
+      return false;
     }
 
     setSavingMode(mode);
@@ -776,15 +795,24 @@ export default function BranchForm({
             ? `Branch saved, but a file upload failed: ${uploadError.message}`
             : "Branch saved, but a file upload failed."
         );
-        return;
+        // The branch itself is stored, so the form is no longer unsaved work —
+        // but the user must stay to fix the file.
+        setBranchPersisted(true);
+        return false;
       }
 
       toast.success(mode === "draft" ? "Branch saved as draft." : "Branch saved successfully.");
       // Saved on the server, so leaving no longer loses anything.
       setBranchPersisted(true);
-      router.push(`/dashboard/branches/${branch._id}`);
+      if (navigateAfterSave) {
+        // A draft goes back to the list, where its row carries the edit action
+        // that resumes it. Only a real save opens the branch itself.
+        router.push(mode === "draft" ? "/dashboard/branches" : `/dashboard/branches/${branch._id}`);
+      }
+      return true;
     } catch (caughtError) {
       toast.error(caughtError instanceof Error ? caughtError.message : "Unable to save branch.");
+      return false;
     } finally {
       setSavingMode(null);
       setUploading(false);

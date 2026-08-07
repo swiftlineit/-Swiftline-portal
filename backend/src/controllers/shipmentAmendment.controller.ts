@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { AuditLog } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
+import { CounterPayment, counterPaymentMethodValues } from "../models/counterPayment.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { ShipmentAmendment } from "../models/shipmentAmendment.model.js";
 import { ShipmentEvent, type ShipmentEventStatus } from "../models/shipmentEvent.model.js";
@@ -16,8 +17,11 @@ import {
 } from "../models/shipmentDraft.model.js";
 import { normalizeCsbType } from "../services/csbType.service.js";
 import { normalizeParcelItems } from "../services/parcelItems.service.js";
+import { findRestrictedCategories } from "../services/restrictedGoods.service.js";
 import {
+  buildPricingInputFromDraft,
   calculateShipmentPricingEstimate,
+  RateCardRequiredError,
   type ShipmentPricingEstimate
 } from "../services/shipmentPricing.service.js";
 import { validateShipmentDraftFields } from "../services/shipmentValidation.service.js";
@@ -32,7 +36,7 @@ import {
 } from "../services/amendmentBilling.service.js";
 import { regenerateSimulatedShipmentLabels } from "../services/dpdShipment.service.js";
 import { notifyActiveAdmins, notifyBusinessShipmentMembers } from "../services/portalNotification.service.js";
-import { dayBounds } from "../utils/dateRangeFilter.js";
+import { dateRangeCondition, dateRangeParams } from "../utils/dateRangeFilter.js";
 import {
   buildRevisedShipmentSnapshot,
   readShipmentBookingSnapshot
@@ -87,6 +91,20 @@ const amendmentParcelSchema = z.object({
   contentsDescription: z.string().trim().min(1).max(120),
   shipmentReference1: z.string().trim().max(120).optional(),
   shipmentReference2: z.string().trim().max(120).optional()
+}).superRefine((parcel, context) => {
+  const descriptions = [
+    ...(parcel.items ?? []).map((item) => item.description),
+    parcel.contentsDescription
+  ];
+  const categories = descriptions.flatMap((description) => findRestrictedCategories(description));
+  const uniqueCategories = categories.filter((category, index) => categories.indexOf(category) === index);
+  if (!uniqueCategories.length) return;
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ["items"],
+    message: `${uniqueCategories.join(", ")} is a restricted item and cannot be shipped.`
+  });
 });
 
 const createShipmentAmendmentSchema = z.object({
@@ -101,7 +119,14 @@ const createShipmentAmendmentSchema = z.object({
 });
 
 const reviewShipmentAmendmentSchema = z.object({
-  note: z.string().trim().max(500).optional().default("")
+  note: z.string().trim().max(500).optional().default(""),
+  // Walk-in shipments only, and only when the amendment changes the price. The
+  // approval is rejected if a counter sale moves money and this is missing.
+  counterPayment: z.object({
+    method: z.enum(counterPaymentMethodValues),
+    reference: z.string().trim().max(80).optional(),
+    note: z.string().trim().max(300).optional()
+  }).optional()
 });
 
 type AppliedChange = {
@@ -112,7 +137,7 @@ type AppliedChange = {
 
 type ShipmentDraftForAmendment = Pick<
   IShipmentDraft,
-  "consigneeEnteredAddress" | "parcelList" | "serviceType" | "csbType" | "addressValidationStatus" | "status"
+  "businessAccountId" | "consigneeEnteredAddress" | "parcelList" | "serviceType" | "csbType" | "addressValidationStatus" | "status"
 >;
 
 type AmendmentChanges = z.infer<typeof createShipmentAmendmentSchema>["changes"];
@@ -185,6 +210,7 @@ function snapshotDraft(draft: ShipmentDraftForAmendment) {
   const address = draft.consigneeEnteredAddress;
 
   return {
+    businessAccountId: draft.businessAccountId,
     consigneeEnteredAddress: {
       companyName: address.companyName ?? "",
       contactName: address.contactName ?? "",
@@ -268,7 +294,13 @@ function readSnapshotValue(snapshot: DraftSnapshot, fieldName: string) {
 }
 
 function applyChangesToSnapshot(snapshot: DraftSnapshot, changes: AppliedChange[]): DraftSnapshot {
-  const next = structuredClone(snapshot);
+  // `structuredClone` does not preserve a Mongoose ObjectId as an ObjectId.
+  // Keep the original account reference so amendment repricing can still resolve
+  // the business account's current rate-card band.
+  const next = {
+    ...structuredClone(snapshot),
+    businessAccountId: snapshot.businessAccountId
+  } as DraftSnapshot;
 
   for (const change of changes) {
     if (change.fieldName === "serviceType") {
@@ -300,18 +332,12 @@ async function getPricingImpact(
   repriceRequested = true
 ): Promise<PricingImpact> {
   const currentEstimate = currentPricing ?? await calculateShipmentPricingEstimate({
-      countryCode: current.consigneeEnteredAddress.countryCode,
-      serviceType: current.serviceType,
-      parcels: current.parcelList,
-      csbType: current.csbType,
+      ...buildPricingInputFromDraft(current),
       session
     });
   const requestedEstimate = repriceRequested
     ? await calculateShipmentPricingEstimate({
-        countryCode: requested.consigneeEnteredAddress.countryCode,
-        serviceType: requested.serviceType,
-        parcels: requested.parcelList,
-        csbType: requested.csbType,
+        ...buildPricingInputFromDraft(requested),
         session
       })
     : currentEstimate;
@@ -536,7 +562,7 @@ export async function previewShipmentAmendment(request: Request, response: Respo
       fundingPreview: preview.fundingPreview
     });
   } catch (error) {
-    if (error instanceof AmendmentReviewError || error instanceof AmendmentBillingError) {
+    if (error instanceof AmendmentReviewError || error instanceof AmendmentBillingError || error instanceof RateCardRequiredError) {
       return response.status(error.statusCode).json({ success: false, message: error.message });
     }
     throw error;
@@ -580,7 +606,7 @@ export async function createShipmentAmendment(
       userId
     );
   } catch (error) {
-    if (error instanceof AmendmentReviewError || error instanceof AmendmentBillingError) {
+    if (error instanceof AmendmentReviewError || error instanceof AmendmentBillingError || error instanceof RateCardRequiredError) {
       return response.status(error.statusCode).json({ success: false, message: error.message });
     }
     throw error;
@@ -661,8 +687,9 @@ export async function listShipmentAmendments(request: Request, response: Respons
   const filters: Record<string, unknown> = {};
 
   if (status) filters.status = status;
-  const bounds = dayBounds(typeof request.query.date === "string" ? request.query.date : undefined);
-  if (bounds) filters.requestedAt = { $gte: bounds.start, $lte: bounds.end };
+  const { dateFrom, dateTo } = dateRangeParams(request.query);
+  const requestedAt = dateRangeCondition(dateFrom, dateTo);
+  if (requestedAt) filters.requestedAt = requestedAt;
 
   const total = await ShipmentAmendment.countDocuments(filters).exec();
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -712,7 +739,11 @@ export async function listShipmentAmendments(request: Request, response: Respons
         ? {
             ...storedFundingPreview,
             billingMode: storedFundingPreview.billingMode
-              ?? (dpdShipment?.paymentSource === "TEST" ? "TEST" : "BUSINESS_ACCOUNT")
+              ?? (dpdShipment?.paymentSource === "TEST"
+                ? "TEST"
+                : dpdShipment?.paymentSource === "ADMIN_DIRECT"
+                  ? "DIRECT"
+                  : "BUSINESS_ACCOUNT")
           }
         : null;
 
@@ -867,6 +898,33 @@ export async function approveShipmentAmendment(request: Request, response: Respo
         throw error;
       }
 
+      // A walk-in settles any amendment delta at the counter, so the movement is
+      // recorded here alongside the revised invoice. `deltaAmountMinor` carries the
+      // direction: positive means the customer paid more, negative means money went
+      // back to them.
+      if (shipmentDraft.customerType === "INDIVIDUAL" && billingAdjustment.deltaAmountMinor !== 0) {
+        if (!parsed.data.counterPayment) {
+          throw new AmendmentReviewError(
+            400,
+            billingAdjustment.deltaAmountMinor > 0
+              ? "Record how the customer paid the additional amount before approving this amendment."
+              : "Record how the difference was refunded to the customer before approving this amendment."
+          );
+        }
+
+        await CounterPayment.create([{
+          shipmentDraftId: shipmentDraft._id,
+          branchId: shipmentDraft.branchId,
+          direction: billingAdjustment.deltaAmountMinor > 0 ? "COLLECTED" : "REFUNDED",
+          amountMinor: Math.abs(billingAdjustment.deltaAmountMinor),
+          method: parsed.data.counterPayment.method,
+          reference: parsed.data.counterPayment.reference ?? "",
+          note: parsed.data.counterPayment.note ?? "",
+          recordedBy: userId,
+          recordedAt: new Date()
+        }], { session });
+      }
+
       applyRequestedChanges(shipmentDraft, changePreview);
       shipmentDraft.bookingState = "REVIEW_REQUIRED";
       await shipmentDraft.save({ session });
@@ -953,7 +1011,7 @@ export async function approveShipmentAmendment(request: Request, response: Respo
       };
     });
   } catch (error) {
-    if (error instanceof AmendmentReviewError) {
+    if (error instanceof AmendmentReviewError || error instanceof RateCardRequiredError) {
       return response.status(error.statusCode).json({ success: false, message: error.message });
     }
     throw error;

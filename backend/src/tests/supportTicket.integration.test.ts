@@ -54,7 +54,9 @@ async function fixture() {
     accountId: `TICKET-${unique}`, status: "active",
     contact: {
       title: "mr.", firstName: "Ticket", lastName: "Owner", email: owner.email, mobileType: "mobile",
-      countryCode: "+91", mobileNumber: "9000000000", jobTitle: "Owner", department: "Operations",
+      // Unique per fixture: live accounts carry a unique index on
+      // (countryCode, mobileNumber), and this fixture runs more than once.
+      countryCode: "+91", mobileNumber: `9${String(unique).slice(-9)}`, jobTitle: "Owner", department: "Operations",
       shipmentTypes: ["international_courier"]
     },
     company: {

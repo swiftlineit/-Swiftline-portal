@@ -1,6 +1,8 @@
 import { apiUrl } from "@/lib/api";
+import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
+import { toPriceChangedError } from "@/lib/shipmentCostEstimate";
 
 export type InvoiceUpload = {
   id: string;
@@ -81,6 +83,12 @@ export type ShipmentDraft = {
   _id: string;
   invoiceUploadId: string;
   businessAccountId: string;
+  /**
+   * INDIVIDUAL is a walk-in booked at the counter: paid in full up front, billed
+   * to the person rather than a company. Absent on drafts created before the
+   * field existed, which are all business shipments.
+   */
+  customerType?: "BUSINESS" | "INDIVIDUAL";
   branchId: string;
   consignorAddress?: ShipmentConsignorAddress;
   consignorPlaceId?: string;
@@ -109,6 +117,7 @@ export type ShipmentDraft = {
       quantity?: number;
       unitRate?: number;
     }>;
+    declaredGoodsValueMinor?: number | null;
     contentsDescription: string;
     shipmentReference1?: string;
     shipmentReference2?: string;
@@ -117,6 +126,9 @@ export type ShipmentDraft = {
   }>;
   // Customs route. Absent on drafts created before CSB selection existed.
   csbType?: CsbType;
+  // Optional transit cover. Absent on drafts created before insurance existed,
+  // which price as uninsured.
+  insuranceOptIn?: boolean;
   // Printed as the NOTE block on the customs (shipment) invoice.
   declarationNote?: string;
   serviceType?: ShipmentServiceType;
@@ -154,6 +166,7 @@ export type ShipmentDraftPatch = {
     aadhaarNumber?: string;
   }>;
   csbType?: CsbType;
+  insuranceOptIn?: boolean;
   declarationNote?: string;
   serviceType?: ShipmentServiceType;
   serviceCode?: string;
@@ -213,7 +226,7 @@ export type ShipmentAmendmentBillingAdjustment = {
 };
 
 export type ShipmentAmendmentFundingPreview = {
-  billingMode: "BUSINESS_ACCOUNT" | "TEST";
+  billingMode: "BUSINESS_ACCOUNT" | "DIRECT" | "TEST";
   previousAmountMinor: number;
   amendedAmountMinor: number;
   deltaAmountMinor: number;
@@ -251,7 +264,7 @@ export type ShipmentChargeVerification = {
   previousAmountMinor: number;
   verifiedAmountMinor: number;
   deltaAmountMinor: number;
-  billingMode: "BUSINESS_ACCOUNT" | "TEST";
+  billingMode: "BUSINESS_ACCOUNT" | "DIRECT" | "TEST";
   billingAdjustment: ShipmentAmendmentBillingAdjustment;
   invoiceNumber: string;
   invoiceRevision: number;
@@ -588,6 +601,41 @@ export async function createManualShipmentDraft(input: {
   }>(response);
 }
 
+/** Identity of a walk-in customer, captured at the counter. */
+export type IndividualCustomerDetails = {
+  contactName: string;
+  mobileCountryCode: string;
+  mobileNumber: string;
+  email?: string;
+  aadhaarNumber?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  townOrCity?: string;
+  county?: string;
+  postcode?: string;
+  pickupInstructions?: string;
+};
+
+/**
+ * Opens a draft for a customer with no business account. There is no account to
+ * select, so the payer's details are sent instead and stored on the draft.
+ */
+export async function createIndividualShipmentDraft(input: {
+  branchId: string;
+  customer: IndividualCustomerDetails;
+}) {
+  const response = await fetchWithAuth(apiUrl("/api/v1/shipment-drafts/individual"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+
+  return parseApiResponse<{
+    success: true;
+    shipmentDraft: ShipmentDraft;
+  }>(response);
+}
+
 export async function processInvoiceUpload(invoiceUploadId: string) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/invoice-uploads/${invoiceUploadId}/process`), {
     method: "POST"
@@ -667,10 +715,10 @@ export async function previewShipmentAmendment(shipmentDraftId: string, input: S
   }>(response);
 }
 
-export async function listShipmentAmendments(input: { status?: string; date?: string; page?: number } = {}) {
+export async function listShipmentAmendments(input: { status?: string; dateRange?: DateRange; page?: number } = {}) {
   const url = new URL(apiUrl("/api/v1/shipment-amendments"));
   if (input.status) url.searchParams.set("status", input.status);
-  if (input.date) url.searchParams.set("date", input.date);
+  setDateRangeParams(url.searchParams, input.dateRange);
   url.searchParams.set("page", String(input.page ?? 1));
   const response = await fetchWithAuth(url.toString());
 
@@ -681,11 +729,17 @@ export async function listShipmentAmendments(input: { status?: string; date?: st
   }>(response);
 }
 
-export async function approveShipmentAmendment(amendmentId: string, note = "") {
+export async function approveShipmentAmendment(
+  amendmentId: string,
+  note = "",
+  // Required when a walk-in's amendment changes the price: the difference is
+  // collected or refunded at the counter, outside the portal.
+  counterPayment?: CounterPaymentInput
+) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/shipment-amendments/${amendmentId}/approve`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note })
+    body: JSON.stringify({ note, ...(counterPayment ? { counterPayment } : {}) })
   });
 
   return parseApiResponse<{
@@ -708,10 +762,34 @@ export async function rejectShipmentAmendment(amendmentId: string, note = "") {
   }>(response);
 }
 
-async function createShipmentBooking(shipmentDraftId: string, action: "create-dpd-label" | "create-swiftline-shipment") {
+/** How a walk-in paid. Required when booking an individual shipment. */
+export type CounterPaymentInput = {
+  method: "CASH" | "UPI" | "BANK_TRANSFER" | "CARD" | "CHEQUE";
+  reference?: string;
+  note?: string;
+};
+
+async function createShipmentBooking(
+  shipmentDraftId: string,
+  action: "create-dpd-label" | "create-swiftline-shipment",
+  counterPayment?: CounterPaymentInput,
+  acceptedPricingHash?: string
+) {
+  const body = { ...(counterPayment ?? {}), ...(acceptedPricingHash ? { acceptedPricingHash } : {}) };
   const response = await fetchWithAuth(apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/${action}`), {
-    method: "POST"
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
   });
+
+  // A refusal because the price moved carries the new breakdown, so it is raised
+  // as a typed error the booking page can render as a comparison rather than as
+  // an opaque message.
+  if (response.status === 409) {
+    const data = await response.clone().json().catch(() => ({}));
+    const priceChanged = toPriceChangedError(data);
+    if (priceChanged) throw priceChanged;
+  }
 
   return parseApiResponse<{
     success: true;
@@ -749,12 +827,20 @@ async function createShipmentBooking(shipmentDraftId: string, action: "create-dp
   }>(response);
 }
 
-export function createDpdLabel(shipmentDraftId: string) {
-  return createShipmentBooking(shipmentDraftId, "create-dpd-label");
+export function createDpdLabel(
+  shipmentDraftId: string,
+  counterPayment?: CounterPaymentInput,
+  acceptedPricingHash?: string
+) {
+  return createShipmentBooking(shipmentDraftId, "create-dpd-label", counterPayment, acceptedPricingHash);
 }
 
-export function createSwiftlineShipment(shipmentDraftId: string) {
-  return createShipmentBooking(shipmentDraftId, "create-swiftline-shipment");
+export function createSwiftlineShipment(
+  shipmentDraftId: string,
+  counterPayment?: CounterPaymentInput,
+  acceptedPricingHash?: string
+) {
+  return createShipmentBooking(shipmentDraftId, "create-swiftline-shipment", counterPayment, acceptedPricingHash);
 }
 
 export async function reconcileDpdShipmentDocuments(dpdShipmentId: string) {

@@ -63,6 +63,18 @@ export const addressLookupLimiter = rateLimit({
   message: { success: false, message: "Too many address lookups. Please wait a moment and try again." }
 });
 
+// The public rate card link is the one portal surface reachable without a
+// session. The token carries 256 bits of entropy so brute force is not the
+// threat; this exists so a leaked link cannot be turned into a document-
+// generation firehose, since every hit renders a PDF or a workbook.
+export const publicRateCardLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: env.NODE_ENV === "production" ? 30 : 300,
+  message: { success: false, message: "Too many rate card requests. Please wait a moment and try again." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: env.NODE_ENV === "production" ? 5 : 50,

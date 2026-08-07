@@ -130,7 +130,9 @@ async function createOrUpdateShipmentDraft(
   parsedInvoice: ParsedCustomsInvoice,
   userId: mongoose.Types.ObjectId
 ): Promise<InstanceType<typeof ShipmentDraft>> {
-  const existingDraft = await ShipmentDraft.findOne({ invoiceUploadId }).exec();
+  // Deleted drafts are skipped so re-uploading a discarded invoice starts a new
+  // draft rather than reviving the one the user threw away.
+  const existingDraft = await ShipmentDraft.findOne({ invoiceUploadId, deletedAt: null }).exec();
   if (existingDraft && await resolveDraftBookingState(existingDraft) !== "EDITABLE") {
     return existingDraft;
   }
@@ -216,7 +218,7 @@ async function createOrUpdateShipmentDraft(
 }
 
 async function getInvoiceDraftState(invoiceUploadId: mongoose.Types.ObjectId) {
-  const shipmentDraft = await ShipmentDraft.findOne({ invoiceUploadId }).exec();
+  const shipmentDraft = await ShipmentDraft.findOne({ invoiceUploadId, deletedAt: null }).exec();
   if (!shipmentDraft) {
     return { shipmentDraft: null, bookingState: "EDITABLE" as const, locked: false };
   }
@@ -278,7 +280,7 @@ async function refreshDuplicateInvoiceDraft(
   if (current?.locked) return current.shipmentDraft;
 
   if (!invoiceUpload || !businessAccount || !branch || !fs.existsSync(invoiceUpload.storagePath)) {
-    return ShipmentDraft.findOne({ invoiceUploadId: invoiceUpload?._id }).exec();
+    return ShipmentDraft.findOne({ invoiceUploadId: invoiceUpload?._id, deletedAt: null }).exec();
   }
 
   const parsedInvoice = await parseCustomsInvoiceWorkbook(invoiceUpload.storagePath);
@@ -359,7 +361,7 @@ export async function createInvoiceUpload(request: Request, response: Response):
     try {
       shipmentDraft = await refreshDuplicateInvoiceDraft(existingUpload, businessAccount, branch, userId);
     } catch {
-      shipmentDraft = await ShipmentDraft.findOne({ invoiceUploadId: existingUpload._id }).exec();
+      shipmentDraft = await ShipmentDraft.findOne({ invoiceUploadId: existingUpload._id, deletedAt: null }).exec();
     }
 
     return response.status(200).json({
@@ -535,7 +537,9 @@ export async function getInvoiceUpload(request: Request, response: Response): Pr
   const invoiceUpload = await InvoiceUpload.findById(invoiceUploadId).lean().exec();
   if (!invoiceUpload) return response.status(404).json({ success: false, message: "Invoice upload not found" });
 
-  const shipmentDraft = await ShipmentDraft.findOne({ invoiceUploadId: invoiceUpload._id }).lean().exec();
+  const shipmentDraft = await ShipmentDraft.findOne({ invoiceUploadId: invoiceUpload._id, deletedAt: null })
+    .lean()
+    .exec();
 
   return response.status(200).json({
     success: true,

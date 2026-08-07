@@ -14,7 +14,16 @@ import {
   type ShipmentManifestSummary
 } from "@/lib/shipmentManifests";
 
-type LineState = { selected: boolean; declaredValue: string; bagNumber: string };
+function formatMoneyMinor(valueMinor: number) {
+  if (valueMinor <= 0) return "Unavailable";
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2
+  }).format(valueMinor / 100);
+}
+
+type LineState = { selected: boolean; bagNumber: string };
 
 type ManifestHeaderState = {
   destinationAgent: string;
@@ -58,7 +67,6 @@ export default function ShipmentManifestPanel({
             shipment.shipmentDraftId,
             {
               selected: shipment.shipmentDraftId === data.currentShipmentDraftId,
-              declaredValue: "",
               bagNumber: ""
             }
           ])
@@ -102,19 +110,12 @@ export default function ShipmentManifestPanel({
     if (!context || !selectedShipments.length) return;
 
     if (audience === "client") {
-      const declaredValue = Number(lines[draftId]?.declaredValue);
-      if (!Number.isFinite(declaredValue) || declaredValue <= 0) {
-        setError("Enter a goods value greater than zero.");
-        return;
-      }
-
       setBusy(true);
       setError("");
       try {
         const result = await createShipmentManifest(
           {
-            currentShipmentDraftId: draftId,
-            declaredValueMinor: Math.round(declaredValue * 100)
+            currentShipmentDraftId: draftId
           },
           audience
         );
@@ -132,10 +133,10 @@ export default function ShipmentManifestPanel({
 
     const invalidLine = selectedShipments.find((shipment) => {
       const line = lines[shipment.shipmentDraftId];
-      return !line?.bagNumber.trim() || !Number.isFinite(Number(line.declaredValue)) || Number(line.declaredValue) <= 0;
+      return !line?.bagNumber.trim();
     });
     if (invalidLine) {
-      setError(`Enter a bag number and declared goods value for ${invalidLine.consignmentNumber}.`);
+      setError(`Enter a bag number for ${invalidLine.consignmentNumber}.`);
       return;
     }
     if (
@@ -155,7 +156,6 @@ export default function ShipmentManifestPanel({
           ...header,
           lines: selectedShipments.map((shipment) => ({
             shipmentDraftId: shipment.shipmentDraftId,
-            declaredValueMinor: Math.round(Number(lines[shipment.shipmentDraftId].declaredValue) * 100),
             bagNumber: lines[shipment.shipmentDraftId].bagNumber.trim()
           }))
         },
@@ -254,19 +254,9 @@ export default function ShipmentManifestPanel({
             <ManifestSummaryItem label="Swiftline Tracking" value={currentShipment.consignmentNumber} />
             <ManifestSummaryItem label="Pieces" value={String(currentShipment.pieces)} />
             <ManifestSummaryItem label="Weight" value={`${currentShipment.weightKg.toFixed(2)} kg`} />
+            <ManifestSummaryItem label="Goods Value" value={formatMoneyMinor(currentShipment.declaredValueMinor)} />
           </div>
           <div>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase text-slate-500">Goods Value (INR)</span>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={lines[draftId]?.declaredValue ?? ""}
-                onChange={(event) => updateLine(draftId, { declaredValue: event.target.value })}
-                className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm outline-none focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-              />
-            </label>
             <button
               type="button"
               onClick={() => void handleCreate()}
@@ -295,7 +285,7 @@ export default function ShipmentManifestPanel({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {context.eligibleShipments.map((shipment) => (
-                  <ManifestShipmentRow
+                    <ManifestShipmentRow
                     key={shipment.shipmentDraftId}
                     shipment={shipment}
                     current={shipment.shipmentDraftId === draftId}
@@ -421,15 +411,7 @@ function ManifestShipmentRow({
         />
       </td>
       <td className="px-3 py-3">
-        <input
-          type="number"
-          min="0.01"
-          step="0.01"
-          value={state?.declaredValue ?? ""}
-          disabled={!state?.selected}
-          onChange={(event) => onChange({ declaredValue: event.target.value })}
-          className="h-9 w-36 border rounded-xl border-slate-300 px-2 disabled:bg-slate-100"
-        />
+        <span className="font-semibold text-slate-800">{formatMoneyMinor(shipment.declaredValueMinor)}</span>
       </td>
     </tr>
   );

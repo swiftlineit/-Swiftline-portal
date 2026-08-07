@@ -2,11 +2,15 @@ import type { ClientDashboardAccount } from "@/lib/clientDashboard";
 
 export function canCreateShipment(account: ClientDashboardAccount) {
   return ["account_owner", "account_admin", "operations"].includes(account.membership.role)
-    && account.assignedBranches.length > 0;
+    && account.assignedBranches.length > 0
+    && account.bookingAccess.state === "READY"
+    && account.dashboardAccess.state === "READY";
 }
 
 export function canRequestQuote(account: ClientDashboardAccount) {
-  return ["account_owner", "account_admin", "operations"].includes(account.membership.role);
+  return ["account_owner", "account_admin", "operations"].includes(account.membership.role)
+    && account.bookingAccess.state === "READY"
+    && account.dashboardAccess.state === "READY";
 }
 
 export function hasQuoteAccess(account: ClientDashboardAccount) {

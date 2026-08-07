@@ -6,7 +6,8 @@ import { FiPlus } from "react-icons/fi";
 import {
   ClientDashboardLoading,
 } from "@/components/client/ClientDashboardShell";
-import DateFilterInput from "@/components/ui/DateFilterInput";
+import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { emptyDateRange } from "@/lib/dateRange";
 import Pagination from "@/components/ui/Pagination";
 import QuoteList from "@/components/quotes/QuoteList";
 import { listShipmentQuotes, type ShipmentQuote, type ShipmentQuoteListInput } from "@/lib/shipmentQuotes";
@@ -18,7 +19,7 @@ export default function ClientQuotesPage() {
   const { user, loading } = useClientUser();
   const [quotes, setQuotes] = useState<ShipmentQuote[]>([]);
   const [pagination, setPagination] = useState(emptyPagination);
-  const [date, setDate] = useState("");
+  const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [dataLoading, setDataLoading] = useState(true);
@@ -27,7 +28,7 @@ export default function ClientQuotesPage() {
     setDataLoading(true);
     setError("");
     try {
-      const input: ShipmentQuoteListInput = { date, page };
+      const input: ShipmentQuoteListInput = { dateRange, page };
       const result = await listShipmentQuotes("client", input);
       setQuotes(result.quotes);
       setPagination(result.pagination);
@@ -36,7 +37,7 @@ export default function ClientQuotesPage() {
     } finally {
       setDataLoading(false);
     }
-  }, [date, page]);
+  }, [dateRange, page]);
 
   useEffect(() => {
     if (!user) return;
@@ -56,10 +57,10 @@ export default function ClientQuotesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <DateFilterInput
-              value={date}
+            <DateRangeFilter
+              value={dateRange}
               onChange={(value) => {
-                setDate(value);
+                setDateRange(value);
                 setPage(1);
               }}
             />

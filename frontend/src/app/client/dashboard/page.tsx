@@ -12,12 +12,17 @@ import ClientBookingCapacityNotice from "@/components/client/dashboard/ClientBoo
 import ClientDashboardHeader from "@/components/client/dashboard/ClientDashboardHeader";
 import ClientKpiGrid from "@/components/client/dashboard/ClientKpiGrid";
 import ClientQuickAccess from "@/components/client/dashboard/ClientQuickAccess";
+import ClientRateCardNotice from "@/components/client/dashboard/ClientRateCardNotice";
 import ClientRecentShipmentsCard from "@/components/client/dashboard/ClientRecentShipmentsCard";
 import ClientShipmentPipelineCard from "@/components/client/dashboard/ClientShipmentPipelineCard";
 import ClientTasksCard from "@/components/client/dashboard/ClientTasksCard";
 import ClientUnavailableNotice from "@/components/client/dashboard/ClientUnavailableNotice";
-import { hasQuoteAccess } from "@/components/client/dashboard/clientDashboardPermissions";
+import {
+  canCreateShipment,
+  hasQuoteAccess
+} from "@/components/client/dashboard/clientDashboardPermissions";
 import { EmptyState } from "@/components/dashboard/DashboardWidgets";
+import OperationsMarquee from "@/components/OperationsMarquee";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
 import {
@@ -220,9 +225,11 @@ export default function ClientDashboardPage() {
 
   const selectedSummary = selectedShipmentSummary ?? emptyShipmentSummary();
   const selectedWallet = selectedAccount ? walletsByAccountId[selectedAccount.account.id] : undefined;
+  const shipmentCreationAllowed = selectedAccount ? canCreateShipment(selectedAccount) : false;
 
   return (
       <div className="mx-auto flex max-w-375 flex-col gap-6">
+        <OperationsMarquee variant="client" />
         <ClientDashboardHeader
           user={user}
           accounts={accounts}
@@ -255,6 +262,8 @@ export default function ClientDashboardPage() {
           <ClientAccessBlocked account={selectedAccount} />
         ) : (
           <>
+            <ClientRateCardNotice account={selectedAccount} />
+
             <ClientBookingCapacityNotice
               credit={extras.credit}
               permissions={extras.creditPermissions}
@@ -268,11 +277,18 @@ export default function ClientDashboardPage() {
             />
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              <ClientShipmentPipelineCard summary={selectedSummary} refreshing={false} />
+              <ClientShipmentPipelineCard
+                summary={selectedSummary}
+                refreshing={false}
+                canCreateShipment={shipmentCreationAllowed}
+              />
               <ClientTasksCard summary={selectedSummary} extras={extras} refreshing={false} />
             </div>
 
-            <ClientRecentShipmentsCard shipments={recentShipments} />
+            <ClientRecentShipmentsCard
+              shipments={recentShipments}
+              canCreateShipment={shipmentCreationAllowed}
+            />
             <ClientQuickAccess account={selectedAccount} />
           </>
         )}

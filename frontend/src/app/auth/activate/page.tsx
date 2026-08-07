@@ -6,11 +6,14 @@ import { FormEvent, Suspense, useEffect, useState, type ReactNode } from "react"
 import { activateInvitation, getInvitation } from "@/lib/auth";
 
 type InvitationDetails = {
+  kind?: "BUSINESS" | "DRIVER";
   email: string;
   name: string;
   businessAccountId: string;
   companyName: string;
   expiresAt: string;
+  deliverySubrole?: string;
+  engagementType?: string;
 };
 
 export default function ActivateClientAccountPage() {
@@ -91,7 +94,12 @@ function ActivateClientAccountContent() {
         {!loading && invitation ? (
           <>
             <div className="mt-6 border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              <p><span className="font-semibold">Company:</span> {invitation.companyName}</p>
+              {invitation.kind === "DRIVER" ? (
+                <>
+                  <p><span className="font-semibold">Access:</span> Swiftline Pickup Driver Portal</p>
+                  <p className="mt-1"><span className="font-semibold">Driver type:</span> {(invitation.engagementType ?? "").replace(/_/g, " ")}</p>
+                </>
+              ) : <p><span className="font-semibold">Company:</span> {invitation.companyName}</p>}
               <p className="mt-1"><span className="font-semibold">Email:</span> {invitation.email}</p>
               <p className="mt-1"><span className="font-semibold">Expires:</span> {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(invitation.expiresAt))}</p>
             </div>
@@ -161,7 +169,7 @@ function ActivationShell({ children, message }: { children?: ReactNode; message?
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-10">
       <section className="mx-auto max-w-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-blue-900">Swiftline Client Portal</p>
+        <p className="text-sm font-semibold text-blue-900">Swiftline Portal</p>
         <h1 className="mt-2 text-2xl font-semibold text-slate-950">Activate Account</h1>
         {message ? <p className="mt-6 text-sm text-slate-500">{message}</p> : children}
       </section>

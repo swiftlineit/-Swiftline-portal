@@ -5,23 +5,35 @@ import {
   FormEvent,
   KeyboardEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import { FiDownload, FiEdit2, FiTrash2 } from "react-icons/fi";
+import { toast } from "react-toastify";
+import { FiDownload, FiEdit2, FiShare2, FiTrash2 } from "react-icons/fi";
+import { MdOutlineKeyboardDoubleArrowRight } from "react-icons/md";
+
 import { FlagImage, type CountryIso2 } from "react-international-phone";
 import { DashboardLoading } from "@/components/DashboardShell";
 import { BiSolidEdit } from "react-icons/bi";
+import ShareRateCardDialog from "@/components/rate-cards/ShareRateCardDialog";
+import RouteChargesForm from "@/components/rate-cards/RouteChargesForm";
+import RateCardAssignments from "@/components/rate-cards/RateCardAssignments";
 import { countryOptions } from "@/lib/branches";
 import {
   buildCountryRateCardCsv,
   CountryRateCard,
   CountryRateCardInput,
+  CountryRouteCharge,
   CountryRateService,
+  RateCardBand,
   countryRateServices,
+  rateCardBands,
   deleteCountryRateCard,
   formatCountryRateService,
+  formatRateCardBand,
   listCountryRateCards,
+  listCountryRouteCharges,
   saveCountryRateCard,
 } from "@/lib/countryRateCards";
 import { FINANCE_AREA } from "@/lib/roles";
@@ -56,8 +68,9 @@ function getCountryIso2(countryCode: string) {
   return countryCode.toLowerCase() as CountryIso2;
 }
 
-function toPayload(form: FormState): CountryRateCardInput {
+function toPayload(form: FormState, band: RateCardBand): CountryRateCardInput {
   return {
+    band,
     countryCode: form.countryCode,
     countryName: getCountryName(form.countryCode),
     service: form.service,
@@ -71,12 +84,19 @@ function toPayload(form: FormState): CountryRateCardInput {
 export default function CountryRateCardPage() {
   const { user, loading } = useAdminUser(FINANCE_AREA);
   const [rates, setRates] = useState<CountryRateCard[]>([]);
+  const [routeCharges, setRouteCharges] = useState<CountryRouteCharge[]>([]);
+  const [selectedBand, setSelectedBand] = useState<RateCardBand>("BAND_A");
   const [form, setForm] = useState<FormState>(defaultForm);
   const [editingRateId, setEditingRateId] = useState("");
   const [busy, setBusy] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [sharing, setSharing] = useState(false);
+  const visibleRates = useMemo(
+    () => rates.filter((rate) => rate.band === selectedBand),
+    [rates, selectedBand],
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -86,8 +106,12 @@ export default function CountryRateCardPage() {
       setError("");
 
       try {
-        const result = await listCountryRateCards();
-        setRates(result.rates);
+        const [rateResult, routeChargeResult] = await Promise.all([
+          listCountryRateCards(),
+          listCountryRouteCharges()
+        ]);
+        setRates(rateResult.rates);
+        setRouteCharges(routeChargeResult.routeCharges);
       } catch (caughtError) {
         setError(
           caughtError instanceof Error
@@ -136,8 +160,12 @@ export default function CountryRateCardPage() {
   }
 
   async function refreshRates() {
-    const result = await listCountryRateCards();
-    setRates(result.rates);
+    const [{ rates: nextRates }, { routeCharges: nextRouteCharges }] = await Promise.all([
+      listCountryRateCards(),
+      listCountryRouteCharges()
+    ]);
+    setRates(nextRates);
+    setRouteCharges(nextRouteCharges);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -147,12 +175,12 @@ export default function CountryRateCardPage() {
     setMessage("");
 
     try {
-      await saveCountryRateCard(toPayload(form), editingRateId || undefined);
+      await saveCountryRateCard(toPayload(form, selectedBand), editingRateId || undefined);
       await refreshRates();
       resetForm();
-      setMessage(editingRateId ? "Rate card updated." : "Rate card added.");
+      toast.success(editingRateId ? "Rate card updated." : "Rate card added.");
     } catch (caughtError) {
-      setError(
+      toast.error(
         caughtError instanceof Error
           ? caughtError.message
           : "Unable to save rate card.",
@@ -163,12 +191,14 @@ export default function CountryRateCardPage() {
   }
 
   async function removeRate(rateId: string) {
+    if (!window.confirm("Remove this rate? Assigned accounts may lose coverage for this weight range.")) return;
+
     setBusy(true);
     setError("");
     setMessage("");
 
     try {
-      await deleteCountryRateCard(rateId);
+      await deleteCountryRateCard(rateId, true);
       await refreshRates();
       if (editingRateId === rateId) resetForm();
       setMessage("Rate card removed.");
@@ -184,12 +214,12 @@ export default function CountryRateCardPage() {
   }
 
   function exportRates() {
-    const csv = buildCountryRateCardCsv(rates);
+    const csv = buildCountryRateCardCsv(visibleRates);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "swiftline-country-rate-card.csv";
+    anchor.download = `swiftline-${selectedBand.toLowerCase()}-rate-card.csv`;
     anchor.click();
     window.URL.revokeObjectURL(url);
   }
@@ -207,16 +237,44 @@ export default function CountryRateCardPage() {
             Maintain courier and cargo rates by country and weight slab.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={exportRates}
-          disabled={!rates.length}
-          className="inline-flex h-10 items-center gap-2 rounded-4xl bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-        >
-          <FiDownload aria-hidden="true" className="h-4 w-4" />
-          Export
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3">
+            <span className="text-xs font-semibold uppercase text-slate-500">Rate Card</span>
+            <select
+              value={selectedBand}
+              onChange={(event) => {
+                setSelectedBand(event.target.value as RateCardBand);
+                resetForm();
+              }}
+              className="bg-transparent text-sm font-semibold text-slate-900 outline-none"
+            >
+              {rateCardBands.map((band) => <option key={band} value={band}>{formatRateCardBand(band)}</option>)}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={exportRates}
+            disabled={!visibleRates.length}
+            className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-slate-500 disabled:cursor-not-allowed disabled:text-slate-400"
+          >
+            <FiDownload aria-hidden="true" className="h-4 w-4" />
+            Export CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => setSharing(true)}
+            disabled={!visibleRates.length}
+            className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0a0e66] disabled:cursor-not-allowed disabled:bg-slate-400"
+          >
+            <FiShare2 aria-hidden="true" className="h-4 w-4" />
+            Share Rate Card
+          </button>
+        </div>
       </div>
+
+      {sharing ? (
+        <ShareRateCardDialog rates={rates} initialBand={selectedBand} onClose={() => setSharing(false)} />
+      ) : null}
 
       {error ? (
         <div className="mb-4 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
@@ -228,6 +286,8 @@ export default function CountryRateCardPage() {
           {message}
         </div>
       ) : null}
+
+      <RateCardAssignments />
 
       <form
         onSubmit={handleSubmit}
@@ -328,16 +388,25 @@ export default function CountryRateCardPage() {
         </div> */}
       </form>
 
+      {/* Keyed to the country selected above; service targeting is handled inside
+          the route-charge section so it can update Courier and Cargo together. */}
+      <RouteChargesForm
+        band={selectedBand}
+        countryCode={form.countryCode}
+        countryName={getCountryName(form.countryCode)}
+        onSaved={() => void refreshRates()}
+      />
+
       <div className="overflow-x-auto border border-slate-200 bg-white rounded-2xl ">
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Country</th>
               <th className="px-4 py-3">Service</th>
-              <th className="px-4 py-3">From KG</th>
-              <th className="px-4 py-3">To KG</th>
+              <th className="px-4 py-3">Weight (KG)</th>
               <th className="px-4 py-3">Charges / KG</th>
               <th className="px-4 py-3">Max Box KG</th>
+              <th className="px-4 py-3">Route Charges</th>
               <th className="px-4 py-3">Action</th>
             </tr>
           </thead>
@@ -351,7 +420,7 @@ export default function CountryRateCardPage() {
                   Loading rate cards...
                 </td>
               </tr>
-            ) : rates.length === 0 ? (
+            ) : visibleRates.length === 0 ? (
               <tr>
                 <td
                   colSpan={7}
@@ -361,7 +430,7 @@ export default function CountryRateCardPage() {
                 </td>
               </tr>
             ) : (
-              rates.map((rate) => (
+              visibleRates.map((rate) => (
                 <tr
                   key={rate._id}
                   className="border-b border-slate-100 last:border-b-0"
@@ -380,12 +449,17 @@ export default function CountryRateCardPage() {
                   <td className="px-4 py-3">
                     {formatCountryRateService(rate.service)}
                   </td>
-                  <td className="px-4 py-3">{rate.fromKg}</td>
-                  <td className="px-4 py-3">{rate.toKg}</td>
+                  <td className="px-4 py-3 ">{rate.fromKg}<span><MdOutlineKeyboardDoubleArrowRight className="mx-1 mb-1 inline h-4 w-4 text-green-800"
+                   /></span>{rate.toKg}</td>
                   <td className="px-4 py-3 font-semibold">
                     {rate.chargesPerKg}
                   </td>
                   <td className="px-4 py-3">{rate.maxBoxKg}</td>
+                  <td className="px-4 py-3 text-xs max-w-5 text-slate-600">
+                    {formatRouteChargeSummary(routeCharges.find((charge) =>
+                      charge.band === selectedBand && charge.countryCode === rate.countryCode && charge.service === rate.service
+                    ))}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-3">
                       <button
@@ -415,6 +489,33 @@ export default function CountryRateCardPage() {
       </div>
     </>
   );
+}
+
+function formatRouteChargeSummary(routeCharge: CountryRouteCharge | undefined) {
+  if (!routeCharge) return "—";
+
+  const details: string[] = [];
+  if (routeCharge.fuelSurchargePercent > 0) details.push(`Fuel ${routeCharge.fuelSurchargePercent}%`);
+  if (routeCharge.remoteAreaCharge > 0) {
+    const postcodes = routeCharge.remoteAreaPostcodes.length
+      ? ` (${routeCharge.remoteAreaPostcodes.join(", ")})`
+      : "";
+    details.push(`Remote ₹${routeCharge.remoteAreaCharge.toFixed(2)}${postcodes}`);
+  } else if (routeCharge.remoteAreaPostcodes.length) {
+    details.push(`Remote areas (${routeCharge.remoteAreaPostcodes.join(", ")})`);
+  }
+  if (routeCharge.handlingCharge > 0) details.push(`Handling ₹${routeCharge.handlingCharge.toFixed(2)}`);
+  if (routeCharge.insurancePercent > 0) {
+    const minimum = routeCharge.insuranceMinimum > 0
+      ? `, min ₹${routeCharge.insuranceMinimum.toFixed(2)}`
+      : "";
+    details.push(`Insurance ${routeCharge.insurancePercent}%${minimum}`);
+  } else if (routeCharge.insuranceMinimum > 0) {
+    details.push(`Insurance min ₹${routeCharge.insuranceMinimum.toFixed(2)}`);
+  }
+  if (routeCharge.discountPercent > 0) details.push(`Discount ${routeCharge.discountPercent}%`);
+
+  return details.length ? details.join(" · ") : "—";
 }
 
 function CountryRateSelect({

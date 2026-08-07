@@ -29,7 +29,7 @@ export type AmendmentBillingAdjustment = {
 };
 
 export type AmendmentFundingPreview = {
-  billingMode: "BUSINESS_ACCOUNT" | "TEST";
+  billingMode: "BUSINESS_ACCOUNT" | "DIRECT" | "TEST";
   previousAmountMinor: number;
   amendedAmountMinor: number;
   deltaAmountMinor: number;
@@ -147,13 +147,19 @@ export async function previewAmendmentFunding(input: {
     const adjustment = calculateAmendmentBillingAdjustment({
       previousAmountMinor: invoice.totalAmountMinor,
       amendedAmountMinor,
-      previousAdvanceAppliedMinor: 0,
-      previousCreditOutstandingMinor: invoice.totalAmountMinor,
-      availableAdvanceMinor: 0,
+      // A counter sale was paid in full before booking, so nothing is outstanding
+      // against a credit account and there is no capacity to check. Any delta the
+      // amendment produces is collected from, or refunded to, the customer at the
+      // counter and recorded as a CounterPayment.
+      previousAdvanceAppliedMinor: charge.paymentSource === "ADMIN_DIRECT" ? invoice.totalAmountMinor : 0,
+      previousCreditOutstandingMinor: charge.paymentSource === "ADMIN_DIRECT" ? 0 : invoice.totalAmountMinor,
+      availableAdvanceMinor: charge.paymentSource === "ADMIN_DIRECT"
+        ? Math.max(amendedAmountMinor - invoice.totalAmountMinor, 0)
+        : 0,
       availableCreditMinor: Math.max(amendedAmountMinor - invoice.totalAmountMinor, 0)
     });
     return {
-      billingMode: "TEST",
+      billingMode: charge.paymentSource === "ADMIN_DIRECT" ? "DIRECT" : "TEST",
       previousAmountMinor: invoice.totalAmountMinor,
       amendedAmountMinor,
       deltaAmountMinor: adjustment.deltaAmountMinor,
@@ -284,12 +290,17 @@ async function applyShipmentBillingAdjustment(input: {
 
   const amendedAmountMinor = toMinor(input.pricing.totalAmount);
   if (charge.paymentSource !== "BUSINESS_ACCOUNT") {
+    const isCounterSale = charge.paymentSource === "ADMIN_DIRECT";
     const adjustment = calculateAmendmentBillingAdjustment({
       previousAmountMinor: invoice.totalAmountMinor,
       amendedAmountMinor,
-      previousAdvanceAppliedMinor: 0,
-      previousCreditOutstandingMinor: invoice.totalAmountMinor,
-      availableAdvanceMinor: 0,
+      // A counter sale is already settled in full, so the amended invoice must stay
+      // settled in full: any increase is treated as collected at the counter and
+      // any decrease as refunded there, leaving nothing outstanding on credit.
+      // The matching cash movement is recorded as a CounterPayment.
+      previousAdvanceAppliedMinor: isCounterSale ? invoice.totalAmountMinor : 0,
+      previousCreditOutstandingMinor: isCounterSale ? 0 : invoice.totalAmountMinor,
+      availableAdvanceMinor: isCounterSale ? Math.max(amendedAmountMinor - invoice.totalAmountMinor, 0) : 0,
       availableCreditMinor: Math.max(amendedAmountMinor - invoice.totalAmountMinor, 0)
     });
     charge.customerChargeMinor = amendedAmountMinor;
