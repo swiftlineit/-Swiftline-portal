@@ -310,7 +310,7 @@ export default function ClientDpdLabelsPage() {
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-8xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl  text-[#0D1282]"> <RiMenuAddLine className="inline-block mb-1 mr-1 text-lg" />Create & Manage Shipment  </h1>

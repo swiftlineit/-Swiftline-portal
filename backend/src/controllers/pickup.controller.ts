@@ -61,11 +61,23 @@ function actor(request: Request) {
     : null;
 }
 
-async function clientCanAccessPickup(userId: mongoose.Types.ObjectId, pickup: { businessAccountId: mongoose.Types.ObjectId; branchId: mongoose.Types.ObjectId }) {
-  const membership = await BusinessAccountMember.findOne({ user: userId, businessAccount: pickup.businessAccountId, status: "active" }).select("assignedBranches").lean().exec();
+/**
+ * The id behind a reference, whether or not it was populated. `getPickupDetail`
+ * populates `branchId` into a branch document, so comparing it directly would
+ * stringify to "[object Object]" and silently fail every branch check.
+ */
+function refId(value: unknown) {
+  return String((value as { _id?: unknown } | null)?._id ?? value);
+}
+
+async function clientCanAccessPickup(
+  userId: mongoose.Types.ObjectId,
+  pickup: { businessAccountId: unknown; branchId: unknown }
+) {
+  const membership = await BusinessAccountMember.findOne({ user: userId, businessAccount: refId(pickup.businessAccountId), status: "active" }).select("assignedBranches").lean().exec();
   if (!membership) return false;
   const assignedBranches = membership.assignedBranches ?? [];
-  return !assignedBranches.length || assignedBranches.some((id) => String(id) === String(pickup.branchId));
+  return !assignedBranches.length || assignedBranches.some((id) => String(id) === refId(pickup.branchId));
 }
 
 function handle(error: unknown, response: Response, next: NextFunction) {

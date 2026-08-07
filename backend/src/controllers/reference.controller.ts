@@ -4,6 +4,7 @@ import {
   getCities,
   getStates
 } from "../services/reference/geography.service.js";
+import { HsCodeDataError, searchHsCodes } from "../services/reference/hsCode.service.js";
 
 // Geography never changes between deploys, so let the browser and any proxy
 // hold it rather than asking again on every form open.
@@ -25,6 +26,23 @@ export async function listStates(request: Request, response: Response): Promise<
     return response.status(200).json({ success: true, states });
   } catch (error) {
     return handleGeographyError(error, response);
+  }
+}
+
+export async function suggestHsCodes(request: Request, response: Response): Promise<Response> {
+  const query = typeof request.query.query === "string" ? request.query.query : "";
+
+  try {
+    const suggestions = searchHsCodes(query);
+
+    response.setHeader("Cache-Control", cacheHeader);
+    return response.status(200).json({ success: true, suggestions });
+  } catch (error) {
+    if (error instanceof HsCodeDataError) {
+      return response.status(error.statusCode).json({ success: false, message: error.message });
+    }
+
+    throw error;
   }
 }
 

@@ -3,15 +3,12 @@
 import { ReactNode, useEffect, useState } from "react";
 import {
   FiArchive,
-  FiBriefcase,
   FiClipboard,
   FiCreditCard,
-  FiDollarSign,
   FiFileText,
   FiGrid,
   FiHelpCircle,
   FiLogOut,
-  FiMessageCircle,
   FiPackage,
   FiTag,
   FiTruck,
@@ -19,7 +16,8 @@ import {
 } from "react-icons/fi";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Sidebar, { SidebarNavItem } from "@/components/Sidebar";
+import type { IconType } from "react-icons";
+import Sidebar, { filterNavigation, type SidebarNavEntry } from "@/components/Sidebar";
 import { logout } from "@/lib/auth";
 import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
@@ -36,34 +34,48 @@ export type ClientShellUser = {
   role: string;
 };
 
-const clientNavigation = [
-  { label: "Dashboard", href: "/client/dashboard", icon: FiGrid },
-  // { label: "Create Shipment", href: "/client/dpd-labels", icon: FiBriefcase },
-  { label: "Shipments", href: "/client/shipments", icon: FiPackage },
-  { label: "Request Pickup", href: "/client/pickups", icon: FiTruck },
-  {
-    label: "Get Live Quote",
-    href: "/client/get-quote",
-    icon: FiClipboard,
-    quoteRequest: true,
-  },
-  { label: "My Quotes", href: "/client/quotes", icon: FiFileText, quote: true },
-  { label: "Tracking", href: "/client/tracking", icon: FiTruck },
-  { label: "Your Rate Card", href: "/client/rate-card", icon: FiTag },
-  { label: "Credit Account", href: "/client/credit", icon: BsCurrencyRupee },
+/**
+ * Client navigation, grouped by what the customer came to do. `access` names the
+ * permission a link waits on; the rest are open to every member of an account.
+ */
+type ClientAccess = "financial" | "quote" | "quoteRequest";
 
-  { label: "Manifests", href: "/client/manifests", icon: FiArchive },
+const clientNavigation: Array<
+  | { label: string; href: string; icon: IconType }
+  | {
+      label: string;
+      icon: IconType;
+      items: Array<{ label: string; href: string; icon: IconType; access?: ClientAccess }>;
+    }
+> = [
+  { label: "Dashboard", href: "/client/dashboard", icon: FiGrid },
   {
-    label: "Credit Reports",
-    href: "/client/credit/statements",
-    icon: FiFileText,
-    financial: true,
+    label: "Shipments",
+    icon: FiPackage,
+    items: [
+      { label: "My Shipments", href: "/client/shipments", icon: FiPackage },
+      { label: "Request Pickup", href: "/client/pickups", icon: FiTruck },
+      { label: "Tracking", href: "/client/tracking", icon: FiTruck },
+      { label: "Manifests", href: "/client/manifests", icon: FiArchive },
+    ],
   },
   {
-    label: "Top-up & Payments",
-    href: "/client/payments",
-    icon: FiCreditCard,
-    financial: true,
+    label: "Quotes & Rates",
+    icon: FiClipboard,
+    items: [
+      { label: "Get Live Quote", href: "/client/get-quote", icon: FiClipboard, access: "quoteRequest" },
+      { label: "My Quotes", href: "/client/quotes", icon: FiFileText, access: "quote" },
+      { label: "Your Rate Card", href: "/client/rate-card", icon: FiTag },
+    ],
+  },
+  {
+    label: "Billing",
+    icon: BsCurrencyRupee,
+    items: [
+      { label: "Credit Account", href: "/client/credit", icon: BsCurrencyRupee },
+      { label: "Credit Reports", href: "/client/credit/statements", icon: FiFileText, access: "financial" },
+      { label: "Top-up & Payments", href: "/client/payments", icon: FiCreditCard, access: "financial" },
+    ],
   },
   { label: "Help-Desk", href: "/client/tickets", icon: FiHelpCircle },
 ];
@@ -78,7 +90,7 @@ export function ClientDashboardShell({
   const router = useRouter();
   // The permission-gated links depend on an API call, so the whole list stays
   // empty until it settles and every link then appears in one paint.
-  const [navigation, setNavigation] = useState<SidebarNavItem[] | null>(null);
+  const [navigation, setNavigation] = useState<SidebarNavEntry[] | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -89,12 +101,26 @@ export function ClientDashboardShell({
       canRequestQuote: boolean,
     ) {
       if (!active) return;
+
+      const granted: Record<ClientAccess, boolean> = {
+        financial: hasFinancialAccess,
+        quote: hasQuoteAccess,
+        quoteRequest: canRequestQuote,
+      };
+
       setNavigation(
-        clientNavigation.filter(
-          (item) =>
-            (!item.financial || hasFinancialAccess) &&
-            (!item.quote || hasQuoteAccess) &&
-            (!item.quoteRequest || canRequestQuote),
+        filterNavigation(
+          clientNavigation.map((entry) =>
+            "items" in entry
+              ? {
+                  ...entry,
+                  items: entry.items.map(({ access, ...item }) => ({
+                    ...item,
+                    visible: !access || granted[access],
+                  })),
+                }
+              : entry,
+          ),
         ),
       );
     }

@@ -33,11 +33,14 @@ async function resolveBranch(value: string) {
   return Branch.findOne({ code: value.toUpperCase() }).exec();
 }
 
-/** Identity of a walk-in customer, captured at the counter. */
+/**
+ * Identity of a walk-in customer. Only the name is taken at the counter — every
+ * other field is filled in on the draft form and enforced before booking.
+ */
 export type IndividualCustomerInput = {
   contactName: string;
-  mobileCountryCode: string;
-  mobileNumber: string;
+  mobileCountryCode?: string;
+  mobileNumber?: string;
   email?: string;
   aadhaarNumber?: string;
   addressLine1?: string;
@@ -71,9 +74,6 @@ export async function createIndividualShipmentDraft(input: {
   }
   if (!input.customer.contactName.trim()) {
     throw new ManualShipmentDraftError("Enter the customer's name.", 400);
-  }
-  if (!input.customer.mobileNumber.trim()) {
-    throw new ManualShipmentDraftError("Enter the customer's mobile number.", 400);
   }
 
   const sentinel = await getOrCreateIndividualSentinel(input.createdBy);
@@ -118,8 +118,8 @@ export async function createIndividualShipmentDraft(input: {
           companyName: "",
           contactName: input.customer.contactName.trim(),
           email: (input.customer.email ?? "").trim(),
-          mobileCountryCode: input.customer.mobileCountryCode.trim(),
-          mobileNumber: input.customer.mobileNumber.trim(),
+          mobileCountryCode: (input.customer.mobileCountryCode ?? "+91").trim(),
+          mobileNumber: (input.customer.mobileNumber ?? "").trim(),
           aadhaarNumber: (input.customer.aadhaarNumber ?? "").replace(/\D/g, ""),
           addressLine1: (input.customer.addressLine1 ?? "").trim(),
           addressLine2: (input.customer.addressLine2 ?? "").trim(),

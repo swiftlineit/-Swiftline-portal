@@ -55,9 +55,11 @@ const manualDraftSchema = z.object({
 const individualDraftSchema = z.object({
   branchId: z.string().trim().min(1),
   customer: z.object({
+    // Only the name is taken at the counter; the rest of the sender's details are
+    // captured on the draft form itself and enforced before booking.
     contactName: z.string().trim().min(1).max(120),
-    mobileCountryCode: z.string().trim().min(1).max(8),
-    mobileNumber: z.string().trim().min(1).max(30),
+    mobileCountryCode: z.string().trim().max(8).optional(),
+    mobileNumber: z.string().trim().max(30).optional(),
     email: z.string().trim().max(160).optional(),
     aadhaarNumber: z.string().trim().max(20).optional(),
     addressLine1: z.string().trim().max(120).optional(),
@@ -490,7 +492,7 @@ export async function createIndividualShipmentDraftHandler(request: Request, res
   if (!parsed.success) {
     return response.status(400).json({
       success: false,
-      message: "Enter the customer's name and mobile number, and select a sender branch."
+      message: "Enter the customer's name and select a sender branch."
     });
   }
 

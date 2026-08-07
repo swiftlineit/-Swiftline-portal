@@ -601,11 +601,14 @@ export async function createManualShipmentDraft(input: {
   }>(response);
 }
 
-/** Identity of a walk-in customer, captured at the counter. */
+/**
+ * Identity of a walk-in customer. Only the name is taken at the counter — every
+ * other field is filled in on the draft form and enforced before booking.
+ */
 export type IndividualCustomerDetails = {
   contactName: string;
-  mobileCountryCode: string;
-  mobileNumber: string;
+  mobileCountryCode?: string;
+  mobileNumber?: string;
   email?: string;
   aadhaarNumber?: string;
   addressLine1?: string;

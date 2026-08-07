@@ -17,13 +17,23 @@ const statusStyles: Record<string, string> = {
   COMPLETED: "border-emerald-200 bg-emerald-50 text-emerald-800",
   CANCELLED: "border-slate-300 bg-slate-100 text-slate-700",
   FAILED: "border-red-200 bg-red-50 text-red-800",
-  CLOSED_UNSUCCESSFUL: "border-red-200 bg-red-50 text-red-800"
+  CLOSED_UNSUCCESSFUL: "border-red-200 bg-red-50 text-red-800",
 };
 
 export function PickupStatusBadge({ status }: { status: string }) {
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${statusStyles[status] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}>{status.replace(/_/g, " ")}</span>;
+  return (
+    <span
+      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${statusStyles[status] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}
+    >
+      {status.replace(/_/g, " ")}
+    </span>
+  );
 }
 
 export function PickupNewBadge() {
-  return <span className="inline-flex rounded-full bg-[#D71313] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-sm">New</span>;
+  return (
+    <span className="inline-flex rounded-xl bg-[#D71313] h-5 p-1 text-[10px] font-bold uppercase tracking-wider text-white shadow-sm">
+      New
+    </span>
+  );
 }

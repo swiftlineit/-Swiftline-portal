@@ -7,7 +7,6 @@ import {
   DragEvent,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -122,14 +121,6 @@ export default function DpdLabelsPage() {
   );
   const [customer, setCustomer] = useState<IndividualCustomerDetails>({
     contactName: "",
-    mobileCountryCode: "+91",
-    mobileNumber: "",
-    email: "",
-    aadhaarNumber: "",
-    addressLine1: "",
-    townOrCity: "",
-    county: "",
-    postcode: "",
   });
   const [file, setFile] = useState<File | null>(null);
   const [invoiceUpload, setInvoiceUpload] = useState<InvoiceUpload | null>(
@@ -143,7 +134,6 @@ export default function DpdLabelsPage() {
   const [creatingManual, setCreatingManual] = useState(false);
   const [error, setError] = useState("");
   const [dragActive, setDragActive] = useState(false);
-  const invoiceInputRef = useRef<HTMLInputElement>(null);
   const [shipmentAction, setShipmentAction] = useState<{
     mode: "hold" | "release" | "status";
     shipment: DpdShipmentHistoryItem;
@@ -213,11 +203,7 @@ export default function DpdLabelsPage() {
     businessAccountId && branchId && !busy && !creatingManual,
   );
   const canCreateIndividual = Boolean(
-    branchId &&
-    customer.contactName.trim() &&
-    customer.mobileNumber.trim() &&
-    !busy &&
-    !creatingManual,
+    branchId && customer.contactName.trim() && !busy && !creatingManual,
   );
   const draftTotalWeight =
     shipmentDraft?.parcelList.reduce(
@@ -607,129 +593,19 @@ export default function DpdLabelsPage() {
                 </div>
               </label>
             ) : (
-              <>
-                <label className="block">
-                  <FieldLabel required>Customer Name</FieldLabel>
-                  <input
-                    value={customer.contactName}
-                    onChange={(event) =>
-                      setCustomer((current) => ({
-                        ...current,
-                        contactName: event.target.value,
-                      }))
-                    }
-                    placeholder="Full name as on ID"
-                    className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                  />
-                </label>
-
-                <label className="block">
-                  <FieldLabel required>Mobile Number</FieldLabel>
-                  <div className="mt-2 flex gap-2">
-                    <input
-                      value={customer.mobileCountryCode}
-                      onChange={(event) =>
-                        setCustomer((current) => ({
-                          ...current,
-                          mobileCountryCode: event.target.value,
-                        }))
-                      }
-                      className="h-10 w-20 rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                    />
-                    <input
-                      value={customer.mobileNumber}
-                      onChange={(event) =>
-                        setCustomer((current) => ({
-                          ...current,
-                          mobileNumber: event.target.value,
-                        }))
-                      }
-                      placeholder="10-digit mobile"
-                      className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
-                </label>
-
-                <label className="block">
-                  <FieldLabel>Email</FieldLabel>
-                  <input
-                    value={customer.email ?? ""}
-                    onChange={(event) =>
-                      setCustomer((current) => ({
-                        ...current,
-                        email: event.target.value,
-                      }))
-                    }
-                    placeholder="Optional"
-                    className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                  />
-                </label>
-
-                <label className="block">
-                  <FieldLabel>Aadhaar Number</FieldLabel>
-                  <input
-                    value={customer.aadhaarNumber ?? ""}
-                    onChange={(event) =>
-                      setCustomer((current) => ({
-                        ...current,
-                        aadhaarNumber: event.target.value,
-                      }))
-                    }
-                    placeholder="12 digits, for KYC"
-                    className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                  />
-                </label>
-
-                <label className="block md:col-span-2">
-                  <FieldLabel>Address</FieldLabel>
-                  <input
-                    value={customer.addressLine1 ?? ""}
-                    onChange={(event) =>
-                      setCustomer((current) => ({
-                        ...current,
-                        addressLine1: event.target.value,
-                      }))
-                    }
-                    placeholder="Street address"
-                    className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                  />
-                  <div className="mt-2 grid gap-2 md:grid-cols-3">
-                    <input
-                      value={customer.townOrCity ?? ""}
-                      onChange={(event) =>
-                        setCustomer((current) => ({
-                          ...current,
-                          townOrCity: event.target.value,
-                        }))
-                      }
-                      placeholder="City"
-                      className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                    />
-                    <input
-                      value={customer.county ?? ""}
-                      onChange={(event) =>
-                        setCustomer((current) => ({
-                          ...current,
-                          county: event.target.value,
-                        }))
-                      }
-                      placeholder="State"
-                      className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                    />
-                    <input
-                      value={customer.postcode ?? ""}
-                      onChange={(event) =>
-                        setCustomer((current) => ({
-                          ...current,
-                          postcode: event.target.value,
-                        }))
-                      }
-                      placeholder="PIN code"
-                      className="h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
-                </label>
-              </>
+              // Only the name is taken here; the rest of the customer's details
+              // are filled in on the draft form itself.
+              <label className="block">
+                <FieldLabel required>Customer Name</FieldLabel>
+                <input
+                  value={customer.contactName}
+                  onChange={(event) =>
+                    setCustomer({ contactName: event.target.value })
+                  }
+                  placeholder="Full name as on ID"
+                  className="mt-2 h-10 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
             )}
 
             <label className="block">
@@ -779,10 +655,6 @@ export default function DpdLabelsPage() {
                   }}
                   onDragLeave={() => setDragActive(false)}
                   onDrop={handleDrop}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    invoiceInputRef.current?.click();
-                  }}
                   className={`mt-4 flex min-h-36 cursor-pointer rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center transition ${
                     dragActive
                       ? "border-blue-900 bg-blue-50"
@@ -802,7 +674,6 @@ export default function DpdLabelsPage() {
                       : "or click to choose a file"}
                   </span>
                   <input
-                    ref={invoiceInputRef}
                     type="file"
                     accept=".xlsx"
                     onChange={handleFileChange}
@@ -872,7 +743,7 @@ export default function DpdLabelsPage() {
                 </button>
                 {!canCreateIndividual ? (
                   <p className="mt-2 text-xs font-medium text-slate-500">
-                    Customer name, mobile number and branch are required.
+                    Customer name and branch are required.
                   </p>
                 ) : null}
               </div>

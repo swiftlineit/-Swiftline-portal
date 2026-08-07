@@ -183,7 +183,7 @@ describe("individual shipment drafts", () => {
     );
   });
 
-  test("requires a name and a mobile number", async () => {
+  test("requires a name", async () => {
     await assert.rejects(
       () => createIndividualShipmentDraft({
         branchId: String(branchId),
@@ -192,14 +192,20 @@ describe("individual shipment drafts", () => {
       }),
       /name/i
     );
-    await assert.rejects(
-      () => createIndividualShipmentDraft({
-        branchId: String(branchId),
-        customer: { contactName: "No Phone", mobileCountryCode: "+91", mobileNumber: "" },
-        createdBy: adminId
-      }),
-      /mobile/i
-    );
+  });
+
+  test("opens on the name alone, leaving the rest for the draft form", async () => {
+    // The counter only takes the name; the sender's contact details and address
+    // are filled in on the form and enforced before booking.
+    const draft = await createIndividualShipmentDraft({
+      branchId: String(branchId),
+      customer: { contactName: "Rahul Verma" },
+      createdBy: adminId
+    });
+
+    assert.equal(draft.consignorAddress.contactName, "Rahul Verma");
+    assert.equal(draft.consignorAddress.mobileNumber, "");
+    assert.equal(draft.consignorAddress.mobileCountryCode, "+91", "The country code falls back to the local default.");
   });
 
   test("two walk-ins sharing an email or phone both succeed", async () => {

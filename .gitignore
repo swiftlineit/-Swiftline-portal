@@ -16,6 +16,11 @@ backend/private_uploads/
 # replacing it.
 countries+states+cities.json
 
+# Same arrangement for the Harmonized System source: backend/data/reference/
+# hs-codes.json is committed, the CSV it was built from is not. Regenerate with
+# `npm run build:hs-codes` after replacing it.
+harmonized-system.csv
+
 # Frontend
 frontend/node_modules/
 frontend/.next/

@@ -1,8 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { FiMinus, FiPlus } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { ShipmentFieldLabel } from "@/components/shipments/ShipmentFormControls";
+import {
+  fetchHsCodeSuggestions,
+  minHsCodeQueryLength,
+  type HsCodeSuggestion,
+} from "@/lib/hsCodes";
 import {
   createEmptyParcelItem,
   getHsnCodeError,
@@ -37,6 +43,39 @@ export function ParcelItemsEditor({
   revealError?: boolean;
   maxItems?: number;
 }) {
+  // The description being typed drives the HS code suggestions below it. Only
+  // the focused row looks anything up, so one lookup runs at a time.
+  const [activeRow, setActiveRow] = useState<number | null>(null);
+  // Results are kept with the query they answer, so anything the user has since
+  // typed past simply stops being rendered rather than needing to be cleared.
+  const [suggestions, setSuggestions] = useState<{
+    query: string;
+    results: HsCodeSuggestion[];
+  }>({ query: "", results: [] });
+
+  const activeQuery =
+    activeRow === null ? "" : (items[activeRow]?.description ?? "").trim();
+  const visibleSuggestions =
+    activeQuery && suggestions.query === activeQuery ? suggestions.results : [];
+
+  useEffect(() => {
+    if (activeQuery.length < minHsCodeQueryLength) return;
+
+    // Debounced so a lookup follows the typing rather than every keystroke, and
+    // cancelled on unmount so a late reply cannot land on a different row.
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void fetchHsCodeSuggestions(activeQuery).then((results) => {
+        if (active) setSuggestions({ query: activeQuery, results });
+      });
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [activeQuery]);
+
   function updateItem(index: number, field: keyof ParcelItem, value: string) {
     onChange(
       items.map((item, itemIndex) =>
@@ -122,34 +161,70 @@ export function ParcelItemsEditor({
 
           return (
             <div key={index} className={`grid gap-2 ${rowGrid} lg:items-start`}>
-              <input
-                type="text"
-                value={item.description}
-                onChange={(event) =>
-                  updateItem(index, "description", event.target.value)
-                }
-                onBlur={() => {
-                  if (restricted.length) {
-                    toast.error(
-                      `${restricted.join(", ")} is a restricted item and cannot be shipped.`,
-                      {
-                        toastId: `restricted-${restricted.join("-")}`,
-                      },
-                    );
+              <div className="relative min-w-0">
+                <input
+                  type="text"
+                  value={item.description}
+                  onChange={(event) =>
+                    updateItem(index, "description", event.target.value)
                   }
-                }}
-                placeholder={`Item ${index + 1} description`}
-                maxLength={120}
-                aria-label={`Item ${index + 1} description`}
-                aria-invalid={showDescriptionError}
-                className={`h-11 w-full min-w-0 rounded-xl border px-3.5 text-sm outline-none transition focus:ring-2 ${
-                  showDescriptionError
-                    ? "border-red-400 bg-red-50 focus:border-red-500 focus:ring-red-100"
-                    : revealError && !item.description.trim()
-                      ? "border-red-400 bg-white focus:border-red-500 focus:ring-red-100"
-                      : "border-slate-300 bg-white focus:border-blue-900 focus:ring-blue-100"
-                }`}
-              />
+                  onFocus={() => setActiveRow(index)}
+                  onBlur={() => {
+                    setActiveRow((current) =>
+                      current === index ? null : current,
+                    );
+                    if (restricted.length) {
+                      toast.error(
+                        `${restricted.join(", ")} is a restricted item and cannot be shipped.`,
+                        {
+                          toastId: `restricted-${restricted.join("-")}`,
+                        },
+                      );
+                    }
+                  }}
+                  placeholder={`Item ${index + 1} description`}
+                  maxLength={120}
+                  aria-label={`Item ${index + 1} description`}
+                  aria-invalid={showDescriptionError}
+                  className={`h-11 w-full min-w-0 rounded-xl border px-3.5 text-sm outline-none transition focus:ring-2 ${
+                    showDescriptionError
+                      ? "border-red-400 bg-red-50 focus:border-red-500 focus:ring-red-100"
+                      : revealError && !item.description.trim()
+                        ? "border-red-400 bg-white focus:border-red-500 focus:ring-red-100"
+                        : "border-slate-300 bg-white focus:border-blue-900 focus:ring-blue-100"
+                  }`}
+                />
+                {/* Suggested tariff codes for what was typed. Picking one only
+                    fills the HS code; the description stays as the sender wrote it. */}
+                {activeRow === index && visibleSuggestions.length ? (
+                  <ul className="absolute left-0 top-full z-20 mt-1 max-h-60 w-[min(30rem,85vw)] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                    <li className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Suggested HS codes
+                    </li>
+                    {visibleSuggestions.map((suggestion) => (
+                      <li key={suggestion.code}>
+                        <button
+                          type="button"
+                          // Keeps focus on the input so blur does not close the
+                          // list before the click lands.
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() =>
+                            updateItem(index, "hsnCode", suggestion.code)
+                          }
+                          className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs transition hover:bg-blue-50"
+                        >
+                          <span className="font-semibold text-blue-900">
+                            {suggestion.code}
+                          </span>
+                          <span className="text-slate-600">
+                            {suggestion.description}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
               <input
                 type="text"
                 inputMode="numeric"

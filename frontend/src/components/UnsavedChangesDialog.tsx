@@ -64,12 +64,12 @@ export default function UnsavedChangesDialog() {
           )}
         </div>
 
-        <div className="flex flex-wrap justify-end gap-3 rounded-b-2xl border-t border-slate-100 px-5 py-4">
+        <div className="flex flex-wrap  gap-2 rounded-b-2xl border-t border-slate-100 px-5 py-4">
           <button
             type="button"
             onClick={() => resolve("stay")}
             disabled={saving}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] disabled:opacity-60"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] disabled:opacity-60"
           >
             Stay On Page
           </button>
@@ -77,7 +77,7 @@ export default function UnsavedChangesDialog() {
             type="button"
             onClick={() => resolve("discard")}
             disabled={saving}
-            className="rounded-lg border border-[#D71313]/30 bg-white px-4 py-2.5 text-sm font-semibold text-[#D71313] transition hover:bg-[#D71313]/5 disabled:opacity-60"
+            className="rounded-lg border border-[#D71313]/30 bg-white px-3 py-2.5 text-sm font-semibold text-[#D71313] transition hover:bg-[#D71313]/5 disabled:opacity-60"
           >
             Discard Changes
           </button>
@@ -86,7 +86,7 @@ export default function UnsavedChangesDialog() {
               type="button"
               onClick={() => void handleSaveDraft()}
               disabled={saving}
-              className="rounded-lg bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-[#0D1282] px-3 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save As Draft"}
             </button>
