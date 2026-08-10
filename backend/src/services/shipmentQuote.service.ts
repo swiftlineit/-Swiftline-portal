@@ -186,7 +186,9 @@ function snapshot(context: QuoteContext, input: ShipmentQuoteRequestInput) {
     csbType: normalizeCsbType(input.csbType),
     serviceType: input.serviceType,
     goodsValueMinor: input.goodsValueMinor,
-    availableDocuments: normalizeQuoteDocuments(input.availableDocuments),
+    // Route-aware, so a tick left over from a CSB-V draft is never stored on a
+    // CSB-IV shipment.
+    availableDocuments: normalizeQuoteDocuments(input.availableDocuments, input.csbType),
     parcels: input.parcels.map((parcel) => ({ ...parcel }))
   };
 }

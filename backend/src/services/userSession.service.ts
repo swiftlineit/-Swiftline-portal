@@ -1,10 +1,17 @@
 /**
- * Single-active-session enforcement.
+ * Server-side sessions.
  *
- * Enforcement is behind `SINGLE_SESSION_ENFORCED`. With it off, sessions are
- * still created, tracked and audited — so the audit log can be watched for a
- * day before the rule starts refusing anyone — but no request is ever rejected
- * because of them. Turning it off again is a config change, not a redeploy.
+ * Three separate rules live here, and only two of them are optional:
+ *
+ * - Revocation is always enforced. A session that has been ended — by logout, by
+ *   an admin, or by the owning account being suspended — stops working
+ *   immediately. This cannot be behind a flag: it is what makes signing someone
+ *   out mean anything, and a stateless JWT has no other way to express it.
+ * - Single-active-session ("newest login wins") stays behind
+ *   `SINGLE_SESSION_ENFORCED`, because whether one person may use two devices is
+ *   a policy question rather than a security one.
+ * - The idle timeout is behind the same flag, so switching it on is a deliberate
+ *   decision about how long a shift can sit untouched rather than a surprise.
  */
 import crypto from "node:crypto";
 import type { Request } from "express";
@@ -15,6 +22,9 @@ import { UserSession, type SessionEndReason } from "../models/userSession.model.
 
 export const sessionSupersededMessage = "Your account is already active on another browser or device.";
 export const sessionEndedMessage = "Your session has ended. Please sign in again.";
+// Deliberately does not distinguish suspended from disabled: which one it is
+// belongs in a conversation with an administrator, not in an API response.
+export const accountNotActiveMessage = "This login is no longer active. Contact your administrator.";
 
 export function isSingleSessionEnforced() {
   return env.SINGLE_SESSION_ENFORCED;
@@ -147,10 +157,16 @@ export type SessionCheck =
  * Whether a token's session is still usable.
  *
  * A token with no `sid` predates this feature and is honoured until it expires,
- * so deploying does not sign everybody out mid-task.
+ * so deploying does not sign everybody out mid-task. Every token minted since
+ * carries one, because `issueSignedInResponse` opens a session on every login.
+ *
+ * Revocation is checked whatever `SINGLE_SESSION_ENFORCED` says. It used to sit
+ * behind that flag, which meant that with the flag off — its default — logging
+ * out, an admin terminating a session, and suspending an account were all
+ * silently ignored, and the token kept working.
  */
 export async function verifySession(sessionId: string | undefined): Promise<SessionCheck> {
-  if (!isSingleSessionEnforced() || !sessionId) return { ok: true };
+  if (!sessionId) return { ok: true };
 
   const session = await UserSession.findOne({ sessionId }).exec();
 
@@ -163,7 +179,8 @@ export async function verifySession(sessionId: string | undefined): Promise<Sess
     };
   }
 
-  if (session.lastSeenAt < getIdleCutoff()) {
+  // Policy rather than revocation, so it follows the flag. See the note above.
+  if (isSingleSessionEnforced() && session.lastSeenAt < getIdleCutoff()) {
     await endSessions({ _id: session._id }, "idle_timeout");
     return { ok: false, message: sessionEndedMessage };
   }

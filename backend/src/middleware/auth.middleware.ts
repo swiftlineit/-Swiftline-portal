@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../services/auth.service.js";
 import { User } from "../models/user.model.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
-import { touchSession, verifySession } from "../services/userSession.service.js";
+import { accountNotActiveMessage, touchSession, verifySession } from "../services/userSession.service.js";
 
 export async function attachUser(req: Request, res: Response, next: NextFunction) {
   try {
@@ -26,9 +26,17 @@ export async function attachUser(req: Request, res: Response, next: NextFunction
     }
 
     const user = await User.findById(payload.sub)
-      .select("email role name hasSeenWelcome assignedBranches")
+      .select("email role name hasSeenWelcome assignedBranches userStatus")
       .lean()
       .exec();
+
+    // A token outlives the account state it was minted from, so the status has
+    // to be re-read on every request rather than trusted from login time.
+    // Without this, suspending or disabling someone leaves their existing token
+    // working — and since every refresh mints a fresh one, indefinitely.
+    if (user && (user.userStatus ?? "active") !== "active") {
+      return res.status(401).json({ success: false, message: accountNotActiveMessage, sessionEnded: true });
+    }
 
     if (user) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

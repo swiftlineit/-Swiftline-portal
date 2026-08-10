@@ -82,9 +82,13 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
   const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [createError, setCreateError] = useState("");
   const [error, setError] = useState("");
   const [emailNotice, setEmailNotice] = useState("");
-  const modalRef = useDialog<HTMLFormElement>(modalOpen, () => setModalOpen(false));
+  const modalRef = useDialog<HTMLFormElement>(modalOpen, () => {
+    setCreateError("");
+    setModalOpen(false);
+  });
   const canCreateClientLogin = ["approved", "active"].includes(account.status)
     && account.kycReview?.overallStatus === "verified"
     && Boolean(getAssignedBranch(account));
@@ -118,13 +122,20 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
 
   function updateForm<Key extends keyof typeof form>(key: Key, value: (typeof form)[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
-    setError("");
+    setCreateError("");
   }
 
   async function handleCreateClientLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!event.currentTarget.checkValidity()) {
+      setCreateError("Please complete all required fields with valid information.");
+      event.currentTarget.reportValidity();
+      return;
+    }
+
     setSaving(true);
-    setError("");
+    setCreateError("");
     setEmailNotice("");
 
     try {
@@ -137,7 +148,7 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
       setForm(emptyForm);
       setModalOpen(false);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to create client login.");
+      setCreateError(caughtError instanceof Error ? caughtError.message : "Unable to create client login.");
     } finally {
       setSaving(false);
     }
@@ -210,7 +221,10 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
         </div>
         <button
           type="button"
-          onClick={() => setModalOpen(true)}
+          onClick={() => {
+            setCreateError("");
+            setModalOpen(true);
+          }}
           disabled={!canCreateClientLogin}
           className="inline-flex items-center gap-2 rounded-4xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0D1282]/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
         >
@@ -351,7 +365,7 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
 
       {modalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm">
-          <form ref={modalRef} role="dialog" aria-modal="true" aria-label="Create client login" tabIndex={-1} onSubmit={handleCreateClientLogin} className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl outline-none">
+          <form ref={modalRef} role="dialog" aria-modal="true" aria-label="Create client login" tabIndex={-1} noValidate onSubmit={handleCreateClientLogin} className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl outline-none">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold tracking-tight text-[#0D1282]">Create Client Login</h3>
@@ -359,7 +373,10 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
               </div>
               <button
                 type="button"
-                onClick={() => setModalOpen(false)}
+                onClick={() => {
+                  setCreateError("");
+                  setModalOpen(false);
+                }}
                 className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
               >
                 <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -408,10 +425,22 @@ export function BusinessAccountAccessPanel({ account }: { account: BusinessAccou
               <p className="mt-1 text-xs text-slate-400">Client login access is restricted to the business account assigned branch.</p>
             </div>
 
+            {createError ? (
+              <div role="alert" aria-live="assertive" className="mt-5 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+                <svg className="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.28 7.22a.75.75 0 0 0-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 1 0 1.06 1.06L10 11.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L11.06 10l1.72-1.72a.75.75 0 0 0-1.06-1.06L10 8.94 8.28 7.22Z" clipRule="evenodd" />
+                </svg>
+                <span>{createError}</span>
+              </div>
+            ) : null}
+
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => setModalOpen(false)}
+                onClick={() => {
+                  setCreateError("");
+                  setModalOpen(false);
+                }}
                 className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
               >
                 Cancel

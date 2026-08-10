@@ -17,7 +17,12 @@ import { BusinessAccountMember } from "../models/businessAccountMember.model.js"
 import { sendLoginOtpEmail, sendPasswordResetEmail } from "../services/mail.service.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
 import mongoose from "mongoose";
-import { endSessions, startSession, verifySession } from "../services/userSession.service.js";
+import { accountNotActiveMessage, endSessions, startSession, verifySession } from "../services/userSession.service.js";
+import {
+  passwordLockDetails,
+  recordFailedPasswordAttempt,
+  recordSuccessfulPasswordLogin
+} from "../services/authLockout.service.js";
 
 // The refresh token's lifetime, which is how long a session can survive before
 // the token behind it lapses anyway. Parsed from the same env value that signs
@@ -87,7 +92,7 @@ const refreshCookieOptions = () => ({
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email().toLowerCase(),
   password: z.string().min(6),
   termsAccepted: z.boolean().refine((v) => v === true, { message: "Terms must be accepted" }),
   recaptchaToken: z.string().optional()
@@ -211,7 +216,7 @@ async function issueSignedInResponse(req: Request, res: Response, user: IUser): 
   const role = normalizePortalRole(user.role);
   if (user.role !== role) {
     user.role = role;
-    await user.save();
+    await User.updateOne({ _id: user._id }, { $set: { role } }).exec();
   }
 
   // Opening a session ends whatever else this user had open: the newest login
@@ -234,6 +239,18 @@ async function issueSignedInResponse(req: Request, res: Response, user: IUser): 
       userStatus: user.userStatus ?? "active",
       hasSeenWelcome: user.hasSeenWelcome
     }
+  });
+}
+
+function lockedPasswordResponse(res: Response, lockedUntil: Date): Response {
+  const details = passwordLockDetails(lockedUntil);
+  res.setHeader("Retry-After", String(details.retryAfterSeconds));
+
+  return res.status(423).json({
+    success: false,
+    message: details.message,
+    retryAfterSeconds: details.retryAfterSeconds,
+    lockedUntil: lockedUntil.toISOString()
   });
 }
 
@@ -309,30 +326,19 @@ export async function login(req: Request, res: Response): Promise<Response> {
 
   // check lockout
   if (user.lockedUntil && user.lockedUntil > new Date()) {
-    return res.status(423).json({ success: false, message: "Account locked. Try later." });
+    return lockedPasswordResponse(res, user.lockedUntil);
   }
 
   const match = await comparePassword(password, user.passwordHash);
 
   if (!match) {
-    user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
-
-    // lock after 5 attempts
-    if (user.failedLoginAttempts >= 5) {
-      user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-      user.failedLoginAttempts = 0;
-    }
-
-    await user.save();
+    const lockedUntil = await recordFailedPasswordAttempt(user._id as mongoose.Types.ObjectId);
+    if (lockedUntil) return lockedPasswordResponse(res, lockedUntil);
 
     return res.status(401).json({ success: false, message: "Invalid credentials" });
   }
 
-  // reset failed attempts
-  user.failedLoginAttempts = 0;
-  user.lockedUntil = null;
-  user.lastLogin = new Date();
-  await user.save();
+  await recordSuccessfulPasswordLogin(user._id as mongoose.Types.ObjectId);
 
   return issueSignedInResponse(req, res, user);
 }
@@ -604,6 +610,13 @@ export async function refresh(req: Request, res: Response): Promise<Response> {
     const user = await User.findById(payload.sub).exec();
 
     if (!user) return res.status(401).json({ success: false });
+
+    // Rotation must not outlive the account. This endpoint hands out a new
+    // access token and a new seven-day refresh cookie, so skipping the status
+    // check here would let a suspended login renew itself indefinitely.
+    if ((user.userStatus ?? "active") !== "active") {
+      return res.status(401).json({ success: false, message: accountNotActiveMessage, sessionEnded: true });
+    }
 
     const role = normalizePortalRole(user.role);
     if (user.role !== role) {

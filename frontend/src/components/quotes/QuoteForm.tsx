@@ -10,8 +10,14 @@ import { toast } from "react-toastify";
 import { countryOptions } from "@/lib/branches";
 import CountryFlag from "@/components/CountryFlag";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
-import { csbTypeOptions, type CsbType } from "@/lib/csbType";
-import { quoteDocumentOptions, type QuoteDocumentCode } from "@/lib/quoteDocuments";
+import { csbTypeLabels, csbTypeOptions, type CsbType } from "@/lib/csbType";
+import {
+  missingQuoteDocuments,
+  normalizeQuoteDocuments,
+  quoteDocumentLabels,
+  requiredQuoteDocuments,
+  type QuoteDocumentCode
+} from "@/lib/quoteDocuments";
 import { getVolumetricFormula } from "@/lib/shipmentPricing";
 import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import InfoTooltip from "@/components/ui/InfoTooltip";
@@ -52,8 +58,16 @@ const boxContentOptions = [
   "Books",
   "Samples",
   "Spare Parts",
-  "Other",
 ];
+
+// Not a storable value: picking it reveals a text box, and what the customer
+// types there becomes the box's contents. The branch has to be able to price and
+// clear the goods, which "Other" on its own does not allow.
+const OTHER_CONTENTS = "Other";
+
+function isListedContent(value: string) {
+  return boxContentOptions.includes(value.trim());
+}
 
 // Placeholder transit-time estimates until real carrier SLAs are wired up.
 // Keyed by service type so the value can vary later without touching the UI.
@@ -62,14 +76,35 @@ const transitTimeEstimates: Record<ShipmentQuoteInput["serviceType"], string> = 
   CARGO: "3-5 days",
 };
 
-const emptyParcel = (sequence: number): QuoteParcelInput => ({
+/**
+ * A parcel while it is being edited. `contentsIsOther` is presentation only —
+ * it remembers that the customer chose "Other" so the text box stays open while
+ * `contents` is still empty. It travels with the parcel object rather than being
+ * keyed by sequence, which is renumbered whenever a box is removed.
+ */
+type ParcelDraft = QuoteParcelInput & { contentsIsOther: boolean };
+
+const emptyParcel = (sequence: number): ParcelDraft => ({
   sequence,
   actualWeightKg: 0,
   lengthCm: 0,
   widthCm: 0,
   heightCm: 0,
   contents: "",
+  contentsIsOther: false,
 });
+
+/** Drops the editing-only flag, leaving exactly what the API accepts. */
+function toParcelInput(parcel: ParcelDraft): QuoteParcelInput {
+  return {
+    sequence: parcel.sequence,
+    actualWeightKg: parcel.actualWeightKg,
+    lengthCm: parcel.lengthCm,
+    widthCm: parcel.widthCm,
+    heightCm: parcel.heightCm,
+    contents: parcel.contents.trim(),
+  };
+}
 
 export default function QuoteForm({
   audience,
@@ -94,7 +129,7 @@ export default function QuoteForm({
   const [serviceType, setServiceType] =
     useState<ShipmentQuoteInput["serviceType"]>("COURIER");
   const [goodsValue, setGoodsValue] = useState("");
-  const [parcels, setParcels] = useState<QuoteParcelInput[]>([emptyParcel(1)]);
+  const [parcels, setParcels] = useState<ParcelDraft[]>([emptyParcel(1)]);
   const [estimate, setEstimate] = useState<QuoteEstimate | null>(null);
   const [busy, setBusy] = useState<"estimate" | "request" | "draft" | "">("");
   const [submitted, setSubmitted] = useState(false);
@@ -117,6 +152,12 @@ export default function QuoteForm({
     ),
     { label: "this quote request" }
   );
+
+  // The document list is a function of the customs route: CSB-IV asks only for
+  // identity documents, CSB-V for the full export set. Both require every one of
+  // them, so "required" and "shown" are the same list.
+  const documentOptions = requiredQuoteDocuments(csbType);
+  const missingDocuments = missingQuoteDocuments(csbType, availableDocuments);
 
   const context =
     contexts.find((item) => item.businessAccountId === businessAccountId) ??
@@ -157,8 +198,14 @@ export default function QuoteForm({
       toast.error("Select the shipment type: CSB-IV or CSB-V.");
       return null;
     }
-    if (!availableDocuments.length) {
-      toast.error("Select at least one available document.");
+    // Every document the route asks for is mandatory, so the check names the ones
+    // still outstanding rather than just saying something is missing.
+    if (missingDocuments.length) {
+      toast.error(
+        `Declare every required document for ${csbTypeLabels[csbType]}: ${missingDocuments
+          .map((code) => quoteDocumentLabels[code])
+          .join(", ")}.`,
+      );
       return null;
     }
     if (
@@ -181,7 +228,7 @@ export default function QuoteForm({
       serviceType,
       goodsValueMinor: Math.max(0, Math.round((Number(goodsValue) || 0) * 100)),
       availableDocuments,
-      parcels: parcels.map((parcel) => ({ ...parcel, contents: parcel.contents.trim() })),
+      parcels: parcels.map(toParcelInput),
     };
   }
 
@@ -256,14 +303,12 @@ export default function QuoteForm({
     }
   }
 
-  function updateParcel(
-    index: number,
-    field: keyof QuoteParcelInput,
-    value: number | string,
-  ) {
+  // Takes a patch rather than one field, because choosing "Other" has to set the
+  // mode and clear the description in the same update.
+  function updateParcel(index: number, patch: Partial<ParcelDraft>) {
     setParcels((current) =>
       current.map((parcel, parcelIndex) =>
-        parcelIndex === index ? { ...parcel, [field]: value } : parcel,
+        parcelIndex === index ? { ...parcel, ...patch } : parcel,
       ),
     );
     setEstimate(null);
@@ -302,6 +347,11 @@ export default function QuoteForm({
               value={csbType}
               onChange={(value) => {
                 setCsbType(value);
+                // Switching route changes which documents apply, so ticks the new
+                // route does not ask for are dropped rather than silently sent.
+                setAvailableDocuments((current) =>
+                  normalizeQuoteDocuments(current, value),
+                );
                 setEstimate(null);
               }}
               error={submitted && !csbType ? "Select CSB-IV or CSB-V." : ""}
@@ -475,7 +525,14 @@ export default function QuoteForm({
             </div>
           </div>
           <div className="divide-y divide-slate-200">
-            {parcels.map((parcel, index) => (
+            {parcels.map((parcel, index) => {
+              // A stored value that is not on the list (an "Other" description)
+              // keeps the text box open on its own.
+              const showOther =
+                parcel.contentsIsOther ||
+                (Boolean(parcel.contents) && !isListedContent(parcel.contents));
+
+              return (
               <div key={parcel.sequence} className="p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <p className="text-sm font-semibold text-slate-900">
@@ -493,39 +550,72 @@ export default function QuoteForm({
                   ) : null}
                 </div>
                 <div className="mb-4">
-                  <Field
-                    label="Contents"
-                    required
-                    tooltip="What's inside this box"
-                    error={
-                      restrictedContentsByParcel[index]?.length
-                        ? `${restrictedContentsByParcel[index].join(", ")} is a restricted item and cannot be shipped.`
-                        : submitted && !parcel.contents.trim()
-                          ? "Select this box's contents."
-                          : ""
-                    }
-                  >
-                    <div className="relative">
-                      <select
-                        value={parcel.contents}
-                        onChange={(event) => updateParcel(index, "contents", event.target.value)}
-                        onBlur={() => {
-                          if (restrictedContentsByParcel[index]?.length) toast.error("This item is restricted.");
-                        }}
-                        className={`${controlClass} appearance-none pr-9 rounded-xl ${
-                          restrictedContentsByParcel[index]?.length ? "border-red-400 focus:border-red-500" : ""
-                        }`}
-                      >
-                        <option value="">Select contents</option>
-                        {boxContentOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                      <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    </div>
-                  </Field>
+                <Field
+                  label="Contents"
+                  required
+                  tooltip="What's inside this box"
+                  error={
+                    restrictedContentsByParcel[index]?.length
+                      ? `${restrictedContentsByParcel[index].join(", ")} is a restricted item and cannot be shipped.`
+                      : submitted && !parcel.contents.trim()
+                        ? showOther
+                          ? "Describe what is inside this box."
+                          : "Select this box's contents."
+                        : ""
+                  }
+                >
+                  <div className="relative">
+                    <select
+                      value={showOther ? OTHER_CONTENTS : parcel.contents}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        // "Other" is a mode, not a value: the box is cleared
+                        // so the customer has to describe the goods.
+                        updateParcel(index, {
+                          contentsIsOther: next === OTHER_CONTENTS,
+                          contents: next === OTHER_CONTENTS ? "" : next,
+                        });
+                      }}
+                      className={`${controlClass} appearance-none pr-9 rounded-xl ${
+                        restrictedContentsByParcel[index]?.length ? "border-red-400 focus:border-red-500" : ""
+                      }`}
+                    >
+                      <option value="">Select contents</option>
+                      {boxContentOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                      <option value={OTHER_CONTENTS}>{OTHER_CONTENTS}</option>
+                    </select>
+                    <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+
+                  {showOther ? (
+                    <input
+                      value={parcel.contents}
+                      maxLength={500}
+                      autoFocus
+                      // The wrapping label already names the select, so this
+                      // second control carries its own accessible name.
+                      aria-label={`Box ${index + 1} contents description`}
+                      placeholder="Describe what is inside, for example handloom cotton scarves"
+                      onChange={(event) =>
+                        updateParcel(index, { contents: event.target.value })
+                      }
+                      onBlur={() => {
+                        if (restrictedContentsByParcel[index]?.length) toast.error("This item is restricted.");
+                      }}
+                      className={`${controlClass} mt-2 ${
+                        restrictedContentsByParcel[index]?.length
+                          ? "border-red-400 focus:border-red-500"
+                          : submitted && !parcel.contents.trim()
+                            ? "border-red-400"
+                            : ""
+                      }`}
+                    />
+                  ) : null}
+                </Field>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   {(
@@ -554,7 +644,7 @@ export default function QuoteForm({
                         step="0.01"
                         value={parcel[field] || ""}
                         onChange={(event) =>
-                          updateParcel(index, field, Number(event.target.value))
+                          updateParcel(index, { [field]: Number(event.target.value) })
                         }
                         className={`${controlClass} ${
                           field === "actualWeightKg" && submitted && parcel.actualWeightKg <= 0
@@ -571,51 +661,84 @@ export default function QuoteForm({
                   </p>
                 ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
         {/* Declarations only — no uploads happen at the quote stage. */}
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <SectionHeader
-            title="Available Documents"
-            subtitle="Tick the export documents you already hold. At least one is required."
-          />
-          <div className="p-5">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {quoteDocumentOptions.map((option) => {
-                const checked = availableDocuments.includes(option.value);
-                return (
-                  <label
-                    key={option.value}
-                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm transition ${
-                      checked
-                        ? "border-blue-900 bg-blue-50 font-semibold text-blue-950"
-                        : "border-slate-300 bg-white text-slate-700 hover:border-blue-300"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        setAvailableDocuments((current) =>
-                          current.includes(option.value)
-                            ? current.filter((code) => code !== option.value)
-                            : [...current, option.value],
-                        )
-                      }
-                      className="h-4 w-4 shrink-0 accent-blue-900"
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                );
-              })}
-            </div>
-            {submitted && !availableDocuments.length ? (
-              <p className="mt-3 text-xs font-semibold text-red-600">
-                Select at least one available document.
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+            <div className="min-w-0">
+              <h2 className="font-semibold text-slate-950">Required Documents</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {csbType
+                  ? `Confirm you hold every document ${csbTypeLabels[csbType]} requires. All of them are mandatory.`
+                  : "Select the shipment type above to see which documents this shipment needs."}
               </p>
+            </div>
+            {documentOptions.length > 0 && missingDocuments.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setAvailableDocuments(documentOptions)}
+                className="inline-flex h-9 shrink-0 items-center rounded-4xl border border-blue-900 px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50"
+              >
+                Confirm all
+              </button>
             ) : null}
+          </div>
+          <div className="p-5">
+            {documentOptions.length ? (
+              <>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {documentOptions.map((code) => {
+                    const checked = availableDocuments.includes(code);
+                    return (
+                      <label
+                        key={code}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm transition ${
+                          checked
+                            ? "border-blue-900 bg-blue-50 font-semibold text-blue-950"
+                            : submitted
+                              ? "border-red-400 bg-white text-slate-700 hover:border-red-500"
+                              : "border-slate-300 bg-white text-slate-700 hover:border-blue-300"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setAvailableDocuments((current) =>
+                              current.includes(code)
+                                ? current.filter((item) => item !== code)
+                                : [...current, code],
+                            )
+                          }
+                          className="h-4 w-4 shrink-0 accent-blue-900"
+                        />
+                        <span>
+                          {quoteDocumentLabels[code]}
+                          <span className="ml-1 text-red-600">*</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {submitted && missingDocuments.length ? (
+                  <p className="mt-3 text-xs font-semibold text-red-600">
+                    Still to confirm:{" "}
+                    {missingDocuments
+                      .map((code) => quoteDocumentLabels[code])
+                      .join(", ")}
+                    .
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                Choose CSB-IV or CSB-V to see the documents this shipment needs.
+              </p>
+            )}
           </div>
         </section>
       </div>

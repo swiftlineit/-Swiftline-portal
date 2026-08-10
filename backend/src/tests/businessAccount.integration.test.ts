@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { env } from "../config/env.js";
 import {
   assignBusinessAccountBranch,
+  submitBusinessAccount,
   updateBusinessAccountOperationalAction,
   updateBusinessAccountStatus
 } from "../controllers/businessAccount.controller.js";
@@ -77,12 +78,14 @@ async function createDraftAccount(adminId: mongoose.Types.ObjectId, accountId: s
     company: {
       registrationCountry: "India",
       registrationId: `ABCDE${accountId.slice(-4)}F`,
+      gstin: "07ABCDE1234F1Z5",
       companyType: "pvt_ltd",
       companyName: "Acme Exports",
       registeredAddress: "1 Trade Street",
       city: "New Delhi",
       stateOrProvince: "Delhi",
       postalCode: "110001",
+      addressCountry: "India",
       operatingCountries: ["India"],
       industry: "Retail",
       monthlyShipmentVolume: "1-50 shipments",
@@ -115,6 +118,27 @@ after(async () => {
 });
 
 describe("business account lifecycle", () => {
+  test("submits a stored draft that reuses its company address and requests credit", async () => {
+    const adminId = new mongoose.Types.ObjectId();
+    const account = await createDraftAccount(adminId, "BA-2026-200004");
+
+    account.company.requestedCreditLimit.amount = 50_000;
+    await account.save();
+
+    const submit = createResponseRecorder();
+    await submitBusinessAccount(
+      controllerRequest({ userId: adminId, params: { accountId: account.accountId } }),
+      submit.response
+    );
+
+    assert.equal(submit.statusCode(), 200);
+    const stored = await BusinessAccount.findById(account._id).lean().exec();
+    assert.equal(stored?.status, "pending_review");
+    assert.equal(stored?.company.useCompanyAddressAsBillingAddress, true);
+    assert.equal(stored?.company.billingAddress, null);
+    assert.equal(stored?.company.requestedCreditLimit.amount, 50_000);
+  });
+
   test("enforces the status state machine and KYC gate", async () => {
     const adminId = new mongoose.Types.ObjectId();
     const account = await createDraftAccount(adminId, "BA-2026-200001");

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Branch } from "../models/branch.model.js";
 import { assignableRoleValues, roleValues, User } from "../models/user.model.js";
 import { hashPassword } from "../services/auth.service.js";
+import { endSessions } from "../services/userSession.service.js";
 import { syncAccessWithUserStatus } from "../services/userStatusSync.service.js";
 import { validateAssignedBranches } from "../utils/assignedBranches.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
@@ -107,6 +108,18 @@ export async function updateUserStatus(req: Request, res: Response): Promise<Res
   // Their driver profile or client-access record shows the status the rest of the
   // portal reads, so it has to follow the login rather than drift out of step.
   await syncAccessWithUserStatus(user._id as mongoose.Types.ObjectId, user.userStatus);
+
+  // Blocking a login has to end the sessions already open under it. The status
+  // check in `attachUser` would catch them on their next request anyway, but
+  // ending the sessions is what makes the audit log record the moment access was
+  // actually withdrawn, and what the admin session list then reflects.
+  if (user.userStatus !== "active") {
+    await endSessions(
+      { userId: user._id },
+      "terminated_by_admin",
+      requesterId ? new mongoose.Types.ObjectId(String(requesterId)) : undefined
+    );
+  }
 
   await user.populate("assignedBranches", "name code status");
 

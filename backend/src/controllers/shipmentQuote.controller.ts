@@ -4,8 +4,12 @@ import { z } from "zod";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { ShipmentQuote, shipmentQuoteStatusValues } from "../models/shipmentQuote.model.js";
 import { dateRangeCondition, dateRangeParams } from "../utils/dateRangeFilter.js";
-import { csbTypeValues } from "../services/csbType.service.js";
-import { quoteDocumentCodeValues } from "../services/quoteDocuments.service.js";
+import { csbTypeLabels, csbTypeValues } from "../services/csbType.service.js";
+import {
+  missingQuoteDocuments,
+  quoteDocumentCodeValues,
+  quoteDocumentLabels
+} from "../services/quoteDocuments.service.js";
 import {
   ShipmentQuoteError, calculateQuoteEstimate, changeShipmentQuoteStatus,
   convertShipmentQuoteToDraft, createShipmentDraftFromEstimate, createShipmentQuote, loadQuoteDisplayContext,
@@ -20,7 +24,10 @@ const parcelSchema = z.object({
   lengthCm: z.coerce.number().min(0).max(10000).default(0),
   widthCm: z.coerce.number().min(0).max(10000).default(0),
   heightCm: z.coerce.number().min(0).max(10000).default(0),
+  // "Other" is a prompt to describe the goods, never an answer in itself: the
+  // branch cannot price or clear a box whose contents are literally "Other".
   contents: z.string().trim().min(2).max(500)
+    .refine((value) => value.toLowerCase() !== "other", "Describe what is inside the box marked Other.")
 });
 
 const quoteRequestSchema = z.object({
@@ -33,8 +40,19 @@ const quoteRequestSchema = z.object({
   serviceType: z.enum(["COURIER", "CARGO"]),
   goodsValueMinor: z.coerce.number().int().min(1).max(1_000_000_000),
   availableDocuments: z.array(z.enum(quoteDocumentCodeValues))
-    .min(1, "Select at least one available document."),
+    .min(1, "Declare the documents required for this customs route."),
   parcels: z.array(parcelSchema).min(1).max(100)
+}).superRefine((data, context) => {
+  // Which documents are mandatory depends on the CSB route, so the rule can only
+  // be applied once both fields are known.
+  const missing = missingQuoteDocuments(data.csbType, data.availableDocuments);
+  if (missing.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["availableDocuments"],
+      message: `Declare every required document for ${csbTypeLabels[data.csbType]}: ${missing.map((code) => quoteDocumentLabels[code]).join(", ")}.`
+    });
+  }
 });
 
 const publishSchema = z.object({

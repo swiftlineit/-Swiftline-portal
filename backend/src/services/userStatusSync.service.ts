@@ -6,6 +6,7 @@ import {
 import { BusinessAccountInvitation } from "../models/businessAccountInvitation.model.js";
 import { DriverProfile, type DriverProfileStatus } from "../models/driverProfile.model.js";
 import { User, type UserStatus } from "../models/user.model.js";
+import { endSessions } from "./userSession.service.js";
 
 /**
  * A login carries two statuses: `userStatus` on the user, and the per-context
@@ -155,4 +156,11 @@ export async function syncUserStatusWithMembership(
     user.failedLoginAttempts = 0;
   }
   await user.save();
+
+  // Revoking access has to reach the sessions already open, not just the next
+  // sign-in attempt. Done here rather than at the call site so that every route
+  // which withdraws a client's access gets it without having to remember.
+  if (isBlockedUserStatus(nextStatus)) {
+    await endSessions({ userId: user._id }, "terminated_by_admin");
+  }
 }

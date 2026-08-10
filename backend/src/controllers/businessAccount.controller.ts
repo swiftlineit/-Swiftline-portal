@@ -1401,9 +1401,18 @@ export async function submitBusinessAccount(request: Request, response: Response
   // Drafts are stored against a relaxed schema, so this is the first point the
   // full rules are applied. Without it, saving as a draft would be a route around
   // every onboarding requirement.
+  // The form payload and stored account deliberately use different shapes for
+  // billing and credit. Convert the stored values back to the form contract
+  // before re-validating the draft: a reused company address is stored as null,
+  // while credit is stored as { currency, amount }.
   const completeness = businessAccountBodySchema.safeParse({
     contact: account.contact,
-    company: account.company
+    company: {
+      ...account.company,
+      billingAddress: account.company.billingAddress ?? undefined,
+      requestedCreditCurrency: account.company.requestedCreditLimit.currency,
+      requestedCreditLimit: account.company.requestedCreditLimit.amount
+    }
   });
   if (!completeness.success) {
     return response.status(400).json({

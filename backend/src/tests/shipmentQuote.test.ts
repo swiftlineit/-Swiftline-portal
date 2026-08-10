@@ -9,6 +9,12 @@ import {
   loadQuoteContext,
   loadQuoteDisplayContext
 } from "../services/shipmentQuote.service.js";
+import {
+  missingQuoteDocuments,
+  normalizeQuoteDocuments,
+  quoteDocumentCodeValues,
+  requiredQuoteDocuments
+} from "../services/quoteDocuments.service.js";
 
 describe("shipment quote policy", () => {
   it("adds configured charges before applying 18 percent GST", () => {
@@ -31,6 +37,32 @@ describe("shipment quote policy", () => {
       status: "QUOTED",
       validUntil: new Date("2026-07-20T00:00:00.000Z")
     }, new Date("2026-07-21T00:00:00.000Z")), "EXPIRED");
+  });
+
+  it("asks CSB-IV for identity documents only and CSB-V for the full set", () => {
+    assert.deepEqual(requiredQuoteDocuments("CSB_IV"), ["PAN", "AADHAR"]);
+    assert.deepEqual(requiredQuoteDocuments("CSB_V"), [...quoteDocumentCodeValues]);
+  });
+
+  it("treats every document the route asks for as mandatory", () => {
+    // One of the two is not enough for CSB-IV; the list is the requirement.
+    assert.deepEqual(missingQuoteDocuments("CSB_IV", ["PAN"]), ["AADHAR"]);
+    assert.deepEqual(missingQuoteDocuments("CSB_IV", ["PAN", "AADHAR"]), []);
+    assert.deepEqual(missingQuoteDocuments("CSB_V", ["PAN", "AADHAR"]),
+      quoteDocumentCodeValues.filter((code) => code !== "PAN" && code !== "AADHAR"));
+    assert.deepEqual(missingQuoteDocuments("CSB_V", [...quoteDocumentCodeValues]), []);
+  });
+
+  it("drops documents the chosen route does not ask for", () => {
+    // Switching CSB-V to CSB-IV must not leave an LUT tick on the stored snapshot.
+    assert.deepEqual(
+      normalizeQuoteDocuments(["LUT", "PAN", "AADHAR", "IEC"], "CSB_IV"),
+      ["PAN", "AADHAR"]
+    );
+    // Canonical order, never the order the boxes were ticked.
+    assert.deepEqual(normalizeQuoteDocuments(["AADHAR", "PAN"], "CSB_IV"), ["PAN", "AADHAR"]);
+    // Without a route nothing is filtered, which is what the display helpers want.
+    assert.deepEqual(normalizeQuoteDocuments(["LUT", "PAN"]), ["PAN", "LUT"]);
   });
 
   it("requires request and estimate snapshots", async () => {

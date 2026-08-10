@@ -1,5 +1,6 @@
 import rateLimit from "express-rate-limit";
 import type { Request } from "express";
+import crypto from "node:crypto";
 import { env } from "../config/env.js";
 
 function isOperationsScannerRequest(path: string) {
@@ -75,13 +76,128 @@ export const publicRateCardLimiter = rateLimit({
   legacyHeaders: false
 });
 
-export const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: env.NODE_ENV === "production" ? 5 : 50,
-  message: { success: false, message: "Too many login attempts, try again later." },
+const AUTH_WINDOW_MS = 15 * 60 * 1000;
+const passwordLoginLimitMessage = {
+  success: false,
+  message: "Too many unsuccessful login attempts. Try again in 15 minutes."
+};
+
+function requestIp(request: Request) {
+  return String(request.ip || request.socket.remoteAddress || "unknown-ip");
+}
+
+function normalizedBodyEmail(request: Request) {
+  const email = request.body?.email;
+  return typeof email === "string" && email.trim()
+    ? email.trim().toLowerCase()
+    : "missing-email";
+}
+
+/**
+ * A strict password-login bucket belongs to one attempted account on one
+ * network. Office devices commonly share one public NAT IP, so an IP-only key
+ * lets one employee's typo block every colleague before their credentials are
+ * even checked.
+ */
+export function passwordLoginAccountKey(request: Request) {
+  return `${requestIp(request)}:${normalizedBodyEmail(request)}`;
+}
+
+/** Only an invalid-credentials response spends the strict account/IP budget. */
+export function isNotInvalidPasswordResponse(statusCode: number) {
+  return statusCode !== 401;
+}
+
+/**
+ * Build fresh limiter instances for tests as well as production. Each call gets
+ * its own in-memory stores, so test cases cannot leak counters into one another.
+ */
+export function createPasswordLoginLimiters(options?: { accountMax?: number; networkMax?: number }) {
+  const accountMax = options?.accountMax ?? (env.NODE_ENV === "production" ? 5 : 50);
+  const networkMax = options?.networkMax ?? (env.NODE_ENV === "production" ? 50 : 500);
+
+  return {
+    // Emergency brake for password spraying across many email addresses. This
+    // is intentionally much higher than the account limit so normal shared-
+    // office traffic is not collateral damage.
+    network: rateLimit({
+      windowMs: AUTH_WINDOW_MS,
+      max: networkMax,
+      message: {
+        success: false,
+        message: "Unusually high failed-login traffic from this network. Try again in 15 minutes."
+      },
+      standardHeaders: true,
+      legacyHeaders: false,
+      skipSuccessfulRequests: true,
+      requestWasSuccessful: (_request, response) => ![401, 423].includes(response.statusCode)
+    }),
+    account: rateLimit({
+      windowMs: AUTH_WINDOW_MS,
+      max: accountMax,
+      keyGenerator: passwordLoginAccountKey,
+      message: passwordLoginLimitMessage,
+      standardHeaders: true,
+      legacyHeaders: false,
+      skipSuccessfulRequests: true,
+      // Captcha/validation failures and backend 5xx responses are not wrong
+      // passwords and must not lock a user out because the server had a problem.
+      requestWasSuccessful: (_request, response) => isNotInvalidPasswordResponse(response.statusCode)
+    })
+  };
+}
+
+const passwordLoginLimiters = createPasswordLoginLimiters();
+export const passwordLoginNetworkLimiter = passwordLoginLimiters.network;
+export const passwordLoginAccountLimiter = passwordLoginLimiters.account;
+
+// These authentication actions have different credentials and failure modes;
+// they must not share the password-login counter.
+export const googleLoginLimiter = rateLimit({
+  windowMs: AUTH_WINDOW_MS,
+  max: env.NODE_ENV === "production" ? 50 : 500,
+  message: { success: false, message: "Too many Google sign-in attempts. Try again in 15 minutes." },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (_request, response) => response.statusCode !== 401
+});
+
+export const otpVerifyLimiter = rateLimit({
+  windowMs: AUTH_WINDOW_MS,
+  max: env.NODE_ENV === "production" ? 5 : 50,
+  keyGenerator: passwordLoginAccountKey,
+  message: { success: false, message: "Too many incorrect sign-in codes. Request a new code and try again." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (_request, response) => response.statusCode !== 400
+});
+
+export const passwordResetRequestLimiter = rateLimit({
+  windowMs: AUTH_WINDOW_MS,
+  max: env.NODE_ENV === "production" ? 5 : 50,
+  keyGenerator: passwordLoginAccountKey,
+  message: { success: false, message: "Too many password-reset requests. Try again in 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+function passwordResetKey(request: Request) {
+  const token = typeof request.body?.token === "string" ? request.body.token : "missing-token";
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  return `${requestIp(request)}:${tokenHash}`;
+}
+
+export const passwordResetLimiter = rateLimit({
+  windowMs: AUTH_WINDOW_MS,
+  max: env.NODE_ENV === "production" ? 5 : 50,
+  keyGenerator: passwordResetKey,
+  message: { success: false, message: "Too many password-reset attempts. Try again in 15 minutes." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (_request, response) => response.statusCode !== 400
 });
 
 // Requesting a sign-in code needs its own cap, and it must count *successful*
