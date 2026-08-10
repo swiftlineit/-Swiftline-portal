@@ -15,6 +15,7 @@ import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel"
 import ShipmentCancellationPanel from "@/components/shipments/ShipmentCancellationPanel";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/components/shipments/ShipmentKycDocumentsPanel";
+import RaiseClaimButton from "@/components/claims/RaiseClaimButton";
 import ClientPodPanel from "@/components/pods/ClientPodPanel";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
@@ -304,14 +305,19 @@ export default function ClientShipmentDetailsPage() {
             <h1 className="mt-3 text-2xl font-semibold text-slate-950">Shipment Details</h1>
             <p className="mt-1 text-sm text-slate-500">Shipment Details | Invoices | Labels | Amendments | Cancellations | Timeline</p>
           </div>
-          {shipment?.dpdShipment ? (
-            <StatusPill
-              label={getShipmentStatus(shipment)}
-              tone={shipment.dpdShipment.status === "LABEL_RECEIVED" ? "success" : "neutral"}
-            />
-          ) : (
-            <StatusPill label="Ready for Booking" tone="neutral" />
-          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Renders itself only when this shipment can actually be claimed
+                for; it asks the server rather than reading status here. */}
+            <RaiseClaimButton shipmentDraftId={params.draftId} />
+            {shipment?.dpdShipment ? (
+              <StatusPill
+                label={getShipmentStatus(shipment)}
+                tone={shipment.dpdShipment.status === "LABEL_RECEIVED" ? "success" : "neutral"}
+              />
+            ) : (
+              <StatusPill label="Ready for Booking" tone="neutral" />
+            )}
+          </div>
         </div>
 
         {error ? (
@@ -525,7 +531,7 @@ function ConfirmationValue({ label, value, emphasis = false }: { label: string; 
   return (
     <div className={`min-w-0 border-b border-slate-200 px-5 py-4 sm:border-r xl:border-b-0 ${emphasis ? "bg-blue-950 text-white" : ""}`}>
       <dt className={`text-xs font-semibold uppercase ${emphasis ? "text-blue-100" : "text-slate-500"}`}>{label}</dt>
-      <dd className="mt-2 break-words font-semibold">{value}</dd>
+      <dd className="mt-2 wrap-break-words font-semibold">{value}</dd>
     </div>
   );
 }

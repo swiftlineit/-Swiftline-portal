@@ -59,12 +59,21 @@ export function shipmentBookedClientTemplate(context: EmailTemplateContext): Ema
       ...(labelsAttached
         ? [{
           kind: "paragraph" as const,
-          text: "Shipping labels are attached. Print one label per parcel and affix it before handover."
+          text: "Shipping labels are attached — the carrier label and the Swiftline internal label. Print one of each per parcel and affix them before handover."
         }]
         : [{
           kind: "paragraph" as const,
           text: "Your shipping labels are ready to download from the portal. Print one label per parcel and affix it before handover."
         }]),
+      // Mirrors the "Test - Not for carriage" marking the portal puts on
+      // simulated labels: an attachment carries no such warning on its own.
+      ...(labelsAttached && Boolean(payload.dpdLabelIsTest)
+        ? [{
+          kind: "callout" as const,
+          tone: "warning" as const,
+          text: "The attached carrier label is a test label and is not valid for carriage. Do not hand the parcel over against it — a live label will follow."
+        }]
+        : []),
       { kind: "button", label: "View shipment", url: toAbsoluteUrl(appUrl, asText(payload.href, "/client/shipments")) },
       { kind: "note", text: "Keep the tracking number handy when contacting support about this shipment." }
     ]

@@ -231,19 +231,13 @@ export default function RouteChargesForm({
           value={form.handlingCharge}
           onChange={handleInput("handlingCharge")}
         />
-        <ChargeInput
-          label="Insurance %"
-          hint="Of declared goods value"
-          value={form.insurancePercent}
-          onChange={handleInput("insurancePercent")}
-          max={100}
-        />
-        <ChargeInput
-          label="Insurance Minimum"
-          hint="Floor for the premium"
-          value={form.insuranceMinimum}
-          onChange={handleInput("insuranceMinimum")}
-        />
+        {/*
+          Insurance is switched off portal-wide while the product is unfinished.
+          The inputs are hidden rather than removed: the stored percentage and
+          minimum are still submitted unchanged below, so a route's configuration
+          survives untouched and restoring cover is a matter of showing these
+          again. Pricing ignores them regardless — see shipmentPricing.service.ts.
+        */}
         <ChargeInput
           label="Discount %"
           hint="Off all charges, pre-GST"

@@ -52,8 +52,50 @@ export type ShipmentConsignorAddress = {
   pickupInstructions?: string;
 };
 
-export const shipmentKycDocumentTypes = ["aadhaar", "pan", "other"] as const;
+export const shipmentKycDocumentTypes = [
+  "aadhaar",
+  "pan",
+  "iec",
+  "gst",
+  "salePurchaseAdCode",
+  "lut",
+  "declarationOfGoods",
+  "otherCertificates",
+  "hsnCode",
+  // Legacy upload type, kept readable for existing shipments.
+  "other"
+] as const;
 export type ShipmentKycDocumentType = (typeof shipmentKycDocumentTypes)[number];
+
+export const shipmentKycDocumentLabels: Record<ShipmentKycDocumentType, string> = {
+  aadhaar: "Aadhaar Card",
+  pan: "PAN Card",
+  iec: "IEC",
+  gst: "GST",
+  salePurchaseAdCode: "Sale / Purchase / AD Code",
+  lut: "LUT",
+  declarationOfGoods: "Declaration of Goods",
+  otherCertificates: "Other Certificates",
+  hsnCode: "HSN Code",
+  other: "Other Document"
+};
+
+export const csbIvKycDocumentTypes = ["pan", "aadhaar"] as const;
+export const csbVKycDocumentTypes = [
+  "iec",
+  "gst",
+  "pan",
+  "aadhaar",
+  "salePurchaseAdCode",
+  "lut",
+  "declarationOfGoods",
+  "otherCertificates",
+  "hsnCode"
+] as const;
+
+export function requiredShipmentKycDocumentTypes(csbType: CsbType): readonly ShipmentKycDocumentType[] {
+  return csbType === "CSB_V" ? csbVKycDocumentTypes : csbIvKycDocumentTypes;
+}
 
 export type ShipmentKycDocument = {
   type: ShipmentKycDocumentType;

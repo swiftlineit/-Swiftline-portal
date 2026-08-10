@@ -6,6 +6,7 @@ import { passwordResetTemplate } from "./passwordReset.js";
 import { loginOtpTemplate } from "./loginOtp.js";
 import { pickupOtpTemplate } from "./pickupOtp.js";
 import { rateCardSharedTemplate } from "./rateCardShared.js";
+import { claimDecisionTemplate } from "./claimDecision.js";
 
 export type EmailTemplateContext = {
   recipientName: string;
@@ -47,7 +48,10 @@ const registry: Record<string, EmailTemplate> = {
   PASSWORD_RESET: passwordResetTemplate,
   LOGIN_OTP: loginOtpTemplate,
   PICKUP_OTP: pickupOtpTemplate,
-  RATE_CARD_SHARED: rateCardSharedTemplate
+  RATE_CARD_SHARED: rateCardSharedTemplate,
+  // Every other claim notification renders through the generic template; only
+  // the decision needs to carry arithmetic and an appeal deadline.
+  CLAIM_DECISION: claimDecisionTemplate
 };
 
 export function getEmailTemplate(templateKey: string): EmailTemplate {

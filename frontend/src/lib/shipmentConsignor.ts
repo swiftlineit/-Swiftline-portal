@@ -1,6 +1,13 @@
 import { isValidAadhaarNumber, normalizeAadhaarNumber } from "@/lib/aadhaar";
 import { getShipmentMobileError, isAcceptableShipmentEmail } from "@/lib/shipmentContactValidation";
-import type { ShipmentAddress, ShipmentConsignorAddress, ShipmentKycDocuments } from "@/lib/dpdLabels";
+import {
+  requiredShipmentKycDocumentTypes,
+  shipmentKycDocumentLabels,
+  type ShipmentAddress,
+  type ShipmentConsignorAddress,
+  type ShipmentKycDocuments
+} from "@/lib/dpdLabels";
+import type { CsbType } from "@/lib/csbType";
 
 // Consignors are always Indian senders, so these are shown read-only and are
 // re-pinned by the server on every save.
@@ -156,15 +163,25 @@ export type ParcelKycState = {
   kycDocuments: ShipmentKycDocuments | undefined;
 };
 
-// Only the Aadhaar number and Aadhaar card are mandatory. When KYC is shared,
-// one set covers every parcel; otherwise each parcel must supply its own.
+// CSB-IV needs PAN and Aadhaar. CSB-V uses the complete customs checklist.
+// When KYC is shared, one set covers every parcel; otherwise each parcel supplies it.
 export function getKycIssues(input: {
+  csbType: CsbType;
   useForAll: boolean;
   sharedAadhaar: string;
   sharedDocuments: ShipmentKycDocuments | undefined;
   parcels: ParcelKycState[];
 }) {
   const issues: string[] = [];
+  const requiredDocuments = requiredShipmentKycDocumentTypes(input.csbType);
+
+  function appendMissingDocuments(documents: ShipmentKycDocuments | undefined, scope?: string) {
+    requiredDocuments.forEach((type) => {
+      if (!documents?.[type]) {
+        issues.push(`${scope ? `${scope}: upload` : "Upload"} ${shipmentKycDocumentLabels[type]}`);
+      }
+    });
+  }
 
   if (input.useForAll) {
     if (!input.sharedAadhaar.trim()) {
@@ -172,7 +189,7 @@ export function getKycIssues(input: {
     } else if (!isValidAadhaarNumber(input.sharedAadhaar)) {
       issues.push("Enter a valid 12 digit Aadhaar number");
     }
-    if (!input.sharedDocuments?.aadhaar) issues.push("Upload the Aadhaar card");
+    appendMissingDocuments(input.sharedDocuments);
     return issues;
   }
 
@@ -183,7 +200,7 @@ export function getKycIssues(input: {
     } else if (!isValidAadhaarNumber(parcel.aadhaarNumber)) {
       issues.push(`${label}: enter a valid 12 digit Aadhaar number`);
     }
-    if (!parcel.kycDocuments?.aadhaar) issues.push(`${label}: upload the Aadhaar card`);
+    appendMissingDocuments(parcel.kycDocuments, label);
   });
 
   return issues;
@@ -191,17 +208,17 @@ export function getKycIssues(input: {
 
 export function consignorFormToPatch(form: ConsignorForm): Partial<ShipmentConsignorAddress> {
   return {
-    companyName: form.companyName,
-    contactName: form.contactName,
+    companyName: form.companyName.toUpperCase(),
+    contactName: form.contactName.toUpperCase(),
     email: form.email,
     mobileNumber: form.mobileNumber,
     aadhaarNumber: normalizeAadhaarNumber(form.aadhaarNumber),
-    addressLine1: form.addressLine1,
-    addressLine2: form.addressLine2,
-    townOrCity: form.townOrCity,
-    county: form.county,
+    addressLine1: form.addressLine1.toUpperCase(),
+    addressLine2: form.addressLine2.toUpperCase(),
+    townOrCity: form.townOrCity.toUpperCase(),
+    county: form.county.toUpperCase(),
     postcode: form.postcode,
-    pickupInstructions: form.pickupInstructions
+    pickupInstructions: form.pickupInstructions.toUpperCase()
   };
 }
 

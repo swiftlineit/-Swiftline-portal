@@ -3,6 +3,7 @@ import {
   consignorCountryCode,
   shipmentContentTypeValues,
   type IShipmentDraft,
+  type ShipmentKycDocumentType,
   type ShipmentParcel
 } from "../models/shipmentDraft.model.js";
 import { isValidAadhaarNumber } from "./aadhaarValidation.service.js";
@@ -90,10 +91,47 @@ function validateConsignorConsigneeAreDistinct(draft: IShipmentDraft): string[] 
   return issues;
 }
 
-// Only the Aadhaar number and Aadhaar card are mandatory; PAN and Other are
-// optional. When kycUseForAllParcels is false, every parcel must carry its own.
+const csbIvKycDocuments: readonly ShipmentKycDocumentType[] = ["pan", "aadhaar"];
+const csbVKycDocuments: readonly ShipmentKycDocumentType[] = [
+  "iec",
+  "gst",
+  "pan",
+  "aadhaar",
+  "salePurchaseAdCode",
+  "lut",
+  "declarationOfGoods",
+  "otherCertificates",
+  "hsnCode"
+];
+const kycDocumentNames: Record<ShipmentKycDocumentType, string> = {
+  aadhaar: "Aadhaar Card",
+  pan: "PAN Card",
+  iec: "IEC",
+  gst: "GST",
+  salePurchaseAdCode: "Sale / Purchase / AD Code",
+  lut: "LUT",
+  declarationOfGoods: "Declaration of Goods",
+  otherCertificates: "Other Certificates",
+  hsnCode: "HSN Code",
+  other: "Other Document"
+};
+
+// CSB-IV needs PAN and Aadhaar; CSB-V needs the complete customs checklist.
+// When kycUseForAllParcels is false, every parcel must carry its own set.
 function validateKycDocuments(draft: IShipmentDraft): string[] {
   const issues: string[] = [];
+  const requiredDocuments = draft.csbType === "CSB_V" ? csbVKycDocuments : csbIvKycDocuments;
+
+  function appendMissingDocuments(
+    documents: IShipmentDraft["kycDocuments"] | undefined,
+    scope?: string
+  ) {
+    for (const type of requiredDocuments) {
+      if (!documents?.[type]?.storedName) {
+        issues.push(`${scope ? `${scope}: upload` : "Upload"} ${kycDocumentNames[type]}`);
+      }
+    }
+  }
 
   if (draft.kycUseForAllParcels !== false) {
     const documents = draft.kycDocuments ?? {};
@@ -102,7 +140,7 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
     } else if (!isValidAadhaarNumber(draft.consignorAddress.aadhaarNumber)) {
       issues.push("Enter a valid 12 digit Aadhaar number");
     }
-    if (!documents.aadhaar?.storedName) issues.push("Upload the Aadhaar card");
+    appendMissingDocuments(documents);
     if (documents.other?.storedName && !hasText(documents.other.documentLabel)) {
       issues.push("Name the other KYC document before booking");
     }
@@ -117,7 +155,7 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
     } else if (!isValidAadhaarNumber(parcel.aadhaarNumber)) {
       issues.push(`${label}: enter a valid 12 digit Aadhaar number`);
     }
-    if (!documents.aadhaar?.storedName) issues.push(`${label}: upload the Aadhaar card`);
+    appendMissingDocuments(documents, label);
     if (documents.other?.storedName && !hasText(documents.other.documentLabel)) {
       issues.push(`${label}: name the other KYC document before booking`);
     }

@@ -5,7 +5,8 @@ import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 
 const privateUploadRoot = path.resolve(process.cwd(), "private_uploads", "staff");
-const allowedMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const allowedProfileImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const maxDocumentSizeBytes = 5 * 1024 * 1024;
 
 fs.mkdirSync(privateUploadRoot, { recursive: true });
@@ -26,11 +27,16 @@ const uploadStaffDocuments = multer({
   storage,
   limits: {
     fileSize: maxDocumentSizeBytes,
-    files: 3
+    files: 4
   },
   fileFilter: (_request, file, callback) => {
-    if (!allowedMimeTypes.has(file.mimetype)) {
-      callback(new Error("Only PDF, JPG, JPEG, and PNG files are supported"));
+    const allowed = file.fieldname === "profileImage"
+      ? allowedProfileImageMimeTypes
+      : allowedDocumentMimeTypes;
+    if (!allowed.has(file.mimetype)) {
+      callback(new Error(file.fieldname === "profileImage"
+        ? "Choose a JPG, PNG, or WebP profile image."
+        : "Only PDF, JPG, JPEG, and PNG files are supported"));
       return;
     }
 
@@ -39,7 +45,8 @@ const uploadStaffDocuments = multer({
 }).fields([
   { name: "aadhaar", maxCount: 1 },
   { name: "pan", maxCount: 1 },
-  { name: "other", maxCount: 1 }
+  { name: "other", maxCount: 1 },
+  { name: "profileImage", maxCount: 1 }
 ]);
 
 // Remove any files multer already persisted before the request was rejected, so
@@ -60,11 +67,13 @@ function resolveUploadErrorMessage(error: unknown): string {
   if (error instanceof multer.MulterError) {
     switch (error.code) {
       case "LIMIT_FILE_SIZE":
-        return "Each document must be 5 MB or smaller.";
+        return error.field === "profileImage"
+          ? "The profile image must be 3 MB or smaller."
+          : "Each document must be 5 MB or smaller.";
       case "LIMIT_FILE_COUNT":
         return "Too many documents were uploaded.";
       case "LIMIT_UNEXPECTED_FILE":
-        return "Unexpected upload field. Only Aadhaar, PAN, and one other document are accepted.";
+        return "Unexpected upload field. Upload only the profile image and supported staff documents.";
       default:
         return error.message || "Document upload failed.";
     }

@@ -4,6 +4,11 @@ import PDFDocument from "pdfkit";
 import type { ICancellationFeeInvoice } from "../models/cancellationFeeInvoice.model.js";
 import type { IShipmentCreditNote } from "../models/shipmentCreditNote.model.js";
 
+const pageLeft = 48;
+const pageRight = 547;
+const contentWidth = pageRight - pageLeft;
+const navy = "#0f2f5f";
+
 function money(minor: number) {
   return `INR ${(minor / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -16,84 +21,209 @@ function text(source: Record<string, unknown>, ...keys: string[]) {
   return "Not provided";
 }
 
+function optionalText(source: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function addHeader(document: PDFKit.PDFDocument, title: string, number: string, issuedAt: Date) {
-  const logoPath = path.resolve(process.cwd(), "assets", "swiftline-invoice-logo.jpeg");
-  if (fs.existsSync(logoPath)) document.image(logoPath, 48, 38, { fit: [190, 58] });
-  else document.fillColor("#173b72").font("Helvetica-Bold").fontSize(22).text("SWIFTLINE", 48, 45);
-  document.fillColor("#111827").fontSize(16).text(title, 330, 45, { width: 215, align: "right" });
-  document.font("Helvetica").fontSize(9).text(number, 330, 68, { width: 215, align: "right" });
-  document.text(issuedAt.toLocaleDateString("en-GB").replaceAll("/", "-"), 330, 83, { width: 215, align: "right" });
-  document.moveTo(48, 110).lineTo(547, 110).strokeColor("#173b72").lineWidth(1.2).stroke();
+  const logoPath = path.resolve(process.cwd(), "assets", "swiftline-invoice-logo.png");
+  if (fs.existsSync(logoPath)) document.image(logoPath, pageLeft, 25, { fit: [185, 100] });
+  else document.fillColor(navy).font("Helvetica-Bold").fontSize(22).text("SWIFTLINE", pageLeft, 48);
+
+  const numberLabel = title === "GST CREDIT NOTE" ? "Credit Note No" : "Invoice No";
+  document.fillColor("#0f172a").font("Helvetica-Bold").fontSize(18)
+    .text(title, 300, 40, { width: 247, align: "right" });
+  document.fontSize(8.5)
+    .text(`${numberLabel}: ${number}`, 300, 72, { width: 247, align: "right" });
+  document.font("Helvetica").text(
+    `Date: ${issuedAt.toLocaleDateString("en-GB").replaceAll("/", "-")}`,
+    300,
+    88,
+    { width: 247, align: "right" }
+  );
+  document.moveTo(pageLeft, 132).lineTo(pageRight, 132).strokeColor("#0f172a").lineWidth(1.5).stroke();
+  return 148;
+}
+
+type PartyLayout = {
+  name: string;
+  address: string;
+  gstin: string;
+  contact: string;
+  nameHeight: number;
+  addressHeight: number;
+  contactHeight: number;
+  height: number;
+};
+
+function measureParty(
+  document: PDFKit.PDFDocument,
+  party: Record<string, unknown>,
+  width: number,
+  isSupplier: boolean
+): PartyLayout {
+  const innerWidth = width - 24;
+  const name = isSupplier
+    ? text(party, "legalName", "branchName", "name")
+    : text(party, "companyName", "contactName", "name");
+  const address = isSupplier ? text(party, "address") : text(party, "billingAddress", "address");
+  const gstin = text(party, "gstin");
+  const email = optionalText(party, "email");
+  const phone = optionalText(party, "phone", "mobileNumber");
+  const contact = [email, phone].filter(Boolean).join(" | ");
+  const nameHeight = document.font("Helvetica-Bold").fontSize(10).heightOfString(name, { width: innerWidth });
+  const addressHeight = document.font("Helvetica").fontSize(8).heightOfString(address, { width: innerWidth, lineGap: 2 });
+  const contactHeight = contact
+    ? document.heightOfString(contact, { width: innerWidth, lineGap: 2 })
+    : 0;
+  const measuredHeight = 12 + 10 + 10 + nameHeight + 7 + addressHeight + 8 + 10
+    + (contactHeight ? 6 + contactHeight : 0) + 12;
+
+  return {
+    name,
+    address,
+    gstin,
+    contact,
+    nameHeight,
+    addressHeight,
+    contactHeight,
+    height: Math.max(116, measuredHeight)
+  };
+}
+
+function drawPartyCard(
+  document: PDFKit.PDFDocument,
+  title: string,
+  layout: PartyLayout,
+  x: number,
+  y: number,
+  width: number,
+  height: number
+) {
+  const innerX = x + 12;
+  const innerWidth = width - 24;
+  document.rect(x, y, width, height).lineWidth(0.8).strokeColor("#cbd5e1").stroke();
+  document.fillColor("#64748b").font("Helvetica-Bold").fontSize(8)
+    .text(title.toUpperCase(), innerX, y + 12, { width: innerWidth });
+
+  let cursor = y + 32;
+  document.fillColor("#0f172a").fontSize(10)
+    .text(layout.name, innerX, cursor, { width: innerWidth });
+  cursor += layout.nameHeight + 7;
+  document.font("Helvetica").fontSize(8)
+    .text(layout.address, innerX, cursor, { width: innerWidth, lineGap: 2 });
+  cursor += layout.addressHeight + 8;
+  document.font("Helvetica-Bold").text(`GSTIN: ${layout.gstin}`, innerX, cursor, { width: innerWidth });
+  cursor += 16;
+  if (layout.contact) {
+    document.fillColor("#64748b").font("Helvetica").text(layout.contact, innerX, cursor, {
+      width: innerWidth,
+      lineGap: 2
+    });
+  }
 }
 
 function addParties(
   document: PDFKit.PDFDocument,
   supplier: Record<string, unknown>,
-  customer: Record<string, unknown>
+  customer: Record<string, unknown>,
+  startY: number
 ) {
-  document.fillColor("#475569").font("Helvetica-Bold").fontSize(9).text("SUPPLIER", 48, 130);
-  document.fillColor("#111827").fontSize(11).text(text(supplier, "legalName", "branchName", "name"), 48, 148, { width: 220 });
-  document.font("Helvetica").fontSize(9).text(text(supplier, "address"), 48, 166, { width: 220, height: 30 });
-  document.text(`GSTIN: ${text(supplier, "gstin")}`, 48, 200, { width: 220 });
+  const gap = 12;
+  const width = (contentWidth - gap) / 2;
+  const supplierLayout = measureParty(document, supplier, width, true);
+  const customerLayout = measureParty(document, customer, width, false);
+  const height = Math.max(supplierLayout.height, customerLayout.height);
 
-  document.fillColor("#475569").font("Helvetica-Bold").text("CUSTOMER", 310, 130);
-  document.fillColor("#111827").fontSize(11).text(text(customer, "companyName", "contactName", "name"), 310, 148, { width: 237 });
-  document.font("Helvetica").fontSize(9).text(text(customer, "billingAddress", "address"), 310, 166, { width: 237, height: 30 });
-  document.text(`GSTIN: ${text(customer, "gstin")}`, 310, 200, { width: 237 });
-  document.moveTo(48, 230).lineTo(547, 230).strokeColor("#cbd5e1").lineWidth(0.8).stroke();
+  drawPartyCard(document, "Supplier / Shipper Branch", supplierLayout, pageLeft, startY, width, height);
+  drawPartyCard(document, "Bill To / Customer", customerLayout, pageLeft + width + gap, startY, width, height);
+  return startY + height;
 }
 
-function addAmounts(document: PDFKit.PDFDocument, rows: Array<[string, number]>, totalLabel: string, total: number, startY = 245) {
-  let y = startY + 25;
-  document.fillColor("#0f172a").font("Helvetica-Bold").fontSize(10)
-    .text("DESCRIPTION", 48, startY)
-    .text("AMOUNT", 390, startY, { width: 157, align: "right" });
-  for (const [label, amount] of rows) {
-    document.font("Helvetica").text(label, 48, y, { width: 330 });
-    document.text(money(amount), 390, y, { width: 157, align: "right" });
-    y += 25;
-  }
-  document.moveTo(310, y + 2).lineTo(547, y + 2).strokeColor("#94a3b8").stroke();
-  document.font("Helvetica-Bold").fontSize(12).text(totalLabel, 310, y + 15);
-  document.text(money(total), 390, y + 15, { width: 157, align: "right" });
+function addAmounts(
+  document: PDFKit.PDFDocument,
+  rows: Array<[string, number]>,
+  totalLabel: string,
+  total: number,
+  startY: number
+) {
+  const amountX = 388;
+  const headerHeight = 24;
+  const rowHeight = 25;
+  const tableHeight = headerHeight + rows.length * rowHeight;
+
+  document.rect(pageLeft, startY, contentWidth, tableHeight).lineWidth(0.8).strokeColor("#94a3b8").stroke();
+  document.rect(pageLeft, startY, contentWidth, headerHeight).fill("#f1f5f9");
+  document.moveTo(amountX, startY).lineTo(amountX, startY + tableHeight).strokeColor("#94a3b8").stroke();
+  document.fillColor("#0f172a").font("Helvetica-Bold").fontSize(8)
+    .text("DESCRIPTION", pageLeft + 10, startY + 8, { width: amountX - pageLeft - 20 })
+    .text("AMOUNT", amountX + 8, startY + 8, { width: pageRight - amountX - 16, align: "right" });
+
+  rows.forEach(([label, amount], index) => {
+    const rowY = startY + headerHeight + index * rowHeight;
+    document.moveTo(pageLeft, rowY).lineTo(pageRight, rowY).strokeColor("#cbd5e1").lineWidth(0.6).stroke();
+    document.font("Helvetica").fontSize(9)
+      .text(label, pageLeft + 10, rowY + 8, { width: amountX - pageLeft - 20 })
+      .text(money(amount), amountX + 8, rowY + 8, { width: pageRight - amountX - 16, align: "right" });
+  });
+
+  const totalY = startY + tableHeight + 14;
+  document.moveTo(310, totalY).lineTo(pageRight, totalY).strokeColor("#64748b").lineWidth(1).stroke();
+  document.font("Helvetica-Bold").fontSize(12)
+    .text(totalLabel, 310, totalY + 13, { width: 110 })
+    .text(money(total), 420, totalY + 13, { width: pageRight - 420, align: "right" });
+  return totalY + 42;
 }
 
 function finish(document: PDFKit.PDFDocument) {
+  const bottomMargin = document.page.margins.bottom;
+  document.page.margins.bottom = 0;
   document.fillColor("#64748b").font("Helvetica").fontSize(8)
-    .text("This is a computer generated document from Swiftline Portal.", 48, 750, { width: 499, align: "center" });
+    .text("This is a computer generated document from Swiftline Portal.", pageLeft, 795, {
+      width: contentWidth,
+      align: "center",
+      lineBreak: false
+    });
+  document.page.margins.bottom = bottomMargin;
 }
 
 export function createShipmentCreditNotePdf(note: IShipmentCreditNote) {
-  const document = new PDFDocument({ size: "A4", margin: 48, info: { Title: note.creditNoteNumber } });
-  addHeader(document, "GST CREDIT NOTE", note.creditNoteNumber, note.issuedAt);
-  addParties(document, note.supplier, note.customer);
+  const document = new PDFDocument({ size: "A4", margin: pageLeft, info: { Title: note.creditNoteNumber } });
+  const headerBottom = addHeader(document, "GST CREDIT NOTE", note.creditNoteNumber, note.issuedAt);
+  const partiesBottom = addParties(document, note.supplier, note.customer, headerBottom);
   const shipment = note.shipment as Record<string, unknown>;
-  document.fillColor("#111827").font("Helvetica").fontSize(9)
-    .text(`Original invoice: ${note.originalInvoiceNumber} (Revision ${note.originalInvoiceRevision})`, 48, 242)
-    .text(`Shipment reference: ${text(shipment, "shipmentReference", "dpdShipmentId")}`, 48, 257);
-  addAmounts(document, [
+  const referenceY = partiesBottom + 16;
+  document.rect(pageLeft, referenceY, contentWidth, 43).lineWidth(0.8).strokeColor("#cbd5e1").stroke();
+  document.fillColor("#0f172a").font("Helvetica").fontSize(8.5)
+    .text(`Original invoice: ${note.originalInvoiceNumber} (Revision ${note.originalInvoiceRevision})`, pageLeft + 10, referenceY + 10, { width: contentWidth - 20 })
+    .text(`Shipment reference: ${text(shipment, "shipmentReference", "dpdShipmentId")}`, pageLeft + 10, referenceY + 25, { width: contentWidth - 20 });
+  const totalsBottom = addAmounts(document, [
     ["Taxable value reversed", note.taxableValueMinor],
     ["CGST reversed", note.cgstAmountMinor],
     ["SGST reversed", note.sgstAmountMinor],
     ["IGST reversed", note.igstAmountMinor]
-  ], "TOTAL CREDIT", note.totalAmountMinor, 285);
-  document.fontSize(9).font("Helvetica").text(`Reason: ${note.reason}`, 48, 455, { width: 499 });
+  ], "TOTAL CREDIT", note.totalAmountMinor, referenceY + 59);
+  document.fontSize(9).font("Helvetica").text(`Reason: ${note.reason}`, pageLeft, totalsBottom + 18, { width: contentWidth });
   finish(document);
   return document;
 }
 
 export function createCancellationFeeInvoicePdf(invoice: ICancellationFeeInvoice) {
-  const document = new PDFDocument({ size: "A4", margin: 48, info: { Title: invoice.invoiceNumber } });
-  addHeader(document, "TAX INVOICE", invoice.invoiceNumber, invoice.issuedAt);
-  addParties(document, invoice.supplier, invoice.customer);
-  addAmounts(document, [
+  const document = new PDFDocument({ size: "A4", margin: pageLeft, info: { Title: invoice.invoiceNumber } });
+  const headerBottom = addHeader(document, "TAX INVOICE", invoice.invoiceNumber, invoice.issuedAt);
+  const partiesBottom = addParties(document, invoice.supplier, invoice.customer, headerBottom);
+  const totalsBottom = addAmounts(document, [
     ["Shipment cancellation fee", invoice.taxableValueMinor],
     ["CGST", invoice.cgstAmountMinor],
     ["SGST", invoice.sgstAmountMinor],
     ["IGST", invoice.igstAmountMinor]
-  ], "TOTAL", invoice.totalAmountMinor);
-  document.fontSize(9).font("Helvetica").text(`Fee reason: ${invoice.feeReason}`, 48, 390, { width: 499 });
-  document.text(`Payment status: ${invoice.paymentStatus.replaceAll("_", " ")}`, 48, 410, { width: 499 });
+  ], "TOTAL", invoice.totalAmountMinor, partiesBottom + 24);
+  document.fontSize(9).font("Helvetica").text(`Fee reason: ${invoice.feeReason}`, pageLeft, totalsBottom + 18, { width: contentWidth });
+  document.text(`Payment status: ${invoice.paymentStatus.replaceAll("_", " ")}`, pageLeft, totalsBottom + 38, { width: contentWidth });
   finish(document);
   return document;
 }

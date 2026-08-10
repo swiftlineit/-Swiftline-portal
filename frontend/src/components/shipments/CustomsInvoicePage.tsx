@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import Image from "next/image";
 import { FiDownload, FiFileText } from "react-icons/fi";
 import {
   downloadCustomsInvoicePdf,
@@ -126,20 +127,24 @@ export default function CustomsInvoicePage({
       ) : null}
 
       <article className="invoice-sheet mx-auto max-w-[210mm] bg-white p-6 text-slate-950 shadow-sm print:max-w-none print:p-0 print:shadow-none">
-        <div className="border border-slate-950">
-          <p className="border-b border-slate-950 py-1 text-center text-xs font-bold">INVOICE</p>
-
-          <div className="grid grid-cols-2 border-b border-slate-950">
-            <p className="border-r border-slate-950 px-3 py-2 text-[11px] font-bold">
-              INVOICE NO. :{invoice.invoiceNumber} INVOICE DATE. :{formatDate(invoice.invoiceDate)}
-            </p>
-            <div className="px-3 py-2 text-[11px] font-bold">
-              <p>OTHER REFERENCE</p>
-              {invoice.otherReference ? <p>REFERENCE :{invoice.otherReference}</p> : null}
-              {invoice.aadhaarNumber ? <p>AADHAAR NUMBER :{invoice.aadhaarNumber}</p> : null}
-            </div>
+        <header className="mb-5 flex items-start justify-between gap-8 border-b-2 border-slate-950 pb-4">
+          <Image
+            src="/swiftline-invoice-logo.png"
+            alt="Swiftline Cargo and Express Logistics"
+            width={180}
+            height={120}
+            priority
+            className="h-[120px] w-[180px] shrink-0 object-contain object-left"
+          />
+          <div className="min-w-0 pt-3 text-right text-xs leading-5">
+            <h1 className="mb-3 text-2xl font-bold">INVOICE</h1>
+            <p><strong>Invoice No:</strong> {invoice.invoiceNumber}</p>
+            <p><strong>Date:</strong> {formatDate(invoice.invoiceDate)}</p>
+            {invoice.otherReference ? <p className="break-words"><strong>Reference:</strong> {invoice.otherReference}</p> : null}
+            {invoice.aadhaarNumber ? <p><strong>Aadhaar Number:</strong> {invoice.aadhaarNumber}</p> : null}
           </div>
-
+        </header>
+        <div className="border border-slate-950">
           <div className="grid grid-cols-2 border-b border-slate-950 text-[11px] font-bold">
             <p className="border-r border-slate-950 px-3 py-1">SHIPPER</p>
             <p className="px-3 py-1">CONSIGNEE</p>

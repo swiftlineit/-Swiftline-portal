@@ -11,10 +11,10 @@ export default function CreateBranchPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-      <div className="min-h-full bg-[#EEEDED]/60 -m-6 p-6 lg:-m-8 lg:p-8">
+      <div className="-m-6 min-h-full bg-slate-50 p-6 lg:-m-8 lg:p-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div className="border-l-4 border-[#F0DE36] pl-4">
-            <h1 className="text-2xl font-bold tracking-tight text-[#0D1282]">Create Branch</h1>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950">Create New Branch</h1>
             <p className="mt-1 text-sm text-slate-500">Create an active branch, or save an incomplete draft to finish later.</p>
           </div>
           <Link

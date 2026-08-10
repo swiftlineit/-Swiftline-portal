@@ -1,8 +1,9 @@
 "use client";
 
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { FiLogOut, FiUser } from "react-icons/fi";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import UnsavedChangesDialog from "@/components/UnsavedChangesDialog";
@@ -11,6 +12,7 @@ import { logout } from "@/lib/auth";
 import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
 import OperationsCalendarIcon from "@/components/OperationsCalendarIcon";
+import { loadProfileImageUrl } from "@/lib/profile";
 
 // Shared chrome for every authenticated dashboard page: sidebar, header, and
 // scrollable content area.
@@ -24,6 +26,36 @@ export default function DashboardShell({
   const router = useRouter();
   const pathname = usePathname();
   const contentScrollRef = useRef<HTMLDivElement>(null);
+  const [profileImageUrl, setProfileImageUrl] = useState("");
+  const initials = (user.name ?? "").trim().split(/\s+/).filter(Boolean);
+  const fallbackInitials = initials.length
+    ? `${initials[0][0] ?? ""}${initials.length > 1 ? initials[initials.length - 1][0] ?? "" : ""}`.toUpperCase()
+    : "";
+
+  useEffect(() => {
+    let objectUrl = "";
+    let active = true;
+
+    async function refreshProfileImage() {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = "";
+      try {
+        const url = await loadProfileImageUrl();
+        objectUrl = url;
+        if (active) setProfileImageUrl(url);
+      } catch {
+        if (active) setProfileImageUrl("");
+      }
+    }
+
+    void refreshProfileImage();
+    window.addEventListener("profile-image-updated", refreshProfileImage);
+    return () => {
+      active = false;
+      window.removeEventListener("profile-image-updated", refreshProfileImage);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, []);
 
   // The dashboard uses an inner scroll container. Reset it on route changes so
   // a previously scrolled detail screen cannot hide the next page's heading.
@@ -63,7 +95,13 @@ export default function DashboardShell({
                   aria-label="My Profile"
                   className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30"
                 >
-                  <FiUser aria-hidden="true" className="h-5 w-5" />
+                  {profileImageUrl ? (
+                    <Image src={profileImageUrl} alt={`${user.name || "User"} profile`} width={40} height={40} unoptimized className="h-full w-full rounded-full object-cover" />
+                  ) : fallbackInitials ? (
+                    <span className="text-xs font-bold tracking-wide">{fallbackInitials}</span>
+                  ) : (
+                    <FiUser aria-hidden="true" className="h-5 w-5" />
+                  )}
                 </Link>
 
                 <div

@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
-import { FiChevronDown, FiTrash2, FiUpload, FiX } from "react-icons/fi";
+import { FiChevronDown, FiExternalLink, FiFileText, FiInfo, FiUpload, FiX } from "react-icons/fi";
 import { AddressAutocompleteField } from "@/components/business-accounts/AddressAutocompleteField";
 import { BranchFileLink, BranchImage } from "@/components/branches/BranchFileView";
 import type { LookupAddress } from "@/lib/addressLookup";
 import {
   BranchDocument,
-  BranchDocumentType,
   BranchFormData,
   BranchPhoneNumber,
   BranchService,
@@ -68,8 +67,8 @@ const initialForm: BranchFormData = {
   openingDate: "",
   description: "",
   address: {
-    countryCode: "",
-    countryName: "",
+    countryCode: "IN",
+    countryName: "India",
     city: "",
     stateOrProvince: "",
     postalCode: "",
@@ -96,6 +95,10 @@ const initialForm: BranchFormData = {
   existingImages: [],
   existingDocuments: []
 };
+
+const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
+const branchImageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const branchDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
 
 function normalizeBranchCode(value: string) {
   return value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 20);
@@ -124,6 +127,16 @@ function validateForm(data: BranchFormData, level: ValidationLevel, codeExists: 
   if (!/^[A-Z0-9-]{3,20}$/.test(data.code)) errors.code = "Use 3-20 uppercase letters, numbers, or hyphens.";
   if (level === "ACTIVE" && !/^[A-Z]{3}$/.test(data.labelCode)) errors.labelCode = "Use exactly 3 uppercase letters, for example DEL.";
   if (codeExists) errors.code = "This branch code already exists.";
+
+  // Drafts may omit contact details, but anything entered must still match the
+  // API contract so a draft never fails with an avoidable server-side error.
+  if (data.contact.email.trim() && !isValidEmail(data.contact.email)) errors.email = "Enter a valid email address.";
+  if (data.contact.phone.trim() && !isValidPhone(data.contact.phone)) errors.phone = "Use international format, for example +919876543210.";
+  data.phoneNumbers.forEach((phoneNumber, index) => {
+    if (phoneNumber.number.trim() && !isValidPhone(phoneNumber.number)) {
+      errors[`phoneNumber${index}`] = "Enter a valid phone number with country code.";
+    }
+  });
 
   if (level === "DRAFT") return errors;
 
@@ -169,18 +182,48 @@ function RequiredMark() {
 const fieldClasses = "mt-2 block h-11 w-full rounded-xl border bg-white px-3.5 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2";
 const fieldToneClasses = (hasError?: string) => hasError
   ? "border-[#D71313] focus:border-[#D71313] focus:ring-[#D71313]/15"
-  : "border-[#EEEDED] focus:border-[#0D1282] focus:ring-[#F0DE36]/35";
+  : "border-slate-200 focus:border-[#0D1282] focus:ring-[#0D1282]/15";
+
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex align-middle">
+      <span
+        tabIndex={0}
+        aria-label={text}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-slate-400 outline-none transition hover:text-[#0D1282] focus-visible:ring-2 focus-visible:ring-[#0D1282]/20"
+      >
+        <FiInfo aria-hidden="true" className="h-3.5 w-3.5" />
+      </span>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-2 hidden w-64 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-normal leading-5 text-white shadow-lg group-hover:block group-focus-within:block"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
+function FieldLabel({ label, required, info }: { label: string; required?: boolean; info?: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+      <span>{label} {required ? <RequiredMark /> : null}</span>
+      {info ? <InfoTooltip text={info} /> : null}
+    </span>
+  );
+}
 
 function TextField({
   label,
   required,
   error,
   helper,
+  info,
   ...props
-}: React.InputHTMLAttributes<HTMLInputElement> & { label: string; required?: boolean; error?: string; helper?: string }) {
+}: React.InputHTMLAttributes<HTMLInputElement> & { label: string; required?: boolean; error?: string; helper?: string; info?: string }) {
   return (
-    <label className="block text-sm font-semibold text-slate-700">
-      {label} {required ? <RequiredMark /> : null}
+    <label className="block">
+      <FieldLabel label={label} required={required} info={info} />
       <input
         {...props}
         aria-required={required || undefined}
@@ -209,8 +252,8 @@ function TextAreaField({
   maxLength?: number;
 }) {
   return (
-    <label className="block text-sm font-semibold text-slate-700">
-      {label} {required ? <RequiredMark /> : null}
+    <label className="block">
+      <FieldLabel label={label} required={required} />
       <textarea
         value={value}
         maxLength={maxLength}
@@ -222,13 +265,52 @@ function TextAreaField({
   );
 }
 
-function SearchSelect({
+function PhoneField({
+  label,
+  required,
+  value,
+  error,
+  onBlur,
+  onChange
+}: {
+  label: string;
+  required?: boolean;
+  value: string;
+  error?: string;
+  onBlur?: () => void;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <FieldLabel label={label} required={required} />
+      <input
+        type="tel"
+        inputMode="tel"
+        autoComplete="tel"
+        value={value || "+91"}
+        onChange={(event) => {
+          const next = event.target.value.replace(/[^+0-9]/g, "");
+          onChange(next === "+91" ? "" : next);
+        }}
+        onBlur={onBlur}
+        aria-required={required || undefined}
+        aria-invalid={error ? true : undefined}
+        placeholder="+919876543210"
+        className={`${fieldClasses} ${fieldToneClasses(error)}`}
+      />
+      <FieldError message={error} />
+    </label>
+  );
+}
+
+function NativeSelect({
   label,
   required,
   value,
   options,
   placeholder,
   error,
+  info,
   onChange
 }: {
   label: string;
@@ -237,271 +319,144 @@ function SearchSelect({
   options: { value: string; label: string; helper?: string }[];
   placeholder: string;
   error?: string;
+  info?: string;
   onChange: (value: string) => void;
 }) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const listboxId = useId();
-  const filteredOptions = options.filter((option) =>
-    `${option.label} ${option.value}`.toLowerCase().includes(query.toLowerCase())
-  );
-  const selectedLabel = options.find((option) => option.value === value)?.label ?? "";
-  const displayValue = open ? query : selectedLabel;
-
-  function selectOption(option: { value: string }) {
-    onChange(option.value);
-    setQuery("");
-    setOpen(false);
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Escape") {
-      setOpen(false);
-      return;
-    }
-
-    if (!open) {
-      if (["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
-        event.preventDefault();
-        setOpen(true);
-        setHighlightedIndex(0);
-      }
-      return;
-    }
-
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlightedIndex((current) => Math.min(current + 1, filteredOptions.length - 1));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlightedIndex((current) => Math.max(current - 1, 0));
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      setHighlightedIndex(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      setHighlightedIndex(Math.max(filteredOptions.length - 1, 0));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const option = filteredOptions[highlightedIndex];
-      if (option) selectOption(option);
-    }
-  }
-
   return (
-    <label className="block text-sm font-semibold text-slate-700">
-      {label} {required ? <RequiredMark /> : null}
-      <div className="relative mt-2">
-        <input
-          value={displayValue}
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={listboxId}
-          aria-autocomplete="list"
-          aria-required={required || undefined}
+    <label className="block">
+      <FieldLabel label={label} required={required} info={info} />
+      <span className="relative mt-2 block">
+        <select
+          value={value}
+          required={required}
           aria-invalid={error ? true : undefined}
-          aria-activedescendant={open && filteredOptions[highlightedIndex] ? `${listboxId}-${highlightedIndex}` : undefined}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setHighlightedIndex(0);
-          }}
-          onFocus={() => {
-            setOpen(true);
-            setQuery("");
-            setHighlightedIndex(0);
-          }}
-          onClick={() => setOpen(true)}
-          onKeyDown={handleKeyDown}
-          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
-          placeholder={placeholder}
-          className={`block h-11 w-full rounded-xl border bg-white px-3.5 pr-10 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 ${fieldToneClasses(error)}`}
-        />
-        <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#0D1282]" />
-        {open ? (
-          <div
-            id={listboxId}
-            role="listbox"
-            className="absolute z-20 mt-1.5 max-h-56 w-full overflow-y-auto rounded-xl border border-[#EEEDED] bg-white p-1 shadow-xl"
-          >
-            {filteredOptions.length ? filteredOptions.map((option, index) => (
-              <button
-                type="button"
-                key={option.value}
-                id={`${listboxId}-${index}`}
-                role="option"
-                aria-selected={option.value === value}
-                onMouseEnter={() => setHighlightedIndex(index)}
-                onClick={() => selectOption(option)}
-                className={`block w-full rounded-lg px-3 py-2 text-left text-sm transition ${
-                  index === highlightedIndex ? "bg-[#F0DE36]/20 text-[#0D1282]" : "text-slate-700 hover:bg-[#EEEDED]/60"
-                }`}
-              >
-                <span className="font-semibold">{option.label}</span>
-                {option.helper ? <span className="ml-2 text-xs text-slate-500">{option.helper}</span> : null}
-              </button>
-            )) : (
-              <p className="px-3 py-2 text-sm text-slate-500">No options found.</p>
-            )}
-          </div>
-        ) : null}
-      </div>
+          onChange={(event) => onChange(event.target.value)}
+          className={`block h-11 w-full appearance-none rounded-xl border bg-white px-3.5 pr-12 text-sm text-slate-900 shadow-sm outline-none transition focus:ring-2 ${fieldToneClasses(error)}`}
+        >
+          <option value="" disabled>{placeholder}</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}{option.helper ? ` (${option.helper})` : ""}
+            </option>
+          ))}
+        </select>
+        <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+      </span>
       <FieldError message={error} />
     </label>
   );
 }
 
-function MultiSelect<T extends string>({
+function CheckboxGroup<T extends string>({
   label,
   required,
   values,
   options,
-  placeholder,
   error,
+  searchable = false,
+  info,
   onChange
 }: {
   label: string;
   required?: boolean;
   values: T[];
   options: { value: T; label: string }[];
-  placeholder: string;
   error?: string;
+  searchable?: boolean;
+  info?: string;
   onChange: (values: T[]) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const listboxId = useId();
-  const availableOptions = options.filter((option) => !values.includes(option.value));
-  const filteredOptions = availableOptions.filter((option) =>
-    `${option.label} ${option.value}`.toLowerCase().includes(query.toLowerCase())
+  const visibleOptions = options.filter((option) =>
+    `${option.label} ${option.value}`.toLowerCase().includes(query.trim().toLowerCase())
   );
 
-  function removeValue(value: T) {
-    onChange(values.filter((current) => current !== value));
-  }
-
-  function addValue(option: { value: T }) {
-    onChange([...values, option.value]);
-    setQuery("");
-    setOpen(false);
-    setHighlightedIndex(0);
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Escape") {
-      setOpen(false);
-      return;
-    }
-
-    // Backspace on an empty query removes the last chip, matching common token inputs.
-    if (event.key === "Backspace" && !query && values.length) {
-      event.preventDefault();
-      removeValue(values[values.length - 1]);
-      return;
-    }
-
-    if (!open) {
-      if (["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
-        event.preventDefault();
-        setOpen(true);
-        setHighlightedIndex(0);
-      }
-      return;
-    }
-
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlightedIndex((current) => Math.min(current + 1, filteredOptions.length - 1));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlightedIndex((current) => Math.max(current - 1, 0));
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      setHighlightedIndex(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      setHighlightedIndex(Math.max(filteredOptions.length - 1, 0));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const option = filteredOptions[highlightedIndex];
-      if (option) addValue(option);
-    }
-  }
-
   return (
-    <div>
-      <label className="block text-sm font-semibold text-slate-700">
-        {label} {required ? <RequiredMark /> : null}
-      </label>
-      {/* Clicking the chip area is a mouse convenience; all keyboard interaction
-          happens through the input below, which owns the combobox semantics. */}
-      <div
-        onClick={() => setOpen(true)}
-        className={`mt-2 rounded-xl border bg-white px-2.5 py-2 shadow-sm transition focus-within:ring-2 ${error ? "border-[#D71313] focus-within:border-[#D71313] focus-within:ring-[#D71313]/15" : "border-[#EEEDED] focus-within:border-[#0D1282] focus-within:ring-[#F0DE36]/35"}`}
-      >
-        <div className="flex min-h-7 flex-wrap gap-2">
-          {values.map((value) => (
-            <span key={value} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0D1282]/8 px-2.5 py-1 text-xs font-semibold text-[#0D1282]">
-              {options.find((option) => option.value === value)?.label ?? value}
-              <button type="button" onClick={() => removeValue(value)} aria-label={`Remove ${value}`}>
-                <FiX className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-          {values.length > 1 ? (
-            <button
-              type="button"
-              onClick={() => onChange([])}
-              className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-100"
-            >
-              <FiTrash2 className="h-3 w-3" /> Remove all
-            </button>
-          ) : null}
+    <fieldset>
+      <legend><FieldLabel label={label} required={required} info={info} /></legend>
+      <div className={`mt-2 rounded-xl border bg-white p-3 ${error ? "border-[#D71313]" : "border-slate-200"}`}>
+        {searchable ? (
           <input
+            type="search"
             value={query}
-            role="combobox"
-            aria-expanded={open}
-            aria-controls={listboxId}
-            aria-autocomplete="list"
-            aria-required={required || undefined}
-            aria-invalid={error ? true : undefined}
-            aria-activedescendant={open && filteredOptions[highlightedIndex] ? `${listboxId}-${highlightedIndex}` : undefined}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setHighlightedIndex(0);
-            }}
-            onFocus={() => setOpen(true)}
-            onKeyDown={handleKeyDown}
-            onBlur={() => window.setTimeout(() => setOpen(false), 120)}
-            placeholder={values.length ? "" : placeholder}
-            className="min-w-44 flex-1 border-0 bg-transparent px-1 text-sm outline-none placeholder:text-slate-400"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search countries"
+            className="mb-3 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
           />
-        </div>
-        {open ? (
-          <div id={listboxId} role="listbox" className="mt-2 max-h-48 overflow-y-auto border-t border-[#EEEDED] pt-2">
-            {filteredOptions.length ? filteredOptions.map((option, index) => (
-              <button
-                type="button"
+        ) : null}
+        <div className={`${searchable ? "max-h-56 overflow-y-auto pr-1" : ""} grid gap-2 sm:grid-cols-2`}>
+          {visibleOptions.map((option) => {
+            const checked = values.includes(option.value);
+            return (
+              <label
                 key={option.value}
-                id={`${listboxId}-${index}`}
-                role="option"
-                aria-selected={index === highlightedIndex}
-                onMouseEnter={() => setHighlightedIndex(index)}
-                onClick={() => addValue(option)}
-                className={`block w-full rounded-lg px-2.5 py-2 text-left text-sm transition ${
-                  index === highlightedIndex ? "bg-[#F0DE36]/20 text-[#0D1282]" : "text-slate-700 hover:bg-[#EEEDED]/60"
+                className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition ${
+                  checked
+                    ? "border-[#0D1282]/40 bg-[#0D1282]/5 font-semibold text-[#0D1282]"
+                    : "border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50"
                 }`}
               >
-                {option.label}
-              </button>
-            )) : (
-              <p className="px-2 py-2 text-sm text-slate-500">No options found.</p>
-            )}
-          </div>
-        ) : null}
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => onChange(event.target.checked
+                    ? [...values, option.value]
+                    : values.filter((current) => current !== option.value))}
+                  className="h-4 w-4 rounded border-slate-300 accent-[#0D1282]"
+                />
+                <span>{option.label}</span>
+              </label>
+            );
+          })}
+          {!visibleOptions.length ? <p className="py-3 text-sm text-slate-500">No countries found.</p> : null}
+        </div>
       </div>
       <FieldError message={error} />
+    </fieldset>
+  );
+}
+
+function LocalFileCard({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [previewUrl] = useState(() => URL.createObjectURL(file));
+  const isImage = file.type.startsWith("image/");
+
+  useEffect(() => {
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-slate-500">
+        {isImage && previewUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <FiFileText aria-hidden="true" className="h-6 w-6" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold text-slate-800">{file.name}</p>
+        <p className="mt-0.5 text-xs text-slate-500">{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <a
+          href={previewUrl || undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-disabled={!previewUrl || undefined}
+          className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-semibold text-[#0D1282] hover:bg-[#0D1282]/5 ${previewUrl ? "" : "pointer-events-none opacity-50"}`}
+        >
+          <FiExternalLink aria-hidden="true" className="h-3.5 w-3.5" /> Preview
+        </a>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remove ${file.name}`}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#D71313] hover:bg-red-50"
+        >
+          <FiX className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -516,10 +471,10 @@ function FormSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-[#EEEDED] bg-white p-6 shadow-sm">
-      <div className="border-l-4 border-[#F0DE36] pl-3.5">
-        <h2 className="text-base font-bold text-[#0D1282]">{title}</h2>
-        {description ? <p className="mt-0.5 text-sm text-slate-500">{description}</p> : null}
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="border-b border-slate-100 pb-4">
+        <h2 className="text-base font-bold text-slate-900">{title}</h2>
+        {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
       </div>
       <div className="mt-5">{children}</div>
     </section>
@@ -642,8 +597,11 @@ export default function BranchForm({
       address: fullAddress || form.address.address,
       city: address.city || form.address.city,
       stateOrProvince: address.state || form.address.stateOrProvince,
-      postalCode: address.postalCode || form.address.postalCode
+      postalCode: address.postalCode || form.address.postalCode,
+      countryCode: address.countryCode || form.address.countryCode,
+      countryName: address.countryName || form.address.countryName
     });
+    markTouched("country");
     markTouched("address");
     markTouched("city");
     markTouched("postalCode");
@@ -667,17 +625,34 @@ export default function BranchForm({
 
   function handleImageSelect(files: FileList | null) {
     if (!files) return;
-    const newFiles = Array.from(files);
-    const combined = [...imageFiles, ...newFiles].slice(0, 5);
-    setImageFiles(combined);
+    const selectedFiles = Array.from(files);
+    const invalidType = selectedFiles.find((file) => !branchImageTypes.has(file.type));
+    const oversized = selectedFiles.find((file) => file.size > MAX_UPLOAD_SIZE);
 
-    // Generate preview URLs for new images.
-    const newPreviews = newFiles.map((file) => URL.createObjectURL(file));
+    if (invalidType) {
+      toast.error(`${invalidType.name} is not a supported image. Use JPG, PNG, GIF, or WebP.`);
+      return;
+    }
+    if (oversized) {
+      toast.error(`${oversized.name} is larger than 5 MB.`);
+      return;
+    }
+
+    const availableSlots = Math.max(5 - existingImages.length - imageFiles.length, 0);
+    if (!availableSlots) {
+      toast.error("A branch can have a maximum of 5 images.");
+      return;
+    }
+
+    const newFiles = selectedFiles.slice(0, availableSlots);
+    const combined = [...imageFiles, ...newFiles];
+    setImageFiles(combined);
     setImagePreviews((prev) => {
-      // Revoke old previews to avoid memory leaks.
       prev.forEach((url) => URL.revokeObjectURL(url));
       return combined.map((file) => URL.createObjectURL(file));
     });
+    toast.success(`${newFiles.length} branch image${newFiles.length === 1 ? "" : "s"} selected successfully.`);
+    if (newFiles.length < selectedFiles.length) toast.error("Only 5 branch images can be uploaded.");
   }
 
   function removeImage(index: number) {
@@ -697,12 +672,26 @@ export default function BranchForm({
       });
       return;
     }
+
+    if (!branchDocumentTypes.has(file.type)) {
+      toast.error(`${file.name} is not supported. Use PDF, JPG, or PNG.`);
+      return;
+    }
+    if (file.size > MAX_UPLOAD_SIZE) {
+      toast.error(`${file.name} is larger than 5 MB.`);
+      return;
+    }
+
+    const isNewFile = type === "other"
+      ? documentFiles.other?.file !== file
+      : documentFiles[type] !== file;
     setDocumentFiles((prev) => {
       if (type === "other") {
         return { ...prev, other: { title: title ?? "", file } };
       }
       return { ...prev, [type]: file };
     });
+    if (isNewFile) toast.success(`${file.name} selected successfully.`);
   }
 
   /**
@@ -765,6 +754,7 @@ export default function BranchForm({
       try {
         if (imageFiles.length) {
           branch = (await uploadBranchImages(branch._id, imageFiles)).branch;
+          toast.success("Branch images uploaded successfully.");
         }
 
         // Each upload is a read-modify-write of the same documents array on the
@@ -772,12 +762,15 @@ export default function BranchForm({
         // and only the last one to save would survive.
         if (documentFiles.pan) {
           branch = (await uploadBranchDocument(branch._id, "PAN", "PAN Card", documentFiles.pan)).branch;
+          toast.success("PAN document uploaded successfully.");
         }
         if (documentFiles.gst) {
           branch = (await uploadBranchDocument(branch._id, "GST", "GST Certificate", documentFiles.gst)).branch;
+          toast.success("GST document uploaded successfully.");
         }
         if (documentFiles.other) {
           branch = (await uploadBranchDocument(branch._id, "OTHER", documentFiles.other.title, documentFiles.other.file)).branch;
+          toast.success("Additional document uploaded successfully.");
         }
       } catch (uploadError) {
         // Clear what was already persisted so a retry does not re-upload it, and
@@ -840,6 +833,7 @@ export default function BranchForm({
           <TextField
             label="Branch Code"
             required
+            info="Internal unique code used to identify this branch in the portal."
             value={form.code}
             disabled={identityLocked}
             helper={identityLocked ? "Locked: the branch has been activated." : undefined}
@@ -854,6 +848,7 @@ export default function BranchForm({
           <TextField
             label="Station Code"
             required
+            info="Exactly three letters used in shipment and tracking identifiers. It cannot change after activation."
             value={form.labelCode}
             disabled={identityLocked}
             helper={identityLocked ? "Locked: used by already-issued tracking numbers." : undefined}
@@ -881,15 +876,31 @@ export default function BranchForm({
         </div>
       </FormSection>
 
-      <FormSection title="Address and Contact" description="Required before this branch can be activated.">
+      <FormSection title="Address and Contact" description="Search for the branch address first, then review the details filled below.">
         <div className="grid gap-5 md:grid-cols-2">
-          <SearchSelect
+          <div className="md:col-span-2 [&_input:focus]:border-[#0D1282]! [&_input:focus]:ring-[#0D1282]/15!">
+            <AddressAutocompleteField
+              label="Search branch address"
+              required
+              value={form.address.address}
+              countryName={form.address.countryName}
+              onChange={(value) => {
+                markTouched("address");
+                updateAddress({ address: value });
+              }}
+              onBlur={() => markTouched("address")}
+              onAddressSelected={applyLookupToAddress}
+              error={visibleErrors.address}
+            />
+          </div>
+          <NativeSelect
             label="Country"
             required
             value={form.address.countryCode}
             options={countrySelectOptions}
-            placeholder="Search country"
+            placeholder="Select country"
             error={visibleErrors.country}
+            info="India is selected by default so address search works immediately. Change it before searching for a branch in another country."
             onChange={(value) => {
               markTouched("country");
               const country = countryOptions.find((option) => option.code === value);
@@ -924,39 +935,25 @@ export default function BranchForm({
           <TextField
             label="Email"
             required
+            type="email"
+            autoComplete="email"
             value={form.contact.email}
             onChange={(event) => {
-              markTouched("email");
               updateContact({ email: event.target.value });
             }}
+            onBlur={() => markTouched("email")}
             error={visibleErrors.email}
           />
-          <TextField
+          <PhoneField
             label="Phone"
             required
             value={form.contact.phone}
-            onChange={(event) => {
-              markTouched("phone");
-              updateContact({ phone: event.target.value });
+            onChange={(value) => {
+              updateContact({ phone: value });
             }}
+            onBlur={() => markTouched("phone")}
             error={visibleErrors.phone}
-            placeholder="+919876543210"
           />
-          <div className="md:col-span-2">
-            <AddressAutocompleteField
-              label="Full Address"
-              required
-              value={form.address.address}
-              countryName={form.address.countryName}
-              onChange={(value) => {
-                markTouched("address");
-                updateAddress({ address: value });
-              }}
-              onBlur={() => markTouched("address")}
-              onAddressSelected={applyLookupToAddress}
-              error={visibleErrors.address}
-            />
-          </div>
         </div>
       </FormSection>
 
@@ -984,48 +981,48 @@ export default function BranchForm({
 
       <FormSection title="Operations and Settings" description="Services, coverage, currency, and working days.">
         <div className="grid gap-5 md:grid-cols-2">
-          <MultiSelect<BranchService>
+          <CheckboxGroup<BranchService>
             label="Supported Services"
             required
             values={form.operations.supportedServices}
             options={branchServices.map((service) => ({ value: service, label: formatBranchLabel(service) }))}
-            placeholder="Search services"
             error={visibleErrors.supportedServices}
             onChange={(values) => {
               markTouched("supportedServices");
               updateOperations({ supportedServices: values });
             }}
           />
-          <MultiSelect<ShipmentCoverage>
+          <CheckboxGroup<ShipmentCoverage>
             label="Shipment Coverage"
             required
             values={form.operations.shipmentCoverage}
             options={shipmentCoverageTypes.map((coverage) => ({ value: coverage, label: formatBranchLabel(coverage) }))}
-            placeholder="Search coverage"
             error={visibleErrors.shipmentCoverage}
+            info="Choose whether this branch handles domestic shipments, international shipments, or both."
             onChange={(values) => {
               markTouched("shipmentCoverage");
               updateOperations({ shipmentCoverage: values });
             }}
           />
-          <MultiSelect<string>
+          <CheckboxGroup<string>
             label="Operating Countries"
             required={!isDomesticOnlyCoverage(form.operations.shipmentCoverage)}
             values={form.operations.operatingCountries}
             options={countryOptions.map((country) => ({ value: country.code, label: `${country.name} (${country.code})` }))}
-            placeholder="Search countries"
+            searchable
             error={visibleErrors.operatingCountries}
+            info="Required when the branch handles international shipments."
             onChange={(values) => {
               markTouched("operatingCountries");
               updateOperations({ operatingCountries: values });
             }}
           />
-          <SearchSelect
+          <NativeSelect
             label="Base Currency"
             required
             value={form.baseCurrency}
             options={currencySelectOptions}
-            placeholder="Search currency"
+            placeholder="Select currency"
             error={visibleErrors.baseCurrency}
             onChange={(value) => {
               markTouched("baseCurrency");
@@ -1079,11 +1076,10 @@ export default function BranchForm({
                 placeholder="e.g. Manager, Operations"
                 onChange={(event) => updatePhoneNumber(index, { label: event.target.value })}
               />
-              <TextField
+              <PhoneField
                 label={`Phone ${index + 1}`}
                 value={phone.number}
-                placeholder="+919876543210"
-                onChange={(event) => updatePhoneNumber(index, { number: event.target.value })}
+                onChange={(value) => updatePhoneNumber(index, { number: value })}
                 error={visibleErrors[`phoneNumber${index}` as FieldKey]}
               />
             </div>
@@ -1102,6 +1098,12 @@ export default function BranchForm({
                     alt={`Existing branch image ${index + 1}`}
                     className="h-32 w-full object-cover"
                   />
+                  <BranchFileLink
+                    storedPath={imagePath}
+                    className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-lg bg-white/95 px-2.5 py-1.5 text-xs font-semibold text-[#0D1282] shadow-sm hover:bg-white"
+                  >
+                    <FiExternalLink className="h-3.5 w-3.5" /> Preview
+                  </BranchFileLink>
                   <button
                     type="button"
                     disabled={deletingImages.has(index)}
@@ -1118,7 +1120,8 @@ export default function BranchForm({
                         setDeletingImages((prev) => { const next = new Set(prev); next.delete(index); return next; });
                       }
                     }}
-                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-[#D71313] opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100 disabled:opacity-50"
+                    aria-label={`Delete branch image ${index + 1}`}
+                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-[#D71313] shadow-sm transition hover:bg-white disabled:opacity-50"
                   >
                     <FiX className="h-4 w-4" />
                   </button>
@@ -1126,15 +1129,26 @@ export default function BranchForm({
               ))}
               {imagePreviews.map((preview, index) => (
                 <div key={index} className="group relative overflow-hidden rounded-xl border border-[#EEEDED] bg-[#EEEDED]/40">
+                  {/* Local object URLs cannot be handled by the Next image optimizer. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={preview}
                     alt={`Branch image ${index + 1}`}
                     className="h-32 w-full object-cover"
                   />
+                  <a
+                    href={preview}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-lg bg-white/95 px-2.5 py-1.5 text-xs font-semibold text-[#0D1282] shadow-sm hover:bg-white"
+                  >
+                    <FiExternalLink className="h-3.5 w-3.5" /> Preview
+                  </a>
                   <button
                     type="button"
                     onClick={() => removeImage(index)}
-                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-[#D71313] opacity-0 shadow-sm transition hover:bg-white group-hover:opacity-100"
+                    aria-label={`Remove selected branch image ${index + 1}`}
+                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-[#D71313] shadow-sm transition hover:bg-white"
                   >
                     <FiX className="h-4 w-4" />
                   </button>
@@ -1167,8 +1181,12 @@ export default function BranchForm({
               <div key={`existing-pan-${idx}`} className="rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
                 <p className="mb-3 text-sm font-semibold text-slate-700">PAN Card <span className="text-[#D71313]">*</span></p>
                 <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
-                  <div className="min-w-0 flex-1">
-                    <BranchFileLink storedPath={doc.filePath} className="block truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</BranchFileLink>
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500"><FiFileText className="h-5 w-5" /></span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-700">{doc.fileName}</p>
+                      <BranchFileLink storedPath={doc.filePath} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -1194,22 +1212,14 @@ export default function BranchForm({
               </div>
             );
           })}
+          {documentFiles.pan || !existingDocuments.some((document) => document.type === "PAN") ? (
           <div className="rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
             <p className="mb-3 text-sm font-semibold text-slate-700">
               PAN Card <span className="text-[#D71313]">*</span>
             </p>
             {documentFiles.pan ? (
-              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
-                <span className="truncate text-sm text-slate-700">{documentFiles.pan.name}</span>
-                <button
-                  type="button"
-                  onClick={() => handleDocumentSelect("pan", null)}
-                  className="text-[#D71313] hover:text-[#D71313]/70"
-                >
-                  <FiX className="h-4 w-4" />
-                </button>
-              </div>
-            ) : existingDocuments.some((d) => d.type === "PAN") ? null : (
+              <LocalFileCard key={`${documentFiles.pan.name}-${documentFiles.pan.lastModified}`} file={documentFiles.pan} onRemove={() => handleDocumentSelect("pan", null)} />
+            ) : (
               <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#EEEDED] px-4 py-6 text-sm text-slate-500 hover:border-[#0D1282]/30 hover:text-[#0D1282]">
                 <FiUpload className="h-4 w-4" /> Upload PAN (PDF, JPG, PNG)
                 <input
@@ -1224,6 +1234,7 @@ export default function BranchForm({
               </label>
             )}
           </div>
+          ) : null}
 
           {existingDocuments.filter((d) => d.type === "GST").map((doc, idx) => {
             const docIndex = existingDocuments.indexOf(doc);
@@ -1231,8 +1242,12 @@ export default function BranchForm({
               <div key={`existing-gst-${idx}`} className="rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
                 <p className="mb-3 text-sm font-semibold text-slate-700">GST Certificate <span className="text-[#D71313]">*</span></p>
                 <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
-                  <div className="min-w-0 flex-1">
-                    <BranchFileLink storedPath={doc.filePath} className="block truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</BranchFileLink>
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500"><FiFileText className="h-5 w-5" /></span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-700">{doc.fileName}</p>
+                      <BranchFileLink storedPath={doc.filePath} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -1258,22 +1273,14 @@ export default function BranchForm({
               </div>
             );
           })}
+          {documentFiles.gst || !existingDocuments.some((document) => document.type === "GST") ? (
           <div className="rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
             <p className="mb-3 text-sm font-semibold text-slate-700">
               GST Certificate <span className="text-[#D71313]">*</span>
             </p>
             {documentFiles.gst ? (
-              <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
-                <span className="truncate text-sm text-slate-700">{documentFiles.gst.name}</span>
-                <button
-                  type="button"
-                  onClick={() => handleDocumentSelect("gst", null)}
-                  className="text-[#D71313] hover:text-[#D71313]/70"
-                >
-                  <FiX className="h-4 w-4" />
-                </button>
-              </div>
-            ) : existingDocuments.some((d) => d.type === "GST") ? null : (
+              <LocalFileCard key={`${documentFiles.gst.name}-${documentFiles.gst.lastModified}`} file={documentFiles.gst} onRemove={() => handleDocumentSelect("gst", null)} />
+            ) : (
               <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#EEEDED] px-4 py-6 text-sm text-slate-500 hover:border-[#0D1282]/30 hover:text-[#0D1282]">
                 <FiUpload className="h-4 w-4" /> Upload GST (PDF, JPG, PNG)
                 <input
@@ -1288,15 +1295,20 @@ export default function BranchForm({
               </label>
             )}
           </div>
+          ) : null}
           {existingDocuments.filter((d) => d.type === "OTHER").map((doc, idx) => {
             const docIndex = existingDocuments.indexOf(doc);
             return (
               <div key={`existing-other-${idx}`} className="md:col-span-2 rounded-xl border border-[#EEEDED] bg-[#EEEDED]/20 p-4">
                 <p className="mb-3 text-sm font-semibold text-slate-700">Other Document (optional)</p>
                 <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-slate-700">{doc.title || doc.type}</p>
-                    <BranchFileLink storedPath={doc.filePath} className="block truncate text-sm font-medium text-[#0D1282] hover:underline">{doc.fileName}</BranchFileLink>
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500"><FiFileText className="h-5 w-5" /></span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-700">{doc.title || doc.type}</p>
+                      <p className="truncate text-xs text-slate-500">{doc.fileName}</p>
+                      <BranchFileLink storedPath={doc.filePath} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -1333,19 +1345,10 @@ export default function BranchForm({
                   handleDocumentSelect("other", file ?? null, event.target.value);
                 }}
                 placeholder="Document title"
-                className="h-11 rounded-xl border border-[#EEEDED] bg-white px-3.5 text-sm outline-none transition focus:ring-2 focus:border-[#0D1282] focus:ring-[#F0DE36]/35"
+                className="h-11 rounded-xl border border-slate-200 bg-white px-3.5 text-sm outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
               />
               {documentFiles.other?.file ? (
-                <div className="flex items-center justify-between rounded-lg bg-white px-3 py-2 shadow-sm">
-                  <span className="truncate text-sm text-slate-700">{documentFiles.other.file.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleDocumentSelect("other", null)}
-                    className="text-[#D71313] hover:text-[#D71313]/70"
-                  >
-                    <FiX className="h-4 w-4" />
-                  </button>
-                </div>
+                <LocalFileCard key={`${documentFiles.other.file.name}-${documentFiles.other.file.lastModified}`} file={documentFiles.other.file} onRemove={() => handleDocumentSelect("other", null)} />
               ) : (
                 <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[#EEEDED] px-4 py-3 text-sm text-slate-500 hover:border-[#0D1282]/30 hover:text-[#0D1282]">
                   <FiUpload className="h-4 w-4" /> Upload document (PDF, JPG, PNG)

@@ -43,7 +43,8 @@ const userDetailsSchema = z.object({
     name: z.string().trim().max(80).default(""),
     phone: z.string().trim().max(20)
       .refine((value) => !value || /^\+?\d{6,15}$/.test(value), "Enter a valid emergency contact number.")
-      .default("")
+      .default(""),
+    relationship: z.enum(["parent", "spouse", "sibling", "child", "guardian", "friend", "other"]).or(z.literal("")).default("")
   }).optional()
 });
 

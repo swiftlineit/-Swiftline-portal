@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { FiChevronRight } from "react-icons/fi";
+import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
 import { StatusPill } from "@/components/users/StaffFields";
+import UserAvatar from "@/components/users/UserAvatar";
 import { roleLabels, STAFF_DIRECTORY_AREA, type PortalRole } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { listUsers, updateUserStatus, type User, type UserStatus } from "@/lib/users";
@@ -49,7 +51,6 @@ export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-  const [error, setError] = useState("");
 
   // Login status is an admin action. HR reads the directory only, matching the
   // guard on PATCH /users/:id/status.
@@ -59,11 +60,10 @@ export default function UsersPage() {
     if (!user) return;
     async function loadUsers() {
       setLoadingUsers(true);
-      setError("");
       try {
         setUsers((await listUsers()).users);
       } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : "Unable to load users.");
+        toast.error(caughtError instanceof Error ? caughtError.message : "Unable to load users.");
       } finally {
         setLoadingUsers(false);
       }
@@ -73,12 +73,12 @@ export default function UsersPage() {
 
   async function handleStatusChange(userId: string, status: UserStatus) {
     setBusyUserId(userId);
-    setError("");
     try {
       const updated = await updateUserStatus(userId, status);
       setUsers((current) => current.map((item) => item._id === userId ? { ...item, ...updated.user } : item));
+      toast.success(`User status changed to ${status}.`);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to update user status.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to update user status.");
     } finally {
       setBusyUserId(null);
     }
@@ -102,10 +102,6 @@ export default function UsersPage() {
           + Add Staff
         </Link>
       </div>
-
-      {error ? (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>
-      ) : null}
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
         <table className="w-full min-w-3xl text-left text-sm">
@@ -132,8 +128,12 @@ export default function UsersPage() {
             ) : users.map((item) => (
               <tr key={item._id} className="border-b border-slate-100 align-middle last:border-b-0 hover:bg-slate-50/60">
                 <td className="px-5 py-4">
-                  <Link href={`/dashboard/users/${item._id}`} className="font-medium text-slate-900 transition hover:text-[#0D1282]">
-                    {item.name || "-"}
+                  <Link href={`/dashboard/users/${item._id}`} className="flex items-center gap-3 font-medium text-slate-900 transition hover:text-[#0D1282]">
+                    <UserAvatar userId={item._id} name={item.name} hasProfileImage={item.hasProfileImage} />
+                    <span className="min-w-0">
+                      <span className="block truncate">{item.name || "Unnamed user"}</span>
+                      <span className="mt-0.5 block truncate text-xs font-normal text-slate-500">{item.email}</span>
+                    </span>
                   </Link>
                 </td>
 
@@ -147,7 +147,6 @@ export default function UsersPage() {
 
                 <td className="px-5 py-4">
                   <div className="space-y-0.5 text-xs text-slate-600">
-                    <p className="break-all font-medium text-slate-900">{item.email}</p>
                     {item.staffProfile?.designation ? <p>{item.staffProfile.designation}</p> : null}
                     {item.phone ? <p>{item.phone}</p> : null}
                     {item.staffProfile?.employeeCode ? <p>Code: {item.staffProfile.employeeCode}</p> : null}

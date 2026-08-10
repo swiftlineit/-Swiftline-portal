@@ -57,52 +57,52 @@ const individualDraftSchema = z.object({
   customer: z.object({
     // Only the name is taken at the counter; the rest of the sender's details are
     // captured on the draft form itself and enforced before booking.
-    contactName: z.string().trim().min(1).max(120),
+    contactName: z.string().trim().toUpperCase().min(1).max(120),
     mobileCountryCode: z.string().trim().max(8).optional(),
     mobileNumber: z.string().trim().max(30).optional(),
     email: z.string().trim().max(160).optional(),
     aadhaarNumber: z.string().trim().max(20).optional(),
-    addressLine1: z.string().trim().max(120).optional(),
-    addressLine2: z.string().trim().max(120).optional(),
-    townOrCity: z.string().trim().max(80).optional(),
-    county: z.string().trim().max(80).optional(),
+    addressLine1: z.string().trim().toUpperCase().max(120).optional(),
+    addressLine2: z.string().trim().toUpperCase().max(120).optional(),
+    townOrCity: z.string().trim().toUpperCase().max(80).optional(),
+    county: z.string().trim().toUpperCase().max(80).optional(),
     postcode: z.string().trim().max(20).optional(),
-    pickupInstructions: z.string().trim().max(500).optional()
+    pickupInstructions: z.string().trim().toUpperCase().max(500).optional()
   })
 });
 
 const addressPatchSchema = z.object({
-  companyName: z.string().trim().max(120).optional(),
-  contactName: z.string().trim().max(120).optional(),
+  companyName: z.string().trim().toUpperCase().max(120).optional(),
+  contactName: z.string().trim().toUpperCase().max(120).optional(),
   email: z.string().trim().max(160).optional(),
   mobileCountryCode: z.string().trim().max(8).optional(),
   mobileNumber: z.string().trim().max(30).optional(),
   // Blank is accepted so an incomplete draft can be saved; a real two-letter code
   // is still required before booking, which validateShipmentDraftFields enforces.
   countryCode: z.string().trim().toUpperCase().length(2).or(z.literal("")).optional(),
-  countryName: z.string().trim().max(80).optional(),
+  countryName: z.string().trim().toUpperCase().max(80).optional(),
   postcode: z.string().trim().toUpperCase().max(20).optional(),
-  addressLine1: z.string().trim().max(120).optional(),
-  addressLine2: z.string().trim().max(120).optional(),
-  townOrCity: z.string().trim().max(80).optional(),
-  county: z.string().trim().max(80).optional(),
-  deliveryInstructions: z.string().trim().max(500).optional()
+  addressLine1: z.string().trim().toUpperCase().max(120).optional(),
+  addressLine2: z.string().trim().toUpperCase().max(120).optional(),
+  townOrCity: z.string().trim().toUpperCase().max(80).optional(),
+  county: z.string().trim().toUpperCase().max(80).optional(),
+  deliveryInstructions: z.string().trim().toUpperCase().max(500).optional()
 });
 
 // Country, country name, and dialling code are pinned by the model, so they are
 // intentionally absent here and cannot be overridden by a client.
 const consignorPatchSchema = z.object({
-  companyName: z.string().trim().max(120).optional(),
-  contactName: z.string().trim().max(120).optional(),
+  companyName: z.string().trim().toUpperCase().max(120).optional(),
+  contactName: z.string().trim().toUpperCase().max(120).optional(),
   email: z.string().trim().max(160).optional(),
   mobileNumber: z.string().trim().max(30).optional(),
   aadhaarNumber: z.string().trim().max(20).transform((value) => normalizeAadhaarNumber(value)).optional(),
   postcode: z.string().trim().toUpperCase().max(20).optional(),
-  addressLine1: z.string().trim().max(120).optional(),
-  addressLine2: z.string().trim().max(120).optional(),
-  townOrCity: z.string().trim().max(80).optional(),
-  county: z.string().trim().max(80).optional(),
-  pickupInstructions: z.string().trim().max(500).optional()
+  addressLine1: z.string().trim().toUpperCase().max(120).optional(),
+  addressLine2: z.string().trim().toUpperCase().max(120).optional(),
+  townOrCity: z.string().trim().toUpperCase().max(80).optional(),
+  county: z.string().trim().toUpperCase().max(80).optional(),
+  pickupInstructions: z.string().trim().toUpperCase().max(500).optional()
 });
 
 const parcelPatchSchema = z.object({
@@ -116,16 +116,16 @@ const parcelPatchSchema = z.object({
   // partially filled draft can still be saved; completeness is enforced by
   // validateShipmentDraftFields before booking.
   items: z.array(z.object({
-    description: z.string().trim().max(120),
+    description: z.string().trim().toUpperCase().max(120),
     // 4, 6, 8 or 10 digits; exact format is enforced by validateShipmentDraftFields.
     hsnCode: z.string().trim().max(10),
     unitType: z.string().trim().max(12).default(defaultParcelItemUnitType),
     quantity: z.coerce.number().min(0).max(1_000_000).default(0),
     unitRate: z.coerce.number().min(0).max(10_000_000).default(0)
   })).max(maxParcelItems).optional(),
-  contentsDescription: z.string().trim().max(120),
-  shipmentReference1: z.string().trim().max(120).optional(),
-  shipmentReference2: z.string().trim().max(120).optional(),
+  contentsDescription: z.string().trim().toUpperCase().max(120),
+  shipmentReference1: z.string().trim().toUpperCase().max(120).optional(),
+  shipmentReference2: z.string().trim().toUpperCase().max(120).optional(),
   // Per-parcel Aadhaar for shipments not sharing one KYC set. Uploaded files are
   // server-managed and preserved separately, never sent by the client.
   aadhaarNumber: z.string().trim().max(20).transform((value) => normalizeAadhaarNumber(value)).optional()
@@ -141,7 +141,7 @@ const draftPatchSchema = z.object({
   // Optional transit cover; drives the insurance premium on the estimate.
   insuranceOptIn: z.boolean().optional(),
   // Printed as the NOTE block on the customs (shipment) invoice.
-  declarationNote: z.string().trim().max(500).optional(),
+  declarationNote: z.string().trim().toUpperCase().max(500).optional(),
   serviceType: z.enum(shipmentServiceTypeValues).optional(),
   serviceCode: z.string().trim().max(40).optional()
 });

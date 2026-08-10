@@ -154,7 +154,7 @@ export function updateProfileDetails(input: {
   lastName: string;
   phone: string;
   address?: { line1: string; city: string; state: string; postalCode: string };
-  emergencyContact?: { name: string; phone: string };
+  emergencyContact?: { name: string; phone: string; relationship: string };
 }) {
   return request<{ success: true; message: string } & Profile>("/api/v1/profile", {
     method: "PATCH",

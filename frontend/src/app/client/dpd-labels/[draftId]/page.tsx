@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiMapPin, FiSave, FiSearch, FiTruck,FiPackage } from "react-icons/fi";
 import { FaRegWindowClose, FaWeight } from "react-icons/fa";
 import { toast } from "react-toastify";
@@ -91,6 +91,10 @@ import {
 import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 
+/** The booking-panel action currently running; the two booking values are the
+ *  provider each button books with. Null when the page is idle. */
+type PendingAction = "DPD" | "SWIFTLINE" | "DRAFT" | "ADDRESS" | null;
+const parcelRenderStyle = { contentVisibility: "auto", containIntrinsicSize: "auto 360px" } as const;
 type AddressForm = {
   countryCode: string;
   countryName: string;
@@ -358,10 +362,8 @@ export default function ClientDpdDraftReviewPage() {
   const [kycDocuments, setKycDocuments] = useState<ShipmentKycDocuments>({});
   const [parcelKyc, setParcelKyc] = useState<Record<number, ShipmentKycDocuments>>({});
   const [parcelForms, setParcelForms] = useState<ParcelForm[]>([createEmptyParcel(1)]);
+  const deferredPricingParcels = useDeferredValue(parcelForms);
   const [parcelCountInput, setParcelCountInput] = useState(String(parcelForms.length));
-  useEffect(() => {
-    setParcelCountInput(String(parcelForms.length));
-  }, [parcelForms.length]);
 
   // Customs route for the shipment. Drafts saved before CSB selection existed
   // read as CSB-IV, matching how the backend prices them.
@@ -379,7 +381,11 @@ export default function ClientDpdDraftReviewPage() {
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  // Which action is in flight, not merely whether one is. Every action button
+  // locks while any of them runs — booking is irreversible, so a second click
+  // anywhere must not land — but only the one that was clicked shows progress.
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const busy = pendingAction !== null;
   const [addressBusy, setAddressBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -450,7 +456,7 @@ export default function ClientDpdDraftReviewPage() {
     serviceType: contactForm.serviceType,
     csbType,
     insuranceOptIn,
-    parcels: parcelForms.map((parcel, index) => ({
+    parcels: deferredPricingParcels.map((parcel, index) => ({
       sequence: index + 1,
       weightKg: Number(parcel.weightKg) || 0,
       lengthCm: Number(parcel.lengthCm) || 0,
@@ -462,7 +468,7 @@ export default function ClientDpdDraftReviewPage() {
         unitRate: Number(item.unitRate) || 0
       }))
     }))
-  }), [addressForm.countryCode, addressForm.postcode, contactForm.serviceType, csbType, insuranceOptIn, parcelForms]);
+  }), [addressForm.countryCode, addressForm.postcode, contactForm.serviceType, csbType, deferredPricingParcels, insuranceOptIn]);
 
   const {
     estimate: costEstimate,
@@ -544,7 +550,9 @@ export default function ClientDpdDraftReviewPage() {
       if (parcel.kycDocuments) parcelKycBySequence[parcel.sequence] = parcel.kycDocuments;
     });
     setParcelKyc(parcelKycBySequence);
-    setParcelForms(normalizeParcels(nextDraft));
+    const nextParcels = normalizeParcels(nextDraft);
+    setParcelForms(nextParcels);
+    setParcelCountInput(String(nextParcels.length));
   }
 
   useEffect(() => {
@@ -599,7 +607,11 @@ export default function ClientDpdDraftReviewPage() {
 
   function handleContactChange(field: keyof ContactForm) {
     return (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-      setContactForm((current) => ({ ...current, [field]: event.target.value }));
+      const preserveCase = field === "email" || field === "serviceType" || field === "serviceCode";
+      setContactForm((current) => ({
+        ...current,
+        [field]: preserveCase ? event.target.value : event.target.value.toUpperCase()
+      }));
       setReviewIssues([]);
     };
   }
@@ -621,7 +633,7 @@ export default function ClientDpdDraftReviewPage() {
     return (event: ChangeEvent<HTMLInputElement>) => {
       setAddressForm((current) => ({
         ...current,
-        [field]: field === "postcode" ? event.target.value.toUpperCase() : event.target.value
+        [field]: event.target.value.toUpperCase()
       }));
       if (field === "postcode") setAddressQuery(event.target.value.toUpperCase());
       setManualAddressConfirmationRequired(false);
@@ -661,13 +673,13 @@ export default function ClientDpdDraftReviewPage() {
       setAddressForm((current) => ({
         countryCode: current.countryCode,
         countryName: current.countryName,
-        addressLine1: data.place.address.addressLine1 || current.addressLine1,
-        addressLine2: data.place.address.addressLine2 || current.addressLine2,
-        townOrCity: data.place.address.townOrCity || current.townOrCity,
-        county: data.place.address.county || current.county,
-        postcode: data.place.address.postcode || current.postcode
+        addressLine1: (data.place.address.addressLine1 || current.addressLine1).toUpperCase(),
+        addressLine2: (data.place.address.addressLine2 || current.addressLine2).toUpperCase(),
+        townOrCity: (data.place.address.townOrCity || current.townOrCity).toUpperCase(),
+        county: (data.place.address.county || current.county).toUpperCase(),
+        postcode: (data.place.address.postcode || current.postcode).toUpperCase()
       }));
-      setAddressQuery(data.place.address.postcode || prediction.mainText || prediction.text);
+      setAddressQuery((data.place.address.postcode || prediction.mainText || prediction.text).toUpperCase());
       setPredictions([]);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to select address.");
@@ -679,7 +691,7 @@ export default function ClientDpdDraftReviewPage() {
   function handleParcelChange(index: number, field: keyof Omit<ParcelForm, "sequence">) {
     return (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setParcelForms((current) => current.map((parcel, parcelIndex) => (
-        parcelIndex === index ? { ...parcel, [field]: event.target.value as ParcelForm[typeof field] } : parcel
+        parcelIndex === index ? { ...parcel, [field]: event.target.value.toUpperCase() as ParcelForm[typeof field] } : parcel
       )));
       setReviewIssues([]);
     };
@@ -752,7 +764,9 @@ export default function ClientDpdDraftReviewPage() {
       }
 
       const nextParcels = current.filter((_, parcelIndex) => parcelIndex !== index);
-      return nextParcels.map((parcel, parcelIndex) => ({ ...parcel, sequence: parcelIndex + 1 }));
+      const updated = nextParcels.map((parcel, parcelIndex) => ({ ...parcel, sequence: parcelIndex + 1 }));
+      setParcelCountInput(String(updated.length));
+      return updated;
     });
   }
 
@@ -850,7 +864,7 @@ export default function ClientDpdDraftReviewPage() {
       return false;
     }
 
-    setBusy(true);
+    setPendingAction("DRAFT");
     setError("");
     setNotice("");
     setReviewIssues([]);
@@ -864,7 +878,7 @@ export default function ClientDpdDraftReviewPage() {
       setError(caughtError instanceof Error ? caughtError.message : "Shipment changes could not be saved.");
       return false;
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   }
 
@@ -879,6 +893,7 @@ export default function ClientDpdDraftReviewPage() {
       ...getReviewIssues(addressForm, contactForm, parcelForms),
       ...getConsignorFormIssues(consignorForm, consigneeContactFrom(contactForm)),
       ...getKycIssues({
+        csbType,
         useForAll: kycUseForAll,
         sharedAadhaar: consignorForm.aadhaarNumber,
         sharedDocuments: kycDocuments,
@@ -909,7 +924,7 @@ export default function ClientDpdDraftReviewPage() {
       return;
     }
 
-    setBusy(true);
+    setPendingAction(bookingProvider);
     setError("");
     setNotice("");
     setReviewIssues([]);
@@ -949,7 +964,7 @@ export default function ClientDpdDraftReviewPage() {
       const message = caughtError instanceof Error ? caughtError.message : "Unable to create shipment.";
       toast.error(message);
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   }
 
@@ -972,7 +987,7 @@ export default function ClientDpdDraftReviewPage() {
   async function handleConfirmEnteredAddress() {
     if (!draft) return;
 
-    setBusy(true);
+    setPendingAction("ADDRESS");
     try {
       const data = await confirmClientAddress({
         shipmentDraftId: draft._id,
@@ -984,7 +999,7 @@ export default function ClientDpdDraftReviewPage() {
     } catch (caughtError) {
       toast.error(caughtError instanceof Error ? caughtError.message : "Address could not be confirmed.");
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   }
 
@@ -1032,7 +1047,7 @@ export default function ClientDpdDraftReviewPage() {
                       placeholder="Optional note printed on the shipment invoice"
                       tooltip="Printed on the shipment invoice sent with the goods"
                       value={declarationNote}
-                      onChange={(event) => { setDeclarationNote(event.target.value); setReviewIssues([]); }}
+                      onChange={(event) => { setDeclarationNote(event.target.value.toUpperCase()); setReviewIssues([]); }}
                       maxLength={500}
                     />
                   </div>
@@ -1041,6 +1056,7 @@ export default function ClientDpdDraftReviewPage() {
 
               <ConsignorKycSection
                 shipmentDraftId={draft._id}
+                csbType={csbType}
                 form={consignorForm}
                 onFormChange={(next) => { setConsignorForm(next); setReviewIssues([]); }}
                 fieldIssues={consignorFieldIssues}
@@ -1240,7 +1256,7 @@ export default function ClientDpdDraftReviewPage() {
                   </div>
 
                   {parcelForms.map((parcel, index) => (
-                    <div key={parcel.sequence} className="border border-slate-200">
+                    <div key={parcel.sequence} style={parcelRenderStyle} className="border border-slate-200">
                       <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
                         <span>Parcel {index + 1} of {parcelForms.length}</span>
                         <button
@@ -1299,7 +1315,7 @@ export default function ClientDpdDraftReviewPage() {
                   className="inline-flex h-10 w-full rounded-xl items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
-                  {busy ? "Processing..." : "Create Shipment"}
+                  {pendingAction === "DPD" ? "Processing..." : "Create Shipment"}
                 </button>
                 <button
                   type="button"
@@ -1308,7 +1324,7 @@ export default function ClientDpdDraftReviewPage() {
                   className="mt-2 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
                 >
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
-                  {busy ? "Processing..." : "Create Without DPD Label"}
+                  {pendingAction === "SWIFTLINE" ? "Processing..." : "Create Without DPD Label"}
                 </button>
                 {/* Sits with the booking actions rather than in its own bar: this
                     is where the customer already looks to finish the shipment, and
@@ -1320,7 +1336,7 @@ export default function ClientDpdDraftReviewPage() {
                   className="mt-2 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                 >
                   <FiSave aria-hidden="true" className="h-4 w-4" />
-                  {busy ? "Saving..." : "Save as Draft"}
+                  {pendingAction === "DRAFT" ? "Saving..." : "Save as Draft"}
                 </button>
                 {draftChanged ? (
                   <p className="mt-2 text-center text-xs font-semibold text-amber-700">Unsaved changes</p>

@@ -505,14 +505,9 @@ function formatRouteChargeSummary(routeCharge: CountryRouteCharge | undefined) {
     details.push(`Remote areas (${routeCharge.remoteAreaPostcodes.join(", ")})`);
   }
   if (routeCharge.handlingCharge > 0) details.push(`Handling ₹${routeCharge.handlingCharge.toFixed(2)}`);
-  if (routeCharge.insurancePercent > 0) {
-    const minimum = routeCharge.insuranceMinimum > 0
-      ? `, min ₹${routeCharge.insuranceMinimum.toFixed(2)}`
-      : "";
-    details.push(`Insurance ${routeCharge.insurancePercent}%${minimum}`);
-  } else if (routeCharge.insuranceMinimum > 0) {
-    details.push(`Insurance min ₹${routeCharge.insuranceMinimum.toFixed(2)}`);
-  }
+  // Insurance is omitted while cover is switched off portal-wide. A stored
+  // percentage is kept on the route but is never priced, so summarising it here
+  // would describe a charge no shipment can incur.
   if (routeCharge.discountPercent > 0) details.push(`Discount ${routeCharge.discountPercent}%`);
 
   return details.length ? details.join(" · ") : "—";

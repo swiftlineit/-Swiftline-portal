@@ -59,7 +59,7 @@ export default function AdminActivityCard({
       {dataLoading ? <RowsSkeleton rows={6} /> : null}
       {!dataLoading && overview?.activity.length ? (
         <ol className={`relative space-y-1 transition-opacity duration-200 ${dim}`}>
-          <span aria-hidden="true" className="absolute bottom-5 left-[28px] top-5 w-px bg-slate-200" />
+          <span aria-hidden="true" className="absolute bottom-5 left-7 top-5 w-px bg-slate-200" />
           {overview.activity.map((item) => {
             const Icon = activityIcons[item.kind];
             const row = (

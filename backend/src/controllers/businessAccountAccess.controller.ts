@@ -14,6 +14,7 @@ import {
 import { IUser, User } from "../models/user.model.js";
 import { sendClientInvitationEmail } from "../services/mail.service.js";
 import { normalizeUserPhone } from "../services/userIdentity.service.js";
+import { syncUserStatusWithMembership } from "../services/userStatusSync.service.js";
 
 const invitationLifetimeMs = 24 * 60 * 60 * 1000;
 
@@ -482,6 +483,11 @@ export async function updateBusinessAccountMemberStatus(request: Request, respon
     }
     throw error;
   }
+
+  // Access and login are two halves of one decision. Suspending or removing a
+  // member leaves them able to sign in but able to reach nothing, so the login is
+  // held with the access and released with it.
+  await syncUserStatusWithMembership(member.user, member.status);
 
   const populatedMember = await BusinessAccountMember.findById(member._id)
     .populate("user", "firstName lastName name email phone userStatus lastLogin")

@@ -61,6 +61,13 @@ const statusOptions = [
   { value: "disabled", label: "Disabled" }
 ];
 
+const relationshipOptions = [
+  { value: "parent", label: "Parent" }, { value: "spouse", label: "Spouse" },
+  { value: "sibling", label: "Sibling" }, { value: "child", label: "Child" },
+  { value: "guardian", label: "Guardian" }, { value: "friend", label: "Friend" },
+  { value: "other", label: "Other" }
+];
+
 const documentLabels: Record<StaffDocumentType, string> = {
   aadhaar: "Aadhaar",
   pan: "PAN",
@@ -85,7 +92,8 @@ const emptyForm = {
   addressState: "",
   addressPostalCode: "",
   emergencyContactName: "",
-  emergencyContactPhone: ""
+  emergencyContactPhone: "",
+  emergencyContactRelationship: ""
 };
 
 // The fields each section owns. Saving sends only these keys, so one section can
@@ -95,7 +103,7 @@ const sectionFields: Record<Section, Array<keyof typeof emptyForm>> = {
   personal: ["firstName", "lastName", "phone", "dateOfBirth"],
   employment: ["designation", "employeeCode", "dateOfJoining"],
   identity: ["panNumber"],
-  contact: ["addressLine1", "addressCity", "addressState", "addressPostalCode", "emergencyContactName", "emergencyContactPhone"]
+  contact: ["addressLine1", "addressCity", "addressState", "addressPostalCode", "emergencyContactName", "emergencyContactPhone", "emergencyContactRelationship"]
 };
 
 function toForm(staffUser: User) {
@@ -115,7 +123,8 @@ function toForm(staffUser: User) {
     addressState: staffUser.staffProfile?.address.state ?? "",
     addressPostalCode: staffUser.staffProfile?.address.postalCode ?? "",
     emergencyContactName: staffUser.staffProfile?.emergencyContact.name ?? "",
-    emergencyContactPhone: staffUser.staffProfile?.emergencyContact.phone ?? ""
+    emergencyContactPhone: staffUser.staffProfile?.emergencyContact.phone ?? "",
+    emergencyContactRelationship: staffUser.staffProfile?.emergencyContact.relationship ?? ""
   };
 }
 
@@ -465,6 +474,7 @@ export default function StaffDetail({
                   <InputField label="PIN code" value={form.addressPostalCode} onChange={(value) => setValue("addressPostalCode", value)} maxLength={6} />
                   <InputField label="Emergency contact name" value={form.emergencyContactName} onChange={(value) => setValue("emergencyContactName", value)} maxLength={80} />
                   <InputField label="Emergency contact phone" value={form.emergencyContactPhone} onChange={(value) => setValue("emergencyContactPhone", value)} maxLength={20} />
+                  <SelectField label="Relationship" value={form.emergencyContactRelationship} options={relationshipOptions} placeholder="Select relationship" onChange={(value) => setValue("emergencyContactRelationship", value)} />
                 </div>
               ) : (
                 <dl className={staffFieldGrid}>
@@ -474,6 +484,7 @@ export default function StaffDetail({
                   <ReadOnlyField label="PIN code" value={profile.address.postalCode} />
                   <ReadOnlyField label="Emergency contact" value={profile.emergencyContact.name} />
                   <ReadOnlyField label="Emergency phone" value={profile.emergencyContact.phone} />
+                  <ReadOnlyField label="Relationship" value={relationshipOptions.find((option) => option.value === profile.emergencyContact.relationship)?.label ?? profile.emergencyContact.relationship} />
                 </dl>
               )}
             </SectionCard>

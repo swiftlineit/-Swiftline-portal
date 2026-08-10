@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { listUsers, createUser, listUserBranchOptions, unlockUser, updateUserAccess, updateUserStatus } from "../controllers/user.controller.js";
-import { createStaffUser, getStaffUser, updateStaffUser, viewStaffDocument } from "../controllers/staff.controller.js";
+import { createStaffUser, getStaffUser, updateStaffUser, viewStaffDocument, viewStaffProfileImage } from "../controllers/staff.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { staffDocumentUpload } from "../middleware/staffDocumentUpload.middleware.js";
 import { listUserSessions, terminateUserSessions } from "../controllers/userSession.controller.js";
@@ -19,6 +19,7 @@ userRouter.get("/", listUsers);
 // Two static segments, so this cannot be captured by the "/:id" route below.
 userRouter.get("/branches/options", listUserBranchOptions);
 userRouter.post("/staff", staffDocumentUpload, createStaffUser);
+userRouter.get("/:id/profile-image", viewStaffProfileImage);
 userRouter.get("/:id/documents/:documentType", viewStaffDocument);
 userRouter.get("/:id", getStaffUser);
 userRouter.patch("/:id/staff", requireAdmin, staffDocumentUpload, updateStaffUser);

@@ -24,6 +24,13 @@ const documentLabelSchema = z.string().trim().min(2).max(80);
 export const kycDocumentLabels: Record<ShipmentKycDocumentType, string> = {
   aadhaar: "Aadhaar Card",
   pan: "PAN Card",
+  iec: "IEC",
+  gst: "GST",
+  salePurchaseAdCode: "Sale / Purchase / AD Code",
+  lut: "LUT",
+  declarationOfGoods: "Declaration of Goods",
+  otherCertificates: "Other Certificates",
+  hsnCode: "HSN Code",
   other: "Other Document"
 };
 
@@ -74,6 +81,13 @@ export function serializeKycDocuments(
   return {
     aadhaar: serializeKycDocument(source.aadhaar),
     pan: serializeKycDocument(source.pan),
+    iec: serializeKycDocument(source.iec),
+    gst: serializeKycDocument(source.gst),
+    salePurchaseAdCode: serializeKycDocument(source.salePurchaseAdCode),
+    lut: serializeKycDocument(source.lut),
+    declarationOfGoods: serializeKycDocument(source.declarationOfGoods),
+    otherCertificates: serializeKycDocument(source.otherCertificates),
+    hsnCode: serializeKycDocument(source.hsnCode),
     other: serializeKycDocument(source.other)
   };
 }

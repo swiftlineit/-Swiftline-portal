@@ -75,7 +75,9 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       Branch.findById(draft.branchId).select("name").lean().exec(),
       User.findById(input.bookedBy).select("name firstName lastName").lean().exec(),
       LabelDocument.find({ dpdShipmentId: dpdShipment._id, voidedAt: null })
-        .select("_id labelType parcelNumber")
+        .select("_id labelType parcelNumber providerMode format")
+        // labelType ascending puts DPD before SWIFTLINE, which is the order the
+        // attachments are wanted in — see the budget note below.
         .sort({ labelType: 1, parcelNumber: 1 })
         .lean()
         .exec()
@@ -95,20 +97,36 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       filename: `${shipmentInvoice.invoiceNumber.replaceAll("/", "-")}-Invoice.pdf`
     };
 
-    const labelAttachment = (label: { _id: mongoose.Types.ObjectId }): IEmailAttachmentRef => ({
-      kind: "LABEL_DOCUMENT",
-      refId: label._id,
-      revision: null,
-      filename: ""
-    });
+    const labelAttachment = (label: {
+      _id: mongoose.Types.ObjectId;
+      labelType: string;
+      parcelNumber: string;
+      providerMode: string;
+      format: string;
+    }): IEmailAttachmentRef => {
+      const name = label.labelType === "DPD" ? "DPD-Label" : "Swiftline-Internal-Label";
+      // Named the same way the portal marks it, so a simulated carrier label is
+      // never mistaken for one a depot will accept.
+      const prefix = label.labelType === "DPD" && label.providerMode === "SIMULATED" ? "TEST-NOT-FOR-CARRIAGE-" : "";
 
-    // The invoice leads both lists so that if the size budget runs out it is the
-    // labels that get dropped, never the document the client needs for accounts.
-    const clientAttachments = [
-      invoiceAttachment,
-      ...labels.filter((label) => label.labelType === "SWIFTLINE").map(labelAttachment)
-    ];
-    const staffAttachments = [invoiceAttachment, ...labels.map(labelAttachment)];
+      return {
+        kind: "LABEL_DOCUMENT",
+        refId: label._id,
+        revision: null,
+        filename: `${prefix}${name}-${label.parcelNumber}.${label.format.toLowerCase()}`
+      };
+    };
+
+    // Client and staff receive the same documents: the carrier label is what the
+    // parcel actually travels on, so withholding it from the client leaves them
+    // unable to hand over. The invoice leads the list so that if the size budget
+    // runs out it is labels that get dropped, never the document needed for
+    // accounts, and the DPD labels precede the internal ones for the same reason.
+    const attachments = [invoiceAttachment, ...labels.map(labelAttachment)];
+    // A booking made without a carrier label has no DPD label to send.
+    const dpdLabelIsTest = labels.some(
+      (label) => label.labelType === "DPD" && label.providerMode === "SIMULATED"
+    );
 
     const trackingNumber = payload.trackingNumber || String(draft._id);
     const idempotencyKey = `SHIPMENT_BOOKED:${String(dpdShipment._id)}`;
@@ -129,8 +147,8 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       },
       email: {
         templateKey: "SHIPMENT_BOOKED_CLIENT",
-        payload,
-        attachmentRefs: clientAttachments
+        payload: { ...payload, dpdLabelIsTest },
+        attachmentRefs: attachments
       }
     });
 
@@ -150,8 +168,8 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       },
       email: {
         templateKey: "SHIPMENT_BOOKED_STAFF",
-        payload,
-        attachmentRefs: staffAttachments
+        payload: { ...payload, dpdLabelIsTest },
+        attachmentRefs: attachments
       }
     });
   } catch (error) {

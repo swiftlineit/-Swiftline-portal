@@ -15,6 +15,11 @@ import type {
   ShipmentKycDocumentType,
   ShipmentKycDocuments
 } from "@/lib/dpdLabels";
+import {
+  requiredShipmentKycDocumentTypes,
+  shipmentKycDocumentLabels
+} from "@/lib/dpdLabels";
+import type { CsbType } from "@/lib/csbType";
 import type { ConsignorForm, ParcelKycState } from "@/lib/shipmentConsignor";
 
 type ConsignorFieldIssues = Partial<Record<keyof ConsignorForm, string>>;
@@ -32,13 +37,12 @@ export type ConsignorKycApi = {
   openParcelKycDocument: (shipmentDraftId: string, sequence: number, type: ShipmentKycDocumentType) => Promise<Blob>;
 };
 
-type SlotConfig = { type: ShipmentKycDocumentType; title: string; required: boolean; needsLabel: boolean };
-
-const kycSlots: SlotConfig[] = [
-  { type: "aadhaar", title: "Aadhaar Card", required: true, needsLabel: false },
-  { type: "pan", title: "PAN Card", required: false, needsLabel: false },
-  { type: "other", title: "Other", required: false, needsLabel: true }
-];
+type SlotConfig = {
+  type: ShipmentKycDocumentType;
+  title: string;
+  required: boolean;
+  needsLabel: boolean;
+};
 
 function openBlobInNewTab(blob: Blob) {
   const url = URL.createObjectURL(blob);
@@ -48,6 +52,7 @@ function openBlobInNewTab(blob: Blob) {
 
 export function ConsignorKycSection({
   shipmentDraftId,
+  csbType,
   form,
   onFormChange,
   fieldIssues,
@@ -64,6 +69,7 @@ export function ConsignorKycSection({
   api
 }: {
   shipmentDraftId: string;
+  csbType: CsbType;
   form: ConsignorForm;
   onFormChange: (next: ConsignorForm) => void;
   fieldIssues: ConsignorFieldIssues;
@@ -83,8 +89,28 @@ export function ConsignorKycSection({
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   const [addressBusy, setAddressBusy] = useState(false);
 
+  const kycSlots: SlotConfig[] = [
+    ...requiredShipmentKycDocumentTypes(csbType).map((type) => ({
+      type,
+      title: shipmentKycDocumentLabels[type],
+      required: true,
+      needsLabel: false
+    })),
+    // Always last and optional for both routes. Its typed label identifies what
+    // the additional document contains when it is viewed later.
+    {
+      type: "other",
+      title: "Other Document",
+      required: false,
+      needsLabel: true
+    }
+  ];
+
   function setField(field: keyof ConsignorForm) {
-    return (event: ChangeEvent<HTMLInputElement>) => onFormChange({ ...form, [field]: event.target.value });
+    return (event: ChangeEvent<HTMLInputElement>) => onFormChange({
+      ...form,
+      [field]: field === "email" ? event.target.value : event.target.value.toUpperCase()
+    });
   }
 
   async function handleAddressSearch() {
@@ -108,10 +134,10 @@ export function ConsignorKycSection({
       const data = await api.getConsignorPlaceAddress(prediction.placeId, shipmentDraftId);
       onFormChange({
         ...form,
-        addressLine1: data.place.address.addressLine1 || form.addressLine1,
-        addressLine2: data.place.address.addressLine2 || form.addressLine2,
-        townOrCity: data.place.address.townOrCity || form.townOrCity,
-        county: data.place.address.county || form.county,
+        addressLine1: (data.place.address.addressLine1 || form.addressLine1).toUpperCase(),
+        addressLine2: (data.place.address.addressLine2 || form.addressLine2).toUpperCase(),
+        townOrCity: (data.place.address.townOrCity || form.townOrCity).toUpperCase(),
+        county: (data.place.address.county || form.county).toUpperCase(),
         postcode: data.place.address.postcode || form.postcode
       });
       setPredictions([]);
@@ -159,7 +185,7 @@ export function ConsignorKycSection({
                 <ShipmentFieldLabel>Search Indian Address</ShipmentFieldLabel>
                 <input
                   value={addressQuery}
-                  onChange={(event) => setAddressQuery(event.target.value)}
+                  onChange={(event) => setAddressQuery(event.target.value.toUpperCase())}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -212,7 +238,7 @@ export function ConsignorKycSection({
               <ShipmentFieldLabel>Pickup Instructions</ShipmentFieldLabel>
               <textarea
                 value={form.pickupInstructions}
-                onChange={(event) => onFormChange({ ...form, pickupInstructions: event.target.value })}
+                onChange={(event) => onFormChange({ ...form, pickupInstructions: event.target.value.toUpperCase() })}
                 readOnly={readOnly}
                 rows={3}
                 className={`mt-2 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition focus:ring-2 ${readOnly ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500" : "border-slate-300 focus:border-blue-900 focus:ring-blue-100"}`}
@@ -222,14 +248,23 @@ export function ConsignorKycSection({
         </div>
       </section>
 
-<section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3">
-          <h2 className="text-sm font-semibold uppercase text-slate-500">KYC Documents</h2>
-          <p className="mt-1 text-xs text-slate-500">Aadhaar number and Aadhaar card are mandatory. PAN and Other are optional. PDF, JPG or PNG up to 5 MB.</p>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/70 px-4 py-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase text-slate-600">KYC Documents</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {csbType === "CSB_V"
+                ? "Complete all customs documents for CSB-V."
+                : "PAN and Aadhaar are required for CSB-IV."} PDF, JPG or PNG up to 5 MB.
+            </p>
+          </div>
+          <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-900">
+            {csbType === "CSB_V" ? "CSB-V · 9 REQUIRED" : "CSB-IV · 2 REQUIRED"}
+          </span>
         </div>
 
-        <div className="space-y-4 p-4">
-          <label className={`flex items-center gap-3 rounded-xl border p-3 ${kycUseForAll ? "border-blue-200 bg-blue-50/60" : "border-slate-200 bg-slate-50"}`}>
+        <div className="space-y-5 p-4 sm:p-5">
+          <label className={`flex items-center gap-3 rounded-xl border p-3.5 transition ${kycUseForAll ? "border-blue-300 bg-blue-50/70" : "border-slate-200 bg-slate-50"}`}>
             <input
               type="checkbox"
               checked={kycUseForAll}
@@ -241,26 +276,29 @@ export function ConsignorKycSection({
               <span className="block text-xs font-semibold text-slate-900">Use the same KYC for every parcel</span>
               <span className="mt-0.5 block text-xs text-slate-500">
                 {kycUseForAll
-                  ? "One Aadhaar number and document set applies to all parcels."
-                  : "Each parcel needs its own Aadhaar number and Aadhaar card below."}
+                  ? "One Aadhaar number and document set applies to every parcel."
+                  : "Each parcel needs its own Aadhaar number and complete document set below."}
               </span>
             </span>
           </label>
 
           {kycUseForAll ? (
-            <div className="grid gap-4 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
-              <ShipmentTextField
-                label="Aadhaar Number"
-                required
-                inputMode="numeric"
-                value={formatAadhaarNumber(form.aadhaarNumber)}
-                onChange={(event) => onFormChange({ ...form, aadhaarNumber: normalizeAadhaarNumber(event.target.value) })}
-                error={sharedAadhaarError}
-                revealError={submitAttempted}
-                readOnly={readOnly}
-                placeholder="1234 5678 9012"
-              />
+            <div className="space-y-4">
+              <div className="max-w-sm rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                <ShipmentTextField
+                  label="Aadhaar Number"
+                  required
+                  inputMode="numeric"
+                  value={formatAadhaarNumber(form.aadhaarNumber)}
+                  onChange={(event) => onFormChange({ ...form, aadhaarNumber: normalizeAadhaarNumber(event.target.value) })}
+                  error={sharedAadhaarError}
+                  revealError={submitAttempted}
+                  readOnly={readOnly}
+                  placeholder="1234 5678 9012"
+                />
+              </div>
               <KycSlotRow
+                slots={kycSlots}
                 documents={sharedKycDocuments}
                 submitAttempted={submitAttempted}
                 readOnly={readOnly}
@@ -285,7 +323,8 @@ export function ConsignorKycSection({
                     <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Parcel {index + 1}
                     </div>
-                    <div className="grid gap-3 p-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+                    <div className="space-y-4 p-3 sm:p-4">
+                      <div className="max-w-sm">
                       <ShipmentTextField
                         label="Aadhaar Number"
                         required
@@ -299,6 +338,7 @@ export function ConsignorKycSection({
                         readOnly={readOnly}
                         placeholder="1234 5678 9012"
                       />
+                      </div>
                       <div>
                         {!saved ? (
                           <p className="mb-2 flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
@@ -306,6 +346,7 @@ export function ConsignorKycSection({
                           </p>
                         ) : null}
                         <KycSlotRow
+                          slots={kycSlots}
                           documents={parcel.kycDocuments}
                           submitAttempted={submitAttempted}
                           readOnly={readOnly}
@@ -334,6 +375,7 @@ export function ConsignorKycSection({
 }
 
 function KycSlotRow({
+  slots,
   documents,
   submitAttempted,
   readOnly,
@@ -342,6 +384,7 @@ function KycSlotRow({
   onDelete,
   onOpen
 }: {
+  slots: SlotConfig[];
   documents: ShipmentKycDocuments | undefined;
   submitAttempted: boolean;
   readOnly: boolean;
@@ -351,8 +394,8 @@ function KycSlotRow({
   onOpen: (type: ShipmentKycDocumentType) => Promise<Blob>;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-3">
-      {kycSlots.map((slot) => (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {slots.map((slot) => (
         <KycSlot
           key={slot.type}
           slot={slot}
@@ -400,12 +443,12 @@ function KycSlot({
     event.target.value = "";
     if (!file) return;
     if (slot.needsLabel && !documentLabel.trim()) {
-      toast.info("Type what the document is before uploading it.");
+      toast.info("Type what the other document is before uploading it.");
       return;
     }
     setBusy(true);
     try {
-      await onUpload(file, slot.needsLabel ? documentLabel.trim() : undefined);
+      await onUpload(file, slot.needsLabel ? documentLabel.trim().toUpperCase() : undefined);
       setDocumentLabel("");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload failed.");
@@ -434,33 +477,34 @@ function KycSlot({
   }
 
   return (
-    <div className={`flex flex-col gap-2 rounded-lg border p-2.5 text-xs ${missing && submitAttempted ? "border-red-300 bg-red-50" : document ? "border-emerald-200 bg-emerald-50/50" : "border-slate-200 bg-slate-50"}`}>
-      <span className="relative flex items-center justify-center font-semibold uppercase text-slate-600">
-        <span className="truncate text-center">
+    <div className={`flex min-h-32 flex-col gap-3 rounded-xl border p-3.5 text-xs transition ${missing && submitAttempted ? "border-red-300 bg-red-50" : document ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-slate-50/70"}`}>
+      <span className="flex items-start justify-between gap-2 font-semibold uppercase tracking-wide text-slate-700">
+        <span>
           {slot.title}
           {slot.required ? <span className="ml-0.5 text-red-600">*</span> : null}
         </span>
-        {document ? <FiCheck aria-hidden="true" className="absolute right-0 h-3.5 w-3.5 shrink-0 text-emerald-600" /> : null}
+        {document ? <FiCheck aria-hidden="true" className="h-4 w-4 shrink-0 text-emerald-600" /> : null}
       </span>
 
       {slot.needsLabel && !document && !readOnly ? (
         <input
           value={documentLabel}
-          onChange={(event) => setDocumentLabel(event.target.value)}
+          onChange={(event) => setDocumentLabel(event.target.value.toUpperCase())}
           placeholder="Document name"
           disabled={disabled}
-          className="h-8 w-full rounded-lg border border-slate-300 px-2 text-xs outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-100 disabled:bg-slate-100"
+          maxLength={80}
+          className="h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-xs outline-none focus:border-blue-900 focus:ring-1 focus:ring-blue-100 disabled:bg-slate-100"
         />
       ) : null}
 
       {document ? (
-        <div className="flex flex-col mt-3 items-center justify-between gap-2">
+        <div className="flex flex-1 flex-col justify-between gap-3">
           <button type="button" onClick={handleOpen} className="flex min-w-0 items-center gap-1.5 text-left">
             <FiFileText aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-blue-900" />
             <span className="min-w-0 truncate font-medium text-blue-900 hover:underline">{document.documentLabel || document.originalName}</span>
           </button>
           {!readOnly ? (
-            <button type="button" onClick={handleRemove} disabled={busy} className="inline-flex shrink-0 items-center gap-1 font-semibold text-red-600 hover:text-red-700 disabled:opacity-50">
+            <button type="button" onClick={handleRemove} disabled={busy} className="inline-flex w-fit shrink-0 items-center gap-1 font-semibold text-red-600 hover:text-red-700 disabled:opacity-50">
               <FiTrash2 aria-hidden="true" className="h-3 w-3" />
               Remove
             </button>
@@ -474,7 +518,7 @@ function KycSlot({
               type="button"
               onClick={() => inputRef.current?.click()}
               disabled={busy || disabled || !labelReady}
-              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2 font-semibold text-slate-700 transition hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-auto inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2 font-semibold text-slate-700 transition hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <FiUploadCloud aria-hidden="true" className="h-3.5 w-3.5" />
               {busy ? "..." : "Upload"}

@@ -104,27 +104,33 @@ describe("shipment charge breakdown", () => {
     assert.equal(mainland.remoteAreaAmount, 0);
   });
 
-  test("insurance is charged only when the customer opted in", () => {
+  test("insurance is never charged while the product is switched off", () => {
     const charges = { insurancePercent: 2, insuranceMinimum: 100 };
 
     const declined = breakdown({ declaredGoodsValue: 50_000, charges });
     assert.equal(declined.insuranceApplied, false);
     assert.equal(declined.insuranceAmount, 0);
 
-    const accepted = breakdown({ declaredGoodsValue: 50_000, insuranceOptIn: true, charges });
-    assert.equal(accepted.insuranceApplied, true);
-    assert.equal(accepted.insuranceAmount, 1000);
+    // Opting in no longer buys cover. The flag is still accepted so stored
+    // drafts and snapshots that carry it keep pricing without error, but it can
+    // no longer put a premium on a new shipment.
+    const optedIn = breakdown({ declaredGoodsValue: 50_000, insuranceOptIn: true, charges });
+    assert.equal(optedIn.insuranceApplied, false);
+    assert.equal(optedIn.insuranceAmount, 0);
   });
 
-  test("the insurance minimum floors the premium on a low value shipment", () => {
+  test("a configured insurance minimum cannot reintroduce a premium", () => {
+    // The minimum used to floor the premium at 250 on a low-value shipment.
+    // With cover switched off, a configured minimum must not become a way for
+    // a charge to reappear on a route that still has the rates set.
     const result = breakdown({
       declaredGoodsValue: 1000,
       insuranceOptIn: true,
       charges: { insurancePercent: 2, insuranceMinimum: 250 }
     });
 
-    // 2% of 1000 is 20, below the 250 minimum.
-    assert.equal(result.insuranceAmount, 250);
+    assert.equal(result.insuranceAmount, 0);
+    assert.equal(result.insuranceApplied, false);
   });
 
   test("the discount comes off every charge, not off freight alone", () => {
@@ -182,6 +188,8 @@ describe("shipment charge breakdown", () => {
     }
   });
 
+  // Insurance is absent from this list because cover is switched off portal-wide.
+  // Restoring it means restoring the opt-in in shipmentPricing.service.ts.
   test("only the components that apply are listed, in a fixed order", () => {
     const result = breakdown({
       freightAmount: 1000,
@@ -205,7 +213,6 @@ describe("shipment charge breakdown", () => {
       "REMOTE_AREA",
       "CUSTOMS_CLEARANCE",
       "HANDLING",
-      "INSURANCE",
       "DISCOUNT",
       "GST"
     ]);

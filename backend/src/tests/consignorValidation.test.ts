@@ -36,6 +36,7 @@ function draftWith(overrides: {
   consignor?: Partial<IShipmentDraft["consignorAddress"]>;
   consignee?: Partial<IShipmentDraft["consigneeEnteredAddress"]>;
   kyc?: IShipmentDraft["kycDocuments"];
+  csbType?: IShipmentDraft["csbType"];
   useForAll?: boolean;
   parcels?: Array<Record<string, unknown>>;
 }) {
@@ -80,6 +81,7 @@ function draftWith(overrides: {
     consigneeEnteredAddress: consignee,
     kycUseForAllParcels: overrides.useForAll ?? true,
     kycDocuments: kyc,
+    csbType: overrides.csbType ?? "CSB_IV",
     parcelList,
     parcelCount: parcelList.length,
     addressValidationStatus: "VALIDATED"
@@ -99,10 +101,28 @@ describe("consignor draft validation", () => {
     assert.ok(issues.includes("Enter a valid 12 digit Aadhaar number"));
   });
 
-  test("requires the Aadhaar card but not PAN", () => {
+  test("requires PAN and Aadhaar for CSB-IV", () => {
     const issues = validateShipmentDraftFields(draftWith({ kyc: {} }));
-    assert.ok(issues.includes("Upload the Aadhaar card"));
-    assert.equal(issues.some((issue) => issue.toLowerCase().includes("pan")), false);
+    assert.ok(issues.includes("Upload Aadhaar Card"));
+    assert.ok(issues.includes("Upload PAN Card"));
+    assert.equal(issues.some((issue) => issue.includes("IEC")), false);
+  });
+
+  test("requires the complete customs document set for CSB-V", () => {
+    const issues = validateShipmentDraftFields(draftWith({ csbType: "CSB_V", kyc: {} }));
+    for (const documentName of [
+      "IEC",
+      "GST",
+      "PAN Card",
+      "Aadhaar Card",
+      "Sale / Purchase / AD Code",
+      "LUT",
+      "Declaration of Goods",
+      "Other Certificates",
+      "HSN Code"
+    ]) {
+      assert.ok(issues.includes(`Upload ${documentName}`));
+    }
   });
 
   test("requires per-parcel Aadhaar + card when KYC is not shared", () => {
@@ -110,11 +130,12 @@ describe("consignor draft validation", () => {
       useForAll: false,
       parcels: [
         { sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "A" },
-        { sequence: 2, weightKg: 6, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "B", aadhaarNumber: validAadhaar, kycDocuments: { aadhaar: { storedName: "p2.pdf" } } }
+        { sequence: 2, weightKg: 6, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "B", aadhaarNumber: validAadhaar, kycDocuments: { aadhaar: { storedName: "p2-aadhaar.pdf" }, pan: { storedName: "p2-pan.pdf" } } }
       ]
     }));
     assert.ok(issues.includes("Parcel 1: Aadhaar number is required"));
-    assert.ok(issues.includes("Parcel 1: upload the Aadhaar card"));
+    assert.ok(issues.includes("Parcel 1: upload Aadhaar Card"));
+    assert.ok(issues.includes("Parcel 1: upload PAN Card"));
     // Parcel 2 is KYC-complete. It still raises the HSN issue every legacy parcel
     // does (its contents predate per-item capture), so only KYC issues are excluded.
     assert.equal(

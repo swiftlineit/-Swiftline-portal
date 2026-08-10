@@ -19,6 +19,7 @@ import {
   FiFileText,
   FiGrid,
   FiHelpCircle,
+  FiShield,
   FiMapPin,
   FiPackage,
   FiSettings,
@@ -34,6 +35,7 @@ import {
   COUNTER_SALES_AREA,
   CREDIT_VIEW_AREA,
   FINANCE_AREA,
+  CLAIMS_AREA,
   OPERATIONS_AREA,
   SHIPMENT_VIEW_AREA,
   STAFF_DIRECTORY_AREA,
@@ -151,6 +153,14 @@ const staffNavigation: Array<
     href: "/dashboard/tickets",
     icon: FiHelpCircle,
     roles: withAdmin(OPERATIONS_AREA),
+  },
+  {
+    // Beside Help Desk, not inside it: enquiries and compensation are separate
+    // journeys, and finance and delivery reach claims but not tickets.
+    label: "Claims",
+    href: "/dashboard/claims",
+    icon: FiShield,
+    roles: withAdmin(CLAIMS_AREA),
   },
 ];
 

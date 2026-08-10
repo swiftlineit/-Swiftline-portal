@@ -196,10 +196,8 @@ function RouteChargesSection({ share }: { share: RateCardShare }) {
               <RouteChargeTerm label="Discount" value={`${charge.discountPercent}%`} />
               <RouteChargeTerm label="Remote area" value={formatRate(charge.remoteAreaCharge, share.currency)} />
               <RouteChargeTerm label="Handling" value={formatRate(charge.handlingCharge, share.currency)} />
-              <RouteChargeTerm
-                label="Insurance"
-                value={`${charge.insurancePercent}% (minimum ${formatRate(charge.insuranceMinimum, share.currency)})`}
-              />
+              {/* Insurance is switched off portal-wide and is never charged, so
+                  quoting a premium to a customer would be a rate we cannot honour. */}
             </dl>
             {charge.remoteAreaPostcodes.length ? (
               <p className="mt-3 border-t border-slate-200 pt-3 text-xs leading-5 text-slate-600">

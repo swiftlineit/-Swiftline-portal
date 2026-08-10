@@ -98,7 +98,10 @@ function getEmailFormatError(value: string): string | null {
 export default function Home() {
   const router = useRouter();
   const [tab, setTab] = useState<LoginTab>("email");
-  const [view, setView] = useState<AuthView>("otp-request");
+  // Password first: it is the cheapest path for us (no email per attempt) and
+  // the fastest for a returning user with a saved credential. OTP stays one
+  // click away for anyone who wants it.
+  const [view, setView] = useState<AuthView>("password");
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
   const [otp, setOtp] = useState("");
@@ -107,7 +110,14 @@ export default function Home() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [googleReady, setGoogleReady] = useState(false);
+  // Seeded from the global rather than left to `<Script onLoad>`: next/script
+  // caches loaded sources module-wide and returns early — without firing onLoad
+  // — on every later mount of the same src, so a client-side return to this page
+  // (sign-out, back navigation) left this false and the Google button missing
+  // until a hard refresh.
+  const [googleReady, setGoogleReady] = useState(
+    () => typeof window !== "undefined" && Boolean(window.google?.accounts?.id)
+  );
   // Read once, during the initial state, from whatever ended the previous
   // session — so the reason is on screen in the same paint the user lands on.
   // An unexplained bounce back to the login form reads as a bug.
@@ -130,6 +140,21 @@ export default function Home() {
       setLoading(false);
     }
   }, [router]);
+
+  // Backstop for the same problem: the script can also finish loading between
+  // this mount and an onLoad that never comes (a second <Script> for the same
+  // src elsewhere in the tree wins the cache). Polling stops on the first hit.
+  useEffect(() => {
+    if (googleReady || !GOOGLE_CLIENT_ID) return;
+
+    const poll = window.setInterval(() => {
+      if (!window.google?.accounts?.id) return;
+      window.clearInterval(poll);
+      setGoogleReady(true);
+    }, 150);
+
+    return () => window.clearInterval(poll);
+  }, [googleReady]);
 
   // Runs once the Google Identity Services script has loaded and rendered the button.
   useEffect(() => {
@@ -293,12 +318,16 @@ export default function Home() {
   };
 
   return (
+    // Mobile stays fluid and clips horizontal decoration; desktop keeps the
+    // original viewport-locked two-column experience from `lg` upward.
     // Locked to the viewport from `lg` up so the whole screen is visible without
     // scrolling. The card, not the page, is what gives way on a short laptop —
     // a frame that stays put beats either a clipped footer or a scrolling page.
-    <div className="flex min-h-screen flex-col bg-[#F6F8FC] text-slate-900 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+    <div className="flex min-h-dvh w-full max-w-full flex-col overflow-x-hidden bg-[#F6F8FC] text-slate-900 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+      {/* Mobile header intentionally shows only the essentials; the richer company
+          identity blocks progressively return as horizontal space becomes available. */}
       <header className="shrink-0 border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-350 items-center gap-5 px-5 py-3 sm:px-8 lg:py-2.5">
+        <div className="mx-auto flex w-full max-w-350 items-center gap-2.5 px-4 py-2.5 sm:gap-4 sm:px-6 md:px-8 lg:gap-5 lg:py-2.5">
           <Link href="/" className="shrink-0" aria-label="Swiftline Cargo and Express Logistics">
             <Image
               src="/slclogo1.png"
@@ -306,17 +335,17 @@ export default function Home() {
               width={1009}
               height={454}
               priority
-              className="h-20 w-25 sm:h-20"
+              className="h-11 w-auto object-contain sm:h-14 lg:h-20"
             />
           </Link>
 
-          <div className="hidden h-8 w-px bg-slate-200 md:block" />
-          <div className="mr-10 hidden min-w-0 flex-col gap-0.5 md:flex">
-            <p className="uppercase text-[#0D1282">swiftline cargo</p>
+          <div className="hidden h-8 w-px bg-slate-200 lg:block" />
+          <div className="mr-4 hidden min-w-0 flex-col gap-0.5 lg:flex xl:mr-10">
+            <p className="uppercase text-[#0D1282]">swiftline cargo</p>
             <p className="uppercase text-sm text-red-600">and express logistic pvt. ltd.</p>
           </div>
 
-          <div className="hidden min-w-0 md:flex  gap-4">
+          <div className="hidden min-w-0 gap-4 xl:flex">
             <div >
               <Image src="/ashokstambha.png" alt="Government Authorized" width={20} height={20} />
             </div>
@@ -330,29 +359,31 @@ export default function Home() {
 
           <Link
             href={SUPPORT_PHONE_HREF}
-            className="ml-auto flex shrink-0 items-center gap-1.5 mr-10 rounded-lg px-2 py-1 transition hover:bg-slate-50"
+            className="ml-auto flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 transition hover:bg-slate-50 sm:gap-1.5 sm:px-2 lg:mr-4 xl:mr-10"
           >
-            <span className="flex h-10  w-10 items-center justify-center rounded-lg ">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg sm:h-10 sm:w-10">
               <BsHeadset  size={25} aria-hidden="true" />
             </span>
-            <span className="hidden  sm:block">
+            <span className="hidden lg:block">
               <span className="block text-sm font-bold leading-tight text-[#0D1282]">{SUPPORT_PHONE}</span>
               <span className="block text-[11px] text-slate-500">{SUPPORT_EMAIL}</span>
             </span>
           </Link>
 
-          <Link href="https://www.swiftlinefreight.com" target="_blank" className="shrink-0 flex gap-2 text-blue-900 align-middle justify-center">
+          <Link href="https://www.swiftlinefreight.com" target="_blank" className="hidden shrink-0 items-center justify-center gap-2 text-blue-900 sm:flex">
           <LuSquareMousePointer className=" text-2xl text-black"/>
-          <span>  swiftlinefreight.com</span>
+          <span className="hidden xl:inline">swiftlinefreight.com</span>
           </Link>
         </div>
       </header>
 
-      <main className="mx-auto grid w-full max-w-350 min-w-0 flex-1 grid-cols-1  items-start gap-10 px-5 py-8 sm:px-8 sm:py-12 lg:min-h-0 lg:grid-cols-[1fr_minmax(400px,440px)] lg:items-center lg:gap-12  xl:gap-16">
+      {/* A compact single-column flow on phones prevents the login card and brand
+          panel from shrinking into a desktop-width canvas. */}
+      <main className="mx-auto grid w-full max-w-350 min-w-0 flex-1 grid-cols-1 items-start gap-5 px-4 py-5 sm:gap-8 sm:px-6 sm:py-8 md:px-8 lg:min-h-0 lg:grid-cols-[1fr_minmax(400px,440px)] lg:items-center lg:gap-12 lg:py-8 xl:gap-16">
         <LoginBrandPanel  />
 
-<section className="order-1 w-full min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-12px_rgba(13,18,130,0.18)] sm:p-6 lg:order-2 lg:max-h-full lg:overflow-y-auto lg:p-4.5 no-scrollbar overflow-hidden">
-          <h2 className="text-center text-xl font-bold tracking-tight text-slate-900 sm:text-[22px]">Welcome Back!</h2>
+<section className="no-scrollbar order-1 mx-auto w-full min-w-0 max-w-[520px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-12px_rgba(13,18,130,0.18)] sm:p-6 lg:order-2 lg:max-h-full lg:max-w-none lg:overflow-y-auto lg:p-4.5">
+          <h2 className="text-center text-[19px] font-bold tracking-tight text-slate-900 sm:text-[22px]">Welcome Back!</h2>
           <p className="mt-0.5 text-center text-[13px] text-slate-500">Sign in to your SLC Portal</p>
 
           {/* Tabs stay mounted in every view so the card never changes width. */}
@@ -365,7 +396,7 @@ export default function Home() {
               aria-controls="panel-signin"
               disabled={!MOBILE_LOGIN_ENABLED}
               onClick={() => setTab("mobile")}
-              className={`-mb-px flex items-center justify-center gap-1.5 border-b-2 pb-2.5 text-[13px] font-semibold transition ${
+              className={`-mb-px flex min-w-0 items-center justify-center gap-1 border-b-2 pb-2.5 text-[11px] font-semibold transition sm:gap-1.5 sm:text-[13px] ${
                 tab === "mobile"
                   ? "border-[#D81F26] text-[#0D1282]"
                   : "border-transparent text-slate-400 enabled:hover:text-slate-600"
@@ -373,7 +404,7 @@ export default function Home() {
             >
               Login with Mobile
               {!MOBILE_LOGIN_ENABLED ? (
-                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-slate-500">
+                <span className="hidden rounded-full bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-slate-500 min-[360px]:inline">
                   Soon
                 </span>
               ) : null}
@@ -385,7 +416,7 @@ export default function Home() {
               aria-selected={tab === "email"}
               aria-controls="panel-signin"
               onClick={() => setTab("email")}
-              className={`-mb-px border-b-2 pb-2.5 text-[13px] font-semibold transition ${
+              className={`-mb-px min-w-0 border-b-2 pb-2.5 text-[11px] font-semibold transition sm:text-[13px] ${
                 tab === "email"
                   ? "border-[#D81F26] text-[#0D1282]"
                   : "border-transparent text-slate-400 hover:text-slate-600"
@@ -656,22 +687,26 @@ export default function Home() {
             <button
               type="button"
               onClick={() => goToView("otp-request")}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282]/35 hover:bg-slate-50"
+              className="flex w-full items-center gap-2.5 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282]/35 hover:bg-slate-50"
             >
-              <FiArrowLeft size={15} className="text-slate-500" aria-hidden="true" />
-              Back to OTP sign-in
+              <FiMail size={15} className="text-slate-500" aria-hidden="true" />
+              Login with OTP
+              <span className="ml-auto text-slate-400" aria-hidden="true">
+                →
+              </span>
             </button>
           ) : (
             <button
               type="button"
-              onClick={() => goToView("password")}
-              className="flex w-full items-center gap-2.5 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282]/35 hover:bg-slate-50"
+              onClick={() => {
+                setCodeDeadlines(null);
+                setOtp("");
+                goToView("password");
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282]/35 hover:bg-slate-50"
             >
-              <FiLock size={15} className="text-slate-500" aria-hidden="true" />
-              Login with Password
-              <span className="ml-auto text-slate-400" aria-hidden="true">
-                →
-              </span>
+              <FiArrowLeft size={15} className="text-slate-500" aria-hidden="true" />
+              Back to password sign-in
             </button>
           )}
 
@@ -692,7 +727,7 @@ export default function Home() {
             .
           </p>
 
-          <ul className="mt-3 grid grid-cols-4 gap-1 border-t border-slate-100 pt-3">
+          <ul className="mt-3 grid grid-cols-2 gap-x-2 gap-y-3 border-t border-slate-100 pt-3 min-[420px]:grid-cols-4">
             {TRUST_SIGNALS.map(({ icon: Icon, label, sublabel }) => (
               <li key={label} className="text-center">
                 <Icon size={16} className="mx-auto text-[#0D1282]" aria-hidden="true" />
@@ -707,32 +742,59 @@ export default function Home() {
 
           {/* `hide-on-short-desktop` is defined in globals.css — see the note
               there on why this one rule is not a Tailwind utility. */}
-          <div className="hide-on-short-desktop mt-3 flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2">
-            <BsHeadset size={17} className="shrink-0 text-[#0D1282]" aria-hidden="true" />
-            <div className="min-w-0">
-              <p className="text-[12.5px] font-bold text-slate-800">Need Help?</p>
-              <p className="text-[10.5px] text-slate-500">Our support team is available 24/7</p>
-            </div>
-            <div className="ml-auto min-w-0 text-right">
-              <a
-                href={SUPPORT_PHONE_HREF}
-                className="block text-[12.5px] font-bold text-[#D81F26] hover:underline"
-              >
-                {SUPPORT_PHONE}
-              </a>
-              <a
-                href={`mailto:${SUPPORT_EMAIL}`}
-                className="block truncate text-[10.5px] text-slate-500 hover:text-[#0D1282] hover:underline"
-              >
-                {SUPPORT_EMAIL}
-              </a>
-            </div>
-          </div>
+          <div className="hide-on-short-desktop mt-3 rounded-xl bg-slate-50/80 px-3.5 py-3">
+  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-w-0">
+      <p className="text-[12.5px] font-bold text-slate-800">
+        Need Help?
+      </p>
+
+      <p className="mt-0.5 text-[10.5px] leading-4 text-slate-500">
+        Our support team is available 24/7
+      </p>
+    </div>
+
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[10.5px] sm:justify-end">
+      <Link
+        href={SUPPORT_PHONE_HREF}
+        className="font-bold text-[#D81F26] transition hover:underline"
+      >
+        {SUPPORT_PHONE}
+      </Link>
+
+      <span
+        aria-hidden="true"
+        className="hidden h-3 w-px bg-slate-300 sm:block"
+      />
+
+      <Link
+        href={`mailto:${SUPPORT_EMAIL}`}
+        className="max-w-full truncate text-slate-500 transition hover:text-[#0D1282] hover:underline"
+      >
+        {SUPPORT_EMAIL}
+      </Link>
+
+      <span
+        aria-hidden="true"
+        className="hidden h-3 w-px bg-slate-300 sm:block"
+      />
+
+      <Link
+        href="https://www.swiftlinefreight.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-slate-500 transition hover:text-[#0D1282] hover:underline"
+      >
+        swiftlinefreight.com
+      </Link>
+    </div>
+  </div>
+</div>
         </section>
       </main>
 
       <footer className="shrink-0 bg-[#0D1282] text-white">
-        <div className="mx-auto flex w-full max-w-350 flex-col gap-2.5 px-5 py-3.5 text-center sm:px-8 md:flex-row md:items-center md:justify-between md:text-left">
+        <div className="mx-auto flex w-full max-w-350 flex-col gap-2.5 px-4 py-3.5 text-center sm:px-6 md:flex-row md:items-center md:justify-between md:px-8 md:text-left">
           <div className="flex items-center justify-center gap-2.5 md:justify-start">
             
             <div>

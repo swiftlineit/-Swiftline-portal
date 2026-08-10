@@ -12,6 +12,7 @@ import { appendCreditLedgerEntry, ensureCreditAccount, getCreditActivationBlocke
 import { getCreditRestrictionState } from "../services/creditOverdue.service.js";
 import { formatMinorRupees } from "../services/prepaid/dailyTopUpLimit.service.js";
 import { notifyBusinessFinancialMembers } from "../services/portalNotification.service.js";
+import { operationsBranchIds } from "../middleware/operationsBranchAccess.middleware.js";
 
 const creditClientHref = "/client/credit#credit-summary";
 
@@ -84,7 +85,20 @@ export async function listAdminCreditAccounts(request: Request, response: Respon
 
   // The individual-shipment sentinel is approved but is not a customer: it must
   // never be offered a credit account.
-  const businesses = await BusinessAccount.find(excludeSentinel({ status: { $in: ["approved", "active"] } }))
+  const assignedBranchIds = operationsBranchIds(request);
+  const branchScope = assignedBranchIds === null
+    ? {}
+    : {
+        assignedBranch: {
+          $in: assignedBranchIds
+            .filter((branchId) => mongoose.Types.ObjectId.isValid(branchId))
+            .map((branchId) => new mongoose.Types.ObjectId(branchId))
+        }
+      };
+  const businesses = await BusinessAccount.find(excludeSentinel({
+    status: { $in: ["approved", "active"] },
+    ...branchScope
+  }))
     .select("accountId status company.companyName kycReview.overallStatus agreementStatus depositStatus")
     .sort({ updatedAt: -1 }).lean().exec();
   const creditAccounts = await BusinessCreditAccount.find({ businessAccountId: { $in: businesses.map((account) => account._id) } }).exec();

@@ -183,9 +183,9 @@ export function formatCount(value: number) {
 export function formatCompactMoney(amountMinor: number, currency = "INR") {
   const amount = amountMinor / 100;
   const symbol = currency === "INR" ? "₹" : `${currency} `;
-  if (Math.abs(amount) < 100_000) return `${symbol}${grouped.format(Math.round(amount))}`;
-  if (Math.abs(amount) < 10_000_000) return `${symbol}${(amount / 100_000).toFixed(1)}L`;
-  return `${symbol}${(amount / 10_000_000).toFixed(2)}Cr`;
+  if (Math.abs(amount) < 10_000_000) return `${symbol}${grouped.format(Math.round(amount))}`;
+  const crores = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1 }).format(amount / 10_000_000);
+  return `${symbol}${crores} Cr`;
 }
 
 export function titleCase(value: string) {

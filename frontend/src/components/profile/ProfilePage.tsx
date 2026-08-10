@@ -292,6 +292,12 @@ function EditActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }
 }
 
 const grid = "grid gap-5 sm:grid-cols-2 lg:grid-cols-3";
+const emergencyRelationshipOptions = [
+  { value: "parent", label: "Parent" }, { value: "spouse", label: "Spouse" },
+  { value: "sibling", label: "Sibling" }, { value: "child", label: "Child" },
+  { value: "guardian", label: "Guardian" }, { value: "friend", label: "Friend" },
+  { value: "other", label: "Other" }
+];
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -307,7 +313,7 @@ export default function ProfilePage() {
     // Staff-only contact fields. Sent as undefined for users without a staff
     // record, so the server leaves the sub-document alone.
     address: { line1: "", city: "", state: "", postalCode: "" },
-    emergencyContact: { name: "", phone: "" }
+    emergencyContact: { name: "", phone: "", relationship: "" }
   });
   const [accountForm, setAccountForm] = useState<{ company: EditableCompany; contact: ProfileContact } | null>(null);
 
@@ -364,6 +370,7 @@ export default function ProfilePage() {
     try {
       const result = await uploadProfileImage(file);
       setProfile((current) => current ? { ...current, user: { ...current.user, hasProfileImage: true } } : current);
+      window.dispatchEvent(new Event("profile-image-updated"));
       toast.success(result.message);
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "The profile image could not be uploaded.");
@@ -377,6 +384,7 @@ export default function ProfilePage() {
     try {
       const result = await deleteProfileImage();
       setProfile((current) => current ? { ...current, user: { ...current.user, hasProfileImage: false } } : current);
+      window.dispatchEvent(new Event("profile-image-updated"));
       toast.success(result.message);
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "The profile image could not be removed.");
@@ -399,7 +407,8 @@ export default function ProfilePage() {
       },
       emergencyContact: {
         name: profile.user.staffProfile?.emergencyContact.name ?? "",
-        phone: profile.user.staffProfile?.emergencyContact.phone ?? ""
+        phone: profile.user.staffProfile?.emergencyContact.phone ?? "",
+        relationship: profile.user.staffProfile?.emergencyContact.relationship ?? ""
       }
     });
     setFieldErrors({});
@@ -569,6 +578,7 @@ export default function ProfilePage() {
                   <InputField label="PIN Code" maxLength={6} error={fieldErrors.postalCode} value={userForm.address.postalCode} onChange={(value) => setUserForm((current) => ({ ...current, address: { ...current.address, postalCode: value } }))} />
                   <InputField label="Emergency Contact Name" maxLength={80} value={userForm.emergencyContact.name} onChange={(value) => setUserForm((current) => ({ ...current, emergencyContact: { ...current.emergencyContact, name: value } }))} />
                   <InputField label="Emergency Contact Phone" maxLength={20} error={fieldErrors.emergencyContactPhone} value={userForm.emergencyContact.phone} onChange={(value) => setUserForm((current) => ({ ...current, emergencyContact: { ...current.emergencyContact, phone: value } }))} />
+                  <SelectField label="Relationship" value={userForm.emergencyContact.relationship} options={emergencyRelationshipOptions} onChange={(value) => setUserForm((current) => ({ ...current, emergencyContact: { ...current.emergencyContact, relationship: value } }))} />
                 </div>
               </div>
             ) : null}
@@ -626,6 +636,7 @@ export default function ProfilePage() {
               <ReadOnlyField label="PIN Code" value={user.staffProfile.address.postalCode} />
               <ReadOnlyField label="Emergency Contact Name" value={user.staffProfile.emergencyContact.name} />
               <ReadOnlyField label="Emergency Contact Phone" value={user.staffProfile.emergencyContact.phone} />
+              <ReadOnlyField label="Relationship" value={emergencyRelationshipOptions.find((option) => option.value === user.staffProfile?.emergencyContact.relationship)?.label ?? user.staffProfile.emergencyContact.relationship} />
             </dl>
           </Section>
         </>

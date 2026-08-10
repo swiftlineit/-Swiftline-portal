@@ -74,6 +74,35 @@ const catalog: Record<string, CatalogEntry> = {
   SUPPORT_TICKET_REPLY: { category: "TRANSACTIONAL", priority: 70 },
   SUPPORT_TICKET_STATUS_UPDATED: { category: "OPERATIONAL", priority: 60 },
 
+  // Claims.
+  //
+  // Client-facing claim mail is TRANSACTIONAL throughout: a claim is a money
+  // matter with deadlines attached, and a client who unsubscribed from operational
+  // mail must still be told their evidence is missing or their appeal window is
+  // closing. Staff-facing claim mail is OPERATIONAL — it is queue management.
+  CLAIM_SUBMITTED: { category: "TRANSACTIONAL", priority: 80 },
+  CLAIM_DOCUMENTS_REQUIRED: { category: "TRANSACTIONAL", priority: 80 },
+  CLAIM_DOCUMENT_REJECTED: { category: "TRANSACTIONAL", priority: 80 },
+  CLAIM_INFORMATION_REQUESTED: { category: "TRANSACTIONAL", priority: 80 },
+  CLAIM_UNDER_REVIEW: { category: "OPERATIONAL", priority: 55 },
+  CLAIM_DECISION_ISSUED: { category: "TRANSACTIONAL", priority: 90 },
+  // Time-critical: the client loses the right to appeal if this is missed.
+  CLAIM_APPEAL_WINDOW_CLOSING: { category: "TRANSACTIONAL", priority: 90 },
+  CLAIM_SETTLEMENT_ACCEPTANCE_REQUIRED: { category: "TRANSACTIONAL", priority: 85 },
+  CLAIM_BANK_DETAILS_REQUIRED: { category: "TRANSACTIONAL", priority: 85 },
+  CLAIM_BANK_DETAILS_REJECTED: { category: "TRANSACTIONAL", priority: 85 },
+  CLAIM_PAYMENT_COMPLETED: { category: "TRANSACTIONAL", priority: 90 },
+  CLAIM_CLOSED: { category: "OPERATIONAL", priority: 50 },
+
+  CLAIM_RECEIVED_STAFF: { category: "OPERATIONAL", priority: 60 },
+  CLAIM_DOCUMENTS_COMPLETE: { category: "OPERATIONAL", priority: 55 },
+  CLAIM_CLIENT_REPLIED: { category: "OPERATIONAL", priority: 55 },
+  CLAIM_SLA_DUE: { category: "OPERATIONAL", priority: 65 },
+  CLAIM_AWAITING_DECISION: { category: "OPERATIONAL", priority: 65 },
+  CLAIM_SETTLEMENT_ACCEPTED: { category: "OPERATIONAL", priority: 65 },
+  CLAIM_APPEAL_SUBMITTED: { category: "OPERATIONAL", priority: 70 },
+  CLAIM_RECOVERY_FOLLOW_UP: { category: "OPERATIONAL", priority: 45 },
+
   // Account and access mail, raised directly rather than through a notification
   CLIENT_INVITATION: { category: "TRANSACTIONAL", priority: 95 },
   PASSWORD_RESET: { category: "TRANSACTIONAL", priority: 95 },

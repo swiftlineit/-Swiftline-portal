@@ -17,6 +17,7 @@ import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { OperationsManifest } from "../models/operationsManifest.model.js";
 import { User } from "../models/user.model.js";
+import { branchListScope } from "../middleware/branchAccess.middleware.js";
 
 const currencyValues = ["INR", "USD", "AED", "GBP", "EUR", "SGD", "CAD", "AUD", "SAR"] as const;
 
@@ -388,7 +389,7 @@ export async function validateBranchCode(request: Request, response: Response): 
 
 export async function listBranches(request: Request, response: Response): Promise<Response> {
   const { search, status } = request.query;
-  const filters: Record<string, unknown> = {};
+  const filters: Record<string, unknown> = { ...branchListScope(request) };
 
   if (typeof status === "string" && status) filters.status = status;
   if (typeof search === "string" && search.trim()) {

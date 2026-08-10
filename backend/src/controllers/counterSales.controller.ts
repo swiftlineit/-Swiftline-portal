@@ -5,6 +5,19 @@ import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { operationsBranchIds } from "../middleware/operationsBranchAccess.middleware.js";
 
+export function counterSalesTotalsPipeline(filters: Record<string, unknown>) {
+  return [
+    { $match: filters },
+    {
+      $group: {
+        _id: null,
+        collectedMinor: { $sum: { $cond: [{ $eq: ["$direction", "COLLECTED"] }, "$amountMinor", 0] } },
+        refundedMinor: { $sum: { $cond: [{ $eq: ["$direction", "REFUNDED"] }, "$amountMinor", 0] } }
+      }
+    }
+  ];
+}
+
 /**
  * Counter sales: what each branch took from, and paid back to, walk-in customers.
  *
@@ -46,13 +59,20 @@ export async function listCounterSales(request: Request, response: Response): Pr
   const direction = typeof request.query.direction === "string" ? request.query.direction : "";
   if (direction === "COLLECTED" || direction === "REFUNDED") filters.direction = direction;
 
-  const payments = await CounterPayment.find(filters)
-    .populate("branchId", "name code")
-    .populate("recordedBy", "name email")
-    .sort({ recordedAt: -1 })
-    .limit(500)
-    .lean()
-    .exec();
+  const [payments, totalRows] = await Promise.all([
+    CounterPayment.find(filters)
+      .populate("branchId", "name code")
+      .populate("recordedBy", "name email")
+      .sort({ recordedAt: -1 })
+      .limit(500)
+      .lean()
+      .exec(),
+    // Totals must cover every matching transaction, not only the 500 rows sent
+    // to the browser for the recent-activity table.
+    CounterPayment.aggregate<{ collectedMinor: number; refundedMinor: number }>(
+      counterSalesTotalsPipeline(filters)
+    ).exec()
+  ]);
 
   // The customer's name lives on the draft, and the tracking number on the booked
   // shipment; both are looked up in one pass rather than per row.
@@ -74,14 +94,7 @@ export async function listCounterSales(request: Request, response: Response): Pr
     (shipment.bookingSnapshot as { tracking?: { swiftlineTrackingNumber?: string } })?.tracking?.swiftlineTrackingNumber ?? ""
   ]));
 
-  const totals = payments.reduce(
-    (running, payment) => {
-      if (payment.direction === "COLLECTED") running.collectedMinor += payment.amountMinor;
-      else running.refundedMinor += payment.amountMinor;
-      return running;
-    },
-    { collectedMinor: 0, refundedMinor: 0 }
-  );
+  const totals = totalRows[0] ?? { collectedMinor: 0, refundedMinor: 0 };
 
   return response.status(200).json({
     success: true,

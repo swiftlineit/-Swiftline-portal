@@ -29,7 +29,7 @@ export type StaffProfile = {
   aadhaarNumber: string;
   panNumber: string;
   address: { line1: string; city: string; state: string; postalCode: string };
-  emergencyContact: { name: string; phone: string };
+  emergencyContact: { name: string; phone: string; relationship: string };
   documents: Record<StaffDocumentType, StaffDocumentSummary | null>;
 };
 
@@ -48,6 +48,7 @@ export type User = {
   lockedUntil?: string | null;
   lastLogin?: string | null;
   createdAt?: string | null;
+  hasProfileImage?: boolean;
   /** Present on internal staff added through the Add Staff form. */
   staffProfile?: StaffProfile | null;
 };
@@ -159,6 +160,13 @@ export async function fetchStaffDocumentObjectUrl(
   );
   if (!response.ok) throw new Error("Unable to load the document.");
 
+  return URL.createObjectURL(await response.blob());
+}
+
+/** Private profile image for an admin/HR directory viewer. */
+export async function fetchUserProfileImageObjectUrl(userId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/users/${encodeURIComponent(userId)}/profile-image`));
+  if (!response.ok) throw new Error("Profile image not found.");
   return URL.createObjectURL(await response.blob());
 }
 

@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { FiDownload, FiEye, FiFileText } from "react-icons/fi";
-import type { ShipmentKycDocument, ShipmentKycDocumentType } from "@/lib/dpdLabels";
+import {
+  shipmentKycDocumentLabels,
+  type ShipmentKycDocument,
+  type ShipmentKycDocumentType
+} from "@/lib/dpdLabels";
 
 export type ShipmentKycDocumentItem = ShipmentKycDocument & {
   key: string;
@@ -131,5 +135,5 @@ export function collectShipmentKycDocuments(input: {
 }
 
 function formatDocumentType(type: ShipmentKycDocumentType) {
-  return type === "aadhaar" ? "Aadhaar Card" : type === "pan" ? "PAN Card" : "Other Document";
+  return shipmentKycDocumentLabels[type];
 }

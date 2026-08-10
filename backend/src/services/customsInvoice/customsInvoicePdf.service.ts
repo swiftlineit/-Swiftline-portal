@@ -7,6 +7,8 @@
 // item rows overflow. There is deliberately NO revision/version line — unlike the
 // GST tax invoice, this document is always regenerated fresh from the shipment.
 
+import fs from "fs";
+import path from "path";
 import PDFDocument from "pdfkit";
 import type { CustomsInvoiceBox, CustomsInvoiceModel, CustomsInvoiceParty } from "./customsInvoiceModel.service.js";
 import { customsInvoiceFooterNote } from "./customsInvoiceConstants.js";
@@ -32,9 +34,7 @@ const border = "#000000";
 // section rather than a cramped line; named so the PDF stays proportional to the
 // Excel export, which uses an equivalent set.
 const rowHeights = {
-  title: 22,
-  metaLine: 13,      // per line inside the other-reference block
-  metaMinimum: 42,
+  title: 112,
   sectionLabel: 19,
   partyLine: 2.5,    // extra leading between party lines
   partyPadding: 18,
@@ -101,31 +101,38 @@ function measurePartyHeight(doc: PDFKit.PDFDocument, party: CustomsInvoiceParty,
 function drawHeader(doc: PDFKit.PDFDocument, invoice: CustomsInvoiceModel) {
   let y = pageMargin;
 
-  // Title
-  box(doc, contentLeft, y, contentWidth, rowHeights.title);
-  doc.font("Helvetica-Bold").fontSize(9).fillColor("#000000")
-    .text("INVOICE", contentLeft, y + 7, { width: contentWidth, align: "center" });
+  // Invoice-only branding. This intentionally uses the dedicated invoice asset,
+  // leaving every other Swiftline document and portal logo unchanged.
+  const logoPath = path.resolve(process.cwd(), "assets", "swiftline-invoice-logo.png");
+  if (fs.existsSync(logoPath)) doc.image(logoPath, contentLeft, y - 7, { fit: [175, 105] });
+  else doc.font("Helvetica-Bold").fontSize(22).fillColor("#0f2f5f").text("SWIFTLINE", contentLeft, y + 28);
+  doc.fillColor("#0f172a").font("Helvetica-Bold").fontSize(18)
+    .text("INVOICE", contentLeft + 285, y + 12, { width: contentWidth - 285, align: "right" });
+  doc.fontSize(8).text(`Invoice No: ${invoice.invoiceNumber}`, contentLeft + 285, y + 43, {
+    width: contentWidth - 285,
+    align: "right"
+  });
+  doc.font("Helvetica").text(`Date: ${formatDate(invoice.invoiceDate)}`, contentLeft + 285, y + 57, {
+    width: contentWidth - 285,
+    align: "right"
+  });
+  if (invoice.otherReference) {
+    doc.text(`Reference: ${invoice.otherReference}`, contentLeft + 285, y + 71, {
+      width: contentWidth - 285,
+      align: "right"
+    });
+  }
+  if (invoice.aadhaarNumber) {
+    doc.text(`Aadhaar Number: ${invoice.aadhaarNumber}`, contentLeft + 285, y + 85, {
+      width: contentWidth - 285,
+      align: "right"
+    });
+  }
+  doc.moveTo(contentLeft, y + rowHeights.title - 7).lineTo(contentRight, y + rowHeights.title - 7)
+    .lineWidth(1.5).strokeColor("#0f172a").stroke();
   y += rowHeights.title;
 
-  // Invoice number / date, and the other-reference block beside it.
   const half = contentWidth / 2;
-  const referenceLines = ["OTHER REFERENCE"];
-  if (invoice.otherReference) referenceLines.push(`REFERENCE : ${invoice.otherReference}`);
-  if (invoice.aadhaarNumber) referenceLines.push(`AADHAAR NUMBER : ${invoice.aadhaarNumber}`);
-  const metaHeight = Math.max(rowHeights.metaMinimum, referenceLines.length * rowHeights.metaLine + 12);
-
-  box(doc, contentLeft, y, half, metaHeight);
-  box(doc, contentLeft + half, y, half, metaHeight);
-  doc.font("Helvetica-Bold").fontSize(7.5).text(
-    `INVOICE NO. : ${invoice.invoiceNumber}    INVOICE DATE. : ${formatDate(invoice.invoiceDate)}`,
-    contentLeft + 6, y + 8, { width: half - 10 }
-  );
-  doc.font("Helvetica-Bold").fontSize(7.5).text(referenceLines[0]!, contentLeft + half + 6, y + 8, { width: half - 10 });
-  doc.font("Helvetica").fontSize(7.5);
-  referenceLines.slice(1).forEach((line, index) => {
-    doc.text(line, contentLeft + half + 6, y + 20 + index * rowHeights.metaLine, { width: half - 10 });
-  });
-  y += metaHeight;
 
   // Shipper / consignee labels
   box(doc, contentLeft, y, half, rowHeights.sectionLabel);

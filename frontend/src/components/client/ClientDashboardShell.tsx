@@ -8,6 +8,7 @@ import {
   FiFileText,
   FiGrid,
   FiHelpCircle,
+  FiShield,
   FiLogOut,
   FiPackage,
   FiTag,
@@ -78,6 +79,9 @@ const clientNavigation: Array<
     ],
   },
   { label: "Help-Desk", href: "/client/tickets", icon: FiHelpCircle },
+  // Claims sit beside Help-Desk rather than inside it: enquiries and
+  // compensation are separate journeys with separate rules.
+  { label: "Claims", href: "/client/claims", icon: FiShield },
 ];
 
 export function ClientDashboardShell({

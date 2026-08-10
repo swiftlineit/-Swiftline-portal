@@ -242,15 +242,17 @@ function WorldMapBackdrop() {
  */
 export function LoginBrandPanel() {
   return (
-    <section className="relative order-2 h-auto min-w-0 lg:h-125 lg:order-1 lg:self-center lg:pr-8 bg-white shadow p-4 rounded-2xl">
+    // `overflow-hidden` is important on phones: the oversized SLC artwork is a
+    // desktop-only decoration and must never widen the mobile document.
+    <section className="relative order-2 h-auto w-full min-w-0 overflow-hidden rounded-2xl bg-white p-4 shadow sm:p-5 lg:h-125 lg:order-1 lg:self-center lg:p-4 lg:pr-8">
       <div
     aria-hidden="true"
-    className="pointer-events-none absolute inset-0 flex items-center justify-center"
-  >
-    <span className="select-none text-[40rem] ml-120 font-semibold tracking-[-0.08em] text-blue-500/5">
+        className="pointer-events-none absolute inset-0 hidden items-center justify-center lg:flex"
+      >
+        <span className="ml-[30%] select-none text-[min(40rem,52vw)] font-semibold tracking-[-0.08em] text-blue-500/5">
       SLC
-    </span>
-  </div>
+        </span>
+      </div>
       <WorldMapBackdrop />
 
       {/* Positioned so it paints above the absolute backdrop behind it. */}
@@ -262,7 +264,7 @@ export function LoginBrandPanel() {
         {/* On desktop the size is capped against the viewport's *height*: this
             column sits beside a card that cannot scroll, so the headline is what
             gives way first on a short laptop screen. */}
-        <h1 className="text-[clamp(1.85rem,3.6vw+0.4rem,3.1rem)] font-bold leading-[1.07] tracking-tight text-[#0D1282] lg:mt-3 lg:text-[min(3.1rem,7vh)]">
+        <h1 className="text-[clamp(1.65rem,8vw,2.25rem)] font-bold leading-[1.07] tracking-tight text-[#0D1282] sm:text-[clamp(1.85rem,5vw,2.6rem)] lg:mt-3 lg:text-[min(3.1rem,7vh)]">
           Every Parcel.
           <br />
           A Promise.
@@ -275,32 +277,32 @@ export function LoginBrandPanel() {
           <span className="h-1 w-4 rounded-full bg-[#D81F26]" />
         </div>
 
-        <p className="mt-4 max-w-lg text-[14.5px] leading-relaxed text-slate-600">
+        <p className="mt-4 max-w-lg text-[13px] leading-relaxed text-slate-600 sm:text-[14.5px]">
           Your trusted logistics partner for secure, reliable and compliant international courier
           and cargo solutions.
         </p>
 
-        <p className="mt-5 text-[15px] font-semibold text-[#0D1282]">
+        <p className="mt-5 text-[13px] font-semibold text-[#0D1282] sm:text-[15px]">
           One Platform. <span className="text-[#D81F26]">Complete Control.</span>
         </p>
 
-        <ul className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+        <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-2.5 lg:grid-cols-5">
           {capabilities.map(({ icon: Icon, label, sublabel, color }) => (
             <li
               key={label}
-              className="rounded-xl border border-slate-200/80 bg-white/80 px-3 py-3 text-center backdrop-blur-[2px] transition hover:border-[#0D1282]/25 hover:shadow-sm"
+              className="rounded-xl border border-slate-200/80 bg-white/80 px-2.5 py-2.5 text-center backdrop-blur-[2px] transition last:col-span-2 hover:border-[#0D1282]/25 hover:shadow-sm sm:px-3 sm:py-3 sm:last:col-span-1"
             >
               {/* Each card carries its own accent color, tinting both the icon
                   chip and the label. Inline style rather than a Tailwind class
                   because the value is data-driven per item and can't be known
                   at build time for the JIT to generate. */}
               <span
-                className="mx-auto flex h-8.5 w-8.5 items-center justify-center rounded-lg"
+                className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg sm:h-8.5 sm:w-8.5"
                 style={{ color }}
               >
                 <Icon size={18} strokeWidth={1.9} aria-hidden="true" />
               </span>
-              <span className="mt-2 block text-[11px] font-semibold leading-snug" >
+              <span className="mt-1.5 block text-[10.5px] font-semibold leading-snug sm:mt-2 sm:text-[11px]">
                 {label}
                 <br />
                 {sublabel}

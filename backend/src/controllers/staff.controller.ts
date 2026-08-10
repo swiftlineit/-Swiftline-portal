@@ -14,6 +14,8 @@ import {
 } from "../models/user.model.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
 import { hashPassword } from "../services/auth.service.js";
+import { syncAccessWithUserStatus } from "../services/userStatusSync.service.js";
+import { normalizeUserEmail, normalizeUserPhone } from "../services/userIdentity.service.js";
 import { validateAssignedBranches } from "../utils/assignedBranches.js";
 
 // Must match the destination used by the staff-document upload middleware.
@@ -24,6 +26,11 @@ const aadhaarPattern = /^[2-9][0-9]{11}$/;
 const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const phonePattern = /^\+?[0-9][0-9\s\-()]{7,19}$/;
 const postalCodePattern = /^[0-9]{6}$/;
+const emergencyRelationshipValues = ["parent", "spouse", "sibling", "child", "guardian", "friend", "other"] as const;
+const MAX_PROFILE_IMAGE_BYTES = 3 * 1024 * 1024;
+// Staff are onboarded in India, so a number typed without a country code is read
+// as Indian rather than rejected. Numbers that carry a "+" prefix keep theirs.
+const STAFF_DEFAULT_PHONE_COUNTRY = "IN" as const;
 
 const MIN_STAFF_AGE_YEARS = 18;
 const MAX_STAFF_AGE_YEARS = 100;
@@ -91,7 +98,12 @@ const staffBodySchema = z.object({
   emergencyContactPhone: z.preprocess(
     blankToUndefined,
     z.string().trim().regex(phonePattern, "Enter a valid emergency contact number.").optional()
-  )
+  ),
+  emergencyContactRelationship: z.preprocess(blankToUndefined, z.enum(emergencyRelationshipValues).optional())
+}).superRefine((data, context) => {
+  if ((data.emergencyContactName || data.emergencyContactPhone) && !data.emergencyContactRelationship) {
+    context.addIssue({ code: "custom", path: ["emergencyContactRelationship"], message: "Select the emergency contact relationship." });
+  }
 });
 
 type StaffBody = z.infer<typeof staffBodySchema>;
@@ -104,15 +116,23 @@ const documentSignatureTests: ((header: Buffer) => boolean)[] = [
   (header) => header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
 ];
 
-type UploadedStaffFiles = Partial<Record<StaffDocumentType, Express.Multer.File>>;
+const profileImageSignatureTests: ((header: Buffer) => boolean)[] = [
+  (header) => header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff,
+  (header) => header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  (header) => header.subarray(0, 4).toString("ascii") === "RIFF" && header.subarray(8, 12).toString("ascii") === "WEBP"
+];
+
+type StaffUploadField = StaffDocumentType | "profileImage";
+type UploadedStaffFiles = Partial<Record<StaffUploadField, Express.Multer.File>>;
 
 function getUploadedFiles(request: Request): UploadedStaffFiles {
-  const files = request.files as Partial<Record<StaffDocumentType, Express.Multer.File[]>> | undefined;
+  const files = request.files as Partial<Record<StaffUploadField, Express.Multer.File[]>> | undefined;
 
   return {
     aadhaar: files?.aadhaar?.[0],
     pan: files?.pan?.[0],
-    other: files?.other?.[0]
+    other: files?.other?.[0],
+    profileImage: files?.profileImage?.[0]
   };
 }
 
@@ -131,7 +151,8 @@ async function cleanupUploadedFiles(files: UploadedStaffFiles) {
 // Return the first uploaded document whose content is not a valid PDF/JPEG/PNG,
 // or null when every uploaded file passes the signature check.
 async function findInvalidDocumentSignature(files: UploadedStaffFiles): Promise<StaffDocumentType | null> {
-  for (const [type, file] of Object.entries(files) as [StaffDocumentType, Express.Multer.File | undefined][]) {
+  for (const type of staffDocumentTypes) {
+    const file = files[type];
     if (!file) continue;
 
     const header = Buffer.alloc(8);
@@ -147,6 +168,30 @@ async function findInvalidDocumentSignature(files: UploadedStaffFiles): Promise<
   }
 
   return null;
+}
+
+async function hasInvalidProfileImage(file?: Express.Multer.File) {
+  if (!file) return false;
+  const header = Buffer.alloc(12);
+  let handle: fs.promises.FileHandle | undefined;
+  try {
+    handle = await fs.promises.open(file.path, "r");
+    await handle.read(header, 0, 12, 0);
+  } finally {
+    await handle?.close();
+  }
+  return !profileImageSignatureTests.some((test) => test(header));
+}
+
+function toProfileImage(file: Express.Multer.File) {
+  return {
+    originalName: file.originalname,
+    storedName: file.filename,
+    mimeType: file.mimetype,
+    size: file.size,
+    path: file.path,
+    uploadedAt: new Date()
+  };
 }
 
 function toStaffDocument(type: StaffDocumentType, file: Express.Multer.File): IStaffDocument {
@@ -208,7 +253,8 @@ export function serializeStaffProfile(profile?: IStaffProfile | null) {
     },
     emergencyContact: {
       name: profile.emergencyContact?.name ?? "",
-      phone: profile.emergencyContact?.phone ?? ""
+      phone: profile.emergencyContact?.phone ?? "",
+      relationship: profile.emergencyContact?.relationship ?? ""
     },
     documents: {
       aadhaar: serializeStaffDocument(profile.documents?.aadhaar),
@@ -244,7 +290,8 @@ function buildStaffProfile(
     },
     emergencyContact: {
       name: data.emergencyContactName ?? "",
-      phone: data.emergencyContactPhone ?? ""
+      phone: data.emergencyContactPhone ?? "",
+      relationship: data.emergencyContactRelationship ?? ""
     },
     documents,
     createdBy
@@ -268,6 +315,7 @@ export function serializeStaffUser(staffUser: IUser) {
     lockedUntil: staffUser.lockedUntil,
     lastLogin: staffUser.lastLogin ?? null,
     createdAt: (staffUser as IUser & { createdAt?: Date }).createdAt ?? null,
+    hasProfileImage: Boolean(staffUser.profileImage?.storedName),
     assignedBranches: staffUser.assignedBranches,
     staffProfile: serializeStaffProfile(staffUser.staffProfile)
   };
@@ -330,11 +378,31 @@ export async function createStaffUser(request: Request, response: Response): Pro
   if (invalidDocument) {
     return reject(400, `The ${invalidDocument} document is not a valid PDF, JPG, or PNG file.`);
   }
+  if (files.profileImage?.size && files.profileImage.size > MAX_PROFILE_IMAGE_BYTES) {
+    return reject(400, "The profile image must be 3 MB or smaller.");
+  }
+  if (await hasInvalidProfileImage(files.profileImage)) {
+    return reject(400, "The selected profile image is not a valid JPG, PNG, or WebP image.");
+  }
 
-  const email = data.email.toLowerCase();
+  const email = normalizeUserEmail(data.email);
 
+  // Stored in E.164 so the same number typed as "98765 43210" and "+919876543210"
+  // is one identity, both here and against the client and driver logins that
+  // already normalize.
+  const phone = normalizeUserPhone(data.phone, STAFF_DEFAULT_PHONE_COUNTRY);
+  if (!phone) {
+    return reject(400, "Enter a valid phone number, for example +91 98765 43210.");
+  }
+
+  // A login is one global identity across staff, drivers, and clients, so both
+  // checks look at every user rather than only at staff records.
   if (await User.exists({ email })) {
     return reject(409, "A user with this email already exists.");
+  }
+
+  if (await User.exists({ phone })) {
+    return reject(409, "A user with this phone number already exists.");
   }
 
   // Catches the same person being onboarded twice under different emails.
@@ -363,7 +431,7 @@ export async function createStaffUser(request: Request, response: Response): Pro
       lastName: data.lastName,
       name: `${data.firstName} ${data.lastName}`.trim(),
       email,
-      phone: data.phone,
+      phone,
       passwordHash,
       role: data.role,
       assignedBranches: branchIds,
@@ -371,12 +439,17 @@ export async function createStaffUser(request: Request, response: Response): Pro
       isVerified: true,
       emailVerifiedAt: new Date(),
       invitedBy: createdBy,
+      profileImage: files.profileImage ? toProfileImage(files.profileImage) : null,
       staffProfile: buildStaffProfile(data, files, createdBy)
     });
   } catch (error) {
-    // A concurrent create can still lose the unique-email race above.
+    // A concurrent create can still lose the uniqueness races above; the indexes
+    // are what actually settle it, so the same messages are mapped from them.
     if ((error as { code?: number }).code === 11000) {
-      return reject(409, "A user with this email already exists.");
+      const duplicatedKey = (error as { keyPattern?: Record<string, unknown> }).keyPattern ?? {};
+      return reject(409, "phone" in duplicatedKey
+        ? "A user with this phone number already exists."
+        : "A user with this email already exists.");
     }
     await cleanupUploadedFiles(files);
     throw error;
@@ -447,7 +520,8 @@ const staffUpdateSchema = z.object({
   addressState: z.string().trim().max(80).optional(),
   addressPostalCode: optionalPatterned(postalCodePattern, "Enter a valid 6-digit PIN code."),
   emergencyContactName: z.string().trim().max(80).optional(),
-  emergencyContactPhone: optionalPatterned(phonePattern, "Enter a valid emergency contact number.")
+  emergencyContactPhone: optionalPatterned(phonePattern, "Enter a valid emergency contact number."),
+  emergencyContactRelationship: z.enum(emergencyRelationshipValues).or(z.literal("")).optional()
 });
 
 // Staff-record fields, as opposed to the login fields above. Used to tell an
@@ -456,7 +530,7 @@ const staffUpdateSchema = z.object({
 const staffProfileFields = [
   "designation", "employeeCode", "dateOfJoining", "dateOfBirth", "panNumber",
   "addressLine1", "addressCity", "addressState", "addressPostalCode",
-  "emergencyContactName", "emergencyContactPhone"
+  "emergencyContactName", "emergencyContactPhone", "emergencyContactRelationship"
 ] as const;
 
 /**
@@ -493,7 +567,8 @@ export async function updateStaffUser(request: Request, response: Response): Pro
   const staffUser = await User.findById(id).exec();
   if (!staffUser) return reject(404, "Staff member not found.");
 
-  const touchesStaffProfile = staffProfileFields.some((field) => field in body) || Object.values(files).some(Boolean);
+  const touchesStaffProfile = staffProfileFields.some((field) => field in body)
+    || staffDocumentTypes.some((type) => Boolean(files[type]));
   if (touchesStaffProfile && !staffUser.staffProfile) {
     return reject(400, "This user does not have a staff record, so employment details cannot be edited.");
   }
@@ -502,6 +577,12 @@ export async function updateStaffUser(request: Request, response: Response): Pro
   if (invalidDocument) {
     return reject(400, `The ${invalidDocument} document is not a valid PDF, JPG, or PNG file.`);
   }
+  if (files.profileImage?.size && files.profileImage.size > MAX_PROFILE_IMAGE_BYTES) {
+    return reject(400, "The profile image must be 3 MB or smaller.");
+  }
+  if (await hasInvalidProfileImage(files.profileImage)) {
+    return reject(400, "The selected profile image is not a valid JPG, PNG, or WebP image.");
+  }
 
   if (data.employeeCode) {
     const duplicate = await User.exists({
@@ -509,6 +590,19 @@ export async function updateStaffUser(request: Request, response: Response): Pro
       "staffProfile.employeeCode": data.employeeCode
     });
     if (duplicate) return reject(409, "A staff member with this employee code already exists.");
+  }
+
+  // Normalized and checked for the same reason as on create: an edit must not be
+  // the way a second account for one person gets in.
+  let normalizedPhone: string | undefined;
+  if (data.phone !== undefined) {
+    normalizedPhone = normalizeUserPhone(data.phone, STAFF_DEFAULT_PHONE_COUNTRY) ?? undefined;
+    if (!normalizedPhone) {
+      return reject(400, "Enter a valid phone number, for example +91 98765 43210.");
+    }
+    if (await User.exists({ _id: { $ne: staffUser._id }, phone: normalizedPhone })) {
+      return reject(409, "A user with this phone number already exists.");
+    }
   }
 
   // An admin changing their own role or disabling their own login could lock the
@@ -548,7 +642,7 @@ export async function updateStaffUser(request: Request, response: Response): Pro
   if (data.firstName !== undefined || data.lastName !== undefined) {
     staffUser.name = [staffUser.firstName, staffUser.lastName].filter(Boolean).join(" ").trim();
   }
-  if (data.phone !== undefined) staffUser.phone = data.phone;
+  if (normalizedPhone !== undefined) staffUser.phone = normalizedPhone;
   if (data.role !== undefined) staffUser.role = data.role;
   if (data.userStatus !== undefined) {
     staffUser.userStatus = data.userStatus;
@@ -577,10 +671,12 @@ export async function updateStaffUser(request: Request, response: Response): Pro
       };
     }
 
-    if (data.emergencyContactName !== undefined || data.emergencyContactPhone !== undefined) {
+    if (data.emergencyContactName !== undefined || data.emergencyContactPhone !== undefined
+      || data.emergencyContactRelationship !== undefined) {
       profile.emergencyContact = {
         name: data.emergencyContactName ?? profile.emergencyContact?.name ?? "",
-        phone: data.emergencyContactPhone ?? profile.emergencyContact?.phone ?? ""
+        phone: data.emergencyContactPhone ?? profile.emergencyContact?.phone ?? "",
+        relationship: data.emergencyContactRelationship ?? profile.emergencyContact?.relationship ?? ""
       };
     }
 
@@ -598,10 +694,22 @@ export async function updateStaffUser(request: Request, response: Response): Pro
     }
 
     staffUser.markModified("staffProfile");
+    const previousProfileImagePath = files.profileImage ? staffUser.profileImage?.path : "";
+    if (files.profileImage) staffUser.profileImage = toProfileImage(files.profileImage);
     await staffUser.save();
     await unlinkFiles(replacedPaths);
+    if (previousProfileImagePath) await unlinkFiles([previousProfileImagePath]);
   } else {
+    const previousProfileImagePath = files.profileImage ? staffUser.profileImage?.path : "";
+    if (files.profileImage) staffUser.profileImage = toProfileImage(files.profileImage);
     await staffUser.save();
+    if (previousProfileImagePath) await unlinkFiles([previousProfileImagePath]);
+  }
+
+  // Matches updateUserStatus: a driver profile or client-access record must not
+  // keep reporting "Active" for a login that has just been suspended or disabled.
+  if (data.userStatus !== undefined) {
+    await syncAccessWithUserStatus(staffUser._id as mongoose.Types.ObjectId, staffUser.userStatus);
   }
 
   await staffUser.populate("assignedBranches", "name code status");
@@ -611,6 +719,22 @@ export async function updateStaffUser(request: Request, response: Response): Pro
     message: "Staff details updated.",
     user: serializeStaffUser(staffUser)
   });
+}
+
+/** Streams a user's private profile image to an authorized directory viewer. */
+export async function viewStaffProfileImage(request: Request, response: Response): Promise<Response | void> {
+  const id = String(request.params.id ?? "");
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return response.status(404).json({ success: false, message: "Staff member not found." });
+  }
+
+  const staffUser = await User.findById(id).select("profileImage").lean().exec();
+  const filePath = staffUser?.profileImage?.path;
+  if (!filePath) return response.status(404).json({ success: false, message: "Profile image not found." });
+
+  response.setHeader("Cache-Control", "private, max-age=300");
+  response.setHeader("Content-Type", staffUser.profileImage?.mimeType || "application/octet-stream");
+  return response.sendFile(filePath);
 }
 
 const documentTypeSchema = z.enum(staffDocumentTypes);

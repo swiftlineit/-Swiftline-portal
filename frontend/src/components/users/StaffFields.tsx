@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, type ReactNode } from "react";
+import { useState, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { BiSolidEdit } from "react-icons/bi";
+import { FiChevronDown, FiExternalLink, FiFileText, FiImage, FiUpload, FiX } from "react-icons/fi";
 import type { IconType } from "react-icons";
-import { MultiSearchableSelect, SearchableSelect } from "@/components/business-accounts/FormFieldControls";
+import { toast } from "react-toastify";
 import { designationOptions, isListedDesignation, OTHER_DESIGNATION } from "@/lib/staffOptions";
 
 // Shared building blocks for the Add Staff page and the staff detail page, so a
@@ -20,6 +21,8 @@ export const staffPatterns = {
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
 export const ACCEPTED_DOCUMENTS = "application/pdf,image/jpeg,image/png";
 export const MIN_STAFF_AGE_YEARS = 18;
+export const MAX_PROFILE_IMAGE_BYTES = 3 * 1024 * 1024;
+export const ACCEPTED_PROFILE_IMAGES = "image/jpeg,image/png,image/webp";
 
 export function yearsAgo(years: number) {
   const date = new Date();
@@ -113,7 +116,10 @@ export function InputField({
   maxLength,
   placeholder,
   helper,
-  error
+  error,
+  onBlur,
+  autoComplete,
+  inputMode
 }: {
   label: string;
   value: string;
@@ -124,6 +130,9 @@ export function InputField({
   placeholder?: string;
   helper?: string;
   error?: string;
+  onBlur?: () => void;
+  autoComplete?: string;
+  inputMode?: HTMLAttributes<HTMLInputElement>["inputMode"];
 }) {
   return (
     <label className="block">
@@ -136,7 +145,11 @@ export function InputField({
         value={value}
         maxLength={maxLength}
         placeholder={placeholder}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
         onChange={(event) => onChange(event.target.value)}
+        onBlur={onBlur}
+        aria-invalid={Boolean(error)}
         className={`mt-1.5 h-10 w-full rounded-xl border px-3 text-sm text-slate-900 outline-none transition focus:ring-2 ${
           error
             ? "border-red-400 focus:border-red-500 focus:ring-red-100"
@@ -195,14 +208,19 @@ export function SelectField({
 }) {
   return (
     <FieldShell label={label} required={required} error={error}>
-      <SearchableSelect
-        label={label}
+      <span className="relative block">
+        <select
         value={value}
-        options={options}
-        onChange={onChange}
-        placeholder={placeholder ?? "Select"}
-        hideLabel
-      />
+        required={required}
+        aria-invalid={Boolean(error)}
+        onChange={(event) => onChange(event.target.value)}
+        className={`h-10 w-full appearance-none rounded-xl border bg-white px-3 pr-11 text-sm text-slate-900 outline-none transition focus:ring-2 ${error ? "border-red-400 focus:border-red-500 focus:ring-red-100" : "border-slate-300 focus:border-[#0D1282] focus:ring-blue-100"}`}
+      >
+        <option value="" disabled>{placeholder ?? "Select"}</option>
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+      <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+      </span>
     </FieldShell>
   );
 }
@@ -227,12 +245,11 @@ export function DesignationField({
   return (
     <div className="block">
       <FieldShell label="Designation" error={error}>
-        <SearchableSelect
-          label="Designation"
+        <span className="relative block">
+          <select
           value={showOther ? OTHER_DESIGNATION : value}
-          options={designationOptions}
-          placeholder="Select a designation"
-          onChange={(next) => {
+          onChange={(event) => {
+            const next = event.target.value;
             if (next === OTHER_DESIGNATION) {
               setOtherPicked(true);
               onChange("");
@@ -241,8 +258,13 @@ export function DesignationField({
             setOtherPicked(false);
             onChange(next);
           }}
-          hideLabel
-        />
+          className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
+        >
+          <option value="">Select a designation</option>
+          {designationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+        </span>
       </FieldShell>
 
       {showOther ? (
@@ -271,20 +293,35 @@ export function BranchField({
   required?: boolean;
   error?: string;
 }) {
+  const [query, setQuery] = useState("");
+  const visibleOptions = options.filter((branch) =>
+    `${branch.code} ${branch.name}`.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
   return (
     <FieldShell
       label="Assigned branches"
       required={required}
       error={error}
-      helper="Search and pick one or more branches."
+      helper="Select every branch this staff member may access."
     >
-      <MultiSearchableSelect
-        label="Assigned branches"
-        values={values}
-        onChange={onChange}
-        options={options.map((branch) => ({ value: branch.id, label: `${branch.code} - ${branch.name}` }))}
-        hideLabel
-      />
+      <div className={`rounded-xl border bg-white p-3 ${error ? "border-red-400" : "border-slate-300"}`}>
+        {options.length > 6 ? (
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search branches" className="mb-3 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100" />
+        ) : null}
+        <div className="grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2">
+          {visibleOptions.map((branch) => {
+            const checked = values.includes(branch.id);
+            return (
+              <label key={branch.id} className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition ${checked ? "border-[#0D1282]/40 bg-[#0D1282]/5 font-semibold text-[#0D1282]" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
+                <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked ? [...values, branch.id] : values.filter((id) => id !== branch.id))} className="h-4 w-4 accent-[#0D1282]" />
+                <span>{branch.code} - {branch.name}</span>
+              </label>
+            );
+          })}
+          {!visibleOptions.length ? <p className="py-3 text-sm text-slate-500">No branches found.</p> : null}
+        </div>
+      </div>
     </FieldShell>
   );
 }
@@ -352,12 +389,57 @@ export function EditActions({ busy, onCancel }: { busy: boolean; onCancel: () =>
   );
 }
 
+/**
+ * Blob URL for a locally picked file, created once per File and reused for every
+ * render and every preview of it.
+ *
+ * Deliberately not revoked on unmount. React Strict Mode mounts a component, runs
+ * its effect cleanup, then remounts it without re-running the render-phase setup,
+ * so revoking there left every preview pointing at a dead blob and rendering as a
+ * broken image. Keying weakly lets the entry go once nothing holds the File, and
+ * the browser releases the URLs themselves when the document unloads.
+ */
+const filePreviewUrls = new WeakMap<File, string>();
+
+function filePreviewUrl(file: File) {
+  const existing = filePreviewUrls.get(file);
+  if (existing) return existing;
+
+  const url = URL.createObjectURL(file);
+  filePreviewUrls.set(file, url);
+  return url;
+}
+
+function LocalFileTile({ file }: { file: File }) {
+  const url = filePreviewUrl(file);
+  const isImage = file.type.startsWith("image/");
+
+  return (
+    <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-slate-500">
+        {isImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={url} alt="" className="h-full w-full object-cover" />
+        ) : <FiFileText aria-hidden="true" className="h-6 w-6" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold text-slate-800">{file.name}</span>
+        <span className="mt-0.5 block text-xs text-slate-500">{formatFileSize(file.size)}</span>
+      </span>
+      <a href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-semibold text-[#0D1282] hover:bg-[#0D1282]/5">
+        <FiExternalLink className="h-3.5 w-3.5" /> Preview
+      </a>
+    </div>
+  );
+}
+
 export function DocumentUploadField({
   label,
   required = false,
   helper,
   file,
   existingName,
+  error,
   onChange
 }: {
   label: string;
@@ -365,11 +447,14 @@ export function DocumentUploadField({
   helper?: string;
   file?: File;
   existingName?: string;
+  error?: string;
   onChange: (file?: File) => void;
 }) {
   const inputId = `staff-document-${label.toLowerCase().replace(/\s+/g, "-")}`;
   const selectedName = file?.name || existingName || "";
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectionError, setSelectionError] = useState("");
+  const visibleError = error || selectionError;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
@@ -391,8 +476,9 @@ export function DocumentUploadField({
           event.preventDefault();
           fileInputRef.current?.click();
         }}
-        className="mt-3 flex cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-[#0D1282]/20 bg-white px-4 py-4 text-center text-sm font-semibold text-[#0D1282] transition hover:border-[#0D1282]/50 hover:bg-[#0D1282]/5"
+        className={`mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed bg-white px-4 py-4 text-center text-sm font-semibold transition ${visibleError ? "border-red-300 text-red-700 hover:border-red-400" : "border-[#0D1282]/20 text-[#0D1282] hover:border-[#0D1282]/50 hover:bg-[#0D1282]/5"}`}
       >
+        <FiUpload className="h-4 w-4" />
         {selectedName ? "Replace file" : "Browse file"}
       </label>
       <input
@@ -400,15 +486,100 @@ export function DocumentUploadField({
         id={inputId}
         type="file"
         accept={ACCEPTED_DOCUMENTS}
-        onChange={(event) => onChange(event.target.files?.[0])}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.currentTarget.value = "";
+          if (!file) return;
+          if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type)) {
+            const message = `${file.name} is not supported. Use PDF, JPG, or PNG.`;
+            setSelectionError(message);
+            toast.error(message);
+            return;
+          }
+          if (file.size > MAX_DOCUMENT_BYTES) {
+            const message = `${file.name} is larger than 5 MB.`;
+            setSelectionError(message);
+            toast.error(message);
+            return;
+          }
+          setSelectionError("");
+          onChange(file);
+          toast.success(`${file.name} selected successfully.`);
+        }}
         className="sr-only"
       />
 
-      <p className="mt-2 truncate text-xs text-slate-500" title={selectedName}>
-        {selectedName
-          ? `${selectedName}${file ? ` - ${formatFileSize(file.size)}` : " (on file)"}`
-          : helper || "PDF, JPG, or PNG up to 5 MB."}
-      </p>
+      {file ? <LocalFileTile key={`${file.name}-${file.lastModified}`} file={file} /> : (
+        <p className={`mt-2 truncate text-xs ${visibleError ? "font-medium text-red-600" : "text-slate-500"}`} title={selectedName}>
+          {visibleError || (selectedName ? `${selectedName} (on file)` : helper || "PDF, JPG, or PNG up to 5 MB.")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Round preview of the picked profile image, sized like the avatar it becomes. */
+function ProfileImagePreview({ file }: { file: File }) {
+  return (
+    <div className="mt-3 flex flex-col items-center gap-2">
+      <span className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={filePreviewUrl(file)} alt={`Preview of ${file.name}`} className="h-full w-full object-cover" />
+      </span>
+      <span className="max-w-full truncate text-xs text-slate-500" title={file.name}>
+        {file.name} ({formatFileSize(file.size)})
+      </span>
+    </div>
+  );
+}
+
+export function ProfileImageUploadField({ file, error, onChange }: { file?: File; error?: string; onChange: (file?: File) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [selectionError, setSelectionError] = useState("");
+  const visibleError = error || selectionError;
+
+  return (
+    <div className={`rounded-2xl border bg-slate-50/60 p-4 ${visibleError ? "border-red-300" : "border-slate-200"}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Profile image</p>
+          <p className="mt-1 text-xs text-slate-500">Optional JPG, PNG, or WebP up to 3 MB.</p>
+        </div>
+        {file ? <button type="button" onClick={() => onChange(undefined)} aria-label="Remove profile image" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 hover:bg-red-50"><FiX className="h-4 w-4" /></button> : null}
+      </div>
+      {file ? <ProfileImagePreview key={`${file.name}-${file.lastModified}`} file={file} /> : (
+        <button type="button" onClick={() => inputRef.current?.click()} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#0D1282]/20 bg-white px-4 py-5 text-sm font-semibold text-[#0D1282] transition hover:border-[#0D1282]/50 hover:bg-[#0D1282]/5">
+          <FiImage className="h-5 w-5" /> Choose profile image
+        </button>
+      )}
+      {file ? <button type="button" onClick={() => inputRef.current?.click()} className="mt-2 text-xs font-semibold text-[#0D1282] hover:underline">Replace image</button> : null}
+      {visibleError ? <p className="mt-2 text-xs font-medium text-red-600">{visibleError}</p> : null}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={ACCEPTED_PROFILE_IMAGES}
+        className="sr-only"
+        onChange={(event) => {
+          const selected = event.target.files?.[0];
+          event.currentTarget.value = "";
+          if (!selected) return;
+          if (!["image/jpeg", "image/png", "image/webp"].includes(selected.type)) {
+            const message = "Choose a JPG, PNG, or WebP profile image.";
+            setSelectionError(message);
+            toast.error(message);
+            return;
+          }
+          if (selected.size > MAX_PROFILE_IMAGE_BYTES) {
+            const message = "The profile image must be 3 MB or smaller.";
+            setSelectionError(message);
+            toast.error(message);
+            return;
+          }
+          setSelectionError("");
+          onChange(selected);
+          toast.success("Profile image selected successfully.");
+        }}
+      />
     </div>
   );
 }

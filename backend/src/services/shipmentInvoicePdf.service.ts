@@ -54,8 +54,30 @@ function drawColumnSeparators(doc: PDFKit.PDFDocument, y: number, height: number
 }
 
 function drawLabelValue(doc: PDFKit.PDFDocument, label: string, value: string, x: number, y: number, width: number) {
-  doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text(label.toUpperCase(), x, y, { width });
-  doc.font("Helvetica").fontSize(9).fillColor("#0f172a").text(value, x, y + 11, { width, lineGap: 2 });
+  doc.rect(x, y, width, 48).lineWidth(0.8).strokeColor("#cbd5e1").stroke();
+  doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text(label.toUpperCase(), x + 8, y + 9, { width: width - 16 });
+  doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#0f172a").text(value, x + 8, y + 24, { width: width - 16, lineGap: 2 });
+}
+
+function optionalTextValue(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function measurePartyBoxHeight(
+  doc: PDFKit.PDFDocument,
+  party: Record<string, unknown>,
+  width: number,
+  isSupplier: boolean
+) {
+  const innerWidth = width - 20;
+  const name = isSupplier ? textValue(party, "legalName") : textValue(party, "companyName");
+  const address = isSupplier ? textValue(party, "address") : textValue(party, "billingAddress");
+  const contact = [optionalTextValue(party, "email"), optionalTextValue(party, "phone")].filter(Boolean).join(" | ");
+  const nameHeight = doc.font("Helvetica-Bold").fontSize(10).heightOfString(name, { width: innerWidth });
+  const addressHeight = doc.font("Helvetica").fontSize(8).heightOfString(address, { width: innerWidth, lineGap: 2 });
+  const contactHeight = contact ? doc.heightOfString(contact, { width: innerWidth, lineGap: 2 }) : 0;
+  return Math.max(112, 9 + 10 + 8 + nameHeight + 6 + addressHeight + 7 + 10 + (contactHeight ? 5 + contactHeight : 0) + 10);
 }
 
 function drawPartyBox(
@@ -65,16 +87,23 @@ function drawPartyBox(
   x: number,
   y: number,
   width: number,
+  height: number,
   isSupplier: boolean
 ) {
-  doc.rect(x, y, width, 112).strokeColor("#cbd5e1").stroke();
+  doc.rect(x, y, width, height).lineWidth(0.8).strokeColor("#cbd5e1").stroke();
   doc.font("Helvetica-Bold").fontSize(8).fillColor("#64748b").text(title.toUpperCase(), x + 10, y + 9, { width: width - 20 });
   const name = isSupplier ? textValue(party, "legalName") : textValue(party, "companyName");
   const address = isSupplier ? textValue(party, "address") : textValue(party, "billingAddress");
-  doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f172a").text(name, x + 10, y + 25, { width: width - 20 });
-  doc.font("Helvetica").fontSize(8).text(address, x + 10, y + 43, { width: width - 20, height: 32 });
-  doc.font("Helvetica-Bold").text(`GSTIN: ${textValue(party, "gstin")}`, x + 10, y + 80, { width: width - 20 });
-  doc.font("Helvetica").text(`${textValue(party, "email")} | ${textValue(party, "phone")}`, x + 10, y + 94, { width: width - 20 });
+  const contact = [optionalTextValue(party, "email"), optionalTextValue(party, "phone")].filter(Boolean).join(" | ");
+  const innerWidth = width - 20;
+  let cursor = y + 25;
+  doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f172a").text(name, x + 10, cursor, { width: innerWidth });
+  cursor = doc.y + 6;
+  doc.font("Helvetica").fontSize(8).text(address, x + 10, cursor, { width: innerWidth, lineGap: 2 });
+  cursor = doc.y + 7;
+  doc.font("Helvetica-Bold").text(`GSTIN: ${textValue(party, "gstin")}`, x + 10, cursor, { width: innerWidth });
+  cursor = doc.y + 5;
+  if (contact) doc.font("Helvetica").fillColor("#64748b").text(contact, x + 10, cursor, { width: innerWidth, lineGap: 2 });
 }
 
 function drawTaxRow(doc: PDFKit.PDFDocument, label: string, amountMinor: number, y: number, currency: string, bold = false) {
@@ -95,25 +124,31 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   const parcels = Array.isArray(shipment.parcels) ? shipment.parcels as Record<string, unknown>[] : [];
   // Carries the freight / CSB-V clearance split behind the taxable value.
   const pricingSnapshot = invoice.pricingSnapshot as Record<string, unknown>;
-  const logoPath = path.resolve(process.cwd(), "assets", "swiftline-invoice-logo.jpeg");
+  const logoPath = path.resolve(process.cwd(), "assets", "swiftline-invoice-logo.png");
 
-  if (fs.existsSync(logoPath)) doc.image(logoPath, 42, 38, { fit: [190, 58] });
-  doc.font("Helvetica-Bold").fontSize(16).fillColor("#0f172a").text(invoice.status === "ISSUED" ? "TAX INVOICE" : "DRAFT TAX INVOICE", 310, 42, { width: 239, align: "right" });
-  doc.font("Helvetica").fontSize(8).text(`Invoice No: ${invoice.invoiceNumber}`, 310, 66, { width: 239, align: "right" });
-  doc.text(`Invoice Date: ${date(invoice.issuedAt)}`, 310, 78, { width: 239, align: "right" });
-  doc.text(`Reference: ${textValue(shipment, "shipmentReference")}`, 310, 90, { width: 239, align: "right" });
-  doc.moveTo(42, 116).lineTo(549, 116).lineWidth(1.5).strokeColor("#0f172a").stroke();
+  if (fs.existsSync(logoPath)) doc.image(logoPath, 42, 25, { fit: [185, 100] });
+  else doc.font("Helvetica-Bold").fontSize(22).fillColor("#0f2f5f").text("SWIFTLINE", 42, 48);
+  doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f172a").text(invoice.status === "ISSUED" ? "TAX INVOICE" : "DRAFT TAX INVOICE", 310, 40, { width: 239, align: "right" });
+  doc.font("Helvetica-Bold").fontSize(8).text(`Invoice No: ${invoice.invoiceNumber}`, 310, 72, { width: 239, align: "right" });
+  doc.font("Helvetica").text(`Date: ${date(invoice.issuedAt)}`, 310, 87, { width: 239, align: "right" });
+  doc.text(`Reference: ${textValue(shipment, "shipmentReference")}`, 310, 102, { width: 239, align: "right" });
+  doc.moveTo(42, 132).lineTo(549, 132).lineWidth(1.5).strokeColor("#0f172a").stroke();
 
-  drawPartyBox(doc, "Supplier / Shipper Branch", supplier, 42, 132, 247, true);
-  drawPartyBox(doc, "Bill To / Customer", customer, 302, 132, 247, false);
+  const partyY = 148;
+  const partyHeight = Math.max(
+    measurePartyBoxHeight(doc, supplier, 247, true),
+    measurePartyBoxHeight(doc, customer, 247, false)
+  );
+  drawPartyBox(doc, "Supplier / Shipper Branch", supplier, 42, partyY, 247, partyHeight, true);
+  drawPartyBox(doc, "Bill To / Customer", customer, 302, partyY, 247, partyHeight, false);
 
-  const detailY = 260;
+  const detailY = partyY + partyHeight + 16;
   drawLabelValue(doc, "Origin", textValue(shipment, "origin"), 42, detailY, 120);
   drawLabelValue(doc, "Destination", textValue(shipment, "destination"), 169, detailY, 120);
   drawLabelValue(doc, "Currency", invoice.currency, 296, detailY, 120);
   drawLabelValue(doc, "Boxes", String(parcels.length), 423, detailY, 126);
 
-  let y = 310;
+  let y = detailY + 64;
   doc.rect(42, y, 507, 25).fill("#0f2f5f");
   drawColumnSeparators(doc, y, 25, "#ffffff");
   const headers = ["Description", "Actual KG", "Volumetric KG", "Chargeable KG", "Rate/KG", "Amount"];

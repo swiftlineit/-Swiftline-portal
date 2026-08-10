@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiChevronDown, FiExternalLink, FiMapPin, FiPackage, FiSave, FiSearch, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
@@ -94,6 +94,10 @@ import { useAdminUser } from "@/lib/useAdminUser";
 import { FaRegWindowClose, FaWeight } from "react-icons/fa";
 
 type DpdShipmentResult = Awaited<ReturnType<typeof createDpdLabel>>;
+const parcelRenderStyle = { contentVisibility: "auto", containIntrinsicSize: "auto 360px" } as const;
+/** The booking-panel action currently running; the two booking values are the
+ *  provider each button books with. Null when the page is idle. */
+type PendingAction = "DPD" | "SWIFTLINE" | "DRAFT" | "ADDRESS" | null;
 type AddressForm = {
   countryCode: string;
   countryName: string;
@@ -397,10 +401,8 @@ export default function DpdLabelDraftPage() {
   const [kycDocuments, setKycDocuments] = useState<ShipmentKycDocuments>({});
   const [parcelKyc, setParcelKyc] = useState<Record<number, ShipmentKycDocuments>>({});
   const [parcelForms, setParcelForms] = useState<ParcelForm[]>([createEmptyParcelForm(1)]);
+  const deferredPricingParcels = useDeferredValue(parcelForms);
   const [parcelCountInput, setParcelCountInput] = useState(String(parcelForms.length));
-  useEffect(() => {
-    setParcelCountInput(String(parcelForms.length));
-  }, [parcelForms.length]);
 
   // Customs route for the shipment. Drafts saved before CSB selection existed
   // read as CSB-IV, matching how the backend prices them.
@@ -417,7 +419,11 @@ export default function DpdLabelDraftPage() {
   const [declarationNote, setDeclarationNote] = useState(defaultDeclarationNote);
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
-  const [busy, setBusy] = useState(false);
+  // Which action is in flight, not merely whether one is. Every action button
+  // locks while any of them runs — booking is irreversible, so a second click
+  // anywhere must not land — but only the one that was clicked shows progress.
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const busy = pendingAction !== null;
   const [addressBusy, setAddressBusy] = useState(false);
   const [error, setError] = useState("");
   const [, setReviewIssues] = useState<string[]>([]);
@@ -464,7 +470,7 @@ export default function DpdLabelDraftPage() {
     serviceType: draftCorrectionForm.serviceType,
     csbType,
     insuranceOptIn,
-    parcels: parcelForms.map((parcel, index) => ({
+    parcels: deferredPricingParcels.map((parcel, index) => ({
       sequence: index + 1,
       weightKg: Number(parcel.weightKg) || 0,
       lengthCm: Number(parcel.lengthCm) || 0,
@@ -476,7 +482,7 @@ export default function DpdLabelDraftPage() {
         unitRate: Number(item.unitRate) || 0
       }))
     }))
-  }), [addressForm.countryCode, addressForm.postcode, csbType, draftCorrectionForm.serviceType, insuranceOptIn, parcelForms]);
+  }), [addressForm.countryCode, addressForm.postcode, csbType, deferredPricingParcels, draftCorrectionForm.serviceType, insuranceOptIn]);
 
   const {
     estimate: costEstimate,
@@ -601,7 +607,9 @@ export default function DpdLabelDraftPage() {
       serviceType: nextDraft.serviceType ?? "COURIER",
       serviceCode: nextDraft.serviceCode ?? ""
     });
-    setParcelForms(normalizeParcelForms(nextDraft.parcelList));
+    const nextParcels = normalizeParcelForms(nextDraft.parcelList);
+    setParcelForms(nextParcels);
+    setParcelCountInput(String(nextParcels.length));
     setCsbType(normalizeCsbType(nextDraft.csbType));
     setInsuranceOptIn(nextDraft.insuranceOptIn ?? false);
     setDeclarationNote(nextDraft.declarationNote ?? defaultDeclarationNote);
@@ -670,7 +678,7 @@ export default function DpdLabelDraftPage() {
     return (event: ChangeEvent<HTMLInputElement>) => {
       setAddressForm((current) => ({
         ...current,
-        [field]: field === "postcode" ? event.target.value.toUpperCase() : event.target.value
+        [field]: event.target.value.toUpperCase()
       }));
       setManualAddressConfirmationRequired(false);
       setReviewIssues([]);
@@ -692,9 +700,10 @@ export default function DpdLabelDraftPage() {
 
   function handleCorrectionFieldChange(field: keyof DraftCorrectionForm) {
     return (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+      const preserveCase = field === "email" || field === "serviceType" || field === "serviceCode";
       setDraftCorrectionForm((current) => ({
         ...current,
-        [field]: event.target.value
+        [field]: preserveCase ? event.target.value : event.target.value.toUpperCase()
       }));
       setReviewIssues([]);
     };
@@ -703,7 +712,7 @@ export default function DpdLabelDraftPage() {
   function handleParcelFieldChange(index: number, field: keyof Omit<ParcelForm, "sequence">) {
     return (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
       setParcelForms((current) => current.map((parcel, parcelIndex) => (
-        parcelIndex === index ? { ...parcel, [field]: event.target.value as ParcelForm[typeof field] } : parcel
+        parcelIndex === index ? { ...parcel, [field]: event.target.value.toUpperCase() as ParcelForm[typeof field] } : parcel
       )));
       setReviewIssues([]);
     };
@@ -873,7 +882,7 @@ export default function DpdLabelDraftPage() {
       return true;
     }
 
-    setBusy(true);
+    setPendingAction("DRAFT");
     setError("");
     setReviewIssues([]);
 
@@ -897,7 +906,7 @@ export default function DpdLabelDraftPage() {
       setError(caughtError instanceof Error ? caughtError.message : "Shipment changes could not be saved.");
       return false;
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   }
 
@@ -934,11 +943,11 @@ export default function DpdLabelDraftPage() {
       const data = await getPlaceAddress(prediction.placeId, draft._id);
       setAddressForm((current) => ({
         ...current,
-        addressLine1: data.place.address.addressLine1 || current.addressLine1,
-        addressLine2: data.place.address.addressLine2 || current.addressLine2,
-        townOrCity: data.place.address.townOrCity || current.townOrCity,
-        county: data.place.address.county || current.county,
-        postcode: data.place.address.postcode || current.postcode
+        addressLine1: (data.place.address.addressLine1 || current.addressLine1).toUpperCase(),
+        addressLine2: (data.place.address.addressLine2 || current.addressLine2).toUpperCase(),
+        townOrCity: (data.place.address.townOrCity || current.townOrCity).toUpperCase(),
+        county: (data.place.address.county || current.county).toUpperCase(),
+        postcode: (data.place.address.postcode || current.postcode).toUpperCase()
       }));
       setPredictions([]);
       const refreshed = await getShipmentDraft(draft._id);
@@ -958,7 +967,7 @@ export default function DpdLabelDraftPage() {
 ) {
   if (!draft) return;
 
-  setBusy(true);
+  setPendingAction(bookingProvider);
   setError("");
   setReviewIssues([]);
 
@@ -970,6 +979,7 @@ export default function DpdLabelDraftPage() {
         consigneeContactFrom(draftCorrectionForm)
       ),
       ...getKycIssues({
+        csbType,
         useForAll: kycUseForAll,
         sharedAadhaar: consignorForm.aadhaarNumber,
         sharedDocuments: kycDocuments,
@@ -1099,7 +1109,7 @@ export default function DpdLabelDraftPage() {
 
     toast.error(message);
   } finally {
-    setBusy(false);
+    setPendingAction(null);
   }
 }
 
@@ -1122,7 +1132,7 @@ export default function DpdLabelDraftPage() {
   async function handleConfirmEnteredAddress() {
     if (!draft) return;
 
-    setBusy(true);
+    setPendingAction("ADDRESS");
     try {
       const data = await confirmAddress({
         shipmentDraftId: draft._id,
@@ -1136,7 +1146,7 @@ export default function DpdLabelDraftPage() {
     } catch (caughtError) {
       toast.error(caughtError instanceof Error ? caughtError.message : "Address could not be confirmed.");
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   }
 
@@ -1184,7 +1194,7 @@ export default function DpdLabelDraftPage() {
                     placeholder="Optional note printed on the shipment invoice"
                     tooltip="Printed on the shipment invoice sent with the goods"
                     value={declarationNote}
-                    onChange={(event) => { setDeclarationNote(event.target.value); setReviewIssues([]); }}
+                    onChange={(event) => { setDeclarationNote(event.target.value.toUpperCase()); setReviewIssues([]); }}
                     maxLength={500}
                   />
                 </div>
@@ -1193,6 +1203,7 @@ export default function DpdLabelDraftPage() {
 
             <ConsignorKycSection
               shipmentDraftId={draft._id}
+              csbType={csbType}
               form={consignorForm}
               onFormChange={(next) => { setConsignorForm(next); setReviewIssues([]); }}
               fieldIssues={consignorFieldIssues}
@@ -1408,7 +1419,7 @@ export default function DpdLabelDraftPage() {
                 </div>
 
                 {parcelForms.map((parcel, index) => (
-                  <div key={parcel.sequence} className="overflow-hidden rounded-xl border border-slate-200">
+                  <div key={parcel.sequence} style={parcelRenderStyle} className="overflow-hidden rounded-xl border border-slate-200">
                     <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <span>Parcel {index + 1} of {parcelForms.length}</span>
                        <button
@@ -1485,7 +1496,7 @@ export default function DpdLabelDraftPage() {
 </div>
                   <input
                     value={counterReference}
-                    onChange={(event) => setCounterReference(event.target.value)}
+                    onChange={(event) => setCounterReference(event.target.value.toUpperCase())}
                     placeholder="UTR, receipt or cheque number"
                     className="mt-2 h-10 w-full rounded-xl border border-amber-300 bg-white px-3 text-sm outline-none focus:border-amber-500"
                   />
@@ -1498,7 +1509,7 @@ export default function DpdLabelDraftPage() {
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
-                {busy ? "Creating..." : "Create Shipment"}
+                {pendingAction === "DPD" ? "Creating..." : "Create Shipment"}
               </button>
               <button
                 type="button"
@@ -1507,7 +1518,7 @@ export default function DpdLabelDraftPage() {
                 className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
               >
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
-                {busy ? "Creating..." : "Create Without DPD Label"}
+                {pendingAction === "SWIFTLINE" ? "Creating..." : "Create Without DPD Label"}
               </button>
               {/* Sits with the booking actions rather than in its own bar: this is
                   where the operator already looks to finish the shipment, and
@@ -1519,7 +1530,7 @@ export default function DpdLabelDraftPage() {
                 className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
               >
                 <FiSave aria-hidden="true" className="h-4 w-4" />
-                {busy ? "Saving..." : "Save as Draft"}
+                {pendingAction === "DRAFT" ? "Saving..." : "Save as Draft"}
               </button>
               {draftChanged ? (
                 <p className="mt-2 text-center text-xs font-semibold text-amber-700">Unsaved changes</p>

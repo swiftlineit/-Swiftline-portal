@@ -152,17 +152,17 @@ export default function ShipmentInvoicePage({
             DRAFT
           </div>
         ) : null}
-        <header className="relative flex items-start justify-between gap-8 border-b-2 border-slate-950 pb-5">
+        <header className="relative flex items-start justify-between gap-8 border-b-2 border-slate-950 pb-4">
           <Image
-            src="/swiftline-invoice-logo.jpeg"
+            src="/swiftline-invoice-logo.png"
             alt="Swiftline Cargo and Express Logistics"
-            width={224}
-            height={64}
+            width={180}
+            height={120}
             priority
-            className="h-16 w-56 object-contain object-left"
+            className="h-[120px] w-[180px] shrink-0 object-contain object-left"
           />
-          <div className="text-right">
-            <h1 className="text-xl font-bold">
+          <div className="min-w-0 pt-3 text-right">
+            <h1 className="text-2xl font-bold">
               {!showDraftStatus
                 ? "TAX INVOICE"
                 : "DRAFT TAX INVOICE"}

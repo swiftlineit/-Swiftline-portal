@@ -57,7 +57,7 @@ export const BUSINESS_ACCOUNT_AREA: readonly PortalRole[] = ["operations"];
  * business account branch picker; creating and editing branches stays admin-only,
  * so pages here check `role === "admin"` before offering a write control.
  */
-export const BRANCH_VIEW_AREA: readonly PortalRole[] = ["operations"];
+export const BRANCH_VIEW_AREA: readonly PortalRole[] = ["operations", "finance", "hr"];
 
 /** Credit, rate cards, and tax invoices. */
 export const FINANCE_AREA: readonly PortalRole[] = ["finance"];
@@ -81,6 +81,14 @@ export const SHIPMENT_VIEW_AREA: readonly PortalRole[] = ["operations", "deliver
 
 /** The GST invoice on a shipment: operational context plus the money side. */
 export const SHIPMENT_BILLING_AREA: readonly PortalRole[] = ["operations", "finance"];
+
+/**
+ * Compensation claims. Operations runs them, finance pays and reconciles, and
+ * delivery reads its own branches. HR is deliberately absent — the server's
+ * permission matrix grants it nothing here, so offering the link would only
+ * lead to a page that refuses.
+ */
+export const CLAIMS_AREA: readonly PortalRole[] = ["operations", "finance", "delivery"];
 
 /** The staff directory. HR may read it and add staff; only admin edits access. */
 export const STAFF_DIRECTORY_AREA: readonly PortalRole[] = ["hr"];

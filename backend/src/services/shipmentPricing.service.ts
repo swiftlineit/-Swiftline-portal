@@ -432,14 +432,20 @@ export function calculateChargeBreakdown(input: {
   const remoteAreaAmount = remoteAreaApplied ? roundShipmentMoney(routeCharges.remoteAreaCharge) : 0;
   const handlingAmount = priceable ? roundShipmentMoney(routeCharges.handlingCharge) : 0;
 
-  // The premium is the configured percentage of the declared value, floored at the
-  // configured minimum so a low-value shipment still covers the cost of cover.
+  // Shipment insurance is switched off portal-wide while the product is
+  // unfinished, so nothing new is ever priced with cover. The premium is still
+  // computed because it feeds the rate-card display of what cover *would* cost,
+  // but `insuranceApplied` is forced false and the amount is always zero.
+  //
+  // Historical bookings are untouched: this only affects pricing calculated from
+  // now on. Reactivating is a matter of restoring the opt-in below — the fields,
+  // the route-charge configuration, and the response shape all still exist.
   const insurancePremium = Math.max(
     percentageOf(declaredGoodsValue, routeCharges.insurancePercent),
     routeCharges.insuranceMinimum
   );
-  const insuranceApplied = Boolean(priceable && input.insuranceOptIn && insurancePremium > 0);
-  const insuranceAmount = insuranceApplied ? roundShipmentMoney(insurancePremium) : 0;
+  const insuranceApplied = false;
+  const insuranceAmount = 0;
 
   const chargesSubtotal = roundShipmentMoney(
     freightAmount

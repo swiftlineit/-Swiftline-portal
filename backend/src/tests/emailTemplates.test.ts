@@ -56,6 +56,17 @@ test("shipment booked client template does not claim labels are attached when th
   assert.match(dropped.html, /download from the portal/);
 });
 
+test("shipment booked client template warns when the attached carrier label is simulated", () => {
+  const simulated = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: true, dpdLabelIsTest: true });
+  const live = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: true, dpdLabelIsTest: false });
+
+  assert.match(simulated.html, /not valid for carriage/);
+  assert.doesNotMatch(live.html, /not valid for carriage/);
+  // No label reached the message, so there is nothing to warn about.
+  const noLabels = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: false, dpdLabelIsTest: true });
+  assert.doesNotMatch(noLabels.html, /not valid for carriage/);
+});
+
 test("shipment booked staff template names the account and the booker", () => {
   const { content, html } = render("SHIPMENT_BOOKED_STAFF", shipmentPayload);
 

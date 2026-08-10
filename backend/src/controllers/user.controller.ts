@@ -1,8 +1,10 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import { z } from "zod";
 import { Branch } from "../models/branch.model.js";
 import { assignableRoleValues, roleValues, User } from "../models/user.model.js";
 import { hashPassword } from "../services/auth.service.js";
+import { syncAccessWithUserStatus } from "../services/userStatusSync.service.js";
 import { validateAssignedBranches } from "../utils/assignedBranches.js";
 import { normalizePortalRole } from "../utils/portalRole.js";
 import { serializeStaffProfile } from "./staff.controller.js";
@@ -17,7 +19,7 @@ const createUserSchema = z.object({
 
 export async function listUsers(_req: Request, res: Response): Promise<Response> {
   const users = await User.find()
-    .select("email role name firstName lastName phone isVerified userStatus hasSeenWelcome lockedUntil assignedBranches staffProfile")
+    .select("email role name firstName lastName phone isVerified userStatus hasSeenWelcome lockedUntil assignedBranches staffProfile profileImage")
     .populate("assignedBranches", "name code status")
     .lean()
     .exec();
@@ -26,6 +28,7 @@ export async function listUsers(_req: Request, res: Response): Promise<Response>
     users: users.map((user) => ({
       ...user,
       role: normalizePortalRole(user.role),
+      hasProfileImage: Boolean(user.profileImage?.storedName),
       assignedBranches: user.assignedBranches ?? [],
       // Serialized rather than passed through: it masks the Aadhaar number and
       // drops the on-disk document paths.
@@ -100,6 +103,11 @@ export async function updateUserStatus(req: Request, res: Response): Promise<Res
     user.failedLoginAttempts = 0;
   }
   await user.save();
+
+  // Their driver profile or client-access record shows the status the rest of the
+  // portal reads, so it has to follow the login rather than drift out of step.
+  await syncAccessWithUserStatus(user._id as mongoose.Types.ObjectId, user.userStatus);
+
   await user.populate("assignedBranches", "name code status");
 
   return res.status(200).json({

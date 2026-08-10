@@ -138,9 +138,8 @@ export default function ClientRateCardPage() {
                       route.handlingCharge
                         ? `Handling ₹${route.handlingCharge}`
                         : "",
-                      route.insurancePercent
-                        ? `Insurance ${route.insurancePercent}%`
-                        : "",
+                      // Insurance is switched off portal-wide and never charged,
+                      // so it is not quoted here.
                       route.discountPercent
                         ? `Discount ${route.discountPercent}%`
                         : "",

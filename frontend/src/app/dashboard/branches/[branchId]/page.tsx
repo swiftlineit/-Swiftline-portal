@@ -14,7 +14,9 @@ import {
 
 import { BiSolidEdit } from "react-icons/bi";
 import { DashboardLoading } from "@/components/DashboardShell";
+import BranchFinanceSection from "@/components/branches/BranchFinanceSection";
 import { BranchFileModal, BranchImage } from "@/components/branches/BranchFileView";
+import BranchUsersSection from "@/components/branches/BranchUsersSection";
 import { AssignBranchModal } from "@/components/business-accounts/AssignBranchModal";
 import {
   BusinessAccountsTable,
@@ -42,7 +44,6 @@ import {
 } from "@/lib/businessAccounts";
 import {
   CreditAccount,
-  formatCreditMoney,
   listAdminCreditAccounts,
 } from "@/lib/creditAccounts";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
@@ -60,14 +61,16 @@ type BranchTab =
   | "businessAccounts"
   | "shipments"
   | "finance"
+  | "users"
   | "tickets";
 
-const branchTabs: Array<{ id: BranchTab; label: string; enabled: boolean }> = [
-  { id: "overview", label: "Overview", enabled: true },
-  { id: "businessAccounts", label: "Business Accounts", enabled: true },
-  { id: "shipments", label: "Shipments", enabled: true },
-  { id: "tickets", label: "Tickets", enabled: true },
-  { id: "finance", label: "Finance", enabled: true },
+const branchTabs: Array<{ id: BranchTab; label: string; roles: string[] }> = [
+  { id: "overview", label: "Overview", roles: ["admin", "operations", "finance"] },
+  { id: "businessAccounts", label: "Business Accounts", roles: ["admin", "operations"] },
+  { id: "shipments", label: "Shipments", roles: ["admin", "operations"] },
+  { id: "users", label: "Users", roles: ["admin", "operations", "hr"] },
+  { id: "tickets", label: "Tickets", roles: ["admin", "operations"] },
+  { id: "finance", label: "Finance", roles: ["admin", "operations", "finance"] },
 ];
 
 // Human labels for the branch lifecycle actions offered per status.
@@ -171,6 +174,7 @@ export default function BranchDetailPage() {
     if (!user || !params.branchId) return;
 
     let active = true;
+    const role = user.role;
 
     async function loadBranchForRoute() {
       await Promise.resolve();
@@ -180,9 +184,12 @@ export default function BranchDetailPage() {
       setError("");
 
       try {
+        const canLoadAccounts = role === "admin" || role === "operations";
         const [branchData, accountsData] = await Promise.all([
           getBranch(params.branchId),
-          listBusinessAccounts("", params.branchId),
+          canLoadAccounts
+            ? listBusinessAccounts("", params.branchId)
+            : Promise.resolve({ accounts: [] as BusinessAccount[] }),
         ]);
 
         if (!active) return;
@@ -203,22 +210,24 @@ export default function BranchDetailPage() {
     void loadBranchForRoute();
     // Supporting detail for the table, so a failure leaves the credit columns
     // blank rather than breaking the branch page.
-    void listAdminCreditAccounts()
-      .then((data) => {
-        if (active) {
-          setCreditByBusinessId(
-            new Map(
-              data.creditAccounts.map((account) => [
-                account.businessAccountId,
-                account,
-              ]),
-            ),
-          );
-        }
-      })
-      .catch(() => {
-        if (active) setCreditByBusinessId(new Map());
-      });
+    if (role === "admin" || role === "operations") {
+      void listAdminCreditAccounts()
+        .then((data) => {
+          if (active) {
+            setCreditByBusinessId(
+              new Map(
+                data.creditAccounts.map((account) => [
+                  account.businessAccountId,
+                  account,
+                ]),
+              ),
+            );
+          }
+        })
+        .catch(() => {
+          if (active) setCreditByBusinessId(new Map());
+        });
+    }
 
     return () => {
       active = false;
@@ -358,6 +367,11 @@ export default function BranchDetailPage() {
 
   if (loading || !user) return <DashboardLoading />;
 
+  const visibleTabs = branchTabs.filter((tab) => tab.roles.includes(user.role));
+  const displayedTab = visibleTabs.some((tab) => tab.id === activeTab)
+    ? activeTab
+    : visibleTabs[0]?.id ?? "overview";
+
   const filteredBranches = branches.filter((item) =>
     `${item.name} ${item.code} ${item.address.city} ${item.address.countryName}`
       .toLowerCase()
@@ -440,21 +454,18 @@ export default function BranchDetailPage() {
           {/* Tab navigation */}
           {branch ? (
             <div className="mt-5 flex flex-wrap gap-1 border-t border-slate-200 pt-4">
-              {branchTabs.map((tab) => {
-                const isActive = activeTab === tab.id;
+              {visibleTabs.map((tab) => {
+                const isActive = displayedTab === tab.id;
 
                 return (
                   <button
                     key={tab.id}
                     type="button"
-                    disabled={!tab.enabled}
                     onClick={() => setActiveTab(tab.id)}
                     className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
                       isActive
                         ? "bg-[#0D1282] text-white shadow-sm shadow-[#0D1282]/25"
-                        : tab.enabled
-                          ? "text-slate-600 hover:bg-[#0D1282]/8 hover:text-[#0D1282]"
-                          : "cursor-not-allowed text-slate-300"
+                        : "text-slate-600 hover:bg-[#0D1282]/8 hover:text-[#0D1282]"
                     }`}
                   >
                     {tab.label}
@@ -478,13 +489,13 @@ export default function BranchDetailPage() {
             </div>
           ) : branch ? (
             <>
-              {activeTab === "overview" ? (
+              {displayedTab === "overview" ? (
                 <BranchOverview
                   branch={branch}
-                  accountCount={linkedAccounts.length}
+                  accountCount={user.role === "admin" || user.role === "operations" ? linkedAccounts.length : null}
                 />
               ) : null}
-              {activeTab === "businessAccounts" ? (
+              {displayedTab === "businessAccounts" ? (
                 <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
                     <div>
@@ -511,17 +522,17 @@ export default function BranchDetailPage() {
                   />
                 </section>
               ) : null}
-              {activeTab === "shipments" && branch ? (
+              {displayedTab === "shipments" && branch ? (
                 <BranchShipmentsSection branchId={branch._id} />
               ) : null}
-              {activeTab === "tickets" && branch ? (
+              {displayedTab === "tickets" && branch ? (
                 <BranchTicketsSection branchId={branch._id} />
               ) : null}
-              {activeTab === "finance" && branch ? (
-                <BranchFinanceSection
-                  linkedAccounts={linkedAccounts}
-                  creditByBusinessId={creditByBusinessId}
-                />
+              {displayedTab === "users" && branch ? (
+                <BranchUsersSection branchId={branch._id} viewerRole={user.role} />
+              ) : null}
+              {displayedTab === "finance" && branch ? (
+                <BranchFinanceSection branchId={branch._id} />
               ) : null}
             </>
           ) : (
@@ -983,158 +994,12 @@ function BranchTicketsSection({ branchId }: { branchId: string }) {
   );
 }
 
-/* ── Finance tab ───────────────────────────────────────────────── */
-function BranchFinanceSection({
-  linkedAccounts,
-  creditByBusinessId,
-}: {
-  linkedAccounts: BusinessAccount[];
-  creditByBusinessId: Map<string, CreditAccount>;
-}) {
-  const branchCreditAccounts = linkedAccounts
-    .map((account) => creditByBusinessId.get(account._id))
-    .filter((credit): credit is CreditAccount => credit !== undefined);
-
-  const withCredit = branchCreditAccounts.filter(
-    (c) => c.status !== "NOT_REQUESTED",
-  );
-  const totalCreditLimit = withCredit.reduce(
-    (sum, c) => sum + (c.approvedCreditLimitMinor ?? 0),
-    0,
-  );
-  const totalOutstanding = withCredit.reduce(
-    (sum, c) => sum + (c.invoicedOutstandingMinor ?? 0),
-    0,
-  );
-  const totalAdvances = branchCreditAccounts.reduce(
-    (sum, c) => sum + (c.customerAdvanceBalanceMinor ?? 0),
-    0,
-  );
-  const totalUsed = withCredit.reduce(
-    (sum, c) => sum + (c.usedCreditMinor ?? 0),
-    0,
-  );
-
-  return (
-    <section className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryTile label="Business Accounts" value={linkedAccounts.length} />
-        <SummaryTile label="With Credit Account" value={withCredit.length} />
-        <SummaryTile
-          label="Total Credit Limit"
-          value={formatCreditMoney(totalCreditLimit)}
-        />
-        <SummaryTile
-          label="Total Outstanding"
-          value={formatCreditMoney(totalOutstanding)}
-        />
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryTile
-          label="Total Used Credit"
-          value={formatCreditMoney(totalUsed)}
-        />
-        <SummaryTile
-          label="Total Advances"
-          value={formatCreditMoney(totalAdvances)}
-        />
-        <SummaryTile
-          label="Accounts Without Credit"
-          value={linkedAccounts.length - withCredit.length}
-        />
-        <SummaryTile
-          label="Credit Utilization"
-          value={
-            totalCreditLimit > 0
-              ? `${((totalUsed / totalCreditLimit) * 100).toFixed(1)}%`
-              : "0%"
-          }
-        />
-      </div>
-
-      {branchCreditAccounts.length ? (
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="text-base font-bold text-[#0D1282]">
-              Credit Accounts
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Credit accounts for business accounts linked to this branch.
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Account</th>
-                  <th className="px-4 py-3">Company</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Credit Limit</th>
-                  <th className="px-4 py-3">Used</th>
-                  <th className="px-4 py-3">Outstanding</th>
-                  <th className="px-4 py-3">Available</th>
-                </tr>
-              </thead>
-              <tbody>
-                {branchCreditAccounts.map((credit) => {
-                  const account = linkedAccounts.find(
-                    (a) => a._id === credit.businessAccountId,
-                  );
-                  return (
-                    <tr
-                      key={credit.id}
-                      className="border-b border-slate-100 last:border-b-0"
-                    >
-                      <td className="px-4 py-3 font-semibold text-slate-950">
-                        {account?.accountId || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-800">
-                        {account?.company.companyName || "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold capitalize bg-slate-100 text-slate-700">
-                          {credit.status.replaceAll("_", " ").toLowerCase()}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-slate-950">
-                        {formatCreditMoney(credit.approvedCreditLimitMinor)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {formatCreditMoney(credit.usedCreditMinor)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {formatCreditMoney(credit.invoicedOutstandingMinor)}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-[#0D1282]">
-                        {formatCreditMoney(credit.availableCreditMinor)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <p className="font-semibold text-slate-900">No credit accounts</p>
-          <p className="mt-1 text-sm text-slate-500">
-            No credit facilities have been set up for accounts linked to this
-            branch.
-          </p>
-        </div>
-      )}
-    </section>
-  );
-}
-
 function BranchOverview({
   branch,
   accountCount,
 }: {
   branch: Branch;
-  accountCount: number;
+  accountCount: number | null;
 }) {
   const [preview, setPreview] = useState<FilePreview | null>(null);
 

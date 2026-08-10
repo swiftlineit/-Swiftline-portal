@@ -1,56 +1,71 @@
 "use client";
 
-import type { ComponentType } from "react";
 import Link from "next/link";
-import { FiArchive, FiArrowRight, FiBriefcase, FiCreditCard, FiGrid, FiInbox, FiMapPin, FiPackage, FiTruck } from "react-icons/fi";
-import { panelLift, panelSurface } from "@/components/dashboard/DashboardWidgets";
+import { FiArrowRight } from "react-icons/fi";
 import type { QuickLink } from "@/lib/dashboardOverview";
 
-type IconType = ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
-
-const quickLinkIcons: Record<string, IconType> = {
-  "/dashboard/dpd-labels": FiPackage,
-  "/dashboard/tracking": FiTruck,
-  "/dashboard/operations-manifests": FiArchive,
-  "/dashboard/business-accounts": FiBriefcase,
-  "/dashboard/credit-accounts": FiCreditCard,
-  "/dashboard/branches": FiMapPin,
-  "/dashboard/tickets": FiInbox
-};
-
-export default function AdminQuickAccess({ links }: { links: QuickLink[] }) {
+export default function AdminQuickAccess({
+  links,
+}: {
+  links: QuickLink[];
+}) {
   if (!links.length) return null;
 
   return (
-    <section>
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold tracking-tight text-slate-900">Quick access</h2>
-        <p className="text-xs text-slate-500">Modules available to your role</p>
-      </div>
+    <>
+      <style jsx>{`
+        @keyframes adminArrowNudge {
+          0%,
+          100% {
+            transform: translateX(0);
+          }
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {links.map((link) => {
-          const Icon = quickLinkIcons[link.href] ?? FiGrid;
-          return (
+          50% {
+            transform: translateX(4px);
+          }
+        }
+      `}</style>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-5">
+          <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-slate-900">
+            Quick access
+          </h2>
+
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            Modules available to your role
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {links.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className={`group flex items-start gap-3 p-4 ${panelSurface} ${panelLift} focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2`}
+              className="group flex min-h-33 flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/40 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#0D1282]/25 hover:bg-white hover:shadow-[0_10px_26px_-18px_rgba(13,18,130,0.4)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/20 focus-visible:ring-offset-2"
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[#0D1282] transition group-hover:bg-[#0D1282] group-hover:text-white">
-                <Icon aria-hidden="true" className="h-[18px] w-[18px]" />
-              </span>
-              <span className="min-w-0">
-                <span className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+              <div>
+                <h3 className="text-[13px] font-semibold text-slate-900 transition-colors duration-200 group-hover:text-[#0D1282]">
                   {link.label}
-                  <FiArrowRight aria-hidden="true" className="h-3 w-3 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[#0D1282]" />
+                </h3>
+
+                <p className="mt-1.5 line-clamp-2 text-[10.5px] leading-4 text-slate-500">
+                  {link.description}
+                </p>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <span className="relative flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white text-[#0D1282] transition-all duration-200 group-hover:border-[#0D1282] group-hover:bg-[#0D1282] group-hover:text-white group-hover:shadow-[0_5px_14px_-7px_rgba(13,18,130,0.55)]">
+                  <FiArrowRight
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 animate-[adminArrowNudge_1.6s_ease-in-out_infinite] transition-transform duration-200 group-hover:animate-none group-hover:translate-x-0.5"
+                  />
                 </span>
-                <span className="mt-0.5 block text-xs leading-5 text-slate-500">{link.description}</span>
-              </span>
+              </div>
             </Link>
-          );
-        })}
-      </div>
-    </section>
+          ))}
+        </div>
+      </section>
+    </>
   );
 }

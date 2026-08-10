@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import mongoose from "mongoose";
 import { OperationsManifest } from "../models/operationsManifest.model.js";
+import { allowedBranchIds } from "./branchAccess.middleware.js";
 
 type OperationsUser = {
   _id: mongoose.Types.ObjectId;
@@ -13,9 +14,7 @@ export function operationsUser(request: Request) {
 }
 
 export function operationsBranchIds(request: Request) {
-  const user = operationsUser(request);
-  if (!user || user.role === "admin") return null;
-  return (user.assignedBranches ?? []).map(String);
+  return allowedBranchIds(request);
 }
 
 function canAccessBranch(request: Request, branchId: unknown) {

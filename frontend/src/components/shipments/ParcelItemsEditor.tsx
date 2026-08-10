@@ -166,7 +166,7 @@ export function ParcelItemsEditor({
                   type="text"
                   value={item.description}
                   onChange={(event) =>
-                    updateItem(index, "description", event.target.value)
+                    updateItem(index, "description", event.target.value.toUpperCase())
                   }
                   onFocus={() => setActiveRow(index)}
                   onBlur={() => {
@@ -197,7 +197,7 @@ export function ParcelItemsEditor({
                 {/* Suggested tariff codes for what was typed. Picking one only
                     fills the HS code; the description stays as the sender wrote it. */}
                 {activeRow === index && visibleSuggestions.length ? (
-                  <ul className="absolute left-0 top-full z-20 mt-1 max-h-60 w-[min(30rem,85vw)] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+                  <ul className="mt-1 max-h-60 w-[min(30rem,85vw)] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
                     <li className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                       Suggested HS codes
                     </li>

@@ -51,6 +51,23 @@ const environmentSchema = z.object({
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
   SES_CONFIGURATION_SET: z.string().optional(),
+  // Selects where uploaded documents live. Defaults to "local" so nothing changes
+  // behaviour until the bucket is ready, tests run without AWS credentials, and a
+  // rollback is a config change rather than a deploy.
+  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  // Bucket name only, not an ARN or URL. Required when STORAGE_DRIVER is "s3";
+  // the check is below because zod cannot express the dependency inline.
+  S3_BUCKET: z.string().optional(),
+  // Bucket region, when it differs from the SES region.
+  S3_REGION: z.string().optional(),
+  // Namespaces one bucket across environments. Prefer separate buckets; this is
+  // for the case where that is not possible.
+  S3_KEY_PREFIX: z.string().optional(),
+  // How long a signed download link stays valid. Short by default: the URL is a
+  // bearer token for its lifetime, so anyone holding it can read the object.
+  S3_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().max(3600).default(300),
+  // Points the SDK at MinIO or LocalStack for development.
+  S3_ENDPOINT: z.string().url().optional(),
   // Shared secret appended to the SNS subscription URL as ?token=. SNS cannot
   // send custom headers, so the query string is the only channel available.
   SES_WEBHOOK_SECRET: z.string().optional(),
@@ -99,6 +116,17 @@ const environmentSchema = z.object({
   // Verifies a login email's domain exists (DNS MX/A lookup) before accepting it.
   // Disable only in environments without outbound DNS.
   EMAIL_DOMAIN_CHECK: booleanFromEnv.default(true)
+}).superRefine((value, context) => {
+  // Fail at boot rather than on the first upload: a missing bucket would
+  // otherwise surface as a runtime error only once a client tried to attach a
+  // document, long after the deploy looked successful.
+  if (value.STORAGE_DRIVER === "s3" && !value.S3_BUCKET) {
+    context.addIssue({
+      code: "custom",
+      path: ["S3_BUCKET"],
+      message: "S3_BUCKET is required when STORAGE_DRIVER is \"s3\""
+    });
+  }
 });
 
 const result = environmentSchema.safeParse(process.env);

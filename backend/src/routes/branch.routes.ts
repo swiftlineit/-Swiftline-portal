@@ -4,22 +4,36 @@ import {
   updateBranch, updateBranchStatus, uploadBranchDocument, uploadBranchImages, validateBranchCode
 } from "../controllers/branch.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
+import { requireBranchAccess } from "../middleware/branchAccess.middleware.js";
+import { getBranchFinanceSummary, getBranchUsers } from "../controllers/branchReporting.controller.js";
 import { branchUpload } from "../middleware/branchUpload.middleware.js";
 
 export const branchRouter = Router();
 
 branchRouter.use(attachUser);
-// Operations reads the branch list: the shipment booking flow and the business
-// account branch picker both need it. Changing the branch network stays a
-// governance action, so every write below re-checks with the narrower guard.
-branchRouter.use(requireRole("admin", "operations"));
+// Operations, finance and HR read only their assigned branches for their own
+// tab-specific work. Changing the branch network stays an admin governance
+// action, so every write below re-checks with the narrower guard.
+branchRouter.use(requireRole("admin", "operations", "finance", "hr"));
 
 const requireAdmin = requireRole("admin");
 
 branchRouter.get("/", listBranches);
 branchRouter.get("/validate-code", requireAdmin, validateBranchCode);
 branchRouter.post("/", requireAdmin, createBranch);
-branchRouter.get("/:branchId", getBranch);
+branchRouter.get(
+  "/:branchId/finance-summary",
+  requireRole("admin", "operations", "finance"),
+  requireBranchAccess,
+  getBranchFinanceSummary
+);
+branchRouter.get(
+  "/:branchId/users",
+  requireRole("admin", "operations", "hr"),
+  requireBranchAccess,
+  getBranchUsers
+);
+branchRouter.get("/:branchId", requireBranchAccess, getBranch);
 branchRouter.patch("/:branchId", requireAdmin, updateBranch);
 branchRouter.patch("/:branchId/status", requireAdmin, updateBranchStatus);
 // Draft branches only; an activated branch is retired through the status
@@ -29,4 +43,3 @@ branchRouter.post("/:branchId/images", requireAdmin, branchUpload, uploadBranchI
 branchRouter.delete("/:branchId/images/:imageIndex", requireAdmin, deleteBranchImage);
 branchRouter.post("/:branchId/documents", requireAdmin, branchUpload, uploadBranchDocument);
 branchRouter.delete("/:branchId/documents/:docIndex", requireAdmin, deleteBranchDocument);
-

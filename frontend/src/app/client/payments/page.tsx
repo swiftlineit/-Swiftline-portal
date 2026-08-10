@@ -118,11 +118,11 @@ function renderPaymentInvoiceHtml(invoice: PaymentInvoiceDetails, logoUrl: strin
     * { box-sizing: border-box; }
     body { margin: 0; background: #f8fafc; color: #0f172a; font-family: Arial, Helvetica, sans-serif; }
     .page { width: min(860px, 100%); margin: 0 auto; background: #fff; padding: 40px; }
-    .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; border-bottom: 2px solid #0f172a; padding-bottom: 26px; }
-    .brand, .meta { width: 240px; height: 64px; }
-    .brand { display: flex; align-items: flex-start; justify-content: flex-start; overflow: hidden; }
-    .brand img { display: block; width: 240px; height: auto; transform: translateY(-24px); }
-    .meta { display: flex; flex-direction: column; justify-content: center; align-items: flex-end; text-align: right; font-size: 11px; line-height: 1.75; }
+    .top { display: flex; min-height: 126px; align-items: flex-start; justify-content: space-between; gap: 24px; border-bottom: 2px solid #0f172a; padding-bottom: 16px; }
+    .brand { display: flex; width: 180px; height: 120px; align-items: flex-start; justify-content: flex-start; }
+    .brand img { display: block; width: 180px; height: 120px; object-fit: contain; object-position: left top; }
+    .meta { display: flex; max-width: 300px; padding-top: 14px; flex-direction: column; align-items: flex-end; text-align: right; font-size: 11px; line-height: 1.75; }
+    .invoice-title { margin: 0 0 12px; font-size: 24px; line-height: 1.1; }
     .meta strong { display: block; max-width: 240px; overflow-wrap: anywhere; font-size: 12px; line-height: 1.35; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 28px; }
     .box { border: 1px solid #e2e8f0; padding: 18px; min-height: 132px; }
@@ -137,7 +137,7 @@ function renderPaymentInvoiceHtml(invoice: PaymentInvoiceDetails, logoUrl: strin
     .total-row.final { background: #0f172a; color: #fff; font-size: 18px; font-weight: 700; }
     .note { margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 16px; font-size: 12px; line-height: 1.7; color: #64748b; }
     @media print { body { background: #fff; } .page { width: 100%; padding: 24px; } }
-    @media (max-width: 680px) { .page { padding: 24px; } .top { display: block; } .grid { display: block; } .brand, .meta { width: 100%; } .brand { width: 240px; max-width: 100%; } .brand img { width: 240px; max-width: 100%; } .meta { align-items: flex-start; margin-top: 14px; height: auto; text-align: left; } .box + .box { margin-top: 16px; } }
+    @media (max-width: 680px) { .page { padding: 24px; } .top { display: block; } .grid { display: block; } .brand { max-width: 100%; } .brand img { max-width: 100%; } .meta { align-items: flex-start; margin-top: 14px; padding-top: 0; text-align: left; } .box + .box { margin-top: 16px; } }
   </style>
 </head>
 <body>
@@ -149,6 +149,7 @@ function renderPaymentInvoiceHtml(invoice: PaymentInvoiceDetails, logoUrl: strin
         </div>
       </div>
       <div class="meta">
+        <h1 class="invoice-title">PAYMENT RECEIPT</h1>
         <strong>${safe(invoice.invoiceNumber)}</strong><br />
         Issued: ${safe(formatInvoiceDate(invoice.issuedAt))}<br />
         Account: ${safe(invoice.accountId)}
@@ -205,14 +206,14 @@ function printPaymentInvoice(invoice: PaymentInvoiceDetails) {
   const printWindow = window.open("", "_blank");
   if (!printWindow) return;
 
-  printWindow.document.write(renderPaymentInvoiceHtml(invoice, `${window.location.origin}/swiftline-invoice-logo.jpeg`));
+  printWindow.document.write(renderPaymentInvoiceHtml(invoice, `${window.location.origin}/swiftline-invoice-logo.png`));
   printWindow.document.close();
   printWindow.focus();
   window.setTimeout(() => printWindow.print(), 500);
 }
 
 function downloadPaymentInvoice(invoice: PaymentInvoiceDetails) {
-  const blob = new Blob([renderPaymentInvoiceHtml(invoice, `${window.location.origin}/swiftline-invoice-logo.jpeg`)], {
+  const blob = new Blob([renderPaymentInvoiceHtml(invoice, `${window.location.origin}/swiftline-invoice-logo.png`)], {
     type: "text/html;charset=utf-8"
   });
   const url = URL.createObjectURL(blob);
@@ -780,7 +781,7 @@ function InvoiceActionButton({
 }
 
 function PaymentInvoicePreview({ invoice, onClose }: { invoice: PaymentInvoiceDetails; onClose: () => void }) {
-  const html = renderPaymentInvoiceHtml(invoice, "/swiftline-invoice-logo.jpeg");
+  const html = renderPaymentInvoiceHtml(invoice, "/swiftline-invoice-logo.png");
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/50 px-4 py-6">

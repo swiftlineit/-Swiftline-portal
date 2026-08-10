@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { FiCheck, FiMessageSquare, FiSend, FiUser } from "react-icons/fi";
+import { FiCheck, FiMessageSquare, FiSend, FiShield, FiUser } from "react-icons/fi";
 import { IoMdSend } from "react-icons/io";
 import { toast } from "react-toastify";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
@@ -10,6 +10,7 @@ import {
   getSupportTicket,
   getSupportTicketContext,
   replySupportTicket,
+  shipmentIssueCategories,
   ticketLabel,
   updateSupportTicket,
   type SupportTicket,
@@ -140,6 +141,10 @@ export default function TicketDetail({
         {error || "Ticket not found."}
       </div>
     );
+
+  // Loss and damage categories are the ones a claim can follow from. A billing
+  // query or an access problem has nothing to compensate.
+  const claimableCategories = shipmentIssueCategories;
 
   const shipmentHref = ticket.relatedShipmentDraftId
     ? audience === "client"
@@ -393,6 +398,27 @@ export default function TicketDetail({
               >
                 Open shipment details
               </Link>
+
+              {/*
+                Offered only on the client's own view, and only for the loss and
+                damage categories. A ticket is an enquiry; a claim asks for money.
+                Raising one does not close the ticket — the two run in parallel
+                and can end differently.
+              */}
+              {audience === "client" && claimableCategories.includes(ticket.category) ? (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                  <p className="text-sm text-slate-600">
+                    Looking for compensation for this shipment?
+                  </p>
+                  <Link
+                    href={`/client/claims/new?shipmentId=${ticket.relatedShipmentDraftId}&ticketId=${ticket.id}`}
+                    className="mt-2 inline-flex items-center gap-2 rounded-4xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    <FiShield aria-hidden="true" className="h-4 w-4" />
+                    Raise a claim
+                  </Link>
+                </div>
+              ) : null}
             </section>
           ) : null}
           <section className="border border-slate-200 bg-white rounded-2xl">

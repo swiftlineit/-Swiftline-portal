@@ -5,10 +5,11 @@ import PortalToasts from "@/components/PortalToasts";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://swiftlineportal.com"),
   title: "Swiftline Cargo Portal",
   description: "A portal provided by Swiftline Cargo for managing your shipments and tracking your orders.",
-  icons: {
-    icon: "/icon.png",
+  alternates: {
+    canonical: "/",
   },
 };
 

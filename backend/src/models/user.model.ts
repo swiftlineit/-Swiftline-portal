@@ -60,6 +60,7 @@ export interface IStaffProfile {
   emergencyContact?: {
     name?: string;
     phone?: string;
+    relationship?: string;
   };
   documents: Partial<Record<StaffDocumentType, IStaffDocument>>;
   createdBy?: mongoose.Types.ObjectId | null;
@@ -125,7 +126,8 @@ const staffProfileSchema = new mongoose.Schema<IStaffProfile>(
     },
     emergencyContact: {
       name: { type: String, trim: true, default: "" },
-      phone: { type: String, trim: true, default: "" }
+      phone: { type: String, trim: true, default: "" },
+      relationship: { type: String, trim: true, default: "" }
     },
     documents: {
       aadhaar: { type: staffDocumentSchema },
