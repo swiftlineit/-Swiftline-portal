@@ -1,5 +1,3 @@
-import fs from "fs/promises";
-import path from "path";
 import mongoose from "mongoose";
 import { ClaimDocument } from "../../models/claimDocument.model.js";
 import { ClaimEvent } from "../../models/claimEvent.model.js";
@@ -8,7 +6,7 @@ import { InvoiceUpload } from "../../models/invoiceUpload.model.js";
 import { LabelDocument } from "../../models/labelDocument.model.js";
 import { ShipmentDraft } from "../../models/shipmentDraft.model.js";
 import type { IClaim } from "../../models/claim.model.js";
-import { checksumOf, claimDocumentKey, putObject } from "../storage/storage.service.js";
+import { checksumOf, claimDocumentKey, getObjectBuffer, putObject } from "../storage/storage.service.js";
 
 /**
  * Attaches documents Swiftline already holds for the shipment.
@@ -18,10 +16,9 @@ import { checksumOf, claimDocumentKey, putObject } from "../storage/storage.serv
  * commonest reason a checklist sits incomplete.
  *
  * The bytes are *copied* into the claim's own storage prefix rather than
- * referenced where they sit. Two reasons: the source modules still store local
- * filesystem paths rather than storage keys, so a reference would not survive
- * their S3 conversion; and a claim is a legal record kept for eight years, which
- * must not depend on another module's retention decisions.
+ * referenced where they sit. A claim is a legal record kept for eight years, and
+ * it must not depend on another module's retention decisions — a deleted draft
+ * or a superseded invoice must not take a claim's evidence with it.
  */
 
 interface PortalSource {
@@ -29,15 +26,8 @@ interface PortalSource {
   label: string;
   filename: string;
   mimeType: string;
-  absolutePath: string;
-}
-
-const uploadsRoot = path.resolve(process.cwd(), "private_uploads");
-
-/** Source modules store bare filenames or absolute paths depending on age. */
-function resolveSourcePath(storagePath: string, subdirectory: string) {
-  if (path.isAbsolute(storagePath)) return storagePath;
-  return path.resolve(uploadsRoot, subdirectory, storagePath);
+  /** Key in the source module's own prefix. Read once, then copied. */
+  storageKey: string;
 }
 
 async function collectSources(shipmentDraftId: mongoose.Types.ObjectId) {
@@ -50,11 +40,11 @@ async function collectSources(shipmentDraftId: mongoose.Types.ObjectId) {
 
   if (shipment?.invoiceUploadId) {
     const invoice = await InvoiceUpload.findById(shipment.invoiceUploadId)
-      .select("originalFilename storagePath")
+      .select("originalFilename storageKey")
       .lean()
       .exec();
 
-    if (invoice?.storagePath) {
+    if (invoice?.storageKey) {
       sources.push({
         category: "VALUE_PROOF",
         label: "commercial invoice from booking",
@@ -62,7 +52,7 @@ async function collectSources(shipmentDraftId: mongoose.Types.ObjectId) {
         mimeType: invoice.originalFilename?.toLowerCase().endsWith(".pdf")
           ? "application/pdf"
           : "application/octet-stream",
-        absolutePath: resolveSourcePath(invoice.storagePath, "invoices")
+        storageKey: invoice.storageKey
       });
     }
   }
@@ -72,18 +62,18 @@ async function collectSources(shipmentDraftId: mongoose.Types.ObjectId) {
   if (booking) {
     const label = await LabelDocument.findOne({ dpdShipmentId: booking._id, voidedAt: null })
       .sort({ createdAt: -1 })
-      .select("storagePath format parcelNumber")
+      .select("storageKey format parcelNumber")
       .lean()
       .exec();
 
     // ZPL is printer control code, not a document a reviewer can read.
-    if (label?.storagePath && label.format === "PDF") {
+    if (label?.storageKey && label.format === "PDF") {
       sources.push({
         category: "OTHER",
         label: "shipping label",
         filename: `label-${label.parcelNumber || "parcel"}.pdf`,
         mimeType: "application/pdf",
-        absolutePath: resolveSourcePath(label.storagePath, "labels")
+        storageKey: label.storageKey
       });
     }
   }
@@ -111,7 +101,7 @@ export async function attachPortalDocuments(claim: IClaim, actorUserId: mongoose
       });
       if (existing) continue;
 
-      const contents = await fs.readFile(source.absolutePath);
+      const contents = await getObjectBuffer(source.storageKey);
       if (contents.length === 0) continue;
 
       const storageKey = claimDocumentKey({

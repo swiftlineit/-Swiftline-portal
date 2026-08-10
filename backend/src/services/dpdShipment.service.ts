@@ -225,8 +225,21 @@ export async function storeGeneratedLabel(input: {
     labelType: input.labelType,
     parcelNumber: input.parcelNumber
   }).select("labelVersion").lean().exec();
-  const stored = saveLabelBuffer({
-    dpdShipmentId: input.dpdShipmentId.toString(),
+
+  // Labels are stored under the draft, not the booking, so everything belonging
+  // to one shipment shares a prefix. Every caller has the booking rather than
+  // the draft, so the id is resolved here instead of being threaded through all
+  // twelve call sites.
+  const booking = await DpdShipment.findById(input.dpdShipmentId)
+    .select("shipmentDraftId")
+    .lean()
+    .exec();
+  if (!booking) {
+    throw new DpdShipmentServiceError("The booking this label belongs to no longer exists.", 404);
+  }
+
+  const stored = await saveLabelBuffer({
+    shipmentDraftId: booking.shipmentDraftId.toString(),
     parcelNumber: input.parcelNumber,
     buffer: input.buffer,
     format: "PDF",
@@ -247,7 +260,7 @@ export async function storeGeneratedLabel(input: {
       providerMode: input.providerMode,
       format: "PDF",
       labelSize: "A6",
-      storagePath: stored.storagePath,
+      storageKey: stored.storageKey,
       fileChecksum: stored.fileChecksum,
       generatedAt: new Date(),
       labelVersion: (existing?.labelVersion ?? 0) + 1

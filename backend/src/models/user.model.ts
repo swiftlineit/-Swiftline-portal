@@ -16,10 +16,16 @@ export type UserStatus = "invited" | "active" | "suspended" | "disabled";
 
 export interface IUserProfileImage {
   originalName: string;
-  storedName: string;
+  /**
+   * The storage service key, never a filesystem path or a URL.
+   *
+   * A row holding an absolute path is tied to one server's disk forever, which
+   * is why every document reference in the portal stores the key and resolves it
+   * through the storage service instead.
+   */
+  storageKey: string;
   mimeType: string;
   size: number;
-  path: string;
   uploadedAt: Date;
 }
 
@@ -37,10 +43,9 @@ export type StaffDocumentType = (typeof staffDocumentTypes)[number];
 export interface IStaffDocument {
   type: StaffDocumentType;
   originalName: string;
-  storedName: string;
+  storageKey: string;
   mimeType: string;
   size: number;
-  path: string;
   uploadedAt: Date;
 }
 
@@ -98,10 +103,9 @@ const staffDocumentSchema = new mongoose.Schema<IStaffDocument>(
   {
     type: { type: String, enum: staffDocumentTypes, required: true },
     originalName: { type: String, required: true },
-    storedName: { type: String, required: true },
+    storageKey: { type: String, required: true },
     mimeType: { type: String, required: true },
     size: { type: Number, required: true },
-    path: { type: String, required: true },
     uploadedAt: { type: Date, default: Date.now }
   },
   { _id: false }
@@ -165,14 +169,13 @@ const userSchema = new mongoose.Schema<IUser>(
     emailVerifiedAt: { type: Date, default: null },
     invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     hasSeenWelcome: { type: Boolean, default: false },
-    // Optional for every portal identity. The stored path is never serialized;
+    // Optional for every portal identity. The storage key is never serialized;
     // images are served through authenticated, scope-checked endpoints.
     profileImage: {
       originalName: { type: String, trim: true, default: "" },
-      storedName: { type: String, trim: true, default: "" },
+      storageKey: { type: String, trim: true, default: "" },
       mimeType: { type: String, trim: true, default: "" },
       size: { type: Number, min: 0, default: 0 },
-      path: { type: String, trim: true, default: "" },
       uploadedAt: { type: Date, default: null }
     },
     failedLoginAttempts: { type: Number, default: 0 },

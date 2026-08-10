@@ -1,4 +1,3 @@
-import fs from "fs";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -830,8 +829,7 @@ export async function uploadClientShipmentKycDocument(request: Request, response
   const accessible = Boolean(userId) && await clientCanAccessDraft(String(userId), draftId, true);
 
   if (!accessible) {
-    // Multer has already written the file, so discard it before rejecting.
-    if (request.file?.path) await fs.promises.unlink(request.file.path).catch(() => undefined);
+    // The upload is an in-memory buffer, so rejecting leaves nothing behind.
     return userId
       ? response.status(404).json({ success: false, message: "Shipment draft not found" })
       : response.status(401).json({ success: false, message: "Unauthorized" });
@@ -870,7 +868,7 @@ export async function uploadClientShipmentParcelKycDocument(request: Request, re
   const accessible = Boolean(userId) && await clientCanAccessDraft(String(userId), draftId, true);
 
   if (!accessible) {
-    if (request.file?.path) await fs.promises.unlink(request.file.path).catch(() => undefined);
+    // The upload is an in-memory buffer, so rejecting leaves nothing behind.
     return userId
       ? response.status(404).json({ success: false, message: "Shipment draft not found" })
       : response.status(401).json({ success: false, message: "Unauthorized" });

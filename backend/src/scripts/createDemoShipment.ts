@@ -153,7 +153,7 @@ async function main() {
       $set: {
         templateVersion: "TESTING-SHIPMENT-1.0",
         originalFilename: "testing-shipment-not-demo.xlsx",
-        storagePath: "testing://dashboard/testing-shipment-not-demo.xlsx",
+        storageKey: "invoices/demo-shipment/testing-shipment-not-demo.xlsx",
         fileChecksum: `demo-${String(account._id)}-${String(branchId)}`,
         extractedData: {
           invoiceNumber: demoInvoiceNumber,
@@ -218,8 +218,8 @@ async function main() {
           county: "Delhi"
         },
         kycDocuments: {
-          aadhaar: { type: "aadhaar", documentLabel: "Aadhaar Card", originalName: "aadhaar.pdf", storedName: "demo-aadhaar.pdf", mimeType: "application/pdf", size: 1024, path: "demo://kyc/aadhaar.pdf", uploadedAt: new Date() },
-          pan: { type: "pan", documentLabel: "PAN Card", originalName: "pan.pdf", storedName: "demo-pan.pdf", mimeType: "application/pdf", size: 1024, path: "demo://kyc/pan.pdf", uploadedAt: new Date() }
+          aadhaar: { type: "aadhaar", documentLabel: "Aadhaar Card", originalName: "aadhaar.pdf", storageKey: "shipments/demo-draft/kyc/demo-aadhaar.pdf", mimeType: "application/pdf", size: 1024, uploadedAt: new Date() },
+          pan: { type: "pan", documentLabel: "PAN Card", originalName: "pan.pdf", storageKey: "shipments/demo-draft/kyc/demo-pan.pdf", mimeType: "application/pdf", size: 1024, uploadedAt: new Date() }
         },
         consigneeEnteredAddress: destinationAddress,
         consigneeSelectedAddress: destinationAddress,

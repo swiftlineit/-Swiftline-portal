@@ -70,8 +70,8 @@ function draftWith(overrides: {
     ...overrides.consignee
   };
   const kyc = overrides.kyc ?? {
-    aadhaar: { storedName: "a.pdf" },
-    pan: { storedName: "p.pdf" }
+    aadhaar: { storageKey: "shipments/test/kyc/a.pdf" },
+    pan: { storageKey: "shipments/test/kyc/p.pdf" }
   };
 
   const parcelList = overrides.parcels ?? [{ sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "Clothing" }];
@@ -130,7 +130,7 @@ describe("consignor draft validation", () => {
       useForAll: false,
       parcels: [
         { sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "A" },
-        { sequence: 2, weightKg: 6, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "B", aadhaarNumber: validAadhaar, kycDocuments: { aadhaar: { storedName: "p2-aadhaar.pdf" }, pan: { storedName: "p2-pan.pdf" } } }
+        { sequence: 2, weightKg: 6, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "B", aadhaarNumber: validAadhaar, kycDocuments: { aadhaar: { storageKey: "shipments/test/kyc/p2-aadhaar.pdf" }, pan: { storageKey: "shipments/test/kyc/p2-pan.pdf" } } }
       ]
     }));
     assert.ok(issues.includes("Parcel 1: Aadhaar number is required"));

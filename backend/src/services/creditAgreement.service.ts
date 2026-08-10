@@ -197,7 +197,6 @@ export async function createCreditAgreementDraft(input: {
 export async function generateCreditAgreement(input: {
   agreementId: mongoose.Types.ObjectId;
   generatedBy: mongoose.Types.ObjectId;
-  storageRoot?: string;
 }) {
   const agreement = await CreditAgreement.findById(input.agreementId).exec();
   if (!agreement) {
@@ -219,8 +218,7 @@ export async function generateCreditAgreement(input: {
     agreementId: String(agreement._id),
     agreementNumber: agreement.agreementNumber,
     buffer,
-    storedAt: generatedAt,
-    storageRoot: input.storageRoot
+    storedAt: generatedAt
   });
 
   const session = await mongoose.startSession();
@@ -278,7 +276,7 @@ export async function generateCreditAgreement(input: {
     }
 
     // A concurrent request may have completed generation first. Keep its document and discard this duplicate.
-    await removeCreditAgreementPdf(storedDocument.storageKey, input.storageRoot);
+    await removeCreditAgreementPdf(storedDocument.storageKey);
     const current = await CreditAgreement.findById(agreement._id).exec();
     if (current?.status === "GENERATED" && current.generatedDocument) return current;
     throw new CreditAgreementServiceError(
@@ -286,7 +284,7 @@ export async function generateCreditAgreement(input: {
       "The credit agreement changed while it was being generated. Refresh and try again."
     );
   } catch (error) {
-    if (!transactionCommitted) await removeCreditAgreementPdf(storedDocument.storageKey, input.storageRoot);
+    if (!transactionCommitted) await removeCreditAgreementPdf(storedDocument.storageKey);
     throw error;
   } finally {
     await session.endSession();
@@ -297,7 +295,6 @@ export async function signCreditAgreement(input: {
   agreementId: mongoose.Types.ObjectId;
   signedBy: mongoose.Types.ObjectId;
   signer: { name: string; email: string; jobTitle: string; ipAddress: string; userAgent: string };
-  storageRoot?: string;
 }) {
   const agreement = await CreditAgreement.findById(input.agreementId).exec();
   if (!agreement) throw new CreditAgreementServiceError("AGREEMENT_NOT_FOUND", "Credit agreement was not found.");
@@ -318,7 +315,6 @@ export async function signCreditAgreement(input: {
     agreementNumber: agreement.agreementNumber,
     buffer: pdf,
     storedAt: signedAt,
-    storageRoot: input.storageRoot,
     documentType: "signed"
   });
 
@@ -377,12 +373,12 @@ export async function signCreditAgreement(input: {
       });
       return agreementDocument;
     }
-    await removeCreditAgreementPdf(signedDocument.storageKey, input.storageRoot);
+    await removeCreditAgreementPdf(signedDocument.storageKey);
     const current = await CreditAgreement.findById(agreement._id).exec();
     if (current?.status === "SIGNED" && current.signedDocument) return current;
     throw new CreditAgreementServiceError("AGREEMENT_CANNOT_BE_SIGNED", "The agreement changed while it was being signed. Refresh and try again.");
   } catch (error) {
-    if (!transactionCommitted) await removeCreditAgreementPdf(signedDocument.storageKey, input.storageRoot);
+    if (!transactionCommitted) await removeCreditAgreementPdf(signedDocument.storageKey);
     throw error;
   } finally {
     await session.endSession();

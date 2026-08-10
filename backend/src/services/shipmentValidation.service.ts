@@ -127,7 +127,7 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
     scope?: string
   ) {
     for (const type of requiredDocuments) {
-      if (!documents?.[type]?.storedName) {
+      if (!documents?.[type]?.storageKey) {
         issues.push(`${scope ? `${scope}: upload` : "Upload"} ${kycDocumentNames[type]}`);
       }
     }
@@ -141,7 +141,7 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
       issues.push("Enter a valid 12 digit Aadhaar number");
     }
     appendMissingDocuments(documents);
-    if (documents.other?.storedName && !hasText(documents.other.documentLabel)) {
+    if (documents.other?.storageKey && !hasText(documents.other.documentLabel)) {
       issues.push("Name the other KYC document before booking");
     }
     return issues;
@@ -156,7 +156,7 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
       issues.push(`${label}: enter a valid 12 digit Aadhaar number`);
     }
     appendMissingDocuments(documents, label);
-    if (documents.other?.storedName && !hasText(documents.other.documentLabel)) {
+    if (documents.other?.storageKey && !hasText(documents.other.documentLabel)) {
       issues.push(`${label}: name the other KYC document before booking`);
     }
   });

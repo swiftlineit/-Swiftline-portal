@@ -25,6 +25,8 @@ import {
 import TicketTable from "@/components/tickets/TicketTable";
 import {
   Branch,
+  branchDocumentUrl,
+  branchImageUrl,
   BranchStatus,
   branchStatusTransitions,
   formatBranchLabel,
@@ -136,13 +138,7 @@ function formatValues(values: string[]) {
   return values.length ? values.map(formatBranchLabel).join(", ") : "";
 }
 
-// Stored file paths are relative and may use either slash style; the last
-// segment is the original file name.
-function branchFileDisplayName(storedPath: string) {
-  return storedPath.replace(/\\/g, "/").split("/").pop() ?? storedPath;
-}
-
-type FilePreview = { storedPath: string; fileName: string; title: string };
+type FilePreview = { fileUrl: string; fileName: string; title: string };
 
 export default function BranchDetailPage() {
   const params = useParams<{ branchId: string }>();
@@ -1108,20 +1104,20 @@ function BranchOverview({
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-base font-bold text-[#0D1282]">Branch Images</h2>
           <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            {branch.images.map((imagePath, index) => (
+            {branch.images.map((image, index) => (
               <button
                 key={index}
                 type="button"
                 onClick={() => setPreview({
-                  storedPath: imagePath,
-                  fileName: branchFileDisplayName(imagePath),
+                  fileUrl: branchImageUrl(branch._id, index),
+                  fileName: image.fileName || `branch-image-${index + 1}`,
                   title: `Branch image ${index + 1}`
                 })}
                 aria-label={`View branch image ${index + 1}`}
                 className="group overflow-hidden rounded-lg border border-slate-200 bg-[#EEEDED]/40 text-left transition hover:border-[#0D1282]/40 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0D1282]/20"
               >
                 <BranchImage
-                  storedPath={imagePath}
+                  fileUrl={branchImageUrl(branch._id, index)}
                   alt={`Branch image ${index + 1}`}
                   className="h-32 w-full object-cover"
                 />
@@ -1140,7 +1136,7 @@ function BranchOverview({
                 key={index}
                 type="button"
                 onClick={() => setPreview({
-                  storedPath: doc.filePath,
+                  fileUrl: branchDocumentUrl(branch._id, index),
                   fileName: doc.fileName,
                   title: doc.title || doc.type
                 })}
@@ -1162,8 +1158,8 @@ function BranchOverview({
 
       {preview ? (
         <BranchFileModal
-          key={preview.storedPath}
-          storedPath={preview.storedPath}
+          key={preview.fileUrl}
+          fileUrl={preview.fileUrl}
           fileName={preview.fileName}
           title={preview.title}
           onClose={() => setPreview(null)}

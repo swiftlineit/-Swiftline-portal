@@ -1,5 +1,3 @@
-import fs from "fs";
-import path from "path";
 import type { NextFunction, Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -10,7 +8,14 @@ import { PickupAttempt } from "../models/pickupAttempt.model.js";
 import { PickupProof, pickupProofTypeValues } from "../models/pickupEvidence.model.js";
 import { PickupRequest } from "../models/pickupRequest.model.js";
 import { User } from "../models/user.model.js";
-import { pickupProofRoot } from "../middleware/pickupProofUpload.middleware.js";
+import { isSupportedImage } from "../services/storage/fileSignature.js";
+import {
+  StorageObjectNotFoundError,
+  deleteObject,
+  pickupProofKey,
+  putObject,
+  streamObjectToResponse
+} from "../services/storage/storage.service.js";
 import {
   PickupServiceError, assignPickupDriver, cancelPickup, completePickupAttempt, confirmPickup,
   createClientPickup, driverPickupAttempts, getDriverPickupAttempt, getPickupDetail, listEligiblePickupShipments,
@@ -223,19 +228,20 @@ async function sendProofFile(proofId: string, pickupId: string, response: Respon
   if (!mongoose.Types.ObjectId.isValid(proofId)) throw new PickupServiceError("Pickup proof was not found.", 404);
   const proof = await PickupProof.findOne({ _id: proofId, pickupRequestId: pickupId }).lean().exec();
   if (!proof) throw new PickupServiceError("Pickup proof was not found.", 404);
-  let root: string;
-  let resolved: string;
   try {
-    root = fs.realpathSync(pickupProofRoot);
-    resolved = fs.realpathSync(proof.path);
-  } catch {
-    throw new PickupServiceError("Pickup proof file was not found.", 404);
+    return await streamObjectToResponse({
+      response,
+      key: proof.storageKey,
+      contentType: proof.mimeType,
+      filename: proof.originalName,
+      disposition: "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      throw new PickupServiceError("Pickup proof file was not found.", 404);
+    }
+    throw error;
   }
-  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) throw new PickupServiceError("Pickup proof was not found.", 404);
-  response.setHeader("Content-Type", proof.mimeType);
-  response.setHeader("Content-Disposition", `inline; filename="${proof.originalName.replace(/["\\]/g, "_")}"`);
-  response.setHeader("Cache-Control", "private, no-store");
-  return response.sendFile(resolved);
 }
 
 export async function viewClientPickupProof(request: Request, response: Response, next: NextFunction) {
@@ -346,14 +352,12 @@ export async function addMyPickupException(request: Request, response: Response,
   } catch (error) { return handle(error, response, next); }
 }
 
-function validImageHeader(header: Buffer) {
-  return (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff)
-    || header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-    || (header.subarray(0, 4).toString("latin1") === "RIFF" && header.subarray(8, 12).toString("latin1") === "WEBP");
-}
 
 export async function uploadMyPickupProof(request: Request, response: Response, next: NextFunction) {
   const file = request.file;
+  // Set once the object is written, so a later failure can unwind it. Nothing
+  // before that point needs cleanup: the upload is only an in-memory buffer.
+  let storedKey = "";
   try {
     const user = actor(request); if (!user) throw new PickupServiceError("Unauthorized", 401);
     const type = String(request.params.proofType ?? "").toUpperCase();
@@ -361,15 +365,17 @@ export async function uploadMyPickupProof(request: Request, response: Response, 
     if (!file) throw new PickupServiceError("Choose a proof image.");
     const attempt = await PickupAttempt.findOne({ _id: request.params.attemptId, assignedDriverUserId: user.id, status: "COLLECTING" }).exec();
     if (!attempt) throw new PickupServiceError("Start the assigned collection before adding proof.", 409);
-    const header = Buffer.alloc(12); const handleFile = await fs.promises.open(file.path, "r");
-    try { await handleFile.read(header, 0, 12, 0); } finally { await handleFile.close(); }
-    if (!validImageHeader(header)) throw new PickupServiceError("The proof is not a valid JPG, PNG, or WebP image.");
-    const proof = new PickupProof({ pickupRequestId: attempt.pickupRequestId, pickupAttemptId: attempt._id, type: type as (typeof pickupProofTypeValues)[number], originalName: file.originalname, storedName: file.filename, mimeType: file.mimetype, size: file.size, path: file.path, capturedBy: user.id });
+    if (!isSupportedImage(file.buffer)) throw new PickupServiceError("The proof is not a valid JPG, PNG, or WebP image.");
+
+    storedKey = pickupProofKey(String(attempt.pickupRequestId), file.originalname);
+    await putObject({ key: storedKey, body: file.buffer, contentType: file.mimetype, originalName: file.originalname });
+
+    const proof = new PickupProof({ pickupRequestId: attempt.pickupRequestId, pickupAttemptId: attempt._id, type: type as (typeof pickupProofTypeValues)[number], originalName: file.originalname, storageKey: storedKey, mimeType: file.mimetype, size: file.size, capturedBy: user.id });
     await proof.save();
     await AuditLog.create({ action: "PICKUP_PROOF_CAPTURED", entityType: "PICKUP_ATTEMPT", entityId: attempt._id, performedBy: user.id, performedAt: new Date(), metadata: { type, proofId: proof._id } });
     return response.status(201).json({ success: true, message: type === "PHOTO" ? "Pickup photograph saved." : "Customer signature saved." });
   } catch (error) {
-    if (file) await fs.promises.unlink(file.path).catch(() => undefined);
+    if (storedKey) await deleteObject(storedKey).catch(() => undefined);
     return handle(error, response, next);
   }
 }

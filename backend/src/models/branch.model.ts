@@ -29,7 +29,17 @@ export interface IBranchDocument {
   type: BranchDocumentType;
   title: string;
   fileName: string;
-  filePath: string;
+  /** Storage service key, resolved through storage.service.ts. Never a path. */
+  storageKey: string;
+  mimeType: string;
+  uploadedAt: Date;
+}
+
+/** One branch photo. Stored as a record so the key carries its content type. */
+export interface IBranchImage {
+  storageKey: string;
+  fileName: string;
+  mimeType: string;
   uploadedAt: Date;
 }
 
@@ -69,7 +79,7 @@ export interface IBranch extends mongoose.Document {
   // Set the first time a branch goes ACTIVE. Once set, code and labelCode are
   // frozen because they are baked into already-issued tracking numbers.
   activatedAt?: Date | null;
-  images: string[];
+  images: IBranchImage[];
   documents: IBranchDocument[];
   phoneNumbers: IBranchPhoneNumber[];
   createdBy: mongoose.Types.ObjectId;
@@ -121,12 +131,18 @@ const branchSchema = new mongoose.Schema<IBranch>(
     invoiceSacCode: { type: String, trim: true, default: "", maxlength: 12 },
     status: { type: String, enum: branchStatusValues, default: "DRAFT", index: true },
     activatedAt: { type: Date, default: null },
-    images: [{ type: String, trim: true }],
+    images: [{
+      storageKey: { type: String, trim: true, required: true, maxlength: 1024 },
+      fileName: { type: String, trim: true, default: "" },
+      mimeType: { type: String, trim: true, default: "" },
+      uploadedAt: { type: Date, default: Date.now }
+    }],
     documents: [{
       type: { type: String, enum: ["PAN", "GST", "OTHER"], required: true },
       title: { type: String, trim: true, maxlength: 100, default: "" },
       fileName: { type: String, trim: true, required: true },
-      filePath: { type: String, trim: true, required: true },
+      storageKey: { type: String, trim: true, required: true, maxlength: 1024 },
+      mimeType: { type: String, trim: true, default: "" },
       uploadedAt: { type: Date, default: Date.now }
     }],
     phoneNumbers: [{

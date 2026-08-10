@@ -1,7 +1,8 @@
 import { Router } from "express";
 import {
   createBranch, deleteBranchDocument, deleteBranchDraft, deleteBranchImage, getBranch, listBranches,
-  updateBranch, updateBranchStatus, uploadBranchDocument, uploadBranchImages, validateBranchCode
+  updateBranch, updateBranchStatus, uploadBranchDocument, uploadBranchImages, validateBranchCode,
+  viewBranchDocument, viewBranchImage
 } from "../controllers/branch.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { requireBranchAccess } from "../middleware/branchAccess.middleware.js";
@@ -40,6 +41,11 @@ branchRouter.patch("/:branchId/status", requireAdmin, updateBranchStatus);
 // endpoint above so its history survives.
 branchRouter.delete("/:branchId", requireAdmin, deleteBranchDraft);
 branchRouter.post("/:branchId/images", requireAdmin, branchUpload, uploadBranchImages);
+// Reads follow the same branch scoping as the rest of the branch record. These
+// replace the blanket static mount over `private_uploads`, under which any
+// authenticated user could fetch any document by guessing its path.
+branchRouter.get("/:branchId/images/:imageIndex", requireBranchAccess, viewBranchImage);
 branchRouter.delete("/:branchId/images/:imageIndex", requireAdmin, deleteBranchImage);
 branchRouter.post("/:branchId/documents", requireAdmin, branchUpload, uploadBranchDocument);
+branchRouter.get("/:branchId/documents/:docIndex", requireBranchAccess, viewBranchDocument);
 branchRouter.delete("/:branchId/documents/:docIndex", requireAdmin, deleteBranchDocument);

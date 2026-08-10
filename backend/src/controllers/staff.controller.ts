@@ -1,5 +1,3 @@
-import fs from "fs";
-import path from "path";
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -17,9 +15,15 @@ import { hashPassword } from "../services/auth.service.js";
 import { syncAccessWithUserStatus } from "../services/userStatusSync.service.js";
 import { normalizeUserEmail, normalizeUserPhone } from "../services/userIdentity.service.js";
 import { validateAssignedBranches } from "../utils/assignedBranches.js";
-
-// Must match the destination used by the staff-document upload middleware.
-const staffDocumentRoot = path.resolve(process.cwd(), "private_uploads", "staff");
+import { isSupportedDocument, isSupportedImage } from "../services/storage/fileSignature.js";
+import {
+  StorageObjectNotFoundError,
+  deleteObject,
+  profileImageKey,
+  putObject,
+  staffDocumentKey,
+  streamObjectToResponse
+} from "../services/storage/storage.service.js";
 
 // Aadhaar numbers are 12 digits and never begin with 0 or 1.
 const aadhaarPattern = /^[2-9][0-9]{11}$/;
@@ -108,20 +112,6 @@ const staffBodySchema = z.object({
 
 type StaffBody = z.infer<typeof staffBodySchema>;
 
-// File-signature checks for the accepted formats. The client-supplied MIME type
-// is not trusted; the first bytes on disk are inspected instead.
-const documentSignatureTests: ((header: Buffer) => boolean)[] = [
-  (header) => header.subarray(0, 4).toString("latin1") === "%PDF",
-  (header) => header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff,
-  (header) => header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-];
-
-const profileImageSignatureTests: ((header: Buffer) => boolean)[] = [
-  (header) => header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff,
-  (header) => header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
-  (header) => header.subarray(0, 4).toString("ascii") === "RIFF" && header.subarray(8, 12).toString("ascii") === "WEBP"
-];
-
 type StaffUploadField = StaffDocumentType | "profileImage";
 type UploadedStaffFiles = Partial<Record<StaffUploadField, Express.Multer.File>>;
 
@@ -136,72 +126,72 @@ function getUploadedFiles(request: Request): UploadedStaffFiles {
   };
 }
 
-async function unlinkFiles(paths: string[]) {
-  await Promise.all(paths.map((filePath) => fs.promises.unlink(filePath).catch(() => undefined)));
-}
-
-async function cleanupUploadedFiles(files: UploadedStaffFiles) {
-  await unlinkFiles(
-    Object.values(files)
-      .filter((file): file is Express.Multer.File => Boolean(file))
-      .map((file) => file.path)
-  );
+/**
+ * Removes objects a request stored before it went on to fail.
+ *
+ * Uploads are written to storage before the record that points at them is
+ * saved, so a later rejection leaves objects nothing refers to. Best effort by
+ * design: an orphan costs storage, whereas failing the response over a failed
+ * cleanup would cost the user their work.
+ */
+async function discardStoredObjects(keys: string[]) {
+  await Promise.all(keys.map((key) => deleteObject(key).catch(() => undefined)));
 }
 
 // Return the first uploaded document whose content is not a valid PDF/JPEG/PNG,
-// or null when every uploaded file passes the signature check.
-async function findInvalidDocumentSignature(files: UploadedStaffFiles): Promise<StaffDocumentType | null> {
+// or null when every uploaded file passes the signature check. The declared MIME
+// type is not trusted; the bytes that actually arrived are inspected instead.
+function findInvalidDocumentSignature(files: UploadedStaffFiles): StaffDocumentType | null {
   for (const type of staffDocumentTypes) {
     const file = files[type];
-    if (!file) continue;
-
-    const header = Buffer.alloc(8);
-    let handle: fs.promises.FileHandle | undefined;
-    try {
-      handle = await fs.promises.open(file.path, "r");
-      await handle.read(header, 0, 8, 0);
-    } finally {
-      await handle?.close();
-    }
-
-    if (!documentSignatureTests.some((test) => test(header))) return type;
+    if (file && !isSupportedDocument(file.buffer)) return type;
   }
 
   return null;
 }
 
-async function hasInvalidProfileImage(file?: Express.Multer.File) {
+function hasInvalidProfileImage(file?: Express.Multer.File) {
   if (!file) return false;
-  const header = Buffer.alloc(12);
-  let handle: fs.promises.FileHandle | undefined;
-  try {
-    handle = await fs.promises.open(file.path, "r");
-    await handle.read(header, 0, 12, 0);
-  } finally {
-    await handle?.close();
-  }
-  return !profileImageSignatureTests.some((test) => test(header));
+  return !isSupportedImage(file.buffer);
 }
 
-function toProfileImage(file: Express.Multer.File) {
+async function storeProfileImage(file: Express.Multer.File, userId: mongoose.Types.ObjectId) {
+  const storageKey = profileImageKey(String(userId), file.originalname);
+  await putObject({
+    key: storageKey,
+    body: file.buffer,
+    contentType: file.mimetype,
+    originalName: file.originalname
+  });
+
   return {
     originalName: file.originalname,
-    storedName: file.filename,
+    storageKey,
     mimeType: file.mimetype,
     size: file.size,
-    path: file.path,
     uploadedAt: new Date()
   };
 }
 
-function toStaffDocument(type: StaffDocumentType, file: Express.Multer.File): IStaffDocument {
+async function storeStaffDocument(
+  type: StaffDocumentType,
+  file: Express.Multer.File,
+  userId: mongoose.Types.ObjectId
+): Promise<IStaffDocument> {
+  const storageKey = staffDocumentKey(String(userId), file.originalname);
+  await putObject({
+    key: storageKey,
+    body: file.buffer,
+    contentType: file.mimetype,
+    originalName: file.originalname
+  });
+
   return {
     type,
     originalName: file.originalname,
-    storedName: file.filename,
+    storageKey,
     mimeType: file.mimetype,
     size: file.size,
-    path: file.path,
     uploadedAt: new Date()
   };
 }
@@ -264,15 +254,16 @@ export function serializeStaffProfile(profile?: IStaffProfile | null) {
   };
 }
 
-function buildStaffProfile(
+async function buildStaffProfile(
   data: StaffBody,
   files: UploadedStaffFiles,
+  userId: mongoose.Types.ObjectId,
   createdBy: mongoose.Types.ObjectId | null
-): IStaffProfile {
+): Promise<IStaffProfile> {
   const documents: Partial<Record<StaffDocumentType, IStaffDocument>> = {};
   for (const type of staffDocumentTypes) {
     const file = files[type];
-    if (file) documents[type] = toStaffDocument(type, file);
+    if (file) documents[type] = await storeStaffDocument(type, file, userId);
   }
 
   return {
@@ -315,7 +306,7 @@ export function serializeStaffUser(staffUser: IUser) {
     lockedUntil: staffUser.lockedUntil,
     lastLogin: staffUser.lastLogin ?? null,
     createdAt: (staffUser as IUser & { createdAt?: Date }).createdAt ?? null,
-    hasProfileImage: Boolean(staffUser.profileImage?.storedName),
+    hasProfileImage: Boolean(staffUser.profileImage?.storageKey),
     assignedBranches: staffUser.assignedBranches,
     staffProfile: serializeStaffProfile(staffUser.staffProfile)
   };
@@ -338,14 +329,16 @@ function getRequesterRole(request: Request): string {
  * Creates an internal staff member: the login itself plus the employment record
  * and KYC documents captured by the Add Staff form.
  *
- * Multer has already written every uploaded file to disk by the time this runs,
- * so each rejection path removes them before responding.
+ * Uploads arrive as in-memory buffers, so every validation failure below can
+ * return without cleanup. Storage is written only once the record is certain to
+ * be created, and is unwound if the write itself then fails.
  */
 export async function createStaffUser(request: Request, response: Response): Promise<Response> {
   const files = getUploadedFiles(request);
 
-  async function reject(status: number, message: string): Promise<Response> {
-    await cleanupUploadedFiles(files);
+  // Uploads are buffered in memory, so a rejection before anything is stored has
+  // nothing to clean up. Only the paths that run after `storeStaffProfile` do.
+  function reject(status: number, message: string): Response {
     return response.status(status).json({ success: false, message });
   }
 
@@ -356,7 +349,6 @@ export async function createStaffUser(request: Request, response: Response): Pro
   });
 
   if (!parsed.success) {
-    await cleanupUploadedFiles(files);
     return response.status(400).json({
       success: false,
       message: parsed.error.issues[0]?.message || "Check the staff details and try again.",
@@ -374,14 +366,14 @@ export async function createStaffUser(request: Request, response: Response): Pro
 
   if (!files.aadhaar) return reject(400, "Upload the Aadhaar document.");
 
-  const invalidDocument = await findInvalidDocumentSignature(files);
+  const invalidDocument = findInvalidDocumentSignature(files);
   if (invalidDocument) {
     return reject(400, `The ${invalidDocument} document is not a valid PDF, JPG, or PNG file.`);
   }
   if (files.profileImage?.size && files.profileImage.size > MAX_PROFILE_IMAGE_BYTES) {
     return reject(400, "The profile image must be 3 MB or smaller.");
   }
-  if (await hasInvalidProfileImage(files.profileImage)) {
+  if (hasInvalidProfileImage(files.profileImage)) {
     return reject(400, "The selected profile image is not a valid JPG, PNG, or WebP image.");
   }
 
@@ -424,9 +416,24 @@ export async function createStaffUser(request: Request, response: Response): Pro
   const createdBy = getAuthenticatedUserId(request);
   const passwordHash = await hashPassword(data.password);
 
+  // Generated up front because every storage key is namespaced by the owner's id
+  // and the documents have to be stored before the record that references them.
+  const userId = new mongoose.Types.ObjectId();
+  const profileImage = files.profileImage
+    ? await storeProfileImage(files.profileImage, userId)
+    : null;
+  const staffProfile = await buildStaffProfile(data, files, userId, createdBy);
+  const storedKeys = [
+    ...(profileImage ? [profileImage.storageKey] : []),
+    ...staffDocumentTypes
+      .map((type) => staffProfile.documents?.[type]?.storageKey)
+      .filter((key): key is string => Boolean(key))
+  ];
+
   let staffUser;
   try {
     staffUser = await User.create({
+      _id: userId,
       firstName: data.firstName,
       lastName: data.lastName,
       name: `${data.firstName} ${data.lastName}`.trim(),
@@ -439,10 +446,12 @@ export async function createStaffUser(request: Request, response: Response): Pro
       isVerified: true,
       emailVerifiedAt: new Date(),
       invitedBy: createdBy,
-      profileImage: files.profileImage ? toProfileImage(files.profileImage) : null,
-      staffProfile: buildStaffProfile(data, files, createdBy)
+      profileImage,
+      staffProfile
     });
   } catch (error) {
+    await discardStoredObjects(storedKeys);
+
     // A concurrent create can still lose the uniqueness races above; the indexes
     // are what actually settle it, so the same messages are mapped from them.
     if ((error as { code?: number }).code === 11000) {
@@ -451,7 +460,6 @@ export async function createStaffUser(request: Request, response: Response): Pro
         ? "A user with this phone number already exists."
         : "A user with this email already exists.");
     }
-    await cleanupUploadedFiles(files);
     throw error;
   }
 
@@ -546,8 +554,9 @@ const staffProfileFields = [
 export async function updateStaffUser(request: Request, response: Response): Promise<Response> {
   const files = getUploadedFiles(request);
 
-  async function reject(status: number, message: string): Promise<Response> {
-    await cleanupUploadedFiles(files);
+  // Nothing is stored until every check below has passed, so rejecting is just
+  // dropping the buffers the request arrived with.
+  function reject(status: number, message: string): Response {
     return response.status(status).json({ success: false, message });
   }
 
@@ -573,14 +582,14 @@ export async function updateStaffUser(request: Request, response: Response): Pro
     return reject(400, "This user does not have a staff record, so employment details cannot be edited.");
   }
 
-  const invalidDocument = await findInvalidDocumentSignature(files);
+  const invalidDocument = findInvalidDocumentSignature(files);
   if (invalidDocument) {
     return reject(400, `The ${invalidDocument} document is not a valid PDF, JPG, or PNG file.`);
   }
   if (files.profileImage?.size && files.profileImage.size > MAX_PROFILE_IMAGE_BYTES) {
     return reject(400, "The profile image must be 3 MB or smaller.");
   }
-  if (await hasInvalidProfileImage(files.profileImage)) {
+  if (hasInvalidProfileImage(files.profileImage)) {
     return reject(400, "The selected profile image is not a valid JPG, PNG, or WebP image.");
   }
 
@@ -680,30 +689,35 @@ export async function updateStaffUser(request: Request, response: Response): Pro
       };
     }
 
-    // Replacing a document swaps the record, then removes the file it replaced so
-    // superseded copies do not accumulate on disk.
-    const replacedPaths: string[] = [];
+    // Replacing a document swaps the record, then removes the object it replaced
+    // so superseded copies do not accumulate in the bucket.
+    const replacedKeys: string[] = [];
     if (!profile.documents) profile.documents = {};
     for (const type of staffDocumentTypes) {
       const file = files[type];
       if (!file) continue;
 
       const previous = profile.documents[type];
-      if (previous?.path) replacedPaths.push(previous.path);
-      profile.documents[type] = toStaffDocument(type, file);
+      if (previous?.storageKey) replacedKeys.push(previous.storageKey);
+      profile.documents[type] = await storeStaffDocument(type, file, staffUser._id as mongoose.Types.ObjectId);
     }
 
     staffUser.markModified("staffProfile");
-    const previousProfileImagePath = files.profileImage ? staffUser.profileImage?.path : "";
-    if (files.profileImage) staffUser.profileImage = toProfileImage(files.profileImage);
+    if (files.profileImage) {
+      if (staffUser.profileImage?.storageKey) replacedKeys.push(staffUser.profileImage.storageKey);
+      staffUser.profileImage = await storeProfileImage(files.profileImage, staffUser._id as mongoose.Types.ObjectId);
+    }
+    // Superseded objects go only after the record points at their replacements:
+    // deleting first would leave a dangling reference if the save then failed.
     await staffUser.save();
-    await unlinkFiles(replacedPaths);
-    if (previousProfileImagePath) await unlinkFiles([previousProfileImagePath]);
+    await discardStoredObjects(replacedKeys);
   } else {
-    const previousProfileImagePath = files.profileImage ? staffUser.profileImage?.path : "";
-    if (files.profileImage) staffUser.profileImage = toProfileImage(files.profileImage);
+    const previousProfileImageKey = files.profileImage ? staffUser.profileImage?.storageKey : "";
+    if (files.profileImage) {
+      staffUser.profileImage = await storeProfileImage(files.profileImage, staffUser._id as mongoose.Types.ObjectId);
+    }
     await staffUser.save();
-    if (previousProfileImagePath) await unlinkFiles([previousProfileImagePath]);
+    if (previousProfileImageKey) await discardStoredObjects([previousProfileImageKey]);
   }
 
   // Matches updateUserStatus: a driver profile or client-access record must not
@@ -729,12 +743,23 @@ export async function viewStaffProfileImage(request: Request, response: Response
   }
 
   const staffUser = await User.findById(id).select("profileImage").lean().exec();
-  const filePath = staffUser?.profileImage?.path;
-  if (!filePath) return response.status(404).json({ success: false, message: "Profile image not found." });
+  const storageKey = staffUser?.profileImage?.storageKey;
+  if (!storageKey) return response.status(404).json({ success: false, message: "Profile image not found." });
 
-  response.setHeader("Cache-Control", "private, max-age=300");
-  response.setHeader("Content-Type", staffUser.profileImage?.mimeType || "application/octet-stream");
-  return response.sendFile(filePath);
+  try {
+    return await streamObjectToResponse({
+      response,
+      key: storageKey,
+      contentType: staffUser.profileImage?.mimeType || "application/octet-stream",
+      filename: staffUser.profileImage?.originalName || "profile-image",
+      disposition: "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      return response.status(404).json({ success: false, message: "Profile image not found." });
+    }
+    throw error;
+  }
 }
 
 const documentTypeSchema = z.enum(staffDocumentTypes);
@@ -760,26 +785,21 @@ export async function viewStaffDocument(request: Request, response: Response): P
   const document = staffUser.staffProfile?.documents?.[parsedType.data];
   if (!document) return response.status(404).json({ success: false, message: "Document not found" });
 
-  // Guard against a stored path escaping the private upload directory before the
-  // file is served (defense against tampered or legacy records).
-  const absolutePath = path.resolve(document.path);
-  if (absolutePath !== staffDocumentRoot && !absolutePath.startsWith(staffDocumentRoot + path.sep)) {
-    return response.status(404).json({ success: false, message: "Document not found" });
-  }
-
-  // Confirm the file still exists before sending, so a missing file returns a
-  // clean 404 instead of sendFile erroring after headers are committed.
+  // Streamed rather than handed out as a signed URL: staff identity documents
+  // carry Aadhaar and PAN numbers, and a signed URL stays readable by whoever
+  // holds it for its whole lifetime, wherever it is forwarded.
   try {
-    await fs.promises.access(absolutePath, fs.constants.R_OK);
-  } catch {
-    return response.status(404).json({ success: false, message: "Document file is no longer available" });
+    return await streamObjectToResponse({
+      response,
+      key: document.storageKey,
+      contentType: document.mimeType,
+      filename: document.originalName,
+      disposition: request.query.download === "1" ? "attachment" : "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      return response.status(404).json({ success: false, message: "Document file is no longer available" });
+    }
+    throw error;
   }
-
-  response.setHeader("Content-Type", document.mimeType);
-  response.setHeader(
-    "Content-Disposition",
-    `${request.query.download === "1" ? "attachment" : "inline"}; filename="${encodeURIComponent(document.originalName)}"`
-  );
-
-  return response.sendFile(absolutePath);
 }

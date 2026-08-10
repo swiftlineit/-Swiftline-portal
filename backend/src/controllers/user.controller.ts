@@ -28,10 +28,10 @@ export async function listUsers(_req: Request, res: Response): Promise<Response>
     users: users.map((user) => ({
       ...user,
       role: normalizePortalRole(user.role),
-      hasProfileImage: Boolean(user.profileImage?.storedName),
+      hasProfileImage: Boolean(user.profileImage?.storageKey),
       assignedBranches: user.assignedBranches ?? [],
       // Serialized rather than passed through: it masks the Aadhaar number and
-      // drops the on-disk document paths.
+      // drops the document storage keys.
       staffProfile: serializeStaffProfile(user.staffProfile)
     }))
   });

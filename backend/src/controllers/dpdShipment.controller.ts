@@ -1,4 +1,3 @@
-import fs from "fs";
 import crypto from "crypto";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
@@ -38,6 +37,7 @@ import {
   readShipmentBookingSnapshot,
   serializeShipmentBookingConfirmation
 } from "../services/shipmentBookingSnapshot.service.js";
+import { objectExists, streamObjectToResponse } from "../services/storage/storage.service.js";
 import { buildPricingHash, ShipmentPriceChangedError } from "../services/shipmentCostEstimate.service.js";
 import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
 
@@ -407,7 +407,7 @@ async function sendStoredLabel(params: {
 }): Promise<Response | void> {
   const { label, userId, response, dpdShipmentId, accessMode } = params;
 
-  if (!fs.existsSync(label.storagePath)) {
+  if (!(await objectExists(label.storageKey))) {
     return response.status(404).json({
       success: false,
       message: "The shipment was created, but the label could not be stored. Contact an administrator."
@@ -434,15 +434,14 @@ async function sendStoredLabel(params: {
   });
 
   const extension = label.format.toLowerCase();
-  const disposition = params.disposition ?? "inline";
 
-  response.setHeader("Content-Type", label.format === "PDF" ? "application/pdf" : "text/plain");
-  response.setHeader(
-    "Content-Disposition",
-    `${disposition}; filename="${label.labelType.toLowerCase()}-label-${encodeURIComponent(label.parcelNumber)}.${extension}"`
-  );
-
-  return response.sendFile(label.storagePath);
+  return streamObjectToResponse({
+    response,
+    key: label.storageKey,
+    contentType: label.format === "PDF" ? "application/pdf" : "text/plain",
+    filename: `${label.labelType.toLowerCase()}-label-${label.parcelNumber}.${extension}`,
+    disposition: params.disposition ?? "inline"
+  });
 }
 
 async function createShipment(

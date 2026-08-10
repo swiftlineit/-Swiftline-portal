@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
@@ -20,6 +17,7 @@ import {
   requestClientCredit
 } from "../controllers/clientCredit.controller.js";
 import { env } from "../config/env.js";
+import { deleteObject } from "../services/storage/storage.service.js";
 import { AuditLog } from "../models/auditLog.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
@@ -288,31 +286,30 @@ describe("credit account database lifecycle", () => {
     }), operationsAgreements.response);
     assert.equal(operationsAgreements.statusCode(), 403);
 
-    const agreementStorage = await fs.mkdtemp(path.join(os.tmpdir(), "swiftline-credit-integration-"));
-    try {
-      const generated = await generateCreditAgreement({
-        agreementId: new mongoose.Types.ObjectId(draft.id),
-        generatedBy: adminId,
-        storageRoot: agreementStorage
-      });
-      assert.equal(generated.status, "GENERATED");
-      assert.equal(generated.generatedDocument?.mimeType, "application/pdf");
-      assert.match(generated.generatedDocument?.checksumSha256 ?? "", /^[a-f0-9]{64}$/);
-      assert.ok((generated.generatedDocument?.size ?? 0) > 5_000);
+    // Agreements go through the storage service now, so there is no temporary
+    // directory to create or tear down — the local driver handles placement.
+    const generated = await generateCreditAgreement({
+      agreementId: new mongoose.Types.ObjectId(draft.id),
+      generatedBy: adminId
+    });
+    assert.equal(generated.status, "GENERATED");
+    assert.equal(generated.generatedDocument?.mimeType, "application/pdf");
+    assert.match(generated.generatedDocument?.checksumSha256 ?? "", /^[a-f0-9]{64}$/);
+    assert.ok((generated.generatedDocument?.size ?? 0) > 5_000);
 
-      const repeated = await generateCreditAgreement({
-        agreementId: new mongoose.Types.ObjectId(draft.id),
-        generatedBy: adminId,
-        storageRoot: agreementStorage
-      });
-      assert.equal(repeated.generatedDocument?.checksumSha256, generated.generatedDocument?.checksumSha256);
-      assert.equal(await AuditLog.countDocuments({
-        entityType: "CREDIT_AGREEMENT",
-        entityId: generated._id,
-        action: "CREDIT_AGREEMENT_GENERATED"
-      }), 1);
-    } finally {
-      await fs.rm(agreementStorage, { recursive: true, force: true });
+    const repeated = await generateCreditAgreement({
+      agreementId: new mongoose.Types.ObjectId(draft.id),
+      generatedBy: adminId
+    });
+    assert.equal(repeated.generatedDocument?.checksumSha256, generated.generatedDocument?.checksumSha256);
+    assert.equal(await AuditLog.countDocuments({
+      entityType: "CREDIT_AGREEMENT",
+      entityId: generated._id,
+      action: "CREDIT_AGREEMENT_GENERATED"
+    }), 1);
+
+    if (generated.generatedDocument?.storageKey) {
+      await deleteObject(generated.generatedDocument.storageKey).catch(() => undefined);
     }
 
     const activated = createResponseRecorder();

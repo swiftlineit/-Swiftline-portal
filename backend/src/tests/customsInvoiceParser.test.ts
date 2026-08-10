@@ -62,7 +62,7 @@ async function roundTrip(draft: Record<string, unknown> = sampleDraft(), name = 
   });
   const file = path.join(scratch, `${name}-${Date.now()}.xlsx`);
   fs.writeFileSync(file, await buildCustomsInvoiceWorkbook(invoice));
-  return { file, parsed: await parseCustomsInvoiceWorkbook(file) };
+  return { file, parsed: await parseCustomsInvoiceWorkbook(fs.readFileSync(file)) };
 }
 
 // The strongest guarantee available here: the portal both writes and reads this
@@ -122,7 +122,7 @@ describe("customs invoice round-trip", () => {
   test("the downloadable blank template imports cleanly", async () => {
     const file = path.join(scratch, "template.xlsx");
     fs.writeFileSync(file, await buildCustomsInvoiceTemplateWorkbook());
-    const parsed = await parseCustomsInvoiceWorkbook(file);
+    const parsed = await parseCustomsInvoiceWorkbook(fs.readFileSync(file));
 
     assert.equal(parsed.csbType, "CSB_IV");
     assert.equal(parsed.serviceType, "COURIER");
@@ -151,7 +151,7 @@ describe("customs invoice round-trip", () => {
     // drama range looks like a UK mobile but is reserved and fails.
     const file = path.join(scratch, "template-contacts.xlsx");
     fs.writeFileSync(file, await buildCustomsInvoiceTemplateWorkbook());
-    const parsed = await parseCustomsInvoiceWorkbook(file);
+    const parsed = await parseCustomsInvoiceWorkbook(fs.readFileSync(file));
 
     const consigneePhone = parsePhoneNumberFromString(
       `${parsed.consignee.mobileCountryCode}${parsed.consignee.mobileNumber}`
@@ -181,7 +181,7 @@ describe("partial and invalid values", () => {
     edit(sheet);
     const edited = path.join(scratch, `${name}-edited.xlsx`);
     await workbook.xlsx.writeFile(edited);
-    return parseCustomsInvoiceWorkbook(edited);
+    return parseCustomsInvoiceWorkbook(fs.readFileSync(edited));
   }
 
   function setField(sheet: ExcelJS.Worksheet, label: string, value: string) {
@@ -242,7 +242,7 @@ describe("partial and invalid values", () => {
     const stripped = path.join(scratch, "no-data-sheet-stripped.xlsx");
     await workbook.xlsx.writeFile(stripped);
 
-    const parsed = await parseCustomsInvoiceWorkbook(stripped);
+    const parsed = await parseCustomsInvoiceWorkbook(fs.readFileSync(stripped));
     assert.equal(parsed.parcels.length, 2);
     assert.equal(parsed.consignee.contactName, "KRUSHNAKANT VYAS");
     // Sender and route could not be read, so they are absent rather than guessed.
@@ -261,7 +261,7 @@ describe("unusable files", () => {
     await workbook.xlsx.writeFile(file);
 
     await assert.rejects(
-      () => parseCustomsInvoiceWorkbook(file),
+      () => parseCustomsInvoiceWorkbook(fs.readFileSync(file)),
       (error: unknown) => error instanceof CustomsInvoiceParseError
     );
   });
@@ -271,7 +271,7 @@ describe("unusable files", () => {
     fs.writeFileSync(file, "plain text, not a spreadsheet");
 
     await assert.rejects(
-      () => parseCustomsInvoiceWorkbook(file),
+      () => parseCustomsInvoiceWorkbook(fs.readFileSync(file)),
       (error: unknown) => error instanceof CustomsInvoiceParseError
     );
   });

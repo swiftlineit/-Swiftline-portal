@@ -7,7 +7,13 @@ export type BranchDocument = {
   type: BranchDocumentType;
   title: string;
   fileName: string;
-  filePath: string;
+  mimeType: string;
+  uploadedAt: string;
+};
+
+export type BranchImageRef = {
+  fileName: string;
+  mimeType: string;
   uploadedAt: string;
 };
 
@@ -79,7 +85,7 @@ export type Branch = {
   status: BranchStatus;
   // Set on first activation; once present, code and labelCode are frozen.
   activatedAt?: string | null;
-  images: string[];
+  images: BranchImageRef[];
   documents: BranchDocument[];
   phoneNumbers: BranchPhoneNumber[];
   createdBy?: { email?: string; name?: string };
@@ -100,7 +106,7 @@ export type BranchFormData = {
   gstin: string;
   invoiceSacCode: string;
   phoneNumbers: BranchPhoneNumber[];
-  existingImages: string[];
+  existingImages: BranchImageRef[];
   existingDocuments: BranchDocument[];
 };
 
@@ -308,20 +314,25 @@ export async function deleteBranchDraft(branchId: string) {
   return parseApiResponse<{ success: true; message: string }>(response);
 }
 
-// Branch images and documents live under private_uploads and are served by
-// /api/v1/files, which requires a Bearer token. A plain <img src> or <a href>
-// cannot send that header, so the bytes are fetched with auth and handed to the
-// browser as an object URL instead.
-export async function fetchBranchFileObjectUrl(storedPath: string) {
-  // Stored paths are relative and may use Windows separators. Each segment is
-  // encoded individually so the "/" separators survive.
-  const encodedPath = storedPath
-    .replace(/\\/g, "/")
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/");
+/**
+ * Endpoints that stream a branch's stored files.
+ *
+ * Addressed by branch and position rather than by a storage path, so the server
+ * can apply the same branch-access check it applies to the rest of the record.
+ */
+export function branchImageUrl(branchId: string, index: number) {
+  return `/api/v1/branches/${branchId}/images/${index}`;
+}
 
-  const response = await fetchWithAuth(apiUrl(`/api/v1/files/${encodedPath}`));
+export function branchDocumentUrl(branchId: string, index: number) {
+  return `/api/v1/branches/${branchId}/documents/${index}`;
+}
+
+// These endpoints require a Bearer token, which a plain <img src> or <a href>
+// cannot send — so the bytes are fetched with auth and handed to the browser as
+// an object URL instead.
+export async function fetchBranchFileObjectUrl(fileUrl: string) {
+  const response = await fetchWithAuth(apiUrl(fileUrl));
   if (!response.ok) throw new Error("Unable to load file");
 
   return URL.createObjectURL(await response.blob());

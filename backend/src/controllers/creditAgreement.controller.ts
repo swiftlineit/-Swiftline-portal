@@ -11,7 +11,10 @@ import {
   serializeCreditAgreement,
   signCreditAgreement
 } from "../services/creditAgreement.service.js";
-import { resolveCreditAgreementPdfPath } from "../services/creditAgreementStorage.service.js";
+import {
+  StorageObjectNotFoundError,
+  streamObjectToResponse
+} from "../services/storage/storage.service.js";
 import { getMemberCreditPermissions } from "../services/creditAccount.service.js";
 
 const listAdminQuerySchema = z.object({
@@ -85,18 +88,20 @@ export async function getAdminCreditAgreementPdf(request: Request, response: Res
     return response.status(409).json({ success: false, message: "Generate the credit agreement before opening its PDF." });
   }
 
-  const filename = document.originalName.replace(/[\r\n\"]/g, "");
-  response.setHeader("Content-Type", "application/pdf");
-  response.setHeader(
-    "Content-Disposition",
-    `${request.query.download === "1" ? "attachment" : "inline"}; filename="${filename}"`
-  );
-  response.setHeader("Cache-Control", "private, no-store");
-  return response.sendFile(resolveCreditAgreementPdfPath(document.storageKey), (error) => {
-    if (error && !response.headersSent) {
-      response.status(404).json({ success: false, message: "The generated agreement file could not be found." });
+  try {
+    return await streamObjectToResponse({
+      response,
+      key: document.storageKey,
+      contentType: "application/pdf",
+      filename: document.originalName,
+      disposition: request.query.download === "1" ? "attachment" : "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      return response.status(404).json({ success: false, message: "The generated agreement file could not be found." });
     }
-  });
+    throw error;
+  }
 }
 
 export async function createAdminCreditAgreementDraft(request: Request, response: Response): Promise<Response> {
@@ -224,13 +229,20 @@ export async function getClientCreditAgreementPdf(request: Request, response: Re
     }
   }
 
-  const filename = document.originalName.replace(/[\r\n\"]/g, "");
-  response.setHeader("Content-Type", "application/pdf");
-  response.setHeader("Content-Disposition", `${request.query.download === "1" ? "attachment" : "inline"}; filename="${filename}"`);
-  response.setHeader("Cache-Control", "private, no-store");
-  return response.sendFile(resolveCreditAgreementPdfPath(document.storageKey), (error) => {
-    if (error && !response.headersSent) response.status(404).json({ success: false, message: "The agreement file could not be found." });
-  });
+  try {
+    return await streamObjectToResponse({
+      response,
+      key: document.storageKey,
+      contentType: "application/pdf",
+      filename: document.originalName,
+      disposition: request.query.download === "1" ? "attachment" : "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      return response.status(404).json({ success: false, message: "The agreement file could not be found." });
+    }
+    throw error;
+  }
 }
 
 export async function signClientCreditAgreement(request: Request, response: Response): Promise<Response> {

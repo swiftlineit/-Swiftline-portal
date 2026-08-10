@@ -8,8 +8,8 @@ import { useDialog } from "@/lib/useDialog";
 
 // Branch files are served from an authenticated endpoint, so their bytes are
 // fetched with a token and exposed to the browser as an object URL. The URL is
-// revoked when the path changes or the component unmounts.
-function useBranchFileUrl(storedPath: string) {
+// revoked when the endpoint changes or the component unmounts.
+function useBranchFileUrl(fileUrl: string) {
   const [url, setUrl] = useState("");
   const [failed, setFailed] = useState(false);
 
@@ -20,7 +20,7 @@ function useBranchFileUrl(storedPath: string) {
     setUrl("");
     setFailed(false);
 
-    fetchBranchFileObjectUrl(storedPath)
+    fetchBranchFileObjectUrl(fileUrl)
       .then((nextUrl) => {
         if (!active) {
           URL.revokeObjectURL(nextUrl);
@@ -37,21 +37,21 @@ function useBranchFileUrl(storedPath: string) {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [storedPath]);
+  }, [fileUrl]);
 
   return { url, failed };
 }
 
 export function BranchImage({
-  storedPath,
+  fileUrl,
   alt,
   className
 }: {
-  storedPath: string;
+  fileUrl: string;
   alt: string;
   className?: string;
 }) {
-  const { url, failed } = useBranchFileUrl(storedPath);
+  const { url, failed } = useBranchFileUrl(fileUrl);
 
   if (failed) {
     return (
@@ -70,15 +70,15 @@ export function BranchImage({
 }
 
 export function BranchFileLink({
-  storedPath,
+  fileUrl,
   children,
   className
 }: {
-  storedPath: string;
+  fileUrl: string;
   children: React.ReactNode;
   className?: string;
 }) {
-  const { url, failed } = useBranchFileUrl(storedPath);
+  const { url, failed } = useBranchFileUrl(fileUrl);
 
   if (failed) {
     return <span className={`${className ?? ""} text-slate-400`}>{children}</span>;
@@ -97,15 +97,15 @@ export function BranchFileLink({
   );
 }
 
-// Inline preview of a stored branch file (image or PDF) inside a modal. Only
-// rendered while open, so the bytes are fetched on mount and released on close.
+// Inline preview of a branch file (image or PDF) inside a modal. Only rendered
+// while open, so the bytes are fetched on mount and released on close.
 export function BranchFileModal({
-  storedPath,
+  fileUrl,
   fileName,
   title,
   onClose
 }: {
-  storedPath: string;
+  fileUrl: string;
   fileName: string;
   title?: string;
   onClose: () => void;
@@ -118,7 +118,7 @@ export function BranchFileModal({
     let objectUrl = "";
     let active = true;
 
-    fetchBranchFileObjectUrl(storedPath)
+    fetchBranchFileObjectUrl(fileUrl)
       .then((nextUrl) => {
         if (!active) {
           URL.revokeObjectURL(nextUrl);
@@ -135,7 +135,7 @@ export function BranchFileModal({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [storedPath]);
+  }, [fileUrl]);
 
   const isPdf = fileName.toLowerCase().endsWith(".pdf");
 

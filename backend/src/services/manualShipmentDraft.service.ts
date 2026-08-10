@@ -92,7 +92,11 @@ export async function createIndividualShipmentDraft(input: {
         invoiceNumber: `IND-INV-${sourceReference}`,
         shipmentReference: `IND-SHIP-${sourceReference}`,
         originalFilename: "Individual shipment entry",
-        storagePath: `individual://shipment-draft/${sourceToken}`,
+        // No stored workbook: a walk-in shipment is keyed in at the counter, and
+        // this record exists only so the shipment chain has an invoice to point
+        // at. An empty key says that plainly, where the placeholder URI it
+        // replaces looked like a document that had simply gone missing.
+        storageKey: "",
         fileChecksum: crypto.createHash("sha256").update(sourceToken).digest("hex"),
         extractedData: { creationSource: "INDIVIDUAL" },
         status: "PARSED",

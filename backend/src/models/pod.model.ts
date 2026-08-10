@@ -47,8 +47,11 @@ deliveryAssignmentSchema.index({ currentDeliveryPersonProfileId: 1, status: 1, e
 const locationSchema = new mongoose.Schema({ latitude: Number, longitude: Number, accuracy: Number, captureStatus: { type: String, enum: ["CAPTURED", "UNAVAILABLE", "DENIED"], default: "UNAVAILABLE" } }, { _id: false });
 const evidenceSchema = new mongoose.Schema({
   type: { type: String, enum: podEvidenceTypeValues, required: true }, originalName: { type: String, required: true, trim: true, maxlength: 255 },
-  storedName: { type: String, required: true }, mimeType: { type: String, required: true }, size: { type: Number, required: true, min: 1 },
-  path: { type: String, required: true }, sha256: { type: String, required: true, maxlength: 64 }, capturedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }, capturedAt: { type: Date, default: Date.now }
+  mimeType: { type: String, required: true }, size: { type: Number, required: true, min: 1 },
+  // Storage service key, resolved through storage.service.ts. These rows used to
+  // hold an absolute filesystem path, which tied every POD to one server's disk.
+  storageKey: { type: String, required: true, maxlength: 1024 },
+  sha256: { type: String, required: true, maxlength: 64 }, capturedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }, capturedAt: { type: Date, default: Date.now }
 });
 
 export interface IPodRevision extends mongoose.Document {

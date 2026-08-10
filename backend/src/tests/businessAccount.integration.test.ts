@@ -51,10 +51,9 @@ function testDocument(type: "aadhaarCard" | "panCard") {
   return {
     type,
     originalName: `${type}.pdf`,
-    storedName: `${type}-stored.pdf`,
+    storageKey: `business-accounts/test-account/kyc/${type}.pdf`,
     mimeType: "application/pdf",
     size: 1024,
-    path: `/tmp/${type}.pdf`,
     uploadedAt: new Date()
   };
 }

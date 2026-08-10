@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/",
   },
+  icons: {
+    icon: [{ url: "/icon.png", type: "image/png", sizes: "192x192" }],
+    apple: [{ url: "/icon.png", type: "image/png", sizes: "192x192" }],
+  },
 };
 
 export default function RootLayout({

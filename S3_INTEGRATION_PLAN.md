@@ -3,8 +3,13 @@
 Migrating every document upload in the portal from local disk to S3, behind one
 storage abstraction so the two can be switched by configuration.
 
-Status: in progress. Claims is being built S3-native; the ten existing upload
-sites migrate afterwards, one at a time.
+Status: code complete. Claims was built S3-native, and all ten existing upload
+sites now read and write through the storage service. Nothing in the application
+touches `private_uploads/` except the local driver itself, which is what
+`STORAGE_DRIVER=local` selects.
+
+The remaining work is infrastructure verification — the unchecked rows in
+section 7.
 
 ---
 
@@ -174,14 +179,15 @@ The interface stays deliberately small:
 Records persist **the key only** — never an absolute path, never a URL. This is
 the single most important rule in the migration.
 
-The codebase already contains both the right and wrong pattern:
+Every record now stores `storageKey`. The fields that used to hold a path or a
+multer filename — `path`, `storedName`, `storagePath`, `filePath` — are gone from
+`user`, `businessAccount`, `branch`, `shipmentDraft`, `invoiceUpload`,
+`labelDocument`, `pickupEvidence`, and `pod`.
 
-- **Right:** `creditAgreementStorage.service.ts` stores `storageKey` and resolves
-  it through one function. Migrating it means rewriting that function.
-- **Wrong:** `pod.controller.ts` persists `path: file.path`, an absolute local
-  path, on every evidence row. Those rows need backfilling before POD can move.
-
-New code follows the credit-agreement pattern without exception.
+One deliberate exception: `invoiceUpload.storageKey` may be empty. An individual
+(walk-in) shipment is keyed in at the counter and has no uploaded workbook, but
+the shipment chain still requires an invoice record to point at. Readers treat an
+empty key as "there is nothing to read", not as a broken reference.
 
 ### Download path
 
@@ -192,62 +198,90 @@ Two options, and the choice differs by document type:
 2. **Streamed through the API** — the server authorises, then pipes the bytes.
    The file is never reachable without a live session.
 
-Claim evidence, beneficiary proofs, and payment proofs stream through the API.
-The rest may use signed URLs. The reason is that a signed URL forwarded in an
-email remains valid until it expires, and claim documents can contain
-loss photographs and bank identifiers.
+In the end **every** download streams through the API. Signed URLs remain
+available on the S3 driver and are the right tool for bulk or public-ish
+documents, but nothing in the portal is in that category: KYC documents carry
+Aadhaar, PAN, and tax identifiers, POD and pickup proofs carry recipient
+signatures, and claim documents carry loss photographs and bank details. A
+signed URL forwarded in an email stays readable until it expires; a streamed
+response dies with the session.
+
+There is also no generic "fetch by key" endpoint, deliberately. Every document is
+reached through the endpoint that owns it — `/api/v1/branches/:id/documents/:n`,
+`/api/v1/staff/:id/documents/:type`, and so on — so the check is always "may
+*this* user see *this* record", never "is this user signed in".
 
 ---
 
-## 5. Rollout sequence
+## 5. What the conversion changed
 
-**The portal is pre-production, so there is no production data to migrate.**
-Existing local files are development artefacts and can be discarded. That removes
+**The portal was pre-production, so there was no production data to migrate.**
+Existing local files were development artefacts and were discarded, which removed
 the backfill step, the copy-verify-delete dance, and the dual-read window that
-would otherwise dominate this work.
+would otherwise have dominated this work.
 
-Claims is built S3-native from the start. The ten existing sites are converted
-afterwards, and each is now a two-step change rather than four:
+> **Attention — existing development records are now unreadable.** Every affected
+> collection changed field names, so rows written before this change point at
+> nothing. Drop and re-seed the development database rather than trying to repair
+> them.
 
-1. Point writes and reads at the storage service.
-2. Delete the module's local root.
+All ten sites are converted:
 
-> **Attention — this only holds while the portal is pre-production.** The moment
-> real client documents exist, converting a module requires the full
-> copy-verify-delete backfill and a dual-read window. If any of these modules
-> reach production before conversion, revisit this section rather than following
-> the two-step version.
+| Module | Record field now | Was |
+|---|---|---|
+| Profile images | `user.profileImage.storageKey` | `path` + `storedName` |
+| Staff documents | `user.staffProfile.documents.*.storageKey` | `path` + `storedName` |
+| Business account KYC | `businessAccount.documents.*.storageKey` | `path` + `storedName` |
+| Branch KYC | `branch.documents[].storageKey`, `branch.images[].storageKey` | `filePath`, and images were bare relative paths |
+| Shipment KYC | `shipmentDraft…kycDocuments.*.storageKey` | `path` + `storedName` |
+| Shipping labels | `labelDocument.storageKey` | `storagePath` |
+| Invoice uploads | `invoiceUpload.storageKey` | `storagePath` |
+| Credit agreements | `creditAgreement…storageKey` | already a key; the resolver was rewritten |
+| Pickup proofs | `pickupProof.storageKey` | `path` + `storedName` |
+| POD evidence | `podRevision.evidence[].storageKey` | `path` + `storedName` |
 
-Recommended order — least to most risky:
+Three structural changes came with it:
 
-| Order | Module | Risk | Note |
-|---|---|---|---|
-| 1 | Profile images | Low | Small, non-critical, easy to verify |
-| 2 | Shipping labels | Low | Regenerable if a file is lost |
-| 3 | Staff documents | Low | Low volume |
-| 4 | Branch KYC | Medium | Compliance documents |
-| 5 | Business account KYC | Medium | Compliance documents |
-| 6 | Shipment KYC | Medium | Higher volume |
-| 7 | Invoice uploads | Medium | Financial records |
-| 8 | Credit agreements | Medium | Already key-based, so mostly mechanical |
-| 9 | Pickup proofs | High | Volume of image data |
-| 10 | POD evidence | High | **Stores absolute paths — needs backfill first** |
+**Uploads are buffered in memory.** Every multer instance moved from
+`diskStorage` to `memoryStorage` behind one factory, `middleware/memoryUpload.ts`.
+There is no temporary file, so the orphan-cleanup code that every upload
+middleware and most of the controllers behind them carried is gone. A rejected
+request now just drops a buffer.
 
-### The POD exception
+**Signature checks read the buffer.** The four near-identical copies of
+"open the file multer wrote and read its first eight bytes" collapsed into
+`services/storage/fileSignature.ts`.
 
-POD evidence rows persist `path: file.path`, an absolute filesystem path, rather
-than a storage key. Converting it is a schema change plus a controller rewrite,
-not a driver swap, so it stays last regardless of the shortcut above. Existing
-development rows can simply be dropped and re-created.
+**Branch files got real endpoints.** Branch images and documents were the only
+consumers of the `/api/v1/files` static mount, and they are now served by
+`GET /api/v1/branches/:branchId/{images,documents}/:index` under the same
+branch-access check as the rest of the record.
+
+### The security fix that came with this
+
+`/api/v1/files` mounted the entire `private_uploads/` tree behind `attachUser` +
+`requireAuthenticated` — nothing more. Any authenticated user of any role who
+could guess or observe a stored path could read any other account's KYC
+documents, invoices, or credit agreements. It is deleted, and nothing generic
+replaces it.
 
 ---
 
 ## 6. Verification
 
-- With `STORAGE_DRIVER=local`, every existing test passes unchanged.
-- With `STORAGE_DRIVER=s3`, upload, download, and delete work for each migrated
-  module.
+Done, on the local driver:
+
+- Both projects typecheck clean.
+- 467 unit tests pass; 87 of 89 integration tests pass. The two failures are in
+  `individualShipment.integration.test.ts` and assert on name casing
+  (`'ASHA KUMARI'` vs `'Asha Kumari'`) — they fail identically on the unmodified
+  code, so they predate this work and are unrelated to storage.
 - Uploading the same file twice produces two distinct keys.
+- A key containing `..` is refused before any driver call.
+
+Still to do, and needing the real bucket:
+
+- With `STORAGE_DRIVER=s3`, upload, download, and delete for each module.
 - A signed URL stops working after its TTL.
 - A key from one business account cannot be read by a member of another.
 - Deleting a claim under legal hold is refused before any S3 call is made.
@@ -262,11 +296,13 @@ development rows can simply be dropped and re-created.
 |---|---|---|
 | Bucket created | Infrastructure | Done — `swiftline-prod-storage-…-ap-south-1-an`, `ap-south-1` |
 | Claims wired to the storage service | Backend | Done |
+| Convert the ten existing upload sites | Backend | Done |
+| POD schema change (absolute paths → keys) | Backend | Done |
+| Remove the `/api/v1/files` static mount | Backend | Done |
 | IAM policy narrowed to the block above | Infrastructure | Unverified |
 | Block Public Access, SSE-S3, versioning confirmed on the bucket | Infrastructure | Unverified |
 | Confirm no lifecycle expiry rule covers `claims/` | Infrastructure | Unverified |
-| Convert the ten existing upload sites | Backend | Not started |
-| POD schema change (absolute paths → keys) | Backend | Deferred to step 10 |
+| End-to-end check against the real bucket with `STORAGE_DRIVER=s3` | Backend | Not done — the suite runs on the local driver |
 
 > **Attention — environment naming.** The configured bucket is named `-prod-` and
 > `S3_KEY_PREFIX=production`, while the portal is otherwise described as

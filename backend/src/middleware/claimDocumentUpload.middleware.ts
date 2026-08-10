@@ -5,10 +5,13 @@ import { maxClaimDocumentBytes } from "../services/claims/claimDocument.service.
 /**
  * Buffers a claim document in memory rather than writing it to disk.
  *
- * Every other upload in the portal uses `diskStorage`, but claim evidence goes
- * straight to S3 through the storage service — a disk write would only create a
+ * Claim evidence goes straight to storage: a disk write would only create a
  * temporary file to clean up, and a failed upload would leave it behind. At
  * 10 MB with one file per request the memory cost is bounded.
+ *
+ * This was the first upload in the portal to work this way; every other one has
+ * since followed, through the shared factory in `memoryUpload.ts`. This file
+ * stays hand-written only because its size limit is owned by the claims service.
  */
 const upload = multer({
   storage: multer.memoryStorage(),

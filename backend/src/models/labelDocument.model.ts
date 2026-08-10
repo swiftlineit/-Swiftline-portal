@@ -15,7 +15,8 @@ export interface ILabelDocument extends mongoose.Document {
   providerMode: "SIMULATED" | "LIVE";
   format: LabelFormat;
   labelSize: LabelSize;
-  storagePath: string;
+  /** Storage service key, resolved through storage.service.ts. Never a path. */
+  storageKey: string;
   fileChecksum: string;
   generatedAt: Date;
   downloadCount: number;
@@ -43,7 +44,7 @@ const labelDocumentSchema = new mongoose.Schema<ILabelDocument>(
     providerMode: { type: String, enum: ["SIMULATED", "LIVE"], default: "LIVE", required: true, index: true },
     format: { type: String, enum: labelFormatValues, required: true },
     labelSize: { type: String, enum: labelSizeValues, required: true },
-    storagePath: { type: String, required: true, trim: true, maxlength: 1000 },
+    storageKey: { type: String, required: true, trim: true, maxlength: 1024 },
     fileChecksum: { type: String, required: true, trim: true, maxlength: 128 },
     generatedAt: { type: Date, default: Date.now, index: true },
     downloadCount: { type: Number, default: 0, min: 0 },

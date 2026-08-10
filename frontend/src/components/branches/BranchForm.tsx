@@ -10,11 +10,14 @@ import type { LookupAddress } from "@/lib/addressLookup";
 import {
   BranchDocument,
   BranchFormData,
+  BranchImageRef,
   BranchPhoneNumber,
   BranchService,
   BranchStatus,
   ShipmentCoverage,
   WorkingDay,
+  branchDocumentUrl,
+  branchImageUrl,
   branchServices,
   countryOptions,
   createBranch,
@@ -528,7 +531,7 @@ export default function BranchForm({
     other?: { title: string; file: File };
   }>({});
   const [uploading, setUploading] = useState(false);
-  const [existingImages, setExistingImages] = useState<string[]>(initialData?.existingImages ?? []);
+  const [existingImages, setExistingImages] = useState<BranchImageRef[]>(initialData?.existingImages ?? []);
   const [existingDocuments, setExistingDocuments] = useState<BranchDocument[]>(initialData?.existingDocuments ?? []);
   const [deletingImages, setDeletingImages] = useState<Set<number>>(new Set());
   const [deletingDocs, setDeletingDocs] = useState<Set<number>>(new Set());
@@ -1091,15 +1094,15 @@ export default function BranchForm({
         <div className="space-y-4">
           {(imagePreviews.length || existingImages.length) ? (
             <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              {existingImages.map((imagePath, index) => (
+              {existingImages.map((image, index) => (
                 <div key={`existing-${index}`} className="group relative overflow-hidden rounded-xl border border-[#EEEDED] bg-[#EEEDED]/40">
                   <BranchImage
-                    storedPath={imagePath}
-                    alt={`Existing branch image ${index + 1}`}
+                    fileUrl={branchImageUrl(branchId ?? "", index)}
+                    alt={image.fileName || `Existing branch image ${index + 1}`}
                     className="h-32 w-full object-cover"
                   />
                   <BranchFileLink
-                    storedPath={imagePath}
+                    fileUrl={branchImageUrl(branchId ?? "", index)}
                     className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-lg bg-white/95 px-2.5 py-1.5 text-xs font-semibold text-[#0D1282] shadow-sm hover:bg-white"
                   >
                     <FiExternalLink className="h-3.5 w-3.5" /> Preview
@@ -1185,7 +1188,7 @@ export default function BranchForm({
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500"><FiFileText className="h-5 w-5" /></span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-slate-700">{doc.fileName}</p>
-                      <BranchFileLink storedPath={doc.filePath} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
+                      <BranchFileLink fileUrl={branchDocumentUrl(branchId ?? "", docIndex)} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
                     </div>
                   </div>
                   <button
@@ -1246,7 +1249,7 @@ export default function BranchForm({
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500"><FiFileText className="h-5 w-5" /></span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-slate-700">{doc.fileName}</p>
-                      <BranchFileLink storedPath={doc.filePath} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
+                      <BranchFileLink fileUrl={branchDocumentUrl(branchId ?? "", docIndex)} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
                     </div>
                   </div>
                   <button
@@ -1307,7 +1310,7 @@ export default function BranchForm({
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-700">{doc.title || doc.type}</p>
                       <p className="truncate text-xs text-slate-500">{doc.fileName}</p>
-                      <BranchFileLink storedPath={doc.filePath} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
+                      <BranchFileLink fileUrl={branchDocumentUrl(branchId ?? "", docIndex)} className="mt-0.5 inline-flex items-center gap-1 text-xs font-semibold text-[#0D1282] hover:underline"><FiExternalLink className="h-3.5 w-3.5" /> Preview</BranchFileLink>
                     </div>
                   </div>
                   <button

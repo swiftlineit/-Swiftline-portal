@@ -1,5 +1,3 @@
-import fs from "fs";
-import path from "path";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -10,6 +8,7 @@ import {
   branchServiceValues,
   branchStatusValues,
   BranchStatus,
+  type IBranchImage,
   shipmentCoverageValues,
   workingDayValues
 } from "../models/branch.model.js";
@@ -18,10 +17,17 @@ import { BusinessAccountMember } from "../models/businessAccountMember.model.js"
 import { OperationsManifest } from "../models/operationsManifest.model.js";
 import { User } from "../models/user.model.js";
 import { branchListScope } from "../middleware/branchAccess.middleware.js";
+import { isSupportedDocument, matchesDeclaredType } from "../services/storage/fileSignature.js";
+import {
+  StorageObjectNotFoundError,
+  branchKycKey,
+  deleteObject,
+  putObject,
+  streamObjectToResponse
+} from "../services/storage/storage.service.js";
 
 const currencyValues = ["INR", "USD", "AED", "GBP", "EUR", "SGD", "CAD", "AUD", "SAR"] as const;
 
-const privateUploadRoot = path.resolve(process.cwd(), "private_uploads");
 const countryCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Country code must be a two-letter ISO code");
 const branchCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{3,20}$/, "Branch code must be 3-20 uppercase letters, numbers, or hyphens");
 const branchLabelCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9]{2,4}$/, "Station code must be 2-4 uppercase letters or numbers");
@@ -600,12 +606,104 @@ export async function uploadBranchImages(request: Request, response: Response): 
     return response.status(400).json({ success: false, message: "No images provided." });
   }
 
-  const newPaths = files.map((file) => path.relative(privateUploadRoot, file.path).replace(/\\/g, "/"));
-  branch.images = [...branch.images, ...newPaths];
+  const invalid = files.find((file) => !matchesDeclaredType(file.buffer, file.mimetype));
+  if (invalid) {
+    return response.status(400).json({ success: false, message: `"${invalid.originalname}" is not a valid image.` });
+  }
+
+  const stored: IBranchImage[] = [];
+  for (const file of files) {
+    const storageKey = branchKycKey(branchId, file.originalname);
+    await putObject({
+      key: storageKey,
+      body: file.buffer,
+      contentType: file.mimetype,
+      originalName: file.originalname
+    });
+    stored.push({
+      storageKey,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      uploadedAt: new Date()
+    });
+  }
+
+  branch.images = [...branch.images, ...stored];
   branch.updatedBy = userId;
   await branch.save();
 
   return response.status(200).json({ success: true, branch });
+}
+
+/**
+ * Streams one branch photo.
+ *
+ * Scoped to a branch and an index rather than taking a storage key, because an
+ * endpoint that accepted any key would let any authenticated staff member read
+ * any document in the bucket — which is exactly what the old static mount over
+ * `private_uploads` did.
+ */
+export async function viewBranchImage(request: Request, response: Response): Promise<Response | void> {
+  const branchId = typeof request.params.branchId === "string" ? request.params.branchId : "";
+  if (!branchId || !mongoose.Types.ObjectId.isValid(branchId)) {
+    return response.status(404).json({ success: false, message: "Branch not found" });
+  }
+
+  const imageIndex = Number.parseInt(String(request.params.imageIndex), 10);
+  if (!Number.isInteger(imageIndex) || imageIndex < 0) {
+    return response.status(400).json({ success: false, message: "Invalid image index." });
+  }
+
+  const branch = await Branch.findById(branchId).select("images").lean().exec();
+  const image = branch?.images?.[imageIndex];
+  if (!image) return response.status(404).json({ success: false, message: "Image not found at this index." });
+
+  try {
+    return await streamObjectToResponse({
+      response,
+      key: image.storageKey,
+      contentType: image.mimeType || "application/octet-stream",
+      filename: image.fileName || "branch-image",
+      disposition: "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      return response.status(404).json({ success: false, message: "Image file is no longer available." });
+    }
+    throw error;
+  }
+}
+
+/** Streams one branch document. `?download=1` sends it as an attachment. */
+export async function viewBranchDocument(request: Request, response: Response): Promise<Response | void> {
+  const branchId = typeof request.params.branchId === "string" ? request.params.branchId : "";
+  if (!branchId || !mongoose.Types.ObjectId.isValid(branchId)) {
+    return response.status(404).json({ success: false, message: "Branch not found" });
+  }
+
+  const docIndex = Number.parseInt(String(request.params.docIndex), 10);
+  if (!Number.isInteger(docIndex) || docIndex < 0) {
+    return response.status(400).json({ success: false, message: "Invalid document index." });
+  }
+
+  const branch = await Branch.findById(branchId).select("documents").lean().exec();
+  const document = branch?.documents?.[docIndex];
+  if (!document) return response.status(404).json({ success: false, message: "Document not found at this index." });
+
+  try {
+    return await streamObjectToResponse({
+      response,
+      key: document.storageKey,
+      contentType: document.mimeType || "application/octet-stream",
+      filename: document.fileName || "branch-document",
+      disposition: request.query.download === "1" ? "attachment" : "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      return response.status(404).json({ success: false, message: "Document file is no longer available." });
+    }
+    throw error;
+  }
 }
 
 export async function deleteBranchImage(request: Request, response: Response): Promise<Response> {
@@ -631,13 +729,14 @@ export async function deleteBranchImage(request: Request, response: Response): P
     return response.status(404).json({ success: false, message: "Image not found at this index." });
   }
 
-  const removedImagePath: string | undefined = branch.images[imageIndex];
+  const removedKey = branch.images[imageIndex]?.storageKey;
   branch.images.splice(imageIndex, 1);
   branch.updatedBy = userId;
   await branch.save();
 
-  // Remove file from disk; failure is non-blocking.
-  if (removedImagePath) fs.promises.unlink(path.resolve(privateUploadRoot, removedImagePath)).catch(() => undefined);
+  // After the save, so a failed delete leaves an orphan rather than a branch
+  // still listing an image nobody can load. Failure is non-blocking either way.
+  if (removedKey) void deleteObject(removedKey).catch(() => undefined);
 
   return response.status(200).json({ success: true, branch });
 }
@@ -667,30 +766,40 @@ export async function uploadBranchDocument(request: Request, response: Response)
     return response.status(400).json({ success: false, message: "No document file provided." });
   }
 
+  if (!isSupportedDocument(uploadedFile.buffer)) {
+    return response.status(400).json({ success: false, message: "The document is not a valid PDF, JPG, or PNG file." });
+  }
+
   // Replace existing document of the same type (PAN/GST) or append.
   const existingIndex = docType !== "OTHER"
     ? branch.documents.findIndex((doc) => doc.type === docType)
     : -1;
 
+  const storageKey = branchKycKey(branchId, uploadedFile.originalname);
+  await putObject({
+    key: storageKey,
+    body: uploadedFile.buffer,
+    contentType: uploadedFile.mimetype,
+    originalName: uploadedFile.originalname
+  });
+
   const docEntry = {
     type: docType as "PAN" | "GST" | "OTHER",
     title: docType === "OTHER" ? title : docType,
     fileName: uploadedFile.originalname,
-    filePath: path.relative(privateUploadRoot, uploadedFile.path).replace(/\\/g, "/"),
+    storageKey,
+    mimeType: uploadedFile.mimetype,
     uploadedAt: new Date()
   };
 
-  if (existingIndex >= 0) {
-    const existingDoc = branch.documents[existingIndex];
-    const oldPath = existingDoc?.filePath;
-    branch.documents[existingIndex] = docEntry;
-    if (oldPath) fs.promises.unlink(path.resolve(privateUploadRoot, oldPath)).catch(() => undefined);
-  } else {
-    branch.documents.push(docEntry);
-  }
+  const supersededKey = existingIndex >= 0 ? branch.documents[existingIndex]?.storageKey : undefined;
+  if (existingIndex >= 0) branch.documents[existingIndex] = docEntry;
+  else branch.documents.push(docEntry);
 
   branch.updatedBy = userId;
   await branch.save();
+
+  if (supersededKey) void deleteObject(supersededKey).catch(() => undefined);
 
   return response.status(200).json({ success: true, branch });
 }
@@ -718,12 +827,12 @@ export async function deleteBranchDocument(request: Request, response: Response)
     return response.status(404).json({ success: false, message: "Document not found at this index." });
   }
 
-  const removedDocPath = branch.documents[docIndex].filePath;
+  const removedKey = branch.documents[docIndex].storageKey;
   branch.documents.splice(docIndex, 1);
   branch.updatedBy = userId;
   await branch.save();
 
-  fs.promises.unlink(path.resolve(privateUploadRoot, removedDocPath)).catch(() => undefined);
+  void deleteObject(removedKey).catch(() => undefined);
 
   return response.status(200).json({ success: true, branch });
 }

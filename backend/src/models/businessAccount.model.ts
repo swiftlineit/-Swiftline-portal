@@ -59,10 +59,10 @@ export interface IBusinessAddress {
 export interface IBusinessDocument {
   type: DocumentType;
   originalName: string;
-  storedName: string;
+  /** Storage service key, resolved through storage.service.ts. Never a path. */
+  storageKey: string;
   mimeType: string;
   size: number;
-  path: string;
   uploadedAt: Date;
 }
 
@@ -183,10 +183,9 @@ const businessDocumentSchema = new mongoose.Schema<IBusinessDocument>(
       required: true
     },
     originalName: { type: String, required: true },
-    storedName: { type: String, required: true },
+    storageKey: { type: String, required: true, maxlength: 1024 },
     mimeType: { type: String, required: true },
     size: { type: Number, required: true },
-    path: { type: String, required: true },
     uploadedAt: { type: Date, default: Date.now }
   },
   { _id: false }

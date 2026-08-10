@@ -19,8 +19,25 @@ import path from "path";
  * legal hold, and account deletion operate on a prefix instead of a file list.
  */
 
-/** Extensions we are willing to put in a key, lowercased and without the dot. */
-const allowedExtensions = new Set(["pdf", "jpg", "jpeg", "png", "webp"]);
+/**
+ * Extensions we are willing to put in a key, lowercased and without the dot.
+ *
+ * The extension is cosmetic — it decides nothing about how an object is served,
+ * because the content type comes from the database record. It exists so that a
+ * key is recognisable in the S3 console and so a downloaded object opens in the
+ * right application. Anything outside this set becomes `.bin`.
+ */
+const allowedExtensions = new Set([
+  "pdf",
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  // Shipping labels in printer control code, and customs invoice workbooks.
+  "zpl",
+  "xlsx"
+]);
 
 /**
  * Derives a safe extension from a client-supplied filename.

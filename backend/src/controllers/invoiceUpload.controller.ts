@@ -1,5 +1,3 @@
-import crypto from "crypto";
-import fs from "fs";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -17,6 +15,13 @@ import {
 import { buildCustomsInvoiceTemplateWorkbook } from "../services/customsInvoice/customsInvoice.service.js";
 import { shipmentDataTemplateVersion } from "../services/customsInvoice/customsInvoiceSheet.js";
 import { resolveDraftBookingState } from "../services/shipmentDraftPolicy.service.js";
+import {
+  checksumOf,
+  deleteObject,
+  getObjectBuffer,
+  invoiceUploadKey,
+  putObject
+} from "../services/storage/storage.service.js";
 
 const uploadPayloadSchema = z.object({
   businessAccountId: z.string().trim().min(1),
@@ -32,10 +37,14 @@ function getAuthenticatedUserId(request: Request): mongoose.Types.ObjectId | nul
     : null;
 }
 
-function getFileChecksum(filePath: string): string {
-  const hash = crypto.createHash("sha256");
-  hash.update(fs.readFileSync(filePath));
-  return hash.digest("hex");
+/**
+ * Reads a stored invoice workbook, or null when the object is gone.
+ *
+ * A missing object is an expected state — an invoice can be deleted out from
+ * under a draft that still references it — so it is reported rather than thrown.
+ */
+async function readStoredInvoice(storageKey: string): Promise<Buffer | null> {
+  return getObjectBuffer(storageKey).catch(() => null);
 }
 
 async function resolveBusinessAccount(value: string) {
@@ -279,11 +288,12 @@ async function refreshDuplicateInvoiceDraft(
     : null;
   if (current?.locked) return current.shipmentDraft;
 
-  if (!invoiceUpload || !businessAccount || !branch || !fs.existsSync(invoiceUpload.storagePath)) {
+  const contents = invoiceUpload ? await readStoredInvoice(invoiceUpload.storageKey) : null;
+  if (!invoiceUpload || !businessAccount || !branch || !contents) {
     return ShipmentDraft.findOne({ invoiceUploadId: invoiceUpload?._id, deletedAt: null }).exec();
   }
 
-  const parsedInvoice = await parseCustomsInvoiceWorkbook(invoiceUpload.storagePath);
+  const parsedInvoice = await parseCustomsInvoiceWorkbook(contents);
   invoiceUpload.set({
     templateVersion: shipmentDataTemplateVersion,
     invoiceNumber: parsedInvoice.invoiceNumber,
@@ -333,7 +343,7 @@ export async function createInvoiceUpload(request: Request, response: Response):
   if (!businessAccount) return response.status(404).json({ success: false, message: "Business account not found" });
   if (!branch) return response.status(404).json({ success: false, message: "Branch not found" });
 
-  const fileChecksum = getFileChecksum(file.path);
+  const fileChecksum = checksumOf(file.buffer);
   const existingUpload = await InvoiceUpload.findOne({
     businessAccountId: businessAccount._id,
     branchId: branch._id,
@@ -341,8 +351,8 @@ export async function createInvoiceUpload(request: Request, response: Response):
   }).exec();
 
   if (existingUpload) {
-    void fs.promises.unlink(file.path).catch(() => undefined);
-
+    // The duplicate is served from what is already stored, and the buffer this
+    // request arrived with is simply dropped — nothing was written for it.
     const current = await getInvoiceDraftState(existingUpload._id as mongoose.Types.ObjectId);
     if (current.locked) {
       return response.status(200).json({
@@ -375,17 +385,36 @@ export async function createInvoiceUpload(request: Request, response: Response):
     });
   }
 
-  const invoiceUpload = await InvoiceUpload.create({
-    businessAccountId: businessAccount._id,
-    branchId: branch._id,
-    originalFilename: file.originalname,
-    storagePath: file.path,
-    fileChecksum,
-    status: "UPLOADED",
-    processingErrors: [],
-    uploadedBy: userId,
-    uploadedAt: new Date()
+  // Generated up front because the storage key is namespaced by the invoice it
+  // belongs to, and the workbook must be stored before the record referencing it.
+  const invoiceUploadId = new mongoose.Types.ObjectId();
+  const storageKey = invoiceUploadKey(String(invoiceUploadId), file.originalname);
+  await putObject({
+    key: storageKey,
+    body: file.buffer,
+    contentType: file.mimetype,
+    originalName: file.originalname
   });
+
+  let invoiceUpload;
+  try {
+    invoiceUpload = await InvoiceUpload.create({
+      _id: invoiceUploadId,
+      businessAccountId: businessAccount._id,
+      branchId: branch._id,
+      originalFilename: file.originalname,
+      storageKey,
+      fileChecksum,
+      status: "UPLOADED",
+      processingErrors: [],
+      uploadedBy: userId,
+      uploadedAt: new Date()
+    });
+  } catch (error) {
+    // The record was not created, so the object is unreferenced. Best effort.
+    await deleteObject(storageKey).catch(() => undefined);
+    throw error;
+  }
 
   await writeInvoiceAuditLog("INVOICE_UPLOADED", invoiceUpload._id as mongoose.Types.ObjectId, userId, {
     originalFilename: file.originalname,
@@ -434,12 +463,18 @@ export async function processInvoiceUpload(request: Request, response: Response)
   if (!businessAccount) return response.status(404).json({ success: false, message: "Business account not found" });
   if (!branch) return response.status(404).json({ success: false, message: "Branch not found" });
 
+  // Individual (walk-in) shipments carry an invoice record with no workbook
+  // behind it, so there is nothing here to parse.
+  if (!invoiceUpload.storageKey) {
+    return response.status(409).json({ success: false, message: "This shipment was entered at the counter, so there is no invoice file to process." });
+  }
+
   try {
     invoiceUpload.status = "PROCESSING";
     invoiceUpload.processingErrors = [];
     await invoiceUpload.save();
 
-    const parsedInvoice = await parseCustomsInvoiceWorkbook(invoiceUpload.storagePath);
+    const parsedInvoice = await parseCustomsInvoiceWorkbook(await getObjectBuffer(invoiceUpload.storageKey));
     const existingParsedUpload = await findExistingParsedInvoice({
       businessAccountId: invoiceUpload.businessAccountId,
       branchId: invoiceUpload.branchId,

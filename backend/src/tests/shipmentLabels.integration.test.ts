@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { after, before, describe, test } from "node:test";
 import mongoose from "mongoose";
 import { env } from "../config/env.js";
@@ -25,9 +24,10 @@ import {
   beginShipmentDraftBooking
 } from "../services/shipmentDraftPolicy.service.js";
 import { allocateSwiftlineTrackingNumber } from "../services/swiftlineTracking.service.js";
+import { deleteObject } from "../services/storage/storage.service.js";
 
 const databaseName = `sl_shipment_labels_${Date.now()}`;
-const generatedFiles = new Set<string>();
+const generatedKeys = new Set<string>();
 
 // A complete Indian consignor plus mandatory KYC uploads, so booking drafts pass
 // the consignor validation added alongside consignor capture. "234567890124"
@@ -52,10 +52,9 @@ function kycDocumentFixture(type: "aadhaar" | "pan" | "other", documentLabel: st
     type,
     documentLabel,
     originalName: `${type}.pdf`,
-    storedName: `${type}-${Date.now()}.pdf`,
+    storageKey: `shipments/test-draft/kyc/${type}-${Date.now()}.pdf`,
     mimeType: "application/pdf",
     size: 1024,
-    path: `test://kyc/${type}.pdf`,
     uploadedAt: new Date()
   };
 }
@@ -72,8 +71,10 @@ before(async () => {
 });
 
 after(async () => {
-  for (const filePath of generatedFiles) {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  // Labels are stored through the storage service, so they are removed through
+  // it too — the test does not need to know which driver is active.
+  for (const key of generatedKeys) {
+    await deleteObject(key).catch(() => undefined);
   }
   if (mongoose.connection.readyState !== 0) {
     assert.ok(mongoose.connection.name.startsWith("sl_shipment_labels_"));
@@ -240,7 +241,7 @@ describe("Swiftline tracking sequence", () => {
       invoiceNumber: `DRIFTER-INV-${Date.now()}`,
       shipmentReference: `DRIFTER-SHIP-${Date.now()}`,
       originalFilename: "drifter-branch.pdf",
-      storagePath: "test://drifter-branch.pdf",
+      storageKey: "invoices/test-drifter-branch/fixture.xlsx",
       fileChecksum: new mongoose.Types.ObjectId().toHexString().padEnd(64, "0"),
       extractedData: {},
       status: "PARSED",
@@ -304,7 +305,7 @@ describe("Swiftline tracking sequence", () => {
       paymentSource: "TEST"
     });
 
-    result.labels.forEach((label) => generatedFiles.add(label.storagePath));
+    result.labels.forEach((label) => generatedKeys.add(label.storageKey));
     assert.equal(result.labels.filter((label) => label.labelType === "DPD").length, 1);
     assert.equal(result.labels.filter((label) => label.labelType === "SWIFTLINE").length, 1);
     assert.ok(result.labels.some((label) => label.labelType === "SWIFTLINE"));
@@ -377,7 +378,7 @@ describe("Swiftline tracking sequence", () => {
       invoiceNumber: `TEST-INV-${Date.now()}`,
       shipmentReference: `TEST-SHIP-${Date.now()}`,
       originalFilename: "booking-test.pdf",
-      storagePath: "test://booking-test.pdf",
+      storageKey: "invoices/test-booking/fixture.xlsx",
       fileChecksum: new mongoose.Types.ObjectId().toHexString().padEnd(64, "0"),
       extractedData: {},
       status: "PARSED",
@@ -434,7 +435,7 @@ describe("Swiftline tracking sequence", () => {
       actor: "admin",
       paymentSource: "TEST"
     });
-    first.labels.forEach((label) => generatedFiles.add(label.storagePath));
+    first.labels.forEach((label) => generatedKeys.add(label.storageKey));
     assert.equal(first.reused, false);
     assert.equal(first.labels.length, 4);
     assert.equal(first.labels.filter((label) => label.labelType === "DPD").length, 2);
@@ -484,7 +485,7 @@ describe("Swiftline tracking sequence", () => {
       invoiceNumber: `SWIFTLINE-INV-${Date.now()}`,
       shipmentReference: `SWIFTLINE-SHIP-${Date.now()}`,
       originalFilename: "swiftline-booking-test.pdf",
-      storagePath: "test://swiftline-booking-test.pdf",
+      storageKey: "invoices/test-swiftline-booking/fixture.xlsx",
       fileChecksum: new mongoose.Types.ObjectId().toHexString().padEnd(64, "1"),
       extractedData: {},
       status: "PARSED",
@@ -512,7 +513,7 @@ describe("Swiftline tracking sequence", () => {
       paymentSource: "TEST",
       bookingProvider: "SWIFTLINE"
     });
-    swiftlineOnly.labels.forEach((label) => generatedFiles.add(label.storagePath));
+    swiftlineOnly.labels.forEach((label) => generatedKeys.add(label.storageKey));
     assert.equal(swiftlineOnly.dpdShipment.bookingProvider, "SWIFTLINE");
     assert.equal(swiftlineOnly.dpdShipment.dpdShipmentId, "");
     assert.deepEqual(swiftlineOnly.dpdShipment.parcelNumbers, []);
@@ -562,7 +563,7 @@ describe("Swiftline tracking sequence", () => {
       amendedShipment._id as mongoose.Types.ObjectId,
       userId
     );
-    revisedLabels.forEach((label) => generatedFiles.add(label.storagePath));
+    revisedLabels.forEach((label) => generatedKeys.add(label.storageKey));
     assert.equal(revisedLabels.length, 4);
     assert.ok(revisedLabels.every((label) => label.labelVersion === 2));
     assert.equal(await LabelDocument.countDocuments({ dpdShipmentId: amendedShipment._id }), 4);

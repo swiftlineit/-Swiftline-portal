@@ -9,7 +9,8 @@ import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js"
 import { CreditAgreement } from "../models/creditAgreement.model.js";
 import { buildCreditAgreementSnapshot, serializeCreditAgreement } from "../services/creditAgreement.service.js";
 import { renderCreditAgreementPdf } from "../services/creditAgreementPdf.service.js";
-import { resolveCreditAgreementPdfPath, saveCreditAgreementPdf } from "../services/creditAgreementStorage.service.js";
+import { saveCreditAgreementPdf } from "../services/creditAgreementStorage.service.js";
+import { deleteObject, getObjectBuffer } from "../services/storage/storage.service.js";
 
 function fixture() {
   const actorId = new mongoose.Types.ObjectId();
@@ -150,23 +151,29 @@ describe("credit agreement snapshot", () => {
   });
 
   test("stores PDFs privately with a checksum and rejects path traversal", async () => {
-    const storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), "swiftline-agreement-"));
+    const buffer = Buffer.from("%PDF-1.4\ncredit agreement test");
+    const agreementId = new mongoose.Types.ObjectId().toString();
+    const stored = await saveCreditAgreementPdf({
+      agreementId,
+      agreementNumber: "CA-TEST-V001",
+      buffer,
+      storedAt: new Date("2026-07-16T10:00:00.000Z")
+    });
+
     try {
-      const buffer = Buffer.from("%PDF-1.4\ncredit agreement test");
-      const stored = await saveCreditAgreementPdf({
-        agreementId: new mongoose.Types.ObjectId().toString(),
-        agreementNumber: "CA-TEST-V001",
-        buffer,
-        storedAt: new Date("2026-07-16T10:00:00.000Z"),
-        storageRoot
-      });
       assert.equal(stored.mimeType, "application/pdf");
       assert.equal(stored.size, buffer.length);
       assert.match(stored.checksumSha256, /^[a-f0-9]{64}$/);
-      assert.deepEqual(await fs.readFile(resolveCreditAgreementPdfPath(stored.storageKey, storageRoot)), buffer);
-      assert.throws(() => resolveCreditAgreementPdfPath("../outside.pdf", storageRoot), /path is invalid/i);
+      // The key is namespaced by the agreement and its filename is a generated
+      // UUID — never the agreement number, and never a client-supplied name.
+      assert.match(stored.storageKey, new RegExp(`^credit-agreements/${agreementId}/[0-9a-f-]{36}\\.pdf$`));
+      assert.deepEqual(await getObjectBuffer(stored.storageKey), buffer);
     } finally {
-      await fs.rm(storageRoot, { recursive: true, force: true });
+      await deleteObject(stored.storageKey).catch(() => undefined);
     }
+  });
+
+  test("refuses a key that would escape the storage root", async () => {
+    await assert.rejects(() => getObjectBuffer("../outside.pdf"), /key is invalid/i);
   });
 });

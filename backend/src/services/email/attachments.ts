@@ -1,4 +1,3 @@
-import fs from "fs/promises";
 import { env } from "../../config/env.js";
 import { LabelDocument } from "../../models/labelDocument.model.js";
 import { RateCardShare } from "../../models/rateCardShare.model.js";
@@ -11,6 +10,7 @@ import { buildRateCardShareWorkbook } from "../rateCardShareWorkbook.service.js"
 import { serializeShipmentInvoice } from "../shipmentInvoice.service.js";
 import { createShipmentInvoicePdf } from "../shipmentInvoicePdf.service.js";
 import { buildShipmentManifestPdf } from "../shipmentManifestPdf.service.js";
+import { getObjectBuffer } from "../storage/storage.service.js";
 import type { OutboundAttachment } from "./transport.js";
 
 export type ResolvedAttachment = OutboundAttachment & { kind: EmailAttachmentKind };
@@ -60,11 +60,11 @@ async function resolveLabelDocument(ref: IEmailAttachmentRef): Promise<ResolvedA
   const label = await LabelDocument.findById(ref.refId).lean().exec();
   if (!label) return null;
 
-  // Labels live on disk. A missing file must not fail the whole email — the
-  // invoice is the part the client actually needs for accounting.
-  const content = await fs.readFile(label.storagePath).catch(() => null);
+  // A missing label must not fail the whole email — the invoice is the part the
+  // client actually needs for accounting.
+  const content = await getObjectBuffer(label.storageKey).catch(() => null);
   if (!content) {
-    console.warn("Label file missing for email attachment.", { labelId: String(ref.refId), storagePath: label.storagePath });
+    console.warn("Label object missing for email attachment.", { labelId: String(ref.refId), storageKey: label.storageKey });
     return null;
   }
 

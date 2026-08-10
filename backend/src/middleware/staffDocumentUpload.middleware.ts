@@ -1,98 +1,36 @@
-import crypto from "crypto";
-import fs from "fs";
-import path from "path";
-import type { NextFunction, Request, Response } from "express";
-import multer from "multer";
+import { createMemoryUpload } from "./memoryUpload.js";
 
-const privateUploadRoot = path.resolve(process.cwd(), "private_uploads", "staff");
-const allowedDocumentMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
-const allowedProfileImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const maxDocumentSizeBytes = 5 * 1024 * 1024;
-
-fs.mkdirSync(privateUploadRoot, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_request, _file, callback) => {
-    callback(null, privateUploadRoot);
-  },
-  filename: (_request, file, callback) => {
-    const extension = path.extname(file.originalname).toLowerCase();
-    callback(null, `${Date.now()}-${crypto.randomUUID()}${extension}`);
-  }
-});
+const documentTypes = ["application/pdf", "image/jpeg", "image/png"];
+const profileImageTypes = ["image/jpeg", "image/png", "image/webp"];
 
 // Field names mirror the staff document types on the user model: `aadhaar` is
 // mandatory and is enforced by the controller, the other two are optional.
-const uploadStaffDocuments = multer({
-  storage,
-  limits: {
-    fileSize: maxDocumentSizeBytes,
-    files: 4
+export const staffDocumentUpload = createMemoryUpload({
+  field: [
+    { name: "aadhaar", maxCount: 1 },
+    { name: "pan", maxCount: 1 },
+    { name: "other", maxCount: 1 },
+    { name: "profileImage", maxCount: 1 }
+  ],
+  maxBytes: 5 * 1024 * 1024,
+  maxFiles: 4,
+  accept: {
+    aadhaar: documentTypes,
+    pan: documentTypes,
+    other: documentTypes,
+    profileImage: profileImageTypes
   },
-  fileFilter: (_request, file, callback) => {
-    const allowed = file.fieldname === "profileImage"
-      ? allowedProfileImageMimeTypes
-      : allowedDocumentMimeTypes;
-    if (!allowed.has(file.mimetype)) {
-      callback(new Error(file.fieldname === "profileImage"
-        ? "Choose a JPG, PNG, or WebP profile image."
-        : "Only PDF, JPG, JPEG, and PNG files are supported"));
-      return;
-    }
-
-    callback(null, true);
+  messages: {
+    // The 3 MB profile-image limit is enforced by the controller rather than
+    // here, because multer applies one size limit across every field.
+    tooLarge: (field) => field === "profileImage"
+      ? "The profile image must be 3 MB or smaller."
+      : "Each document must be 5 MB or smaller.",
+    tooMany: "Too many documents were uploaded.",
+    unexpectedField: "Unexpected upload field. Upload only the profile image and supported staff documents.",
+    wrongType: (field) => field === "profileImage"
+      ? "Choose a JPG, PNG, or WebP profile image."
+      : "Only PDF, JPG, JPEG, and PNG files are supported",
+    failed: "Document upload failed."
   }
-}).fields([
-  { name: "aadhaar", maxCount: 1 },
-  { name: "pan", maxCount: 1 },
-  { name: "other", maxCount: 1 },
-  { name: "profileImage", maxCount: 1 }
-]);
-
-// Remove any files multer already persisted before the request was rejected, so
-// a failed upload never leaves orphaned documents on disk.
-async function removePersistedUploads(request: Request) {
-  const grouped = request.files as Record<string, Express.Multer.File[]> | undefined;
-  if (!grouped) return;
-
-  const paths = Object.values(grouped)
-    .flat()
-    .map((file) => file?.path)
-    .filter((filePath): filePath is string => Boolean(filePath));
-
-  await Promise.all(paths.map((filePath) => fs.promises.unlink(filePath).catch(() => undefined)));
-}
-
-function resolveUploadErrorMessage(error: unknown): string {
-  if (error instanceof multer.MulterError) {
-    switch (error.code) {
-      case "LIMIT_FILE_SIZE":
-        return error.field === "profileImage"
-          ? "The profile image must be 3 MB or smaller."
-          : "Each document must be 5 MB or smaller.";
-      case "LIMIT_FILE_COUNT":
-        return "Too many documents were uploaded.";
-      case "LIMIT_UNEXPECTED_FILE":
-        return "Unexpected upload field. Upload only the profile image and supported staff documents.";
-      default:
-        return error.message || "Document upload failed.";
-    }
-  }
-
-  return error instanceof Error ? error.message : "Document upload failed.";
-}
-
-// Wrap the multer middleware so file-size, file-count, and file-type failures
-// return a 400 with an actionable message instead of a generic 500.
-export function staffDocumentUpload(request: Request, response: Response, next: NextFunction) {
-  uploadStaffDocuments(request, response, (error: unknown) => {
-    if (!error) {
-      next();
-      return;
-    }
-
-    void removePersistedUploads(request).finally(() => {
-      response.status(400).json({ success: false, message: resolveUploadErrorMessage(error) });
-    });
-  });
-}
+});

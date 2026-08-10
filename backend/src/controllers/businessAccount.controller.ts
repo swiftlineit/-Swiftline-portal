@@ -1,6 +1,4 @@
 import type { Request, Response } from "express";
-import fs from "fs";
-import path from "path";
 import mongoose from "mongoose";
 import { z } from "zod";
 import {
@@ -23,6 +21,14 @@ import { AuditLog } from "../models/auditLog.model.js";
 import { CountryRateCard, rateCardBandValues } from "../models/countryRateCard.model.js";
 import { businessAccountBranchFilter } from "../middleware/businessAccountBranchAccess.middleware.js";
 import { excludeSentinel } from "../services/individualCustomer.service.js";
+import { isSupportedDocument } from "../services/storage/fileSignature.js";
+import {
+  StorageObjectNotFoundError,
+  businessAccountKycKey,
+  deleteObject,
+  putObject,
+  streamObjectToResponse
+} from "../services/storage/storage.service.js";
 import { notifyActiveAdmins, notifyBusinessAccountManagers } from "../services/portalNotification.service.js";
 import {
   BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX,
@@ -481,52 +487,28 @@ function isDuplicateKeyError(error: unknown): boolean {
   return Boolean(error) && (error as { code?: number }).code === 11000;
 }
 
-// Must match the destination used by the business-document upload middleware.
-const businessDocumentRoot = path.resolve(process.cwd(), "private_uploads", "business-accounts");
-
-// File-signature checks for the accepted document formats. The client-supplied
-// MIME type is not trusted; the first bytes on disk are inspected instead.
-const documentSignatureTests: ((header: Buffer) => boolean)[] = [
-  (header) => header.subarray(0, 4).toString("latin1") === "%PDF",
-  (header) => header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff,
-  (header) => header.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-];
-
 // Return the first uploaded document whose content is not a valid PDF/JPEG/PNG,
-// or null when every uploaded file passes the signature check.
-async function findInvalidDocumentSignature(
+// or null when every uploaded file passes the signature check. The client-
+// supplied MIME type is not trusted; the bytes that arrived are inspected.
+function findInvalidDocumentSignature(
   files: Partial<Record<DocumentType, Express.Multer.File>>
-): Promise<DocumentType | null> {
+): DocumentType | null {
   for (const [type, file] of Object.entries(files) as [DocumentType, Express.Multer.File | undefined][]) {
-    if (!file) continue;
-
-    const header = Buffer.alloc(8);
-    let handle: fs.promises.FileHandle | undefined;
-    try {
-      handle = await fs.promises.open(file.path, "r");
-      await handle.read(header, 0, 8, 0);
-    } finally {
-      await handle?.close();
-    }
-
-    if (!documentSignatureTests.some((test) => test(header))) return type;
+    if (file && !isSupportedDocument(file.buffer)) return type;
   }
 
   return null;
 }
 
-async function unlinkFiles(paths: string[]) {
-  await Promise.all(paths.map((filePath) => fs.promises.unlink(filePath).catch(() => undefined)));
-}
-
-// Remove the files multer persisted for a request that ultimately failed, so a
-// rejected create/update never leaves orphaned documents on disk.
-async function cleanupUploadedFiles(files: Partial<Record<DocumentType, Express.Multer.File>>) {
-  const paths = Object.values(files)
-    .filter((file): file is Express.Multer.File => Boolean(file))
-    .map((file) => file.path);
-
-  await unlinkFiles(paths);
+/**
+ * Removes objects a request stored before it went on to fail, and documents
+ * superseded by a successful update.
+ *
+ * Best effort in both cases: an orphaned object costs storage, whereas failing
+ * the response over a failed delete would cost the user their submission.
+ */
+async function discardStoredObjects(keys: string[]) {
+  await Promise.all(keys.map((key) => deleteObject(key).catch(() => undefined)));
 }
 
 function getAuthenticatedUserId(request: Request): mongoose.Types.ObjectId | null {
@@ -647,14 +629,25 @@ function getUploadedFiles(request: Request): Partial<Record<DocumentType, Expres
   };
 }
 
-function toBusinessDocument(type: DocumentType, file: Express.Multer.File): IBusinessDocument {
+async function storeBusinessDocument(
+  type: DocumentType,
+  file: Express.Multer.File,
+  businessAccountId: string
+): Promise<IBusinessDocument> {
+  const storageKey = businessAccountKycKey(businessAccountId, file.originalname);
+  await putObject({
+    key: storageKey,
+    body: file.buffer,
+    contentType: file.mimetype,
+    originalName: file.originalname
+  });
+
   return {
     type,
     originalName: file.originalname,
-    storedName: file.filename,
+    storageKey,
     mimeType: file.mimetype,
     size: file.size,
-    path: file.path,
     uploadedAt: new Date()
   };
 }
@@ -1080,25 +1073,30 @@ async function getPopulatedBusinessAccount(accountId: string) {
   return account ? normalizeBusinessAccountSnapshot(account) : null;
 }
 
-// Attach newly uploaded documents and return the on-disk paths of any documents
-// they replaced. Superseded files are unlinked by the caller only after the save
-// succeeds, so a failed save never deletes a document still referenced in the DB.
-function attachUploadedDocuments(
+// Store newly uploaded documents and return the storage keys of any they
+// replaced, plus the keys just written. Superseded objects are deleted by the
+// caller only after the save succeeds, so a failed save never removes a document
+// the database still points at; the newly written keys let the caller unwind its
+// own uploads if that save fails.
+async function attachUploadedDocuments(
   documents: Partial<Record<DocumentType, IBusinessDocument>>,
-  files: Partial<Record<DocumentType, Express.Multer.File>>
-): string[] {
-  const supersededPaths: string[] = [];
+  files: Partial<Record<DocumentType, Express.Multer.File>>,
+  businessAccountId: string
+): Promise<{ supersededKeys: string[]; storedKeys: string[] }> {
+  const supersededKeys: string[] = [];
+  const storedKeys: string[] = [];
 
   for (const type of ["aadhaarCard", "panCard", "adCertificate", "msmeCertificate", "tanCertificate", "otherCertificate", "gstCertificate", "iecCertificate"] as DocumentType[]) {
     const file = files[type];
     if (!file) continue;
 
     const previous = documents[type];
-    if (previous?.path) supersededPaths.push(previous.path);
-    documents[type] = toBusinessDocument(type, file);
+    if (previous?.storageKey) supersededKeys.push(previous.storageKey);
+    documents[type] = await storeBusinessDocument(type, file, businessAccountId);
+    storedKeys.push(documents[type].storageKey);
   }
 
-  return supersededPaths;
+  return { supersededKeys, storedKeys };
 }
 
 export async function validateBusinessAccountUniqueness(request: Request, response: Response): Promise<Response> {
@@ -1203,29 +1201,24 @@ export async function listBusinessAccounts(request: Request, response: Response)
 }
 
 export async function createBusinessAccount(request: Request, response: Response): Promise<Response> {
-  // Files are read first so they can be cleaned up on any early rejection below.
+  // Uploads arrive as in-memory buffers, so every rejection below can return
+  // without cleanup: nothing has been stored yet.
   const files = getUploadedFiles(request);
   const userId = getAuthenticatedUserId(request);
-  if (!userId) {
-    await cleanupUploadedFiles(files);
-    return response.status(401).json({ success: false, message: "Unauthorized" });
-  }
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
 
   const parsed = parseBusinessAccountBody(request, { draft: isDraftSave(request) });
   if (!parsed.success) {
-    await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, errors: parsed.error.format() });
   }
 
   const duplicateMessage = await hasDuplicateBusinessIdentity(parsed.data);
   if (duplicateMessage) {
-    await cleanupUploadedFiles(files);
     return response.status(409).json({ success: false, message: duplicateMessage });
   }
 
-  const invalidDocument = await findInvalidDocumentSignature(files);
+  const invalidDocument = findInvalidDocumentSignature(files);
   if (invalidDocument) {
-    await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, message: "One or more documents are not a valid PDF, JPG, or PNG file." });
   }
 
@@ -1243,8 +1236,6 @@ export async function createBusinessAccount(request: Request, response: Response
       .exec();
 
     if (existing) {
-      await cleanupUploadedFiles(files);
-
       const alreadyCreated = await BusinessAccount.findById(existing.entityId).lean().exec();
       if (alreadyCreated) {
         const populated = await getPopulatedBusinessAccount(alreadyCreated.accountId);
@@ -1253,11 +1244,16 @@ export async function createBusinessAccount(request: Request, response: Response
     }
   }
 
+  // Generated up front because KYC storage keys are namespaced by the account
+  // they belong to, and the documents must be stored before the record that
+  // references them exists.
+  const accountObjectId = new mongoose.Types.ObjectId();
   const documents: Partial<Record<DocumentType, IBusinessDocument>> = {};
-  attachUploadedDocuments(documents, files);
+  const { storedKeys } = await attachUploadedDocuments(documents, files, String(accountObjectId));
 
   try {
     const account = await createBusinessAccountRecord({
+      _id: accountObjectId,
       status: "draft",
       ...buildAccountPayload(parsed.data),
       documents,
@@ -1278,7 +1274,7 @@ export async function createBusinessAccount(request: Request, response: Response
     const populatedAccount = await getPopulatedBusinessAccount(account.accountId);
     return response.status(201).json({ success: true, account: populatedAccount ?? account });
   } catch (error) {
-    await cleanupUploadedFiles(files);
+    await discardStoredObjects(storedKeys);
     throw error;
   }
 }
@@ -1296,13 +1292,11 @@ export async function getBusinessAccount(request: Request, response: Response): 
 }
 
 export async function updateBusinessAccount(request: Request, response: Response): Promise<Response> {
-  // Files are read first so they can be cleaned up on any early rejection below.
+  // Uploads are buffered in memory and stored only once every check has passed,
+  // so the rejections below simply return.
   const files = getUploadedFiles(request);
   const userId = getAuthenticatedUserId(request);
-  if (!userId) {
-    await cleanupUploadedFiles(files);
-    return response.status(401).json({ success: false, message: "Unauthorized" });
-  }
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
 
   // The encrypted tax ID is `select: false`, so it has to be asked for
   // explicitly — an edit that leaves the masked field untouched needs it to
@@ -1311,14 +1305,10 @@ export async function updateBusinessAccount(request: Request, response: Response
     .findOne({ accountId: request.params.accountId })
     .select("+company.registrationIdEncrypted")
     .exec();
-  if (!account) {
-    await cleanupUploadedFiles(files);
-    return response.status(404).json({ success: false, message: "Business account not found" });
-  }
+  if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
 
   const parsed = parseBusinessAccountBody(request, { draft: isDraftSave(request) });
   if (!parsed.success) {
-    await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, errors: parsed.error.format() });
   }
 
@@ -1328,13 +1318,11 @@ export async function updateBusinessAccount(request: Request, response: Response
 
   const duplicateMessage = await hasDuplicateBusinessIdentity(parsed.data, String(account._id));
   if (duplicateMessage) {
-    await cleanupUploadedFiles(files);
     return response.status(409).json({ success: false, message: duplicateMessage });
   }
 
-  const invalidDocument = await findInvalidDocumentSignature(files);
+  const invalidDocument = findInvalidDocumentSignature(files);
   if (invalidDocument) {
-    await cleanupUploadedFiles(files);
     return response.status(400).json({ success: false, message: "One or more documents are not a valid PDF, JPG, or PNG file." });
   }
 
@@ -1345,7 +1333,7 @@ export async function updateBusinessAccount(request: Request, response: Response
   const replacedDocumentTypes = (Object.keys(files) as DocumentType[]).filter((type) => files[type]);
 
   const documents = account.documents ?? {};
-  const supersededPaths = attachUploadedDocuments(documents, files);
+  const { supersededKeys, storedKeys } = await attachUploadedDocuments(documents, files, String(account._id));
 
   account.set({
     ...buildAccountPayload(parsed.data, account.company?.registrationIdEncrypted ?? ""),
@@ -1370,9 +1358,9 @@ export async function updateBusinessAccount(request: Request, response: Response
   try {
     await account.save();
   } catch (error) {
-    // The save failed, so the newly uploaded files are unreferenced. Remove them
+    // The save failed, so the newly stored objects are unreferenced. Remove them
     // and leave the previously stored documents untouched.
-    await cleanupUploadedFiles(files);
+    await discardStoredObjects(storedKeys);
     if (isDuplicateKeyError(error)) {
       return response.status(409).json({ success: false, message: "A business account with these details already exists." });
     }
@@ -1380,7 +1368,7 @@ export async function updateBusinessAccount(request: Request, response: Response
   }
 
   // Save succeeded: the replaced documents are no longer referenced, so remove them.
-  await unlinkFiles(supersededPaths);
+  await discardStoredObjects(supersededKeys);
 
   await recordBusinessAccountAudit(
     "BUSINESS_ACCOUNT_UPDATED",
@@ -1753,25 +1741,23 @@ export async function viewBusinessAccountDocument(request: Request, response: Re
   const document = account.documents?.[parsed.data];
   if (!document) return response.status(404).json({ success: false, message: "Document not found" });
 
-  // Guard against a stored path escaping the private upload directory before the
-  // file is served (defense against path traversal in legacy/tampered records).
-  const absolutePath = path.resolve(document.path);
-  if (absolutePath !== businessDocumentRoot && !absolutePath.startsWith(businessDocumentRoot + path.sep)) {
-    return response.status(404).json({ success: false, message: "Document not found" });
-  }
-
-  // Confirm the file still exists before sending, so a missing file returns a
-  // clean 404 instead of sendFile erroring after headers are already committed.
+  // Streamed rather than handed out as a signed URL: KYC documents carry
+  // Aadhaar, PAN, and tax identifiers, and a signed URL stays readable by
+  // whoever holds it for its whole lifetime, wherever it is forwarded.
   try {
-    await fs.promises.access(absolutePath, fs.constants.R_OK);
-  } catch {
-    return response.status(404).json({ success: false, message: "Document file is no longer available" });
+    return await streamObjectToResponse({
+      response,
+      key: document.storageKey,
+      contentType: document.mimeType,
+      filename: document.originalName,
+      disposition: "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      return response.status(404).json({ success: false, message: "Document file is no longer available" });
+    }
+    throw error;
   }
-
-  response.setHeader("Content-Type", document.mimeType);
-  response.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.originalName)}"`);
-
-  return response.sendFile(absolutePath);
 }
 
 export async function updateBusinessAccountKycReview(request: Request, response: Response): Promise<Response> {
@@ -1893,12 +1879,12 @@ export async function deleteBusinessAccountDraft(request: Request, response: Res
   // Audited before the record goes, so the log can describe what was removed.
   await recordBusinessAccountAudit("BUSINESS_ACCOUNT_DRAFT_DELETED", account, userId);
 
-  // Best effort: a document that cannot be removed from disk must not leave the
-  // account stranded in draft forever.
-  await Promise.all(
+  // Best effort: a document that cannot be removed from storage must not leave
+  // the account stranded in draft forever.
+  await discardStoredObjects(
     Object.values(account.documents ?? {})
-      .filter((document): document is IBusinessDocument => Boolean(document?.path))
-      .map((document) => fs.promises.unlink(document.path).catch(() => undefined))
+      .map((document: IBusinessDocument | undefined) => document?.storageKey)
+      .filter((key): key is string => Boolean(key))
   );
 
   await account.deleteOne();

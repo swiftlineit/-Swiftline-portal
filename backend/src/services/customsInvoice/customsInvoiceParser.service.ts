@@ -194,10 +194,17 @@ const weightPattern = /ACTUAL WEIGHT\s*-\s*([\d.]+)\s*KG/i;
  * Row positions are found by their markers rather than fixed indexes, so the
  * layout can gain or lose a header row without breaking the import.
  */
-export async function parseCustomsInvoiceWorkbook(filePath: string): Promise<ParsedCustomsInvoice> {
+/**
+ * Parses a customs invoice workbook from its bytes.
+ *
+ * Takes a buffer rather than a path because invoices live in object storage
+ * now: the caller reads the object once and passes it here, instead of this
+ * function assuming there is a local file to open.
+ */
+export async function parseCustomsInvoiceWorkbook(contents: Buffer): Promise<ParsedCustomsInvoice> {
   const workbook = new ExcelJS.Workbook();
   try {
-    await workbook.xlsx.readFile(filePath);
+    await workbook.xlsx.load(contents as unknown as ArrayBuffer);
   } catch {
     throw new CustomsInvoiceParseError(["The file could not be opened. Upload a Swiftline shipment invoice (.xlsx)."]);
   }

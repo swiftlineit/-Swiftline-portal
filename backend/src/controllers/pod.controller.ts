@@ -1,6 +1,3 @@
-import crypto from "crypto";
-import fs from "fs";
-import path from "path";
 import type { NextFunction, Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -13,7 +10,15 @@ import { DeliveryAssignment, DeliveryAttempt, PodDispute, PodRevision, deliveryA
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { User } from "../models/user.model.js";
-import { podEvidenceRoot } from "../middleware/podEvidenceUpload.middleware.js";
+import { matchesDeclaredType } from "../services/storage/fileSignature.js";
+import {
+  StorageObjectNotFoundError,
+  checksumOf,
+  deleteObject,
+  podEvidenceKey,
+  putObject,
+  streamObjectToResponse
+} from "../services/storage/storage.service.js";
 import { emailValidationMessage, isValidBusinessContactEmail } from "../services/businessAccountRules.js";
 import { notifyBusinessShipmentMembers, notifyOperationsStaff, notifyPortalUsers } from "../services/portalNotification.service.js";
 
@@ -212,10 +217,9 @@ async function writableRevision(assignment: any, userId: mongoose.Types.ObjectId
     evidence: correction?.evidence.map((item: any) => ({
       type: item.type,
       originalName: item.originalName,
-      storedName: item.storedName,
       mimeType: item.mimeType,
       size: item.size,
-      path: item.path,
+      storageKey: item.storageKey,
       sha256: item.sha256,
       capturedBy: item.capturedBy,
       capturedAt: item.capturedAt
@@ -224,8 +228,35 @@ async function writableRevision(assignment: any, userId: mongoose.Types.ObjectId
     submittedBy: userId
   });
 }
-function validFileHeader(buffer: Buffer, mime: string) { if (mime === "application/pdf") return buffer.subarray(0, 5).toString() === "%PDF-"; if (mime === "image/png") return buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])); if (mime === "image/jpeg") return buffer[0] === 0xff && buffer[1] === 0xd8; if (mime === "image/webp") return buffer.subarray(0,4).toString() === "RIFF" && buffer.subarray(8,12).toString() === "WEBP"; return false; }
-export async function uploadPodEvidence(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); const file = request.file; if (!user || !file) fail(400, "Choose an evidence file."); const assignmentId = String(request.params.assignmentId); let assignment = await DeliveryAssignment.findById(assignmentId).lean().exec(); if (!assignment) fail(404, "Delivery assignment was not found."); const isManager = ["admin", "operations"].includes(user.role) || (user.role === "delivery" && (await profileForUser(user.id))?.deliverySubrole === "SUPERVISOR"); if (isManager) { if (!await canManage(user, assignment)) fail(404, "Delivery assignment was not found."); } else assignment = await myAssignment(user.id, assignmentId); const type = z.enum(["PHOTO", "SIGNATURE", "PARTNER_DOCUMENT"]).parse(String(request.params.type).toUpperCase()); if (type !== "PARTNER_DOCUMENT" && file.mimetype === "application/pdf") fail(400, "Photo and signature evidence must be an image."); const contents = fs.readFileSync(file.path); if (!validFileHeader(contents, file.mimetype)) { fs.unlinkSync(file.path); fail(400, "The uploaded evidence file is invalid."); } const revision = await writableRevision(assignment, user.id, isManager ? "OPERATIONS_UPLOAD" : "DELIVERY_PERSON"); revision.evidence.push({ type, originalName: file.originalname, storedName: file.filename, mimeType: file.mimetype, size: file.size, path: file.path, sha256: crypto.createHash("sha256").update(contents).digest("hex"), capturedBy: user.id, capturedAt: new Date() } as any); await revision.save(); await AuditLog.create({ action: "POD_EVIDENCE_CAPTURED", entityType: "POD_REVISION", entityId: revision._id, performedBy: user.id, performedAt: new Date(), metadata: { type } }); return response.status(201).json({ success: true, message: `${type.replace(/_/g, " ")} saved.`, assignment: await loadDetail(assignmentId) }); } catch (error) { if (request.file?.path && fs.existsSync(request.file.path)) { /* invalid and rejected uploads are removed above; domain failures may occur before ownership is known */ } return handle(error, response, next); } }
+export async function uploadPodEvidence(request: Request, response: Response, next: NextFunction) {
+  // Set once the object is written, so a later failure can unwind it. Every
+  // rejection before that point is just a dropped buffer.
+  let storedKey = "";
+  try {
+    const user = actor(request); const file = request.file;
+    if (!user || !file) fail(400, "Choose an evidence file.");
+    const assignmentId = String(request.params.assignmentId);
+    let assignment = await DeliveryAssignment.findById(assignmentId).lean().exec();
+    if (!assignment) fail(404, "Delivery assignment was not found.");
+    const isManager = ["admin", "operations"].includes(user.role) || (user.role === "delivery" && (await profileForUser(user.id))?.deliverySubrole === "SUPERVISOR");
+    if (isManager) { if (!await canManage(user, assignment)) fail(404, "Delivery assignment was not found."); } else assignment = await myAssignment(user.id, assignmentId);
+    const type = z.enum(["PHOTO", "SIGNATURE", "PARTNER_DOCUMENT"]).parse(String(request.params.type).toUpperCase());
+    if (type !== "PARTNER_DOCUMENT" && file.mimetype === "application/pdf") fail(400, "Photo and signature evidence must be an image.");
+    if (!matchesDeclaredType(file.buffer, file.mimetype)) fail(400, "The uploaded evidence file is invalid.");
+
+    storedKey = podEvidenceKey(assignmentId, file.originalname);
+    await putObject({ key: storedKey, body: file.buffer, contentType: file.mimetype, originalName: file.originalname });
+
+    const revision = await writableRevision(assignment, user.id, isManager ? "OPERATIONS_UPLOAD" : "DELIVERY_PERSON");
+    revision.evidence.push({ type, originalName: file.originalname, mimeType: file.mimetype, size: file.size, storageKey: storedKey, sha256: checksumOf(file.buffer), capturedBy: user.id, capturedAt: new Date() } as any);
+    await revision.save();
+    await AuditLog.create({ action: "POD_EVIDENCE_CAPTURED", entityType: "POD_REVISION", entityId: revision._id, performedBy: user.id, performedAt: new Date(), metadata: { type } });
+    return response.status(201).json({ success: true, message: `${type.replace(/_/g, " ")} saved.`, assignment: await loadDetail(assignmentId) });
+  } catch (error) {
+    if (storedKey) await deleteObject(storedKey).catch(() => undefined);
+    return handle(error, response, next);
+  }
+}
 
 export async function savePodDraft(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await myAssignment(user.id, String(request.params.assignmentId)); const data = podSchema.parse(request.body); if (data.parcelNumbers.some((item) => !assignment.parcelNumbers.includes(item))) fail(400, "Every parcel must belong to this shipment assignment."); const revision = await writableRevision(assignment, user.id, "DELIVERY_PERSON"); Object.assign(revision, data); await revision.save(); return response.json({ success: true, message: "POD draft saved.", assignment: await loadDetail(String(assignment._id)) }); } catch (error) { return handle(error, response, next); } }
 export async function requestSignatureException(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await myAssignment(user.id, String(request.params.assignmentId)); const reason = z.string().trim().min(5).max(500).parse(request.body?.reason); const revision = await writableRevision(assignment, user.id, "DELIVERY_PERSON"); if (!revision.evidence.some((item: any) => item.type === "PHOTO")) fail(409, "Upload the required delivery photo before requesting a signature exception."); revision.signatureExceptionReason = reason; revision.signatureExceptionStatus = "PENDING"; await revision.save(); return response.json({ success: true, message: "Signature exception sent for supervisor approval.", assignment: await loadDetail(String(assignment._id)) }); } catch (error) { return handle(error, response, next); } }
@@ -287,5 +318,14 @@ export async function submitManagedPod(request: Request, response: Response, nex
 export async function getClientPod(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await DeliveryAssignment.findOne({ shipmentDraftId: request.params.shipmentId }).populate("deliveryPartnerId", "name code").lean().exec(); if (!assignment || !await canClientAccess(user.id, assignment)) fail(404, "POD was not found."); const [booking, revisions] = await Promise.all([DpdShipment.findById(assignment.dpdShipmentId).select("swiftlineTrackingNumber dpdShipmentId").lean().exec(), PodRevision.find({ assignmentId: assignment._id, status: "VERIFIED" }).sort({ revisionNumber: -1 }).lean().exec()]); return response.json({ success: true, pod: { id: String(assignment._id), shipmentDraftId: String(assignment.shipmentDraftId), status: assignment.status, partnerReference: assignment.partnerReference, parcelNumbers: assignment.parcelNumbers, deliveredParcelNumbers: assignment.deliveredParcelNumbers, deliveryPartnerId: assignment.deliveryPartnerId, booking, revisions: revisions.map((revision: any) => ({ id: String(revision._id), revisionNumber: revision.revisionNumber, status: revision.status, parcelNumbers: revision.parcelNumbers, recipientName: revision.recipientName, recipientRelationship: revision.recipientRelationship, deliveredAt: revision.deliveredAt, destinationTimeZone: revision.destinationTimeZone, partnerReference: revision.partnerReference, evidence: revision.evidence.map((item: any) => ({ id: String(item._id), type: item.type, originalName: item.originalName, mimeType: item.mimeType, size: item.size, capturedAt: item.capturedAt })) })) } }); } catch (error) { return handle(error, response, next); } }
 export async function createPodDispute(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await DeliveryAssignment.findOne({ shipmentDraftId: request.params.shipmentId }).lean().exec(); if (!assignment || !await canClientAccess(user.id, assignment)) fail(404, "POD was not found."); const revision = await PodRevision.findOne({ assignmentId: assignment._id, status: "VERIFIED" }).sort({ revisionNumber: -1 }).lean().exec(); if (!revision) fail(409, "A verified POD is required before reporting an issue."); const data = z.object({ category: z.enum(["WRONG_RECIPIENT", "MISSING_PARCEL", "DAMAGED_PARCEL", "INCORRECT_LOCATION", "SIGNATURE_CONCERN", "PHOTO_CONCERN", "NOT_RECEIVED", "OTHER"]), details: z.string().trim().min(5).max(2000) }).parse(request.body); const dispute = await PodDispute.create({ assignmentId: assignment._id, podRevisionId: revision._id, shipmentDraftId: assignment.shipmentDraftId, businessAccountId: assignment.businessAccountId, ...data, reportedBy: user.id }); await AuditLog.create({ action: "POD_DISPUTED", entityType: "POD_DISPUTE", entityId: dispute._id, performedBy: user.id, performedAt: new Date(), metadata: { category: data.category } }); await notifyOperationsStaff({ type: "POD_DISPUTED", title: "POD issue reported", message: data.details, href: `/dashboard/pod?assignment=${assignment._id}`, idempotencyKey: `pod-dispute:${dispute._id}` }); return response.status(201).json({ success: true, message: "POD issue reported to Swiftline.", dispute }); } catch (error) { return handle(error, response, next); } }
 
-async function sendEvidence(response: Response, revision: any, evidenceId: string) { const evidence = revision.evidence.id(evidenceId); if (!evidence) fail(404, "POD evidence was not found."); let root = ""; let resolved = ""; try { root = fs.realpathSync(podEvidenceRoot); resolved = fs.realpathSync(evidence.path); } catch { fail(404, "POD evidence file was not found."); } if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) fail(404, "POD evidence was not found."); response.setHeader("Content-Type", evidence.mimeType); response.setHeader("Content-Disposition", `inline; filename="${evidence.originalName.replace(/["\\]/g, "_")}"`); response.setHeader("Cache-Control", "private, no-store"); return response.sendFile(resolved); }
+async function sendEvidence(response: Response, revision: any, evidenceId: string) {
+  const evidence = revision.evidence.id(evidenceId);
+  if (!evidence) fail(404, "POD evidence was not found.");
+  try {
+    return await streamObjectToResponse({ response, key: evidence.storageKey, contentType: evidence.mimeType, filename: evidence.originalName, disposition: "inline" });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) fail(404, "POD evidence file was not found.");
+    throw error;
+  }
+}
 export async function viewPodEvidence(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await DeliveryAssignment.findById(request.params.assignmentId).lean().exec(); if (!assignment) fail(404, "POD evidence was not found."); const profile = user.role === "delivery" ? await profileForUser(user.id) : null; const isAssigned = profile?.deliverySubrole === "DELIVERY_PERSON" && String(assignment.currentDeliveryPersonProfileId) === String(profile._id); const isManager = ["admin", "operations"].includes(user.role) || profile?.deliverySubrole === "SUPERVISOR"; const isClient = user.role === "client" && await canClientAccess(user.id, assignment); if (!isAssigned && !(isManager && await canManage(user, assignment)) && !isClient) fail(404, "POD evidence was not found."); const revision = await PodRevision.findOne({ _id: request.params.revisionId, assignmentId: assignment._id }).exec(); if (!revision || (isClient && revision.status !== "VERIFIED")) fail(404, "POD evidence was not found."); return await sendEvidence(response, revision, String(request.params.evidenceId)); } catch (error) { return handle(error, response, next); } }

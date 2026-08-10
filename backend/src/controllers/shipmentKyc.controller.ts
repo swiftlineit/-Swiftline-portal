@@ -1,5 +1,3 @@
-import fs from "fs";
-import path from "path";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -15,8 +13,14 @@ import {
   ShipmentDraftPolicyError
 } from "../services/shipmentDraftPolicy.service.js";
 import { validateShipmentDraftFields } from "../services/shipmentValidation.service.js";
-
-const kycUploadRoot = path.resolve(process.cwd(), "private_uploads", "shipment-kyc");
+import { isSupportedDocument } from "../services/storage/fileSignature.js";
+import {
+  StorageObjectNotFoundError,
+  deleteObject,
+  putObject,
+  shipmentKycKey,
+  streamObjectToResponse
+} from "../services/storage/storage.service.js";
 
 const documentTypeSchema = z.enum(shipmentKycDocumentTypeValues);
 const documentLabelSchema = z.string().trim().min(2).max(80);
@@ -54,14 +58,73 @@ function sendDraftPolicyError(response: Response, error: unknown) {
     : null;
 }
 
-async function removeFile(filePath: string | undefined) {
-  if (!filePath) return;
-  await fs.promises.unlink(filePath).catch(() => undefined);
+/** Best effort: an orphaned object costs storage, a failed request costs work. */
+async function discardStoredObject(storageKey: string | undefined) {
+  if (!storageKey) return;
+  await deleteObject(storageKey).catch(() => undefined);
 }
 
-/** Public shape of a stored document: metadata only, never the on-disk path. */
+/**
+ * Stores an uploaded KYC document and returns the subdocument to persist.
+ *
+ * Grouped under the draft so that a shipment's KYC, labels, and invoice all sit
+ * beneath one prefix — which is what lets account deletion and retention work on
+ * a prefix rather than an enumerated file list.
+ */
+async function storeKycDocument(input: {
+  file: Express.Multer.File;
+  draftId: string;
+  type: ShipmentKycDocumentType;
+  documentLabel: string;
+  userId: mongoose.Types.ObjectId;
+}): Promise<ShipmentKycDocument & { uploadedBy: mongoose.Types.ObjectId }> {
+  const storageKey = shipmentKycKey(input.draftId, input.file.originalname);
+  await putObject({
+    key: storageKey,
+    body: input.file.buffer,
+    contentType: input.file.mimetype,
+    originalName: input.file.originalname
+  });
+
+  return {
+    type: input.type,
+    documentLabel: input.documentLabel,
+    originalName: input.file.originalname,
+    storageKey,
+    mimeType: input.file.mimetype,
+    size: input.file.size,
+    uploadedAt: new Date(),
+    uploadedBy: input.userId
+  };
+}
+
+/**
+ * Streams a KYC document to an already-authorised response.
+ *
+ * Streamed rather than handed out as a signed URL: these carry Aadhaar, PAN, and
+ * IEC numbers, and a signed URL stays readable by whoever holds it for its whole
+ * lifetime, wherever it is forwarded.
+ */
+async function streamKycDocument(response: Response, document: ShipmentKycDocument) {
+  try {
+    return await streamObjectToResponse({
+      response,
+      key: document.storageKey,
+      contentType: document.mimeType,
+      filename: document.originalName,
+      disposition: "inline"
+    });
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      return response.status(404).json({ success: false, message: "Document file is no longer available" });
+    }
+    throw error;
+  }
+}
+
+/** Public shape of a stored document: metadata only, never the storage key. */
 export function serializeKycDocument(document: ShipmentKycDocument | undefined | null) {
-  if (!document?.storedName) return null;
+  if (!document?.storageKey) return null;
 
   return {
     type: document.type,
@@ -98,16 +161,14 @@ function parseParcelSequence(request: Request): number | null {
 }
 
 export async function uploadShipmentParcelKycDocument(request: Request, response: Response): Promise<Response> {
+  // Uploads are buffered in memory and written to storage only once every check
+  // below has passed, so each rejection simply returns.
   const userId = getAuthenticatedUserId(request);
-  if (!userId) {
-    await removeFile(request.file?.path);
-    return response.status(401).json({ success: false, message: "Unauthorized" });
-  }
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
 
   const parsedType = documentTypeSchema.safeParse(request.params.type);
   const sequence = parseParcelSequence(request);
   if (!parsedType.success || sequence === null) {
-    await removeFile(request.file?.path);
     return response.status(400).json({ success: false, message: "Unknown parcel KYC document." });
   }
 
@@ -115,11 +176,14 @@ export async function uploadShipmentParcelKycDocument(request: Request, response
     return response.status(400).json({ success: false, message: "Select a document to upload." });
   }
 
+  if (!isSupportedDocument(request.file.buffer)) {
+    return response.status(400).json({ success: false, message: "The document is not a valid PDF, JPG, or PNG file." });
+  }
+
   let documentLabel = kycDocumentLabels[parsedType.data];
   if (parsedType.data === "other") {
     const parsedLabel = documentLabelSchema.safeParse(request.body?.documentLabel);
     if (!parsedLabel.success) {
-      await removeFile(request.file.path);
       return response.status(400).json({ success: false, message: "Type what the other document is before uploading it." });
     }
     documentLabel = parsedLabel.data;
@@ -127,26 +191,20 @@ export async function uploadShipmentParcelKycDocument(request: Request, response
 
   const draftId = typeof request.params.id === "string" ? request.params.id : "";
   if (!mongoose.Types.ObjectId.isValid(draftId)) {
-    await removeFile(request.file.path);
     return response.status(404).json({ success: false, message: "Shipment draft not found" });
   }
 
   const shipmentDraft = await ShipmentDraft.findById(draftId).exec();
-  if (!shipmentDraft) {
-    await removeFile(request.file.path);
-    return response.status(404).json({ success: false, message: "Shipment draft not found" });
-  }
+  if (!shipmentDraft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
 
   const parcelIndex = sequence - 1;
   if (parcelIndex >= shipmentDraft.parcelList.length) {
-    await removeFile(request.file.path);
     return response.status(409).json({ success: false, message: "Save the shipment parcels before uploading their KYC." });
   }
 
   try {
     await assertShipmentDraftMutationAllowed({ draft: shipmentDraft, userId, portalRole: getAuthenticatedPortalRole(request) });
   } catch (error) {
-    await removeFile(request.file.path);
     const policyResponse = sendDraftPolicyError(response, error);
     if (policyResponse) return policyResponse;
     throw error;
@@ -154,21 +212,27 @@ export async function uploadShipmentParcelKycDocument(request: Request, response
 
   const previousDocument = shipmentDraft.parcelList[parcelIndex]?.kycDocuments?.[parsedType.data];
 
-  shipmentDraft.set(`parcelList.${parcelIndex}.kycDocuments.${parsedType.data}`, {
+  const stored = await storeKycDocument({
+    file: request.file,
+    draftId,
     type: parsedType.data,
     documentLabel,
-    originalName: request.file.originalname,
-    storedName: request.file.filename,
-    mimeType: request.file.mimetype,
-    size: request.file.size,
-    path: request.file.path,
-    uploadedAt: new Date(),
-    uploadedBy: userId
+    userId
   });
+
+  shipmentDraft.set(`parcelList.${parcelIndex}.kycDocuments.${parsedType.data}`, stored);
   shipmentDraft.validationIssues = validateShipmentDraftFields(shipmentDraft);
   shipmentDraft.status = shipmentDraft.validationIssues.length ? "VALIDATION_FAILED" : "READY_FOR_DPD";
-  await shipmentDraft.save();
-  await removeFile(previousDocument?.path);
+  try {
+    await shipmentDraft.save();
+  } catch (error) {
+    // The save failed, so the object just written is unreferenced. Remove it and
+    // leave whatever was there before untouched.
+    await discardStoredObject(stored.storageKey);
+    throw error;
+  }
+  // Only drop the replaced object once the new one is committed.
+  await discardStoredObject(previousDocument?.storageKey);
 
   await AuditLog.create({
     action: "SHIPMENT_KYC_DOCUMENT_UPLOADED",
@@ -207,7 +271,7 @@ export async function deleteShipmentParcelKycDocument(request: Request, response
 
   const parcelIndex = sequence - 1;
   const existing = shipmentDraft.parcelList[parcelIndex]?.kycDocuments?.[parsedType.data];
-  if (!existing?.storedName) return response.status(404).json({ success: false, message: "Document not found" });
+  if (!existing?.storageKey) return response.status(404).json({ success: false, message: "Document not found" });
 
   try {
     await assertShipmentDraftMutationAllowed({ draft: shipmentDraft, userId, portalRole: getAuthenticatedPortalRole(request) });
@@ -221,7 +285,7 @@ export async function deleteShipmentParcelKycDocument(request: Request, response
   shipmentDraft.validationIssues = validateShipmentDraftFields(shipmentDraft);
   shipmentDraft.status = shipmentDraft.validationIssues.length ? "VALIDATION_FAILED" : "READY_FOR_DPD";
   await shipmentDraft.save();
-  await removeFile(existing.path);
+  await discardStoredObject(existing.storageKey);
 
   await AuditLog.create({
     action: "SHIPMENT_KYC_DOCUMENT_REMOVED",
@@ -259,39 +323,27 @@ export async function downloadShipmentParcelKycDocument(request: Request, respon
   if (!shipmentDraft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
 
   const document = shipmentDraft.parcelList[sequence - 1]?.kycDocuments?.[parsedType.data];
-  if (!document?.storedName) return response.status(404).json({ success: false, message: "Document not found" });
+  if (!document?.storageKey) return response.status(404).json({ success: false, message: "Document not found" });
 
-  const absolutePath = path.resolve(kycUploadRoot, path.basename(document.storedName));
-  if (!absolutePath.startsWith(kycUploadRoot + path.sep)) {
-    return response.status(404).json({ success: false, message: "Document not found" });
-  }
-
-  try {
-    await fs.promises.access(absolutePath, fs.constants.R_OK);
-  } catch {
-    return response.status(404).json({ success: false, message: "Document file is no longer available" });
-  }
-
-  response.setHeader("Content-Type", document.mimeType);
-  response.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.originalName)}"`);
-  return response.sendFile(absolutePath);
+  return streamKycDocument(response, document);
 }
 
 export async function uploadShipmentKycDocument(request: Request, response: Response): Promise<Response> {
+  // As above: nothing is stored until every check has passed.
   const userId = getAuthenticatedUserId(request);
-  if (!userId) {
-    await removeFile(request.file?.path);
-    return response.status(401).json({ success: false, message: "Unauthorized" });
-  }
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
 
   const parsedType = documentTypeSchema.safeParse(request.params.type);
   if (!parsedType.success) {
-    await removeFile(request.file?.path);
     return response.status(400).json({ success: false, message: "Unknown KYC document type." });
   }
 
   if (!request.file) {
     return response.status(400).json({ success: false, message: "Select a document to upload." });
+  }
+
+  if (!isSupportedDocument(request.file.buffer)) {
+    return response.status(400).json({ success: false, message: "The document is not a valid PDF, JPG, or PNG file." });
   }
 
   // "Other" documents are meaningless to a reviewer without a name, so the
@@ -300,7 +352,6 @@ export async function uploadShipmentKycDocument(request: Request, response: Resp
   if (parsedType.data === "other") {
     const parsedLabel = documentLabelSchema.safeParse(request.body?.documentLabel);
     if (!parsedLabel.success) {
-      await removeFile(request.file.path);
       return response.status(400).json({
         success: false,
         message: "Type what the other document is before uploading it."
@@ -311,15 +362,11 @@ export async function uploadShipmentKycDocument(request: Request, response: Resp
 
   const draftId = typeof request.params.id === "string" ? request.params.id : "";
   if (!mongoose.Types.ObjectId.isValid(draftId)) {
-    await removeFile(request.file.path);
     return response.status(404).json({ success: false, message: "Shipment draft not found" });
   }
 
   const shipmentDraft = await ShipmentDraft.findById(draftId).exec();
-  if (!shipmentDraft) {
-    await removeFile(request.file.path);
-    return response.status(404).json({ success: false, message: "Shipment draft not found" });
-  }
+  if (!shipmentDraft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
 
   try {
     await assertShipmentDraftMutationAllowed({
@@ -328,7 +375,6 @@ export async function uploadShipmentKycDocument(request: Request, response: Resp
       portalRole: getAuthenticatedPortalRole(request)
     });
   } catch (error) {
-    await removeFile(request.file.path);
     const policyResponse = sendDraftPolicyError(response, error);
     if (policyResponse) return policyResponse;
     throw error;
@@ -336,23 +382,26 @@ export async function uploadShipmentKycDocument(request: Request, response: Resp
 
   const previousDocument = shipmentDraft.kycDocuments?.[parsedType.data];
 
-  shipmentDraft.set(`kycDocuments.${parsedType.data}`, {
+  const stored = await storeKycDocument({
+    file: request.file,
+    draftId,
     type: parsedType.data,
     documentLabel,
-    originalName: request.file.originalname,
-    storedName: request.file.filename,
-    mimeType: request.file.mimetype,
-    size: request.file.size,
-    path: request.file.path,
-    uploadedAt: new Date(),
-    uploadedBy: userId
+    userId
   });
+
+  shipmentDraft.set(`kycDocuments.${parsedType.data}`, stored);
   shipmentDraft.validationIssues = validateShipmentDraftFields(shipmentDraft);
   shipmentDraft.status = shipmentDraft.validationIssues.length ? "VALIDATION_FAILED" : "READY_FOR_DPD";
-  await shipmentDraft.save();
+  try {
+    await shipmentDraft.save();
+  } catch (error) {
+    await discardStoredObject(stored.storageKey);
+    throw error;
+  }
 
-  // Only drop the replaced file once the new one is committed.
-  await removeFile(previousDocument?.path);
+  // Only drop the replaced object once the new one is committed.
+  await discardStoredObject(previousDocument?.storageKey);
 
   await AuditLog.create({
     action: "SHIPMENT_KYC_DOCUMENT_UPLOADED",
@@ -365,7 +414,7 @@ export async function uploadShipmentKycDocument(request: Request, response: Resp
       documentLabel,
       originalName: request.file.originalname,
       size: request.file.size,
-      replacedExisting: Boolean(previousDocument?.storedName)
+      replacedExisting: Boolean(previousDocument?.storageKey)
     }
   });
 
@@ -406,7 +455,7 @@ export async function deleteShipmentKycDocument(request: Request, response: Resp
   }
 
   const existing = shipmentDraft.kycDocuments?.[parsedType.data];
-  if (!existing?.storedName) {
+  if (!existing?.storageKey) {
     return response.status(404).json({ success: false, message: "Document not found" });
   }
 
@@ -414,7 +463,7 @@ export async function deleteShipmentKycDocument(request: Request, response: Resp
   shipmentDraft.validationIssues = validateShipmentDraftFields(shipmentDraft);
   shipmentDraft.status = shipmentDraft.validationIssues.length ? "VALIDATION_FAILED" : "READY_FOR_DPD";
   await shipmentDraft.save();
-  await removeFile(existing.path);
+  await discardStoredObject(existing.storageKey);
 
   await AuditLog.create({
     action: "SHIPMENT_KYC_DOCUMENT_REMOVED",
@@ -450,22 +499,7 @@ export async function downloadShipmentKycDocument(request: Request, response: Re
   if (!shipmentDraft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
 
   const document = shipmentDraft.kycDocuments?.[parsedType.data];
-  if (!document?.storedName) return response.status(404).json({ success: false, message: "Document not found" });
+  if (!document?.storageKey) return response.status(404).json({ success: false, message: "Document not found" });
 
-  // Resolve against the KYC root so a tampered stored path cannot escape it.
-  const absolutePath = path.resolve(kycUploadRoot, path.basename(document.storedName));
-  if (!absolutePath.startsWith(kycUploadRoot + path.sep)) {
-    return response.status(404).json({ success: false, message: "Document not found" });
-  }
-
-  try {
-    await fs.promises.access(absolutePath, fs.constants.R_OK);
-  } catch {
-    return response.status(404).json({ success: false, message: "Document file is no longer available" });
-  }
-
-  response.setHeader("Content-Type", document.mimeType);
-  response.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(document.originalName)}"`);
-
-  return response.sendFile(absolutePath);
+  return streamKycDocument(response, document);
 }

@@ -111,10 +111,10 @@ export interface ShipmentKycDocument {
   type: ShipmentKycDocumentType;
   documentLabel: string;
   originalName: string;
-  storedName: string;
+  /** Storage service key, resolved through storage.service.ts. Never a path. */
+  storageKey: string;
   mimeType: string;
   size: number;
-  path: string;
   uploadedAt: Date;
   uploadedBy?: mongoose.Types.ObjectId | null;
 }
@@ -320,10 +320,9 @@ const kycDocumentSchema = new mongoose.Schema<ShipmentKycDocument>(
     type: { type: String, enum: shipmentKycDocumentTypeValues, required: true },
     documentLabel: { type: String, trim: true, maxlength: 80, default: "" },
     originalName: { type: String, required: true },
-    storedName: { type: String, required: true },
+    storageKey: { type: String, required: true, maxlength: 1024 },
     mimeType: { type: String, required: true },
     size: { type: Number, required: true },
-    path: { type: String, required: true },
     uploadedAt: { type: Date, default: Date.now },
     uploadedBy: {
       type: mongoose.Schema.Types.ObjectId,

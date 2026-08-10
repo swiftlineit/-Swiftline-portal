@@ -1,4 +1,3 @@
-import fs from "fs";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -12,6 +11,7 @@ import {
   getDpdProviderConfiguration
 } from "../services/dpdProviderConfiguration.service.js";
 import { parseCustomsInvoiceWorkbook } from "../services/customsInvoice/customsInvoiceParser.service.js";
+import { deleteObject, getObjectBuffer } from "../services/storage/storage.service.js";
 import { maskAadhaarNumber, normalizeAadhaarNumber } from "../services/aadhaarValidation.service.js";
 import { csbTypeValues } from "../services/csbType.service.js";
 import {
@@ -261,12 +261,13 @@ async function backfillDraftPhoneFromInvoice(shipmentDraft: IShipmentDraft) {
   if (hasText(address.mobileCountryCode) && hasText(address.mobileNumber)) return;
 
   const invoiceUpload = await InvoiceUpload.findById(shipmentDraft.invoiceUploadId).lean().exec();
-  if (!invoiceUpload?.storagePath || !fs.existsSync(invoiceUpload.storagePath)) return;
+  if (!invoiceUpload?.storageKey) return;
 
-  // Best effort: an unreadable or superseded file must not break opening a draft.
+  // Best effort: an unreadable or superseded invoice must not break opening a
+  // draft, so a missing object and a parse failure are handled the same way.
   let parsedInvoice: Awaited<ReturnType<typeof parseCustomsInvoiceWorkbook>>;
   try {
-    parsedInvoice = await parseCustomsInvoiceWorkbook(invoiceUpload.storagePath);
+    parsedInvoice = await parseCustomsInvoiceWorkbook(await getObjectBuffer(invoiceUpload.storageKey));
   } catch {
     return;
   }
@@ -629,14 +630,14 @@ export async function updateShipmentDraft(request: Request, response: Response):
     });
 
     // KYC uploads are server-managed and are preserved by sequence across a parcel
-    // edit. Files belonging to parcels that no longer exist are cleaned up.
+    // edit. Documents belonging to parcels that no longer exist are cleaned up.
     const existingBySequence = new Map(shipmentDraft.parcelList.map((parcel) => [parcel.sequence, parcel]));
     const nextSequences = new Set(parsed.data.parcelList.map((parcel) => parcel.sequence));
-    const removedKycPaths = shipmentDraft.parcelList
+    const removedKycKeys = shipmentDraft.parcelList
       .filter((parcel) => !nextSequences.has(parcel.sequence))
       .flatMap((parcel) => Object.values(parcel.kycDocuments ?? {}))
-      .map((document) => document?.path)
-      .filter((filePath): filePath is string => Boolean(filePath));
+      .map((document) => document?.storageKey)
+      .filter((key): key is string => Boolean(key));
 
     shipmentDraft.parcelList = parsed.data.parcelList.map((parcel) => {
       const existing = existingBySequence.get(parcel.sequence);
@@ -659,7 +660,7 @@ export async function updateShipmentDraft(request: Request, response: Response):
     });
     shipmentDraft.parcelCount = shipmentDraft.parcelList.length;
 
-    await Promise.all(removedKycPaths.map((filePath) => fs.promises.unlink(filePath).catch(() => undefined)));
+    await Promise.all(removedKycKeys.map((key) => deleteObject(key).catch(() => undefined)));
   }
 
   if (typeof parsed.data.kycUseForAllParcels === "boolean") {

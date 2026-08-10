@@ -16,7 +16,15 @@ export interface IInvoiceUpload extends mongoose.Document {
   invoiceNumber: string;
   shipmentReference: string;
   originalFilename: string;
-  storagePath: string;
+  /**
+   * Storage service key, resolved through storage.service.ts. Never a path.
+   *
+   * Empty for an individual (walk-in) shipment, which is keyed in at the counter
+   * and has no uploaded workbook behind it. That record exists only because the
+   * shipment chain requires an invoice to point at, so every reader must treat a
+   * missing key as "there is nothing to read" rather than as a broken reference.
+   */
+  storageKey: string;
   fileChecksum: string;
   extractedData: Record<string, unknown>;
   status: InvoiceUploadStatus;
@@ -40,7 +48,7 @@ const invoiceUploadSchema = new mongoose.Schema<IInvoiceUpload>(
     invoiceNumber: { type: String, trim: true, maxlength: 80, default: "", index: true },
     shipmentReference: { type: String, trim: true, maxlength: 120, default: "", index: true },
     originalFilename: { type: String, required: true, trim: true, maxlength: 255 },
-    storagePath: { type: String, required: true, trim: true, maxlength: 1000 },
+    storageKey: { type: String, trim: true, maxlength: 1024, default: "" },
     fileChecksum: { type: String, required: true, trim: true, maxlength: 128, index: true },
     extractedData: { type: mongoose.Schema.Types.Mixed, default: {} },
     status: { type: String, enum: invoiceUploadStatusValues, default: "UPLOADED", index: true },
