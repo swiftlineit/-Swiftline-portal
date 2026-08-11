@@ -41,7 +41,7 @@ export function ShipmentLabelsPanel({
       if (action === "download") {
         const anchor = document.createElement("a");
         anchor.href = access.url;
-        anchor.download = `${label.labelType.toLowerCase()}-label-${label.parcelNumber}.pdf`;
+        anchor.download = `${label.labelType.toLowerCase()}-label-${label.parcelNumber}.${label.format.toLowerCase()}`;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
@@ -49,11 +49,17 @@ export function ShipmentLabelsPanel({
       }
 
       if (!openedWindow) throw new Error("Allow pop-ups to open the shipment label.");
-      openedWindow.location.href = access.url;
       if (action === "print") {
+        const response = await fetch(access.url);
+        if (!response.ok) throw new Error("The shipment label could not be loaded for printing.");
+        const objectUrl = window.URL.createObjectURL(await response.blob());
         openedWindow.addEventListener("load", () => {
           window.setTimeout(() => openedWindow.print(), 500);
+          window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 5_000);
         }, { once: true });
+        openedWindow.location.href = objectUrl;
+      } else {
+        openedWindow.location.href = access.url;
       }
     } catch (caughtError) {
       openedWindow?.close();
@@ -70,7 +76,7 @@ export function ShipmentLabelsPanel({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div>
           <h2 className="text-base font-semibold text-slate-950">Shipment Labels</h2>
-          <p className="mt-1 text-sm text-slate-600">View, download, or print each parcel label.</p>
+          <p className="mt-1 text-sm text-slate-600">View, download, or print the carrier and parcel labels.</p>
         </div>
       </div>
 

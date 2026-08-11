@@ -96,6 +96,7 @@ export const stepFieldKeys: string[][] = [
     "secondaryRegistrationId",
     "gstin",
     "gstExemptReason",
+    "gstBillingRequestReason",
     "companyType",
     "companyName",
     "registeredAddress",
@@ -138,6 +139,7 @@ export const fieldLabels: Record<string, string> = {
   secondaryRegistrationId: "Additional registration code",
   gstin: "GSTIN",
   gstExemptReason: "GST exemption reason",
+  gstBillingRequestReason: "No-GST billing reason",
   companyType: "Company type",
   companyName: "Company name",
   registeredAddress: "Company address",
@@ -193,6 +195,7 @@ export function validateBusinessAccountForm(formData: BusinessAccountFormData): 
 
   const gstExempt = Boolean(company.gstExempt);
   const gstExemptReason = company.gstExemptReason?.trim() ?? "";
+  const gstBillingRequestReason = formData.gstBilling.requestReason.trim();
   const collectsGst = collectsGstin(company.registrationCountry, noCompany);
   const gstinRequired = requiresGstin(company.registrationCountry, noCompany, gstExempt);
   const gstinError = !collectsGst
@@ -318,6 +321,14 @@ export function validateBusinessAccountForm(formData: BusinessAccountFormData): 
       `Explain why this business is not registered under GST, in at least ${GST_EXEMPT_REASON_MIN} characters.`,
       gstExempt && collectsGst && gstExemptReason.length < GST_EXEMPT_REASON_MIN
         ? `Give at least ${GST_EXEMPT_REASON_MIN} characters so an administrator can assess the claim.`
+        : ""
+    ),
+    gstBillingRequestReason: check(
+      formData.gstBilling.requestedTreatment === "NO_GST",
+      gstBillingRequestReason,
+      "Enter a reason for requesting no-GST shipment billing.",
+      formData.gstBilling.requestedTreatment === "NO_GST" && gstBillingRequestReason.length < 3
+        ? "Give at least 3 characters so an administrator can review the request."
         : ""
     ),
     companyType: check(!noCompany, company.companyType, "Company type is required."),

@@ -49,6 +49,7 @@ function buildPayload(input: ShipmentBookedInput, context: {
     currency: shipmentInvoice.currency,
     taxableValueMinor: shipmentInvoice.taxableValueMinor,
     totalTaxAmountMinor: shipmentInvoice.totalTaxAmountMinor,
+    taxTreatment: shipmentInvoice.taxTreatment,
     invoiceTotalMinor: shipmentInvoice.totalAmountMinor,
     businessAccountName: context.businessAccountName,
     branchName: context.branchName,

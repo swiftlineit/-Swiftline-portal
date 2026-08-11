@@ -117,6 +117,33 @@ describe("business account status transitions", () => {
   });
 });
 
+describe("business account GST billing permission", () => {
+  it("defaults existing/new accounts to normal GST without granting no-GST access", async () => {
+    const account = new BusinessAccount(validAccountData());
+    await account.validate();
+    assert.equal(account.gstBilling.requestedTreatment, "GST_APPLICABLE");
+    assert.equal(account.gstBilling.status, "NOT_REQUIRED");
+    assert.equal(account.gstBilling.version, 1);
+  });
+
+  it("stores a no-GST request as pending rather than treating it as approved", async () => {
+    const requester = new mongoose.Types.ObjectId();
+    const account = new BusinessAccount(validAccountData({
+      gstBilling: {
+        requestedTreatment: "NO_GST",
+        status: "PENDING",
+        requestReason: "Commercial approval requested",
+        requestedAt: new Date(),
+        requestedBy: requester,
+        version: 1
+      }
+    }));
+    await account.validate();
+    assert.equal(account.gstBilling.status, "PENDING");
+    assert.equal(account.gstBilling.effectiveFrom, null);
+  });
+});
+
 describe("individual shipment rate-card guard", () => {
   it("forces the system sentinel to Band A", async () => {
     const account = new BusinessAccount(validAccountData({

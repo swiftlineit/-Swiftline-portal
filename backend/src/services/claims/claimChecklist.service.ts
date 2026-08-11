@@ -18,9 +18,19 @@ const byCategory: Record<ClaimCategory, ClaimDocumentCategory[]> = {
   TOTAL_LOSS: ["NON_RECEIPT_DECLARATION"],
   PARTIAL_LOSS: ["GOODS_PHOTO", "OUTER_PACKAGING_PHOTO", "MISSING_ITEM_LIST"],
   SHORTAGE: ["GOODS_PHOTO", "MISSING_ITEM_LIST"],
-  PHYSICAL_DAMAGE: ["GOODS_PHOTO", "OUTER_PACKAGING_PHOTO", "INNER_PACKAGING_PHOTO", "LABEL_PHOTO"],
-  THEFT_OR_TAMPERING: ["TAMPERING_PHOTO", "LABEL_PHOTO", "MISSING_ITEM_LIST", "CONSIGNEE_STATEMENT"],
-  DELAY_CAUSING_PHYSICAL_LOSS: ["GOODS_PHOTO"]
+  PHYSICAL_DAMAGE: [
+    "GOODS_PHOTO",
+    "OUTER_PACKAGING_PHOTO",
+    "INNER_PACKAGING_PHOTO",
+    "LABEL_PHOTO",
+  ],
+  THEFT_OR_TAMPERING: [
+    "TAMPERING_PHOTO",
+    "LABEL_PHOTO",
+    "MISSING_ITEM_LIST",
+    "CONSIGNEE_STATEMENT",
+  ],
+  DELAY_CAUSING_PHYSICAL_LOSS: ["GOODS_PHOTO"],
 };
 
 /**
@@ -43,13 +53,17 @@ export const conditionalDocumentValues: ClaimDocumentCategory[] = [
   "EXPIRY_INFORMATION",
   "CARRIER_EXCEPTION_REPORT",
   "CLAIMANT_AUTHORITY",
-  "DELIVERY_EXCEPTION"
+  "DELIVERY_EXCEPTION",
 ];
 
-export function requiredDocumentsFor(category: ClaimCategory, policyOverride?: ClaimDocumentCategory[]) {
+export function requiredDocumentsFor(
+  category: ClaimCategory,
+  policyOverride?: ClaimDocumentCategory[],
+) {
   // A policy rule can replace the list wholesale — a negotiated contract may
   // waive the packing list, or a route may demand a carrier exception report.
-  if (policyOverride && policyOverride.length > 0) return [...new Set(policyOverride)];
+  if (policyOverride && policyOverride.length > 0)
+    return [...new Set(policyOverride)];
   return [...new Set([...alwaysRequired, ...byCategory[category]])];
 }
 
@@ -93,7 +107,7 @@ export async function buildClaimChecklistFor(
     requestedDocuments?: Array<{ category: string }>;
     deadlines?: { policyRuleId?: unknown } | null;
   },
-  options: { audience?: "CLIENT" | "STAFF" } = {}
+  options: { audience?: "CLIENT" | "STAFF" } = {},
 ): Promise<ClaimChecklist> {
   // Only read when the claim actually froze a rule onto itself at submission.
   const policyRequiredDocuments = claim.deadlines?.policyRuleId
@@ -108,14 +122,16 @@ export async function buildClaimChecklistFor(
   return buildClaimChecklist({
     claimId: String(claim._id),
     category: claim.category,
-    policyRequiredDocuments: policyRequiredDocuments as ClaimDocumentCategory[] | undefined,
+    policyRequiredDocuments: policyRequiredDocuments as
+      | ClaimDocumentCategory[]
+      | undefined,
     waivedCategories: (claim.waivedDocuments ?? []).map(
-      (entry) => entry.category
+      (entry) => entry.category,
     ) as ClaimDocumentCategory[],
     requestedCategories: (claim.requestedDocuments ?? []).map(
-      (entry) => entry.category
+      (entry) => entry.category,
     ) as ClaimDocumentCategory[],
-    audience: options.audience ?? "STAFF"
+    audience: options.audience ?? "STAFF",
   });
 }
 
@@ -127,7 +143,10 @@ export async function buildClaimChecklist(input: {
   requestedCategories?: ClaimDocumentCategory[];
   audience?: "CLIENT" | "STAFF";
 }): Promise<ClaimChecklist> {
-  const required = requiredDocumentsFor(input.category, input.policyRequiredDocuments);
+  const required = requiredDocumentsFor(
+    input.category,
+    input.policyRequiredDocuments,
+  );
   const waived = new Set(input.waivedCategories ?? []);
 
   // A client must not be shown a checklist row for a document they cannot open.
@@ -136,7 +155,7 @@ export async function buildClaimChecklist(input: {
   const documents = await ClaimDocument.find({
     claimId: input.claimId,
     deletedAt: null,
-    ...(input.audience === "CLIENT" ? { visibility: "PUBLIC" } : {})
+    ...(input.audience === "CLIENT" ? { visibility: "PUBLIC" } : {}),
   })
     .sort({ createdAt: -1 })
     .lean()
@@ -150,12 +169,18 @@ export async function buildClaimChecklist(input: {
   }
 
   const categories = [
-    ...new Set([...required, ...(input.requestedCategories ?? []), ...latest.keys()])
+    ...new Set([
+      ...required,
+      ...(input.requestedCategories ?? []),
+      ...latest.keys(),
+    ]),
   ] as ClaimDocumentCategory[];
 
   const items: ChecklistItem[] = categories.map((category) => {
     const document = latest.get(category);
-    const isRequired = required.includes(category) || (input.requestedCategories ?? []).includes(category);
+    const isRequired =
+      required.includes(category) ||
+      (input.requestedCategories ?? []).includes(category);
 
     let state: ChecklistItemState = "MISSING";
     if (waived.has(category)) state = "WAIVED";
@@ -169,7 +194,7 @@ export async function buildClaimChecklist(input: {
       required: isRequired,
       state,
       documentId: document ? String(document._id) : null,
-      rejectionReason: document?.rejectionReason ?? ""
+      rejectionReason: document?.rejectionReason ?? "",
     };
   });
 
@@ -181,13 +206,15 @@ export async function buildClaimChecklist(input: {
     (item) =>
       item.required &&
       item.state !== "WAIVED" &&
-      (item.state === "MISSING" || item.state === "REJECTED")
+      (item.state === "MISSING" || item.state === "REJECTED"),
   );
 
   return {
     items,
     complete: outstanding.length === 0,
-    missingCount: items.filter((item) => item.required && item.state === "MISSING").length,
-    rejectedCount: items.filter((item) => item.state === "REJECTED").length
+    missingCount: items.filter(
+      (item) => item.required && item.state === "MISSING",
+    ).length,
+    rejectedCount: items.filter((item) => item.state === "REJECTED").length,
   };
 }

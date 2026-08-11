@@ -14,6 +14,7 @@ export type ShipmentCancellation = {
   shipmentStatusAtRequest: string;
   status: "REQUESTED" | "COMPLETED" | "REJECTED";
   originalAmountMinor: number;
+  taxTreatment: "GST_APPLICABLE" | "NO_GST";
   requestedFeeBaseMinor: number;
   approvedFeeBaseMinor: number | null;
   feeGstMinor: number | null;

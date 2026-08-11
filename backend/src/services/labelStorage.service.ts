@@ -7,6 +7,18 @@ export interface StoredLabel {
   fileChecksum: string;
 }
 
+export function labelFileExtension(format: LabelFormat) {
+  if (format === "PDF") return "pdf";
+  if (format === "HTML") return "html";
+  return "zpl";
+}
+
+export function labelContentType(format: LabelFormat) {
+  if (format === "PDF") return "application/pdf";
+  if (format === "HTML") return "text/html; charset=utf-8";
+  return "text/plain; charset=utf-8";
+}
+
 export async function saveLabelDocument(params: {
   shipmentDraftId: string;
   parcelNumber: string;
@@ -29,7 +41,7 @@ export async function saveLabelBuffer(params: {
   labelSize: LabelSize;
   labelType?: LabelType;
 }): Promise<StoredLabel> {
-  const extension = params.format === "PDF" ? "pdf" : "zpl";
+  const extension = labelFileExtension(params.format);
   const labelType = params.labelType ?? "DPD";
 
   // Grouped under the draft rather than the booking so a shipment's label sits
@@ -45,7 +57,7 @@ export async function saveLabelBuffer(params: {
   await putObject({
     key: storageKey,
     body: params.buffer,
-    contentType: params.format === "PDF" ? "application/pdf" : "text/plain",
+    contentType: labelContentType(params.format),
     originalName: `${labelType.toLowerCase()}-label-${params.parcelNumber}.${extension}`
   });
 

@@ -16,6 +16,7 @@ import {
   listBusinessAccounts,
   submitBusinessAccount,
   updateBusinessAccount,
+  updateBusinessAccountGstBillingReview,
   updateBusinessAccountOperationalAction,
   updateBusinessAccountKycReview,
   updateBusinessAccountStatus,
@@ -70,6 +71,7 @@ businessAccountRouter.patch("/:accountId", businessDocumentUpload, updateBusines
 businessAccountRouter.patch("/:accountId/assign-branch", assignBusinessAccountBranch);
 businessAccountRouter.patch("/:accountId/operational-action", updateBusinessAccountOperationalAction);
 businessAccountRouter.patch("/:accountId/kyc-review", updateBusinessAccountKycReview);
+businessAccountRouter.patch("/:accountId/gst-billing-review", updateBusinessAccountGstBillingReview);
 businessAccountRouter.patch("/:accountId/status", updateBusinessAccountStatus);
 businessAccountRouter.post("/:accountId/submit", submitBusinessAccount);
 // Draft accounts only; anything already under review goes through the status

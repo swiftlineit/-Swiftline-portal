@@ -72,12 +72,17 @@ export function buildPricingHash(pricing: ShipmentPricingEstimate): string {
     totalMinor: Math.round(pricing.totalAmount * 100),
     baseMinor: Math.round(pricing.baseAmount * 100),
     gstRate: pricing.gstRate,
+    taxTreatment: pricing.taxTreatment ?? (pricing.gstRate === 0 ? "NO_GST" : "GST_APPLICABLE"),
+    noGstEligible: Boolean(pricing.noGstEligible),
+    gstForced: Boolean(pricing.gstForced),
+    gstBillingVersion: pricing.gstBillingVersion ?? 1,
     csbType: pricing.csbType,
     insuranceApplied: pricing.insuranceApplied,
     remoteAreaApplied: pricing.remoteAreaApplied,
     rateCardBand: pricing.pricingBasis.rateCardBand ?? "BAND_A",
     rateCardIds: [...pricing.pricingBasis.rateCardIds].sort(),
-    routeChargesUpdatedAt: pricing.pricingBasis.routeChargesUpdatedAt?.toISOString() ?? null
+    routeChargesUpdatedAt: pricing.pricingBasis.routeChargesUpdatedAt?.toISOString() ?? null,
+    gstBillingEffectiveFrom: pricing.pricingBasis.gstBillingEffectiveFrom?.toISOString() ?? null
   };
 
   return crypto.createHash("sha256").update(JSON.stringify(fingerprint)).digest("hex");

@@ -140,6 +140,7 @@ const draftPatchSchema = z.object({
   csbType: z.enum(csbTypeValues).optional(),
   // Optional transit cover; drives the insurance premium on the estimate.
   insuranceOptIn: z.boolean().optional(),
+  forceGst: z.boolean().optional(),
   // Printed as the NOTE block on the customs (shipment) invoice.
   declarationNote: z.string().trim().toUpperCase().max(500).optional(),
   serviceType: z.enum(shipmentServiceTypeValues).optional(),
@@ -329,6 +330,7 @@ const costEstimateSchema = z.object({
   serviceType: z.enum(shipmentServiceTypeValues).optional(),
   csbType: z.enum(csbTypeValues).optional(),
   insuranceOptIn: z.boolean().optional(),
+  forceGst: z.boolean().optional(),
   parcels: z.array(z.object({
     sequence: z.coerce.number().int().positive().optional(),
     weightKg: z.coerce.number().nonnegative().optional(),
@@ -724,6 +726,17 @@ export async function updateShipmentDraft(request: Request, response: Response):
       changedAt
     );
     shipmentDraft.insuranceOptIn = parsed.data.insuranceOptIn;
+  }
+  if (parsed.data.forceGst !== undefined) {
+    recordFieldChange(
+      changedFields,
+      "forceGst",
+      shipmentDraft.forceGst,
+      parsed.data.forceGst,
+      userId,
+      changedAt
+    );
+    shipmentDraft.forceGst = parsed.data.forceGst;
   }
 
   if (parsed.data.declarationNote !== undefined) {

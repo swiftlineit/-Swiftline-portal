@@ -536,7 +536,7 @@ export async function scanOperationsParcel(input: {
           declaredValueMinor,
           currency: "INR",
           serviceInfo: line.serviceInfo,
-          dpdLabelGenerated: dpdLabelCount >= snapshot.parcels.length
+          dpdLabelGenerated: dpdLabelCount >= (shipment.providerMode === "LIVE" ? 1 : snapshot.parcels.length)
         }], { session });
         consignment = created[0] ?? null;
       }

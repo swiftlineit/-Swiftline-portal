@@ -106,14 +106,14 @@ function drawPartyBox(
   if (contact) doc.font("Helvetica").fillColor("#64748b").text(contact, x + 10, cursor, { width: innerWidth, lineGap: 2 });
 }
 
-function drawTaxRow(doc: PDFKit.PDFDocument, label: string, amountMinor: number, y: number, currency: string, bold = false) {
+function drawTaxRow(doc: PDFKit.PDFDocument, label: string, amountMinor: number | null, y: number, currency: string, bold = false) {
   const height = bold ? 22 : 18;
   doc.lineWidth(0.5).strokeColor("#94a3b8");
   doc.rect(350, y - 4, 199, height).stroke();
   doc.moveTo(455, y - 4).lineTo(455, y - 4 + height).stroke();
   doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(bold ? 11 : 9).fillColor("#0f172a");
   doc.text(label, 354, y, { width: 97 });
-  doc.text(money(amountMinor, currency), 459, y, { width: 86, align: "right" });
+  doc.text(amountMinor === null ? "-" : money(amountMinor, currency), 459, y, { width: 86, align: "right" });
 }
 
 export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
@@ -128,7 +128,11 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
 
   if (fs.existsSync(logoPath)) doc.image(logoPath, 42, 25, { fit: [185, 100] });
   else doc.font("Helvetica-Bold").fontSize(22).fillColor("#0f2f5f").text("SWIFTLINE", 42, 48);
-  doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f172a").text(invoice.status === "ISSUED" ? "TAX INVOICE" : "DRAFT TAX INVOICE", 310, 40, { width: 239, align: "right" });
+  const noGst = invoice.taxTreatment === "NO_GST" || invoice.gstRatePercent === 0;
+  const invoiceTitle = noGst
+    ? (invoice.status === "ISSUED" ? "INVOICE" : "DRAFT INVOICE")
+    : (invoice.status === "ISSUED" ? "TAX INVOICE" : "DRAFT TAX INVOICE");
+  doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f172a").text(invoiceTitle, 310, 40, { width: 239, align: "right" });
   doc.font("Helvetica-Bold").fontSize(8).text(`Invoice No: ${invoice.invoiceNumber}`, 310, 72, { width: 239, align: "right" });
   doc.font("Helvetica").text(`Date: ${date(invoice.issuedAt)}`, 310, 87, { width: 239, align: "right" });
   doc.text(`Reference: ${textValue(shipment, "shipmentReference")}`, 310, 102, { width: 239, align: "right" });
@@ -226,10 +230,10 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
 
   drawTaxRow(doc, "Taxable Value", invoice.taxableValueMinor, y, invoice.currency);
   if (invoice.taxType === "CGST_SGST") {
-    drawTaxRow(doc, `CGST ${invoice.gstRatePercent / 2}%`, invoice.cgstAmountMinor, y + 18, invoice.currency);
-    drawTaxRow(doc, `SGST ${invoice.gstRatePercent / 2}%`, invoice.sgstAmountMinor, y + 36, invoice.currency);
+    drawTaxRow(doc, noGst ? "CGST" : `CGST ${invoice.gstRatePercent / 2}%`, noGst ? null : invoice.cgstAmountMinor, y + 18, invoice.currency);
+    drawTaxRow(doc, noGst ? "SGST" : `SGST ${invoice.gstRatePercent / 2}%`, noGst ? null : invoice.sgstAmountMinor, y + 36, invoice.currency);
   } else {
-    drawTaxRow(doc, `IGST ${invoice.gstRatePercent}%`, invoice.igstAmountMinor, y + 18, invoice.currency);
+    drawTaxRow(doc, noGst ? "IGST" : `IGST ${invoice.gstRatePercent}%`, noGst ? null : invoice.igstAmountMinor, y + 18, invoice.currency);
   }
   drawTaxRow(doc, "Total Chargeable", invoice.totalAmountMinor, y + 58, invoice.currency, true);
 

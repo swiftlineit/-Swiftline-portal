@@ -17,6 +17,16 @@ export const depositStatusValues = ["not_required", "required", "received"] as c
 export type DepositStatus = (typeof depositStatusValues)[number];
 export const agreementStatusValues = ["not_generated", "generated", "signed"] as const;
 export type AgreementStatus = (typeof agreementStatusValues)[number];
+export const gstBillingPreferenceValues = ["GST_APPLICABLE", "NO_GST"] as const;
+export type GstBillingPreference = (typeof gstBillingPreferenceValues)[number];
+export const gstBillingReviewStatusValues = [
+  "NOT_REQUIRED",
+  "PENDING",
+  "APPROVED",
+  "REJECTED",
+  "REVOKED"
+] as const;
+export type GstBillingReviewStatus = (typeof gstBillingReviewStatusValues)[number];
 export type DocumentType =
   | "aadhaarCard"
   | "panCard"
@@ -91,6 +101,20 @@ export interface IBusinessKycReview {
   reviewedBy?: mongoose.Types.ObjectId | null;
 }
 
+export interface IBusinessGstBilling {
+  requestedTreatment: GstBillingPreference;
+  status: GstBillingReviewStatus;
+  requestReason: string;
+  requestedAt?: Date | null;
+  requestedBy?: mongoose.Types.ObjectId | null;
+  reviewedAt?: Date | null;
+  reviewedBy?: mongoose.Types.ObjectId | null;
+  decisionReason: string;
+  effectiveFrom?: Date | null;
+  effectiveUntil?: Date | null;
+  version: number;
+}
+
 export interface IBusinessAccount extends mongoose.Document {
   accountId: string;
   accountKind: BusinessAccountKind;
@@ -150,6 +174,12 @@ export interface IBusinessAccount extends mongoose.Document {
   };
   documents: Partial<Record<DocumentType, IBusinessDocument>>;
   kycReview: IBusinessKycReview;
+  /**
+   * Approval to omit GST from Swiftline shipment charges. This is deliberately
+   * separate from `company.gstExempt`, which only records that the customer is
+   * not registered for GST and does not make Swiftline's supply tax-free.
+   */
+  gstBilling: IBusinessGstBilling;
   creditLimitStatus: CreditLimitStatus;
   depositStatus: DepositStatus;
   agreementStatus: AgreementStatus;
@@ -234,6 +264,34 @@ const businessKycReviewSchema = new mongoose.Schema<IBusinessKycReview>(
     reviewStartedAt: { type: Date, default: null },
     reviewedAt: { type: Date, default: null },
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
+  },
+  { _id: false }
+);
+
+const businessGstBillingSchema = new mongoose.Schema<IBusinessGstBilling>(
+  {
+    requestedTreatment: {
+      type: String,
+      enum: gstBillingPreferenceValues,
+      default: "GST_APPLICABLE",
+      required: true
+    },
+    status: {
+      type: String,
+      enum: gstBillingReviewStatusValues,
+      default: "NOT_REQUIRED",
+      required: true,
+      index: true
+    },
+    requestReason: { type: String, trim: true, maxlength: 500, default: "" },
+    requestedAt: { type: Date, default: null },
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    reviewedAt: { type: Date, default: null },
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    decisionReason: { type: String, trim: true, maxlength: 500, default: "" },
+    effectiveFrom: { type: Date, default: null },
+    effectiveUntil: { type: Date, default: null },
+    version: { type: Number, min: 1, default: 1, required: true }
   },
   { _id: false }
 );
@@ -339,6 +397,17 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
         checks: {}
       })
     },
+    // Existing accounts read as ordinary GST accounts. No migration can
+    // accidentally grant a no-GST entitlement because APPROVED must be written
+    // by the dedicated review endpoint.
+    gstBilling: {
+      type: businessGstBillingSchema,
+      default: () => ({
+        requestedTreatment: "GST_APPLICABLE",
+        status: "NOT_REQUIRED",
+        version: 1
+      })
+    },
     creditLimitStatus: {
       type: String,
       enum: creditLimitStatusValues,
@@ -422,6 +491,19 @@ businessAccountSchema.pre("validate", function normalizeLegacyWorkflowStatus() {
 
   if (account.accountKind === "INDIVIDUAL_SENTINEL") {
     account.rateCardBand = "BAND_A";
+    account.gstBilling = {
+      requestedTreatment: "GST_APPLICABLE",
+      status: "NOT_REQUIRED",
+      requestReason: "",
+      requestedAt: null,
+      requestedBy: null,
+      reviewedAt: null,
+      reviewedBy: null,
+      decisionReason: "",
+      effectiveFrom: null,
+      effectiveUntil: null,
+      version: account.gstBilling?.version ?? 1
+    };
   }
 
   // Historical workflow milestones used to live in `status`. Keep lifecycle

@@ -824,8 +824,8 @@ export default function QuoteForm({
                   />
                 ) : null}
                 <Line
-                  label="GST (18%)"
-                  value={estimate ? formatQuoteMoney(estimate.gstMinor) : "-"}
+                  label={estimate && estimate.gstRate > 0 ? `GST (${estimate.gstRate * 100}%)` : "GST"}
+                  value={estimate && estimate.gstRate > 0 ? formatQuoteMoney(estimate.gstMinor) : "-"}
                 />
               </>
             )}

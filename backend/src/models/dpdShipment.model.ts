@@ -25,6 +25,8 @@ export interface IDpdShipment extends mongoose.Document {
   idempotencyKey: string;
   dpdShipmentId?: string;
   dpdTransactionId?: string;
+  forwardingNumber?: string;
+  entryNumber?: string;
   swiftlineTrackingNumber?: string;
   bookingProvider: ShipmentBookingProvider;
   providerMode: DpdProviderMode;
@@ -54,6 +56,8 @@ const dpdShipmentSchema = new mongoose.Schema<IDpdShipment>(
     idempotencyKey: { type: String, required: true, unique: true, trim: true, maxlength: 256 },
     dpdShipmentId: { type: String, trim: true, maxlength: 120, default: "" },
     dpdTransactionId: { type: String, trim: true, maxlength: 120, default: "" },
+    forwardingNumber: { type: String, trim: true, maxlength: 120, default: "" },
+    entryNumber: { type: String, trim: true, maxlength: 120, default: "" },
     swiftlineTrackingNumber: { type: String, trim: true, maxlength: 40, default: "" },
     bookingProvider: { type: String, enum: shipmentBookingProviderValues, default: "DPD", required: true, index: true },
     providerMode: { type: String, enum: dpdProviderModeValues, default: "SIMULATED", required: true, index: true },

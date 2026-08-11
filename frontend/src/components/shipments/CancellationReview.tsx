@@ -53,7 +53,8 @@ export default function CancellationReview({
     const requestedBaseMinor = Math.round(Number(feeRupees) * 100);
     if (!Number.isInteger(requestedBaseMinor) || requestedBaseMinor < 70000)
       return null;
-    const requestedGstMinor = Math.round(requestedBaseMinor * 0.18);
+    const noGst = cancellation.taxTreatment === "NO_GST";
+    const requestedGstMinor = noGst ? 0 : Math.round(requestedBaseMinor * 0.18);
     const requestedTotalMinor = requestedBaseMinor + requestedGstMinor;
     if (requestedTotalMinor <= cancellation.originalAmountMinor) {
       return {
@@ -65,9 +66,9 @@ export default function CancellationReview({
         capped: false,
       };
     }
-    const feeBaseMinor = Math.round(
-      (cancellation.originalAmountMinor * 100) / 118,
-    );
+    const feeBaseMinor = noGst
+      ? cancellation.originalAmountMinor
+      : Math.round((cancellation.originalAmountMinor * 100) / 118);
     return {
       requestedBaseMinor,
       feeBaseMinor,
@@ -76,12 +77,12 @@ export default function CancellationReview({
       refundMinor: 0,
       capped: true,
     };
-  }, [cancellation.originalAmountMinor, feeRupees]);
+  }, [cancellation.originalAmountMinor, cancellation.taxTreatment, feeRupees]);
 
   async function approve() {
     if (!amounts)
       return setError(
-        "Enter a cancellation fee of at least INR 700 before GST.",
+        "Enter a cancellation fee of at least INR 700 before any applicable GST.",
       );
     if (amounts.requestedBaseMinor > 70000 && feeReason.trim().length < 5) {
       return setError("Explain the additional carrier or handling fee.");
@@ -262,10 +263,10 @@ export default function CancellationReview({
               ) : null}
               <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-slate-200 sm:grid-cols-4">
                 <Amount
-                  label="Fee Before GST"
+                  label={cancellation.taxTreatment === "NO_GST" ? "Cancellation Fee" : "Fee Before GST"}
                   value={amounts?.feeBaseMinor ?? 0}
                 />
-                <Amount label="GST (18%)" value={amounts?.feeGstMinor ?? 0} />
+                <Amount label={cancellation.taxTreatment === "NO_GST" ? "GST" : "GST (18%)"} value={cancellation.taxTreatment === "NO_GST" ? null : amounts?.feeGstMinor ?? 0} />
                 <Amount label="Fee Total" value={amounts?.feeTotalMinor ?? 0} />
                 <Amount
                   label="Refundable Amount"
@@ -546,7 +547,7 @@ function Amount({
   emphasis = false,
 }: {
   label: string;
-  value: number;
+  value: number | null;
   emphasis?: boolean;
 }) {
   return (
@@ -558,7 +559,7 @@ function Amount({
       >
         {label}
       </p>
-      <p className="mt-2 font-semibold">{money.format(value / 100)}</p>
+      <p className="mt-2 font-semibold">{value === null ? "-" : money.format(value / 100)}</p>
     </div>
   );
 }

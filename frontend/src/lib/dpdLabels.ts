@@ -171,6 +171,7 @@ export type ShipmentDraft = {
   // Optional transit cover. Absent on drafts created before insurance existed,
   // which price as uninsured.
   insuranceOptIn?: boolean;
+  forceGst?: boolean;
   // Printed as the NOTE block on the customs (shipment) invoice.
   declarationNote?: string;
   serviceType?: ShipmentServiceType;
@@ -209,6 +210,7 @@ export type ShipmentDraftPatch = {
   }>;
   csbType?: CsbType;
   insuranceOptIn?: boolean;
+  forceGst?: boolean;
   declarationNote?: string;
   serviceType?: ShipmentServiceType;
   serviceCode?: string;
@@ -401,6 +403,8 @@ export type DpdShipmentHistoryItem = {
     idempotencyKey: string;
     dpdShipmentId: string;
     dpdTransactionId: string;
+    forwardingNumber?: string;
+    entryNumber?: string;
     swiftlineTrackingNumber: string;
     bookingProvider: "DPD" | "SWIFTLINE";
     providerMode: "SIMULATED" | "LIVE";
@@ -843,6 +847,8 @@ async function createShipmentBooking(
       id: string;
       dpdShipmentId: string;
       dpdTransactionId: string;
+      forwardingNumber?: string;
+      entryNumber?: string;
       swiftlineTrackingNumber: string;
       bookingProvider: "DPD" | "SWIFTLINE";
       providerMode: "SIMULATED" | "LIVE";

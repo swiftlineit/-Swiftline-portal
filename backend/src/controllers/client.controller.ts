@@ -907,6 +907,8 @@ function serializeClientDpdShipment(shipment: {
   idempotencyKey: string;
   dpdShipmentId?: string;
   dpdTransactionId?: string;
+  forwardingNumber?: string;
+  entryNumber?: string;
   swiftlineTrackingNumber?: string;
   bookingProvider?: string;
   providerMode?: string;
@@ -923,6 +925,8 @@ function serializeClientDpdShipment(shipment: {
     idempotencyKey: shipment.idempotencyKey,
     dpdShipmentId: shipment.dpdShipmentId ?? "",
     dpdTransactionId: shipment.dpdTransactionId ?? "",
+    forwardingNumber: shipment.forwardingNumber ?? "",
+    entryNumber: shipment.entryNumber ?? "",
     swiftlineTrackingNumber: shipment.swiftlineTrackingNumber ?? "",
     bookingProvider: shipment.bookingProvider ?? "DPD",
     providerMode: shipment.providerMode ?? "LIVE",

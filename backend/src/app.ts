@@ -5,10 +5,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 
 import { env } from "./config/env.js";
-import {
-  errorHandler,
-  notFoundHandler
-} from "./middleware/error.handler.js";
+import { errorHandler, notFoundHandler } from "./middleware/error.handler.js";
 import { healthRouter } from "./routes/health.routes.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { userRouter } from "./routes/user.routes.js";
@@ -20,7 +17,10 @@ import { addressLookupRouter } from "./routes/addressLookup.routes.js";
 import { referenceRouter } from "./routes/reference.routes.js";
 import { clientRouter } from "./routes/client.routes.js";
 import { countryRateCardRouter } from "./routes/countryRateCard.routes.js";
-import { publicRateCardRouter, rateCardShareRouter } from "./routes/rateCardShare.routes.js";
+import {
+  publicRateCardRouter,
+  rateCardShareRouter,
+} from "./routes/rateCardShare.routes.js";
 import { dpdConfigurationRouter } from "./routes/dpdConfiguration.routes.js";
 import { dpdShipmentRouter } from "./routes/dpdShipment.routes.js";
 import { invoiceTemplateRouter } from "./routes/invoiceTemplate.routes.js";
@@ -42,8 +42,14 @@ import { supportTicketRouter } from "./routes/supportTicket.routes.js";
 import { clientClaimRouter, staffClaimRouter } from "./routes/claim.routes.js";
 import { operationsManifestRouter } from "./routes/operationsManifest.routes.js";
 import { operationsAdvisoryRouter } from "./routes/operationsAdvisory.routes.js";
-import { driverManagementRouter, driverPortalRouter } from "./routes/driver.routes.js";
-import { pickupDriverRouter, pickupManagementRouter } from "./routes/pickup.routes.js";
+import {
+  driverManagementRouter,
+  driverPortalRouter,
+} from "./routes/driver.routes.js";
+import {
+  pickupDriverRouter,
+  pickupManagementRouter,
+} from "./routes/pickup.routes.js";
 import { podDeliveryRouter, podManagementRouter } from "./routes/pod.routes.js";
 
 export const app = express();
@@ -63,7 +69,7 @@ const allowedCorsOrigins = new Set(
   [env.CLIENT_URL, ...(env.CORS_ORIGINS?.split(",") ?? [])]
     .map((value) => value.trim())
     .filter(Boolean)
-    .map((value) => new URL(value).origin)
+    .map((value) => new URL(value).origin),
 );
 
 app.use(
@@ -77,13 +83,21 @@ app.use(
       callback(null, false);
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-  })
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  }),
 );
 
-app.use("/api/v1/webhooks/razorpay", express.raw({ type: "application/json", limit: "2mb" }), razorpayWebhookRouter);
+app.use(
+  "/api/v1/webhooks/razorpay",
+  express.raw({ type: "application/json", limit: "2mb" }),
+  razorpayWebhookRouter,
+);
 // SNS posts its envelope as text/plain, so this must parse ahead of express.json.
-app.use("/api/v1/webhooks/ses", express.text({ type: "*/*", limit: "1mb" }), sesWebhookRouter);
+app.use(
+  "/api/v1/webhooks/ses",
+  express.text({ type: "*/*", limit: "1mb" }),
+  sesWebhookRouter,
+);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 app.use(cookieParser());
@@ -96,7 +110,7 @@ if (env.NODE_ENV !== "production") {
 app.get("/", (_request, response) => {
   response.status(200).json({
     success: true,
-    message: "Swiftline Portal API"
+    message: "Swiftline Portal API",
   });
 });
 

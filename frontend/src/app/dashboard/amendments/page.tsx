@@ -365,7 +365,7 @@ function PricingSummary({ title, estimate, emphasize = false }: { title: string;
       <p className="text-xs font-semibold uppercase text-slate-500">{title}</p>
       <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
         <div><p className="text-xs text-slate-500">Base</p><p className="mt-1 font-semibold text-slate-900">{formatMoney(estimate.baseAmount)}</p></div>
-        <div><p className="text-xs text-slate-500">GST ({estimate.gstRate * 100}%)</p><p className="mt-1 font-semibold text-slate-900">{formatMoney(estimate.gstAmount)}</p></div>
+        <div><p className="text-xs text-slate-500">GST{estimate.gstRate > 0 ? ` (${estimate.gstRate * 100}%)` : ""}</p><p className="mt-1 font-semibold text-slate-900">{estimate.gstRate === 0 ? "-" : formatMoney(estimate.gstAmount)}</p></div>
         <div><p className="text-xs text-slate-500">Total</p><p className="mt-1 font-semibold text-slate-950">{formatMoney(estimate.totalAmount)}</p></div>
       </div>
     </div>

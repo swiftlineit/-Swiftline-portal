@@ -53,6 +53,9 @@ export function ReviewStep({
           ["GSTIN", formData.company.gstExempt
             ? `GST exempt / not registered - ${formData.company.gstExemptReason || "no reason given"} (needs administrator approval)`
             : formData.company.gstin || "Not provided"],
+          ["Shipment billing", formData.gstBilling.requestedTreatment === "NO_GST"
+            ? `No GST requested - ${formData.gstBilling.requestReason}`
+            : "GST applicable"],
           ["Operating Countries", formData.company.operatingCountries.join(", ")],
           ["Address", [
             formData.company.registeredAddress,

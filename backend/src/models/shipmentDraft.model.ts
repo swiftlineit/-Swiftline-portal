@@ -188,6 +188,8 @@ export interface IShipmentDraft extends mongoose.Document {
    * shipment the customer did not ask for it on.
    */
   insuranceOptIn: boolean;
+  /** Approved no-GST accounts may elect normal GST for this specific shipment. */
+  forceGst: boolean;
   // Printed as the NOTE / NOTES block on the customs (shipment) invoice. Kept
   // separate from consignee deliveryInstructions, which go to the carrier.
   declarationNote: string;
@@ -478,6 +480,7 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
     // Drafts created before insurance existed read as false, so repricing one
     // never introduces a premium it was not booked with.
     insuranceOptIn: { type: Boolean, default: false, required: true },
+    forceGst: { type: Boolean, default: false, required: true },
     declarationNote: {
       type: String,
       uppercase: true,

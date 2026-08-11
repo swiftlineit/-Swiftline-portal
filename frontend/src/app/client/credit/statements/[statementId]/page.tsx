@@ -410,7 +410,7 @@ export default function ClientCreditStatementDetailPage() {
                 Billing Documents
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                GST is contained in each tax document and is not charged again
+                GST, where applicable, is contained in each invoice and is not charged again
                 here.
               </p>
             </div>

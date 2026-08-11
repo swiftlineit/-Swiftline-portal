@@ -25,12 +25,13 @@ function shipmentFacts(payload: Record<string, unknown>) {
 
 function invoiceFacts(payload: Record<string, unknown>) {
   const currency = asText(payload.currency, "INR");
+  const noGst = payload.taxTreatment === "NO_GST";
   return {
     kind: "facts" as const,
     rows: [
       { label: "Invoice number", value: asText(payload.invoiceNumber) },
       { label: "Taxable value", value: formatMoneyMinor(asNumber(payload.taxableValueMinor), currency) },
-      { label: "GST", value: formatMoneyMinor(asNumber(payload.totalTaxAmountMinor), currency) },
+      { label: "GST", value: noGst ? "-" : formatMoneyMinor(asNumber(payload.totalTaxAmountMinor), currency) },
       { label: "Invoice total", value: formatMoneyMinor(asNumber(payload.invoiceTotalMinor), currency) }
     ]
   };
@@ -41,6 +42,7 @@ export function shipmentBookedClientTemplate(context: EmailTemplateContext): Ema
   const trackingNumber = asText(payload.trackingNumber, "");
   const parcelCount = asNumber(payload.parcelCount);
   const labelsAttached = Boolean(payload.labelsAttached);
+  const invoiceLabel = payload.taxTreatment === "NO_GST" ? "invoice" : "tax invoice";
 
   return {
     subject: trackingNumber
@@ -52,10 +54,10 @@ export function shipmentBookedClientTemplate(context: EmailTemplateContext): Ema
       { kind: "paragraph", text: `Hello ${firstNameOf(recipientName)},` },
       {
         kind: "paragraph",
-        text: `Your shipment has been booked successfully with ${asText(payload.bookingProvider, "the carrier")}. The details are below and your tax invoice is attached to this email.`
+        text: `Your shipment has been booked successfully with ${asText(payload.bookingProvider, "the carrier")}. The details are below and your ${invoiceLabel} is attached to this email.`
       },
       { kind: "facts", rows: shipmentFacts(payload) },
-      { kind: "callout", tone: "success", text: `Tax invoice ${asText(payload.invoiceNumber)} for ${formatMoneyMinor(asNumber(payload.invoiceTotalMinor), asText(payload.currency, "INR"))} is attached as a PDF.` },
+      { kind: "callout", tone: "success", text: `${invoiceLabel === "invoice" ? "Invoice" : "Tax invoice"} ${asText(payload.invoiceNumber)} for ${formatMoneyMinor(asNumber(payload.invoiceTotalMinor), asText(payload.currency, "INR"))} is attached as a PDF.` },
       ...(labelsAttached
         ? [{
           kind: "paragraph" as const,

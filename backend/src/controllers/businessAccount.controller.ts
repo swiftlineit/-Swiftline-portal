@@ -10,9 +10,12 @@ import {
   BusinessKycOverallStatus,
   BusinessAccountStatus,
   DocumentType,
+  GstBillingPreference,
   IBusinessAccount,
   IBusinessDocument,
-  IBusinessKycReview
+  IBusinessGstBilling,
+  IBusinessKycReview,
+  gstBillingPreferenceValues
 } from "../models/businessAccount.model.js";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
@@ -128,6 +131,23 @@ const nullableCreditLimitSchema = z.preprocess(
   (value) => typeof value === "string" && value.trim() === "" ? null : value,
   z.coerce.number().nonnegative().max(BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX, `Requested credit limit cannot exceed ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}.`).nullable().optional()
 );
+const gstBillingRequestSchema = z.object({
+  requestedTreatment: z.enum(gstBillingPreferenceValues).optional().default("GST_APPLICABLE"),
+  requestReason: z.string().trim().max(500).optional().default("")
+}).superRefine((value, context) => {
+  if (value.requestedTreatment === "NO_GST" && value.requestReason.length < 3) {
+    context.addIssue({
+      code: "custom",
+      path: ["requestReason"],
+      message: "Enter a reason for requesting no-GST shipment billing."
+    });
+  }
+});
+const gstBillingReviewBodySchema = z.object({
+  decision: z.enum(["APPROVE", "REJECT", "REVOKE"]),
+  reason: z.string().trim().min(3, "Enter a reason for this decision.").max(500),
+  expectedVersion: z.coerce.number().int().positive()
+});
 
 const businessAccountBodySchema = z.object({
   contact: z.object({
@@ -184,7 +204,8 @@ const businessAccountBodySchema = z.object({
     monthlyShipmentVolume: z.string().trim().max(80).optional().default(""),
     requestedCreditCurrency: z.string().trim().min(3).max(3).default("INR"),
     requestedCreditLimit: nullableCreditLimitSchema
-  })
+  }),
+  gstBilling: gstBillingRequestSchema.optional()
 }).superRefine((data, context) => {
   if (!isValidPhoneForCountryCode(data.contact.countryCode, data.contact.mobileNumber)) {
     context.addIssue({
@@ -593,7 +614,8 @@ const businessAccountDraftBodySchema = z.object({
     monthlyShipmentVolume: z.string().trim().max(80).optional().default(""),
     requestedCreditCurrency: z.string().trim().min(3).max(3).optional().default("INR"),
     requestedCreditLimit: nullableCreditLimitSchema
-  })
+  }),
+  gstBilling: gstBillingRequestSchema.optional()
 });
 
 /** True when the caller asked to store the form as a draft rather than submit it. */
@@ -606,7 +628,8 @@ function parseBusinessAccountBody(request: Request, { draft = false } = {}) {
   const body = request.body as Record<string, unknown>;
   const payload = {
     contact: parseJsonField(body.contact),
-    company: parseJsonField(body.company)
+    company: parseJsonField(body.company),
+    gstBilling: parseJsonField(body.gstBilling)
   };
 
   return draft
@@ -749,6 +772,78 @@ function buildAccountPayload(data: BusinessAccountBody, existingEncryptedRegistr
         currency: data.company.requestedCreditCurrency,
         amount: data.company.requestedCreditLimit ?? null
       }
+    }
+  };
+}
+
+function normalGstBilling(version = 1): IBusinessGstBilling {
+  return {
+    requestedTreatment: "GST_APPLICABLE",
+    status: "NOT_REQUIRED",
+    requestReason: "",
+    requestedAt: null,
+    requestedBy: null,
+    reviewedAt: null,
+    reviewedBy: null,
+    decisionReason: "",
+    effectiveFrom: null,
+    effectiveUntil: null,
+    version
+  };
+}
+
+function initialGstBilling(
+  request: BusinessAccountBody["gstBilling"],
+  requestedBy: mongoose.Types.ObjectId
+): IBusinessGstBilling {
+  if (!request || request.requestedTreatment === "GST_APPLICABLE") return normalGstBilling();
+
+  return {
+    ...normalGstBilling(),
+    requestedTreatment: "NO_GST",
+    status: "PENDING",
+    requestReason: request.requestReason,
+    requestedAt: new Date(),
+    requestedBy
+  };
+}
+
+function resolveEditedGstBilling(
+  current: IBusinessGstBilling | undefined,
+  request: BusinessAccountBody["gstBilling"],
+  requestedBy: mongoose.Types.ObjectId
+): { value: IBusinessGstBilling; changed: boolean } {
+  const existing = current ?? normalGstBilling();
+  // Backwards compatibility for older internal clients that predate this form
+  // field: omission means preserve, never revoke or create a request.
+  if (!request) return { value: existing, changed: false };
+
+  if (existing.status === "APPROVED") {
+    if (request.requestedTreatment !== "NO_GST") {
+      throw new Error("An approved no-GST permission must be revoked through the GST billing review with a reason.");
+    }
+    return { value: existing, changed: false };
+  }
+
+  if (request.requestedTreatment === "GST_APPLICABLE") {
+    const changed = existing.requestedTreatment !== "GST_APPLICABLE" || existing.status !== "NOT_REQUIRED";
+    return { value: changed ? normalGstBilling(existing.version + 1) : existing, changed };
+  }
+
+  const changed = existing.requestedTreatment !== "NO_GST"
+    || existing.status !== "PENDING"
+    || existing.requestReason !== request.requestReason;
+  if (!changed) return { value: existing, changed: false };
+
+  return {
+    changed: true,
+    value: {
+      ...normalGstBilling(existing.version + 1),
+      requestedTreatment: "NO_GST",
+      status: "PENDING",
+      requestReason: request.requestReason,
+      requestedAt: new Date(),
+      requestedBy
     }
   };
 }
@@ -1028,7 +1123,7 @@ function resetKycChecks(kycReview: IBusinessKycReview | undefined, keys: Busines
   }
 }
 
-function normalizeBusinessAccountSnapshot<T extends { status?: string; creditLimitStatus?: string; depositStatus?: string; agreementStatus?: string; ledgerViewedAt?: Date | string | null; updatedAt?: Date | string }>(account: T): T {
+function normalizeBusinessAccountSnapshot<T extends { status?: string; creditLimitStatus?: string; depositStatus?: string; agreementStatus?: string; ledgerViewedAt?: Date | string | null; updatedAt?: Date | string; gstBilling?: IBusinessGstBilling }>(account: T): T {
   // Lean reads do not run schema hooks. Normalize legacy milestone statuses in
   // API responses so old records behave like the new permanent data model.
   if (account.status === "branch_assigned") {
@@ -1059,6 +1154,7 @@ function normalizeBusinessAccountSnapshot<T extends { status?: string; creditLim
   account.depositStatus = account.depositStatus ?? "not_required";
   account.agreementStatus = account.agreementStatus ?? "not_generated";
   account.ledgerViewedAt = account.ledgerViewedAt ?? null;
+  account.gstBilling = account.gstBilling ?? normalGstBilling();
 
   return account;
 }
@@ -1256,6 +1352,7 @@ export async function createBusinessAccount(request: Request, response: Response
       _id: accountObjectId,
       status: "draft",
       ...buildAccountPayload(parsed.data),
+      gstBilling: initialGstBilling(parsed.data.gstBilling, userId),
       documents,
       createdBy: userId,
       updatedBy: userId
@@ -1270,6 +1367,12 @@ export async function createBusinessAccount(request: Request, response: Response
     }
 
     await recordBusinessAccountAudit("BUSINESS_ACCOUNT_CREATED", account, userId);
+    if (account.gstBilling.status === "PENDING") {
+      await recordBusinessAccountAudit("BUSINESS_ACCOUNT_GST_BILLING_REQUESTED", account, userId, {
+        "gstBilling.requestedTreatment": { from: "GST_APPLICABLE", to: "NO_GST" },
+        "gstBilling.status": { from: "NOT_REQUIRED", to: "PENDING" }
+      });
+    }
 
     const populatedAccount = await getPopulatedBusinessAccount(account.accountId);
     return response.status(201).json({ success: true, account: populatedAccount ?? account });
@@ -1315,6 +1418,9 @@ export async function updateBusinessAccount(request: Request, response: Response
   // Captured before the payload is applied, so the audit entry can say what
   // actually changed rather than just that something did.
   const auditSnapshotBefore = toAuditSnapshot(account);
+  const gstBillingBefore = account.gstBilling
+    ? JSON.parse(JSON.stringify(account.gstBilling)) as IBusinessGstBilling
+    : normalGstBilling();
 
   const duplicateMessage = await hasDuplicateBusinessIdentity(parsed.data, String(account._id));
   if (duplicateMessage) {
@@ -1335,8 +1441,20 @@ export async function updateBusinessAccount(request: Request, response: Response
   const documents = account.documents ?? {};
   const { supersededKeys, storedKeys } = await attachUploadedDocuments(documents, files, String(account._id));
 
+  let gstBillingUpdate: { value: IBusinessGstBilling; changed: boolean };
+  try {
+    gstBillingUpdate = resolveEditedGstBilling(account.gstBilling, parsed.data.gstBilling, userId);
+  } catch (error) {
+    await discardStoredObjects(storedKeys);
+    return response.status(409).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Unable to update GST billing request"
+    });
+  }
+
   account.set({
     ...buildAccountPayload(parsed.data, account.company?.registrationIdEncrypted ?? ""),
+    gstBilling: gstBillingUpdate.value,
     documents,
     updatedBy: userId
   });
@@ -1376,6 +1494,12 @@ export async function updateBusinessAccount(request: Request, response: Response
     userId,
     diffSnapshots(auditSnapshotBefore, toAuditSnapshot(account))
   );
+  if (gstBillingUpdate.changed) {
+    await recordBusinessAccountAudit("BUSINESS_ACCOUNT_GST_BILLING_REQUESTED", account, userId, {
+      "gstBilling.requestedTreatment": { from: gstBillingBefore.requestedTreatment, to: account.gstBilling.requestedTreatment },
+      "gstBilling.status": { from: gstBillingBefore.status, to: account.gstBilling.status }
+    });
+  }
 
   const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
 
@@ -1412,6 +1536,10 @@ export async function submitBusinessAccount(request: Request, response: Response
       billingAddress: account.company.billingAddress ?? undefined,
       requestedCreditCurrency: account.company.requestedCreditLimit.currency,
       requestedCreditLimit: account.company.requestedCreditLimit.amount
+    },
+    gstBilling: {
+      requestedTreatment: account.gstBilling?.requestedTreatment ?? "GST_APPLICABLE",
+      requestReason: account.gstBilling?.requestReason ?? ""
     }
   });
   if (!completeness.success) {
@@ -1845,6 +1973,114 @@ export async function updateBusinessAccountKycReview(request: Request, response:
     account: updatedAccount ?? account,
     kycReview: (updatedAccount ?? account).kycReview
   });
+}
+
+export async function updateBusinessAccountGstBillingReview(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = gstBillingReviewBodySchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({ success: false, errors: parsed.error.format() });
+  }
+
+  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
+  if (!account) return response.status(404).json({ success: false, message: "Business account not found" });
+
+  const current = account.gstBilling ?? normalGstBilling();
+  if (account.status === "draft" && parsed.data.decision !== "REVOKE") {
+    return response.status(409).json({
+      success: false,
+      message: "Submit the business account and its Aadhaar/PAN documents before reviewing the no-GST request."
+    });
+  }
+  if (current.version !== parsed.data.expectedVersion) {
+    return response.status(409).json({
+      success: false,
+      message: "This GST billing request was just updated by someone else. Reload and try again."
+    });
+  }
+
+  const allowed = (parsed.data.decision === "APPROVE" || parsed.data.decision === "REJECT")
+    ? current.status === "PENDING"
+    : current.status === "APPROVED";
+  if (!allowed) {
+    return response.status(409).json({
+      success: false,
+      message: parsed.data.decision === "REVOKE"
+        ? "Only an approved no-GST permission can be revoked."
+        : "Only a pending no-GST request can be approved or rejected."
+    });
+  }
+
+  const now = new Date();
+  const nextStatus = parsed.data.decision === "APPROVE"
+    ? "APPROVED"
+    : parsed.data.decision === "REJECT" ? "REJECTED" : "REVOKED";
+  // `current` is a Mongoose single-nested document at runtime. Do not spread it:
+  // doing so copies Mongoose's internal `_doc`, and casting a whole-subdocument
+  // update can then silently prefer that stale snapshot over the review fields.
+  const next: IBusinessGstBilling = {
+    requestedTreatment: current.requestedTreatment,
+    status: nextStatus,
+    requestReason: current.requestReason,
+    requestedAt: current.requestedAt ?? null,
+    requestedBy: current.requestedBy ?? null,
+    reviewedAt: now,
+    reviewedBy: userId,
+    decisionReason: parsed.data.reason,
+    effectiveFrom: parsed.data.decision === "APPROVE" ? now : current.effectiveFrom ?? null,
+    effectiveUntil: parsed.data.decision === "REVOKE" ? now : null,
+    version: current.version + 1
+  };
+
+  const updated = await BusinessAccount.findOneAndUpdate(
+    { _id: account._id, "gstBilling.version": parsed.data.expectedVersion },
+    {
+      $set: {
+        "gstBilling.status": next.status,
+        "gstBilling.reviewedAt": next.reviewedAt,
+        "gstBilling.reviewedBy": next.reviewedBy,
+        "gstBilling.decisionReason": next.decisionReason,
+        "gstBilling.effectiveFrom": next.effectiveFrom,
+        "gstBilling.effectiveUntil": next.effectiveUntil,
+        "gstBilling.version": next.version,
+        updatedBy: userId
+      }
+    },
+    { returnDocument: "after", runValidators: true }
+  ).exec();
+  if (!updated) {
+    return response.status(409).json({
+      success: false,
+      message: "This GST billing request was just updated by someone else. Reload and try again."
+    });
+  }
+  if (updated.gstBilling.status !== next.status || updated.gstBilling.version !== next.version) {
+    return response.status(500).json({
+      success: false,
+      message: "GST billing review could not be persisted. Reload the account and try again."
+    });
+  }
+
+  await recordBusinessAccountAudit("BUSINESS_ACCOUNT_GST_BILLING_REVIEWED", updated, userId, {
+    "gstBilling.status": { from: current.status, to: next.status },
+    "gstBilling.version": { from: current.version, to: next.version }
+  });
+
+  await notifyBusinessAccountManagers(updated._id as mongoose.Types.ObjectId, {
+    type: "BUSINESS_ACCOUNT_GST_BILLING_REVIEWED",
+    title: next.status === "APPROVED" ? "No-GST billing approved" : next.status === "REJECTED" ? "No-GST billing rejected" : "No-GST billing revoked",
+    message: next.status === "APPROVED"
+      ? "Future shipments can now be booked without GST unless Apply GST is selected during booking."
+      : "Future shipments will use normal GST billing.",
+    href: "/client/dashboard#business-accounts",
+    idempotencyKey: `BUSINESS_ACCOUNT_GST_BILLING:${String(updated._id)}:${next.version}`,
+    metadata: { accountId: updated.accountId, status: next.status }
+  });
+
+  const populated = await getPopulatedBusinessAccount(updated.accountId);
+  return response.status(200).json({ success: true, account: populated ?? updated });
 }
 
 /**

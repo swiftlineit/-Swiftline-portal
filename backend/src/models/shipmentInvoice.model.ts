@@ -1,5 +1,8 @@
 import mongoose from "mongoose";
 
+const shipmentInvoiceTaxTreatmentValues = ["GST_APPLICABLE", "NO_GST"] as const;
+export type ShipmentInvoiceTaxTreatment = (typeof shipmentInvoiceTaxTreatmentValues)[number];
+
 export type ShipmentInvoiceTaxType = "CGST_SGST" | "IGST";
 
 export interface IShipmentInvoiceRevision {
@@ -11,6 +14,7 @@ export interface IShipmentInvoiceRevision {
   sacCode: string;
   taxableValueMinor: number;
   gstRatePercent: number;
+  taxTreatment?: ShipmentInvoiceTaxTreatment;
   taxType: ShipmentInvoiceTaxType;
   cgstAmountMinor: number;
   sgstAmountMinor: number;
@@ -42,6 +46,7 @@ export interface IShipmentInvoice extends mongoose.Document {
   description: string;
   taxableValueMinor: number;
   gstRatePercent: number;
+  taxTreatment: ShipmentInvoiceTaxTreatment;
   taxType: ShipmentInvoiceTaxType;
   cgstAmountMinor: number;
   sgstAmountMinor: number;
@@ -77,6 +82,7 @@ const shipmentInvoiceRevisionSchema = new mongoose.Schema<IShipmentInvoiceRevisi
     sacCode: { type: String, default: "" },
     taxableValueMinor: { type: Number, required: true },
     gstRatePercent: { type: Number, required: true },
+    taxTreatment: { type: String, enum: shipmentInvoiceTaxTreatmentValues, default: "GST_APPLICABLE" },
     taxType: { type: String, enum: ["CGST_SGST", "IGST"], required: true },
     cgstAmountMinor: { type: Number, required: true },
     sgstAmountMinor: { type: Number, required: true },
@@ -111,6 +117,7 @@ const shipmentInvoiceSchema = new mongoose.Schema<IShipmentInvoice>(
     description: { type: String, trim: true, required: true, maxlength: 240 },
     taxableValueMinor: { type: Number, required: true, min: 0 },
     gstRatePercent: { type: Number, required: true, min: 0, default: 18 },
+    taxTreatment: { type: String, enum: shipmentInvoiceTaxTreatmentValues, required: true, default: "GST_APPLICABLE" },
     taxType: { type: String, enum: ["CGST_SGST", "IGST"], required: true },
     cgstAmountMinor: { type: Number, required: true, min: 0, default: 0 },
     sgstAmountMinor: { type: Number, required: true, min: 0, default: 0 },

@@ -368,7 +368,7 @@ export default function ClientShipmentDetailsPage() {
                 <dl className="grid sm:grid-cols-2 xl:grid-cols-5">
                   <ConfirmationValue label="Customer Reference" value={shipment.bookingConfirmation.customerReference || "Not provided"} />
                   <ConfirmationValue label="Base Charge" value={formatMoneyMinor(shipment.bookingConfirmation.baseAmountMinor)} />
-                  <ConfirmationValue label="GST" value={formatMoneyMinor(shipment.bookingConfirmation.gstAmountMinor)} />
+                  <ConfirmationValue label="GST" value={shipment.bookingConfirmation.gstAmountMinor === 0 ? "-" : formatMoneyMinor(shipment.bookingConfirmation.gstAmountMinor)} />
                   <ConfirmationValue label="Total" value={formatMoneyMinor(shipment.bookingConfirmation.totalAmountMinor)} emphasis />
                   <ConfirmationValue label="Advance / Credit" value={`${formatMoneyMinor(shipment.bookingConfirmation.advanceAmountMinor)} / ${formatMoneyMinor(shipment.bookingConfirmation.creditAmountMinor)}`} />
                 </dl>

@@ -34,7 +34,7 @@ function addHeader(document: PDFKit.PDFDocument, title: string, number: string, 
   if (fs.existsSync(logoPath)) document.image(logoPath, pageLeft, 25, { fit: [185, 100] });
   else document.fillColor(navy).font("Helvetica-Bold").fontSize(22).text("SWIFTLINE", pageLeft, 48);
 
-  const numberLabel = title === "GST CREDIT NOTE" ? "Credit Note No" : "Invoice No";
+  const numberLabel = title.includes("CREDIT NOTE") ? "Credit Note No" : "Invoice No";
   document.fillColor("#0f172a").font("Helvetica-Bold").fontSize(18)
     .text(title, 300, 40, { width: 247, align: "right" });
   document.fontSize(8.5)
@@ -146,7 +146,7 @@ function addParties(
 
 function addAmounts(
   document: PDFKit.PDFDocument,
-  rows: Array<[string, number]>,
+  rows: Array<[string, number | null]>,
   totalLabel: string,
   total: number,
   startY: number
@@ -168,7 +168,7 @@ function addAmounts(
     document.moveTo(pageLeft, rowY).lineTo(pageRight, rowY).strokeColor("#cbd5e1").lineWidth(0.6).stroke();
     document.font("Helvetica").fontSize(9)
       .text(label, pageLeft + 10, rowY + 8, { width: amountX - pageLeft - 20 })
-      .text(money(amount), amountX + 8, rowY + 8, { width: pageRight - amountX - 16, align: "right" });
+      .text(amount === null ? "-" : money(amount), amountX + 8, rowY + 8, { width: pageRight - amountX - 16, align: "right" });
   });
 
   const totalY = startY + tableHeight + 14;
@@ -193,7 +193,8 @@ function finish(document: PDFKit.PDFDocument) {
 
 export function createShipmentCreditNotePdf(note: IShipmentCreditNote) {
   const document = new PDFDocument({ size: "A4", margin: pageLeft, info: { Title: note.creditNoteNumber } });
-  const headerBottom = addHeader(document, "GST CREDIT NOTE", note.creditNoteNumber, note.issuedAt);
+  const noGst = note.taxTreatment === "NO_GST" || note.gstRatePercent === 0;
+  const headerBottom = addHeader(document, noGst ? "CREDIT NOTE" : "GST CREDIT NOTE", note.creditNoteNumber, note.issuedAt);
   const partiesBottom = addParties(document, note.supplier, note.customer, headerBottom);
   const shipment = note.shipment as Record<string, unknown>;
   const referenceY = partiesBottom + 16;
@@ -203,9 +204,9 @@ export function createShipmentCreditNotePdf(note: IShipmentCreditNote) {
     .text(`Shipment reference: ${text(shipment, "shipmentReference", "dpdShipmentId")}`, pageLeft + 10, referenceY + 25, { width: contentWidth - 20 });
   const totalsBottom = addAmounts(document, [
     ["Taxable value reversed", note.taxableValueMinor],
-    ["CGST reversed", note.cgstAmountMinor],
-    ["SGST reversed", note.sgstAmountMinor],
-    ["IGST reversed", note.igstAmountMinor]
+    ["CGST reversed", noGst ? null : note.cgstAmountMinor],
+    ["SGST reversed", noGst ? null : note.sgstAmountMinor],
+    ["IGST reversed", noGst ? null : note.igstAmountMinor]
   ], "TOTAL CREDIT", note.totalAmountMinor, referenceY + 59);
   document.fontSize(9).font("Helvetica").text(`Reason: ${note.reason}`, pageLeft, totalsBottom + 18, { width: contentWidth });
   finish(document);
@@ -214,13 +215,14 @@ export function createShipmentCreditNotePdf(note: IShipmentCreditNote) {
 
 export function createCancellationFeeInvoicePdf(invoice: ICancellationFeeInvoice) {
   const document = new PDFDocument({ size: "A4", margin: pageLeft, info: { Title: invoice.invoiceNumber } });
-  const headerBottom = addHeader(document, "TAX INVOICE", invoice.invoiceNumber, invoice.issuedAt);
+  const noGst = invoice.taxTreatment === "NO_GST" || invoice.gstRatePercent === 0;
+  const headerBottom = addHeader(document, noGst ? "INVOICE" : "TAX INVOICE", invoice.invoiceNumber, invoice.issuedAt);
   const partiesBottom = addParties(document, invoice.supplier, invoice.customer, headerBottom);
   const totalsBottom = addAmounts(document, [
     ["Shipment cancellation fee", invoice.taxableValueMinor],
-    ["CGST", invoice.cgstAmountMinor],
-    ["SGST", invoice.sgstAmountMinor],
-    ["IGST", invoice.igstAmountMinor]
+    ["CGST", noGst ? null : invoice.cgstAmountMinor],
+    ["SGST", noGst ? null : invoice.sgstAmountMinor],
+    ["IGST", noGst ? null : invoice.igstAmountMinor]
   ], "TOTAL", invoice.totalAmountMinor, partiesBottom + 24);
   document.fontSize(9).font("Helvetica").text(`Fee reason: ${invoice.feeReason}`, pageLeft, totalsBottom + 18, { width: contentWidth });
   document.text(`Payment status: ${invoice.paymentStatus.replaceAll("_", " ")}`, pageLeft, totalsBottom + 38, { width: contentWidth });

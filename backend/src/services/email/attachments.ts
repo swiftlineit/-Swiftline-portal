@@ -11,6 +11,7 @@ import { serializeShipmentInvoice } from "../shipmentInvoice.service.js";
 import { createShipmentInvoicePdf } from "../shipmentInvoicePdf.service.js";
 import { buildShipmentManifestPdf } from "../shipmentManifestPdf.service.js";
 import { getObjectBuffer } from "../storage/storage.service.js";
+import { labelContentType, labelFileExtension } from "../labelStorage.service.js";
 import type { OutboundAttachment } from "./transport.js";
 
 export type ResolvedAttachment = OutboundAttachment & { kind: EmailAttachmentKind };
@@ -68,12 +69,12 @@ async function resolveLabelDocument(ref: IEmailAttachmentRef): Promise<ResolvedA
     return null;
   }
 
-  const extension = label.format.toLowerCase();
+  const extension = labelFileExtension(label.format);
   return {
     kind: "LABEL_DOCUMENT",
     filename: safeFilename(ref.filename || `${label.labelType.toLowerCase()}-label-${label.parcelNumber}.${extension}`),
     content,
-    contentType: label.format === "PDF" ? "application/pdf" : "text/plain"
+    contentType: labelContentType(label.format)
   };
 }
 

@@ -81,7 +81,8 @@ const defaultFormData: BusinessAccountFormData = {
     monthlyShipmentVolume: "",
     requestedCreditCurrency: "INR",
     requestedCreditLimit: ""
-  }
+  },
+  gstBilling: { requestedTreatment: "GST_APPLICABLE", requestReason: "" }
 };
 
 const duplicateMessages: Record<UniqueField, string> = {
@@ -130,6 +131,10 @@ function fromAccount(account?: BusinessAccount): BusinessAccountFormData {
       operatingCountries: account.company.operatingCountries ?? (account.company.operatingCountry ? [account.company.operatingCountry] : []),
       requestedCreditCurrency: account.company.requestedCreditLimit.currency,
       requestedCreditLimit: account.company.requestedCreditLimit.amount?.toString() ?? ""
+    },
+    gstBilling: {
+      requestedTreatment: account.gstBilling?.requestedTreatment ?? "GST_APPLICABLE",
+      requestReason: account.gstBilling?.requestReason ?? ""
     }
   };
 }
@@ -339,6 +344,16 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
     setFormData((current) => ({
       ...current,
       company: { ...current.company, [key]: value }
+    }));
+  }
+
+  function updateGstBilling<Key extends keyof BusinessAccountFormData["gstBilling"]>(
+    key: Key,
+    value: BusinessAccountFormData["gstBilling"][Key]
+  ) {
+    setFormData((current) => ({
+      ...current,
+      gstBilling: { ...current.gstBilling, [key]: value }
     }));
   }
 
@@ -711,6 +726,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
             fieldErrors={fieldErrors}
             validatingFields={validatingFields}
             onCompanyChange={updateCompany}
+            onGstBillingChange={updateGstBilling}
             onValidateUniqueField={validateUniqueField}
             onFieldBlur={markTouched}
           />

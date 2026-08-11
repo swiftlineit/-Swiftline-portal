@@ -96,6 +96,16 @@ const environmentSchema = z.object({
   DPD_TEST_API_BASE_URL: z.string().url().optional(),
   DPD_PRODUCTION_API_BASE_URL: z.string().url().optional(),
   DPD_CREDENTIAL_ENCRYPTION_KEY: z.string().min(32).optional(),
+  // ALS/Trackmate+ is the DPD booking provider. Keep its credentials separate
+  // from the legacy generic DPD fields so the runtime contract is unambiguous.
+  ALS_API_BASE_URL: z.string().url().optional(),
+  ALS_COMPANY_ID: z.coerce.number().int().positive().optional(),
+  ALS_API_EMAIL: z.string().email().optional(),
+  ALS_API_PASSWORD: z.string().min(1).optional(),
+  ALS_SERVICE_CODE: z.string().trim().min(1).default("DPD UK NEXTDAY"),
+  // Portal customs values are recorded in INR; ALS requires the declared value
+  // in GBP. This explicit operational rate keeps that conversion auditable.
+  ALS_INR_PER_GBP: z.coerce.number().positive().optional(),
   RAZORPAY_KEY_ID: z.string().optional(),
   RAZORPAY_KEY_SECRET: z.string().optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().optional(),

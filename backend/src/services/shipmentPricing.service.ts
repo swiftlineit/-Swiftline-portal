@@ -13,6 +13,23 @@ import {
 import { getDeclaredGoodsValue } from "./parcelItems.service.js";
 
 export const defaultShipmentGstRate = 0.18;
+export const shipmentTaxTreatmentValues = ["GST_APPLICABLE", "NO_GST"] as const;
+export type ShipmentTaxTreatment = (typeof shipmentTaxTreatmentValues)[number];
+
+export function resolveShipmentTaxSelection(input: {
+  noGstEligible: boolean;
+  forceGst?: boolean;
+  frozenGstRate?: number;
+}) {
+  const gstForced = input.noGstEligible && Boolean(input.forceGst);
+  const gstRate = input.frozenGstRate
+    ?? (input.noGstEligible && !gstForced ? 0 : defaultShipmentGstRate);
+  return {
+    gstRate,
+    taxTreatment: (gstRate === 0 ? "NO_GST" : "GST_APPLICABLE") as ShipmentTaxTreatment,
+    gstForced
+  };
+}
 
 export class RateCardRequiredError extends Error {
   constructor(
@@ -142,6 +159,14 @@ export type ShipmentPricingEstimate = {
   missingRate: boolean;
   exceedsMaxBoxKg: boolean;
   gstRate: number;
+  /** Frozen commercial treatment used for this estimate and any resulting booking. */
+  taxTreatment?: ShipmentTaxTreatment;
+  /** Whether the account was approved for no-GST billing when this price was calculated. */
+  noGstEligible?: boolean;
+  /** True when an eligible account explicitly elected to pay GST for this shipment. */
+  gstForced?: boolean;
+  /** Account GST-billing version used to calculate the price. */
+  gstBillingVersion?: number;
   /** Every non-zero component in presentation order, including GST. */
   lines: ShipmentChargeLine[];
   /**
@@ -154,6 +179,9 @@ export type ShipmentPricingEstimate = {
     rateCardBand?: RateCardBand;
     rateCardIds: string[];
     routeChargesUpdatedAt: Date | null;
+    taxTreatment?: ShipmentTaxTreatment;
+    gstBillingVersion?: number;
+    gstBillingEffectiveFrom?: Date | null;
   };
 };
 
@@ -244,6 +272,8 @@ export type ShipmentPricingInput = {
    */
   declaredGoodsValue?: number;
   gstRate?: number;
+  /** One-way booking override: approved no-GST accounts can still elect GST. */
+  forceGst?: boolean;
   /**
    * Pre-loaded route configuration. Supplied by callers that price several
    * shipments in a row, or that must price against the exact configuration a
@@ -268,6 +298,7 @@ type PricingDraftSource = {
   parcelList: PricingParcelInput[];
   csbType?: CsbType | null;
   insuranceOptIn?: boolean;
+  forceGst?: boolean;
 };
 
 /**
@@ -286,40 +317,77 @@ export function buildPricingInputFromDraft(draft: PricingDraftSource): ShipmentP
     csbType: draft.csbType,
     destinationPostcode: draft.consigneeEnteredAddress.postcode,
     insuranceOptIn: draft.insuranceOptIn,
+    forceGst: draft.forceGst,
     declaredGoodsValue: getDeclaredGoodsValue(draft.parcelList)
   };
 }
 
-export async function resolveRateCardBand(input: Pick<ShipmentPricingInput, "businessAccountId" | "rateCardBand" | "session">): Promise<RateCardBand> {
+type AccountPricingContext = {
+  rateCardBand: RateCardBand;
+  noGstEligible: boolean;
+  gstBillingVersion: number;
+  gstBillingEffectiveFrom: Date | null;
+};
+
+async function resolveAccountPricingContext(input: Pick<ShipmentPricingInput, "businessAccountId" | "rateCardBand" | "session">): Promise<AccountPricingContext> {
   const explicitBand = input.rateCardBand && rateCardBandValues.includes(input.rateCardBand)
     ? input.rateCardBand
     : null;
   if (!input.businessAccountId) {
-    if (explicitBand) return explicitBand;
+    if (explicitBand) return {
+      rateCardBand: explicitBand,
+      noGstEligible: false,
+      gstBillingVersion: 1,
+      gstBillingEffectiveFrom: null
+    };
     throw new RateCardPricingContextError();
   }
 
   const accountId = String(input.businessAccountId);
   if (!mongoose.Types.ObjectId.isValid(accountId)) throw new RateCardAccountNotFoundError();
-  const query = BusinessAccount.findById(accountId).select("rateCardBand accountKind").lean();
+  const query = BusinessAccount.findById(accountId).select("rateCardBand accountKind gstBilling").lean();
   if (input.session) query.session(input.session);
   const account = await query.exec();
 
   // Counter shipments use the system sentinel and deliberately preserve the
   // legacy tariff, including before the backfill has run in a fresh dev DB.
   if (!account) throw new RateCardAccountNotFoundError();
-  if (account.accountKind === "INDIVIDUAL_SENTINEL") return "BAND_A";
+  if (account.accountKind === "INDIVIDUAL_SENTINEL") return {
+    rateCardBand: "BAND_A",
+    noGstEligible: false,
+    gstBillingVersion: account.gstBilling?.version ?? 1,
+    gstBillingEffectiveFrom: null
+  };
   if (!account.rateCardBand) throw new RateCardRequiredError();
   if (explicitBand && explicitBand !== account.rateCardBand) throw new RateCardAssignmentMismatchError();
-  return account.rateCardBand;
+  return {
+    rateCardBand: account.rateCardBand,
+    noGstEligible: account.gstBilling?.requestedTreatment === "NO_GST"
+      && account.gstBilling?.status === "APPROVED"
+      && Boolean(account.gstBilling?.effectiveFrom)
+      && !account.gstBilling?.effectiveUntil,
+    gstBillingVersion: account.gstBilling?.version ?? 1,
+    gstBillingEffectiveFrom: account.gstBilling?.effectiveFrom ?? null
+  };
+}
+
+export async function resolveRateCardBand(input: Pick<ShipmentPricingInput, "businessAccountId" | "rateCardBand" | "session">): Promise<RateCardBand> {
+  return (await resolveAccountPricingContext(input)).rateCardBand;
 }
 
 export async function calculateShipmentPricingEstimate(
   input: ShipmentPricingInput
 ): Promise<ShipmentPricingEstimate> {
   const countryCode = input.countryCode.trim().toUpperCase();
-  const rateCardBand = await resolveRateCardBand(input);
-  const gstRate = input.gstRate ?? defaultShipmentGstRate;
+  const accountContext = await resolveAccountPricingContext(input);
+  const rateCardBand = accountContext.rateCardBand;
+  // `gstRate` is an internal frozen-pricing input used by amendments and quote
+  // publication. Public draft endpoints never accept it.
+  const { gstRate, taxTreatment, gstForced } = resolveShipmentTaxSelection({
+    noGstEligible: accountContext.noGstEligible,
+    forceGst: input.forceGst,
+    frozenGstRate: input.gstRate
+  });
   const csbType = normalizeCsbType(input.csbType);
   const rateQuery = CountryRateCard.find({
     band: rateCardBand,
@@ -388,10 +456,17 @@ export async function calculateShipmentPricingEstimate(
     missingRate,
     exceedsMaxBoxKg: parcels.some((parcel) => parcel.exceedsMaxBoxKg),
     gstRate,
+    taxTreatment,
+    noGstEligible: accountContext.noGstEligible,
+    gstForced,
+    gstBillingVersion: accountContext.gstBillingVersion,
     pricingBasis: {
       rateCardBand,
       rateCardIds: [...new Set(parcels.map((parcel) => parcel.rateCardId).filter((id): id is string => Boolean(id)))],
-      routeChargesUpdatedAt: routeCharges.updatedAt
+      routeChargesUpdatedAt: routeCharges.updatedAt,
+      taxTreatment,
+      gstBillingVersion: accountContext.gstBillingVersion,
+      gstBillingEffectiveFrom: accountContext.gstBillingEffectiveFrom
     }
   };
 }

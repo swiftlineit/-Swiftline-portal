@@ -31,6 +31,7 @@ import {
   DocumentType,
   getBusinessAccount,
   getBusinessAccountDocument,
+  updateBusinessAccountGstBillingReview,
   updateBusinessAccountKycReview,
 } from "@/lib/businessAccounts";
 import { BUSINESS_ACCOUNT_AREA } from "@/lib/roles";
@@ -487,6 +488,9 @@ export default function BusinessAccountDetailsPage() {
           <div className="grid gap-5 lg:grid-cols-2">
             <div className="lg:col-span-2">
               <RateCardAssignmentPanel account={account} onAssigned={setAccount} />
+            </div>
+            <div className="lg:col-span-2">
+              <GstBillingReviewPanel account={account} onUpdated={setAccount} />
             </div>
             <DetailSection
               title="Contact Details"
@@ -1014,6 +1018,104 @@ function DetailSection({ title, rows }: { title: string; rows: string[][] }) {
           </div>
         ))}
       </dl>
+    </section>
+  );
+}
+
+function GstBillingReviewPanel({
+  account,
+  onUpdated
+}: {
+  account: BusinessAccount;
+  onUpdated: (account: BusinessAccount) => void;
+}) {
+  const billing = account.gstBilling ?? {
+    requestedTreatment: "GST_APPLICABLE" as const,
+    status: "NOT_REQUIRED" as const,
+    requestReason: "",
+    decisionReason: "",
+    version: 1
+  };
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const canDecide = billing.status === "PENDING";
+  const canRevoke = billing.status === "APPROVED";
+
+  async function review(decision: "APPROVE" | "REJECT" | "REVOKE") {
+    if (reason.trim().length < 3) {
+      setError("Enter at least 3 characters explaining this decision.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const result = await updateBusinessAccountGstBillingReview(account.accountId, {
+        decision,
+        reason: reason.trim(),
+        expectedVersion: billing.version
+      });
+      onUpdated(result.account);
+      setReason("");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update GST billing review.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-bold text-[#0D1282]">Shipment GST Billing</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            This permission is separate from the customer&apos;s GST registration status.
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
+          {formatStatus(billing.status)}
+        </span>
+      </div>
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg bg-[#EEEDED]/40 px-3.5 py-3">
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Requested treatment</dt>
+          <dd className="mt-1 text-sm font-semibold text-slate-800">{billing.requestedTreatment === "NO_GST" ? "No GST" : "GST applicable"}</dd>
+        </div>
+        <div className="rounded-lg bg-[#EEEDED]/40 px-3.5 py-3">
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Request reason</dt>
+          <dd className="mt-1 text-sm font-medium text-slate-800">{billing.requestReason || "—"}</dd>
+        </div>
+        {billing.decisionReason ? (
+          <div className="rounded-lg bg-[#EEEDED]/40 px-3.5 py-3 sm:col-span-2">
+            <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Latest decision reason</dt>
+            <dd className="mt-1 text-sm font-medium text-slate-800">{billing.decisionReason}</dd>
+          </div>
+        ) : null}
+      </dl>
+      {canDecide || canRevoke ? (
+        <div className="mt-4 border-t border-slate-200 pt-4">
+          <label className="text-sm font-semibold text-slate-700" htmlFor="gst-review-reason">Decision reason</label>
+          <textarea
+            id="gst-review-reason"
+            value={reason}
+            maxLength={500}
+            onChange={(event) => setReason(event.target.value)}
+            className="mt-2 min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/15"
+          />
+          {error ? <p className="mt-2 text-sm font-semibold text-[#D71313]">{error}</p> : null}
+          <div className="mt-3 flex flex-wrap gap-3">
+            {canDecide ? (
+              <>
+                <button type="button" disabled={saving} onClick={() => void review("APPROVE")} className="rounded-lg bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">Approve no GST</button>
+                <button type="button" disabled={saving} onClick={() => void review("REJECT")} className="rounded-lg bg-[#D71313] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">Reject</button>
+              </>
+            ) : (
+              <button type="button" disabled={saving} onClick={() => void review("REVOKE")} className="rounded-lg bg-[#D71313] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">Revoke no GST</button>
+            )}
+          </div>
+        </div>
+      ) : error ? <p className="mt-3 text-sm font-semibold text-[#D71313]">{error}</p> : null}
     </section>
   );
 }

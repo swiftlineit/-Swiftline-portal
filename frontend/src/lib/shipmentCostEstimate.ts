@@ -67,6 +67,10 @@ export type ShipmentPricing = {
   missingRate: boolean;
   exceedsMaxBoxKg: boolean;
   gstRate: number;
+  taxTreatment?: "GST_APPLICABLE" | "NO_GST";
+  noGstEligible?: boolean;
+  gstForced?: boolean;
+  gstBillingVersion?: number;
   lines: ShipmentChargeLine[];
 };
 
@@ -96,6 +100,7 @@ export type ShipmentCostEstimateInput = {
   serviceType?: ShipmentServiceType;
   csbType?: CsbType;
   insuranceOptIn?: boolean;
+  forceGst?: boolean;
   parcels?: Array<{
     sequence?: number;
     weightKg?: number;

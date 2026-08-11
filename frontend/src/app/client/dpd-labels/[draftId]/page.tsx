@@ -370,6 +370,7 @@ export default function ClientDpdDraftReviewPage() {
   const [csbType, setCsbType] = useState<CsbType>("CSB_IV");
   // Optional transit cover. Off unless the customer asks for it.
   const [insuranceOptIn, setInsuranceOptIn] = useState(false);
+  const [forceGst, setForceGst] = useState(false);
   // Set when the server refuses a booking because the price moved after it was
   // quoted. Holds the new breakdown until the customer accepts or cancels.
   const [priceChange, setPriceChange] = useState<ShipmentPriceChangedError | null>(null);
@@ -456,6 +457,7 @@ export default function ClientDpdDraftReviewPage() {
     serviceType: contactForm.serviceType,
     csbType,
     insuranceOptIn,
+    forceGst,
     parcels: deferredPricingParcels.map((parcel, index) => ({
       sequence: index + 1,
       weightKg: Number(parcel.weightKg) || 0,
@@ -468,7 +470,7 @@ export default function ClientDpdDraftReviewPage() {
         unitRate: Number(item.unitRate) || 0
       }))
     }))
-  }), [addressForm.countryCode, addressForm.postcode, contactForm.serviceType, csbType, deferredPricingParcels, insuranceOptIn]);
+  }), [addressForm.countryCode, addressForm.postcode, contactForm.serviceType, csbType, deferredPricingParcels, forceGst, insuranceOptIn]);
 
   const {
     estimate: costEstimate,
@@ -487,6 +489,7 @@ export default function ClientDpdDraftReviewPage() {
     if (!draft) return false;
     return consignorChanged
       || insuranceOptIn !== (draft.insuranceOptIn ?? false)
+      || forceGst !== (draft.forceGst ?? false)
       || JSON.stringify(parcelForms) !== JSON.stringify(normalizeParcels(draft))
       || contactForm.companyName !== (draft.consigneeEnteredAddress.companyName ?? "")
       || contactForm.contactName !== (draft.consigneeEnteredAddress.contactName ?? "")
@@ -502,7 +505,7 @@ export default function ClientDpdDraftReviewPage() {
       || addressForm.townOrCity !== (draft.consigneeEnteredAddress.townOrCity ?? "")
       || addressForm.county !== (draft.consigneeEnteredAddress.county ?? "")
       || addressForm.postcode !== (draft.consigneeEnteredAddress.postcode ?? "");
-  }, [addressForm, consignorChanged, contactForm, draft, insuranceOptIn, parcelForms]);
+  }, [addressForm, consignorChanged, contactForm, draft, forceGst, insuranceOptIn, parcelForms]);
 
   // This form used to lose everything on navigation: nothing was stored until the
   // whole form validated, and there was no guard on the way out.
@@ -541,6 +544,7 @@ export default function ClientDpdDraftReviewPage() {
     });
     setCsbType(normalizeCsbType(nextDraft.csbType));
     setInsuranceOptIn(nextDraft.insuranceOptIn ?? false);
+    setForceGst(nextDraft.forceGst ?? false);
     setDeclarationNote(nextDraft.declarationNote ?? defaultDeclarationNote);
     setConsignorForm(consignorFormFromDraft(nextDraft.consignorAddress));
     setKycUseForAll(nextDraft.kycUseForAllParcels ?? true);
@@ -828,6 +832,7 @@ export default function ClientDpdDraftReviewPage() {
       })),
       csbType,
       insuranceOptIn,
+      forceGst,
       declarationNote,
       serviceType: contactForm.serviceType,
       serviceCode: contactForm.serviceCode
@@ -1350,6 +1355,8 @@ export default function ClientDpdDraftReviewPage() {
                   countryName={addressForm.countryName}
                   insuranceOptIn={insuranceOptIn}
                   onInsuranceOptInChange={setInsuranceOptIn}
+                  forceGst={forceGst}
+                  onForceGstChange={setForceGst}
                   insuranceDisabled={busy}
                 />
                 <div className="mt-4 border border-red-400 bg-amber-50 p-3 rounded-2xl">

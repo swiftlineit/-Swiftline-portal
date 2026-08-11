@@ -27,6 +27,23 @@ describe("shipment cancellation policy", () => {
     });
   });
 
+  it("keeps the cancellation charge but applies no GST to a no-GST shipment", () => {
+    assert.deepEqual(calculateCancellationAmounts(200_000, 70_000, "NO_GST"), {
+      feeBaseMinor: 70_000,
+      feeGstMinor: 0,
+      feeTotalMinor: 70_000,
+      refundableAmountMinor: 130_000,
+      feeWasCapped: false
+    });
+    assert.deepEqual(calculateCancellationAmounts(50_000, 70_000, "NO_GST"), {
+      feeBaseMinor: 50_000,
+      feeGstMinor: 0,
+      feeTotalMinor: 50_000,
+      refundableAmountMinor: 0,
+      feeWasCapped: true
+    });
+  });
+
   it("splits a partly settled shipment into refund and remaining fee credit", () => {
     assert.deepEqual(calculateCancellationSettlement({
       originalAmountMinor: 200_000,

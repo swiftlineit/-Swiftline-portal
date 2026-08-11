@@ -409,6 +409,7 @@ export default function DpdLabelDraftPage() {
   const [csbType, setCsbType] = useState<CsbType>("CSB_IV");
   // Optional transit cover. Off unless the customer asks for it.
   const [insuranceOptIn, setInsuranceOptIn] = useState(false);
+  const [forceGst, setForceGst] = useState(false);
   // Set when the server refuses a booking because the price moved after it was
   // quoted. Holds the new breakdown until it is accepted or cancelled.
   const [priceChange, setPriceChange] = useState<ShipmentPriceChangedError | null>(null);
@@ -443,9 +444,10 @@ export default function DpdLabelDraftPage() {
       JSON.stringify(parcelForms) !== JSON.stringify(normalizeParcelForms(draft.parcelList)) ||
       draftCorrectionForm.serviceType !== (draft.serviceType ?? "COURIER") ||
       draftCorrectionForm.serviceCode !== (draft.serviceCode ?? "") ||
-      insuranceOptIn !== (draft.insuranceOptIn ?? false)
+      insuranceOptIn !== (draft.insuranceOptIn ?? false) ||
+      forceGst !== (draft.forceGst ?? false)
     );
-  }, [draft, draftCorrectionForm, insuranceOptIn, parcelForms]);
+  }, [draft, draftCorrectionForm, forceGst, insuranceOptIn, parcelForms]);
 
   const addressChanged = useMemo(() => {
     if (!draft) return false;
@@ -470,6 +472,7 @@ export default function DpdLabelDraftPage() {
     serviceType: draftCorrectionForm.serviceType,
     csbType,
     insuranceOptIn,
+    forceGst,
     parcels: deferredPricingParcels.map((parcel, index) => ({
       sequence: index + 1,
       weightKg: Number(parcel.weightKg) || 0,
@@ -482,7 +485,7 @@ export default function DpdLabelDraftPage() {
         unitRate: Number(item.unitRate) || 0
       }))
     }))
-  }), [addressForm.countryCode, addressForm.postcode, csbType, deferredPricingParcels, draftCorrectionForm.serviceType, insuranceOptIn]);
+  }), [addressForm.countryCode, addressForm.postcode, csbType, deferredPricingParcels, draftCorrectionForm.serviceType, forceGst, insuranceOptIn]);
 
   const {
     estimate: costEstimate,
@@ -612,6 +615,7 @@ export default function DpdLabelDraftPage() {
     setParcelCountInput(String(nextParcels.length));
     setCsbType(normalizeCsbType(nextDraft.csbType));
     setInsuranceOptIn(nextDraft.insuranceOptIn ?? false);
+    setForceGst(nextDraft.forceGst ?? false);
     setDeclarationNote(nextDraft.declarationNote ?? defaultDeclarationNote);
   }
 
@@ -852,6 +856,7 @@ export default function DpdLabelDraftPage() {
       })),
       csbType,
       insuranceOptIn,
+      forceGst,
       declarationNote,
       serviceType: draftCorrectionForm.serviceType,
       serviceCode: draftCorrectionForm.serviceCode
@@ -1544,6 +1549,8 @@ export default function DpdLabelDraftPage() {
                 countryName={addressForm.countryName}
                 insuranceOptIn={insuranceOptIn}
                 onInsuranceOptInChange={setInsuranceOptIn}
+                forceGst={forceGst}
+                onForceGstChange={setForceGst}
                 insuranceDisabled={busy}
               />
               <div className="mt-4 rounded-xl border border-red-400 bg-amber-50 p-3">

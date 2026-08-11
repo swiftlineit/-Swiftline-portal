@@ -338,6 +338,9 @@ async function getPricingImpact(
   const requestedEstimate = repriceRequested
     ? await calculateShipmentPricingEstimate({
         ...buildPricingInputFromDraft(requested),
+        // A booked shipment keeps its original GST/no-GST treatment through all
+        // approved amendments, even if the account permission later changes.
+        gstRate: currentEstimate.gstRate,
         session
       })
     : currentEstimate;

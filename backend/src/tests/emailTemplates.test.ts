@@ -47,6 +47,21 @@ test("shipment booked client template renders the invoice and shipment facts", (
   assert.ok(text.length > 0, "a plaintext alternative is always produced");
 });
 
+test("shipment booked no-GST email calls the attachment an invoice and shows GST as a dash", () => {
+  const noGstPayload = {
+    ...shipmentPayload,
+    taxTreatment: "NO_GST",
+    totalTaxAmountMinor: 0,
+    invoiceTotalMinor: shipmentPayload.taxableValueMinor,
+    labelsAttached: true
+  };
+  const client = render("SHIPMENT_BOOKED_CLIENT", noGstPayload);
+  const staff = render("SHIPMENT_BOOKED_STAFF", noGstPayload);
+  assert.match(client.html, /your invoice is attached/i);
+  assert.doesNotMatch(client.html, /your tax invoice is attached/i);
+  assert.match(staff.html, /GST[\s\S]*?-/);
+});
+
 test("shipment booked client template does not claim labels are attached when they are not", () => {
   const attached = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: true });
   const dropped = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: false });

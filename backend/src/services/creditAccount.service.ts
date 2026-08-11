@@ -21,8 +21,8 @@ export const fallbackPaymentTerms = {
   sections: [
     { heading: "Credit account payments", content: "Payments are allocated to the oldest unpaid Swiftline invoices first. Any remaining amount is held as Customer Advance for future eligible shipment charges." },
     { heading: "Customer Advance", content: "Customer Advance is money received from the customer. It does not increase the approved credit limit and is used before approved credit for future bookings." },
-    { heading: "Shipment charges", content: "Shipment reservations use the server-calculated GST-inclusive estimate. The final charge may change after approved amendments or operational weight and dimension verification." },
-    { heading: "Invoices and statements", content: "Each finalized shipment receives its own GST tax invoice. Credit billing statements group unpaid shipment invoices and do not apply GST again." },
+    { heading: "Shipment charges", content: "Shipment reservations use the server-calculated estimate, including GST only where applicable. The final charge may change after approved amendments or operational weight and dimension verification." },
+    { heading: "Invoices and statements", content: "Each finalized shipment receives its own invoice. Credit billing statements group unpaid shipment invoices and do not apply GST again." },
     { heading: "Account restrictions", content: "New credit-funded bookings may be restricted when available credit is insufficient, invoices are overdue, or the credit facility is held, suspended, expired, or closed." },
     { heading: "Assistance", content: "Contact your assigned Swiftline branch before paying if an account, invoice, or allocation detail appears incorrect." }
   ]

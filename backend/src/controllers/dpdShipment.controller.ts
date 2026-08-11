@@ -8,6 +8,7 @@ import { Branch } from "../models/branch.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { LabelDocument } from "../models/labelDocument.model.js";
+import { labelContentType, labelFileExtension } from "../services/labelStorage.service.js";
 import {
   ShipmentEvent,
   shipmentHoldReasonValues,
@@ -77,6 +78,8 @@ function serializeDpdShipment(shipment: {
   idempotencyKey: string;
   dpdShipmentId?: string;
   dpdTransactionId?: string;
+  forwardingNumber?: string;
+  entryNumber?: string;
   swiftlineTrackingNumber?: string;
   bookingProvider?: string;
   providerMode?: string;
@@ -93,6 +96,8 @@ function serializeDpdShipment(shipment: {
     idempotencyKey: shipment.idempotencyKey,
     dpdShipmentId: shipment.dpdShipmentId ?? "",
     dpdTransactionId: shipment.dpdTransactionId ?? "",
+    forwardingNumber: shipment.forwardingNumber ?? "",
+    entryNumber: shipment.entryNumber ?? "",
     swiftlineTrackingNumber: shipment.swiftlineTrackingNumber ?? "",
     bookingProvider: shipment.bookingProvider ?? "DPD",
     providerMode: shipment.providerMode ?? "LIVE",
@@ -433,12 +438,19 @@ async function sendStoredLabel(params: {
     }
   });
 
-  const extension = label.format.toLowerCase();
+  const extension = labelFileExtension(label.format);
+
+  if (label.format === "HTML") {
+    response.setHeader(
+      "Content-Security-Policy",
+      "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; sandbox allow-same-origin"
+    );
+  }
 
   return streamObjectToResponse({
     response,
     key: label.storageKey,
-    contentType: label.format === "PDF" ? "application/pdf" : "text/plain",
+    contentType: labelContentType(label.format),
     filename: `${label.labelType.toLowerCase()}-label-${label.parcelNumber}.${extension}`,
     disposition: params.disposition ?? "inline"
   });

@@ -84,7 +84,7 @@ export default function ShipmentInvoiceHistory({
             <FiFileText aria-hidden="true" className="h-4 w-4" />
             {/* GST document billing freight and tax, distinct from the shipment
                 (customs) invoice that declares the goods. */}
-            <h2 className="text-sm font-semibold uppercase tracking-wide">Tax Invoices</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wide">Invoices</h2>
           </div>
           <p className="mt-1 text-sm text-slate-500">GST invoice versions and charge history.</p>
         </div>

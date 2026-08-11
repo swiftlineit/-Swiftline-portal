@@ -7,6 +7,7 @@ import {
   assignBusinessAccountBranch,
   submitBusinessAccount,
   updateBusinessAccountOperationalAction,
+  updateBusinessAccountGstBillingReview,
   updateBusinessAccountStatus
 } from "../controllers/businessAccount.controller.js";
 import { updateBusinessAccountMemberStatus } from "../controllers/businessAccountAccess.controller.js";
@@ -118,6 +119,58 @@ after(async () => {
 });
 
 describe("business account lifecycle", () => {
+  test("persists no-GST approval and rejects a stale review version", async () => {
+    const adminId = new mongoose.Types.ObjectId();
+    const account = await createDraftAccount(adminId, "BA-2026-200005");
+    account.status = "pending_review";
+    account.gstBilling = {
+      requestedTreatment: "NO_GST",
+      status: "PENDING",
+      requestReason: "No GST registration",
+      requestedAt: new Date(),
+      requestedBy: adminId,
+      reviewedAt: null,
+      reviewedBy: null,
+      decisionReason: "",
+      effectiveFrom: null,
+      effectiveUntil: null,
+      version: 1
+    };
+    await account.save();
+
+    const approve = createResponseRecorder();
+    await updateBusinessAccountGstBillingReview(
+      controllerRequest({
+        userId: adminId,
+        params: { accountId: account.accountId },
+        body: { decision: "APPROVE", reason: "Approved for no-GST billing", expectedVersion: 1 }
+      }),
+      approve.response
+    );
+
+    assert.equal(approve.statusCode(), 200);
+    const approvedBody = approve.body<{ account: { gstBilling: { status: string; version: number } } }>();
+    assert.equal(approvedBody.account.gstBilling.status, "APPROVED");
+    assert.equal(approvedBody.account.gstBilling.version, 2);
+
+    const stored = await BusinessAccount.findById(account._id).lean().exec();
+    assert.equal(stored?.gstBilling.status, "APPROVED");
+    assert.equal(stored?.gstBilling.version, 2);
+    assert.ok(stored?.gstBilling.effectiveFrom instanceof Date);
+    assert.equal(stored?.gstBilling.effectiveUntil, null);
+
+    const stale = createResponseRecorder();
+    await updateBusinessAccountGstBillingReview(
+      controllerRequest({
+        userId: adminId,
+        params: { accountId: account.accountId },
+        body: { decision: "APPROVE", reason: "Duplicate approval", expectedVersion: 1 }
+      }),
+      stale.response
+    );
+    assert.equal(stale.statusCode(), 409);
+  });
+
   test("submits a stored draft that reuses its company address and requests credit", async () => {
     const adminId = new mongoose.Types.ObjectId();
     const account = await createDraftAccount(adminId, "BA-2026-200004");

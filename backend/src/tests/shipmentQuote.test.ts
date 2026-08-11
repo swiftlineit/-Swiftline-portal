@@ -27,9 +27,21 @@ describe("shipment quote policy", () => {
     assert.equal(result.gstMinor, 19_350);
     assert.equal(result.totalMinor, 126_850);
     assert.deepEqual(Object.keys(result).sort(), [
-      "currency", "freightMinor", "fuelSurchargeMinor", "gstMinor", "gstRate",
+      "currency", "freightMinor", "fuelSurchargeMinor", "gstMinor", "gstRate", "taxTreatment",
       "taxableAddOnsMinor", "taxableSubtotalMinor", "totalMinor"
     ]);
+  });
+
+  it("publishes a no-GST quote without adding tax", () => {
+    const result = calculatePublishedQuotePricing({
+      freightMinor: 100_000,
+      fuelSurchargeMinor: 5_000,
+      taxableAddOnsMinor: 2_500,
+      gstRate: 0
+    });
+    assert.equal(result.taxTreatment, "NO_GST");
+    assert.equal(result.gstMinor, 0);
+    assert.equal(result.totalMinor, 107_500);
   });
 
   it("reports an elapsed published quote as expired", () => {

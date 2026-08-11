@@ -204,7 +204,7 @@ export default function AdminCreditStatementDetailPage() {
             <div className="border-b border-slate-200 p-5">
               <h2 className="font-semibold">Billing Documents</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Legal GST documents included in this non-tax collection
+                Shipment invoices included in this non-tax collection
                 statement.
               </p>
             </div>

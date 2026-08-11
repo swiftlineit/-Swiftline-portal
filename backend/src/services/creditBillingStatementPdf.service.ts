@@ -103,7 +103,7 @@ export function createCreditBillingStatementPdf(input: {
 
   doc.font("Helvetica-Bold").fontSize(8).fillColor("#0f172a").text("Important", 42, y + 4);
   doc.font("Helvetica").fontSize(8).fillColor("#475569").text(
-    "This statement groups unpaid shipment tax invoices for collection. GST is recorded only on the individual shipment tax invoices and is not charged again on this statement.",
+    "This statement groups unpaid shipment invoices for collection. GST, where applicable, is recorded only on the individual shipment invoice and is not charged again on this statement.",
     42,
     y + 20,
     { width: 260, lineGap: 3 }

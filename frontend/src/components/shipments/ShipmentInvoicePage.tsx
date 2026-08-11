@@ -118,7 +118,8 @@ export default function ShipmentInvoicePage({
   // CSB-V clearance charge is reconstructed from the stored amount and they print
   // exactly as they always did.
   const shipmentLevelLines = getShipmentLevelInvoiceLines(invoice.pricingSnapshot);
-  const showDraftStatus = invoice.status === "DRAFT" && invoice.totalTaxAmountMinor > 0;
+  const showDraftStatus = invoice.status === "DRAFT";
+  const noGst = invoice.taxTreatment === "NO_GST" || invoice.gstRatePercent === 0;
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 print:bg-white print:p-0">
@@ -163,9 +164,9 @@ export default function ShipmentInvoicePage({
           />
           <div className="min-w-0 pt-3 text-right">
             <h1 className="text-2xl font-bold">
-              {!showDraftStatus
-                ? "TAX INVOICE"
-                : "DRAFT TAX INVOICE"}
+              {noGst
+                ? (showDraftStatus ? "DRAFT INVOICE" : "INVOICE")
+                : (showDraftStatus ? "DRAFT TAX INVOICE" : "TAX INVOICE")}
             </h1>
             <p className="mt-3 text-xs">
               <strong>Invoice No:</strong> {invoice.invoiceNumber}
@@ -302,28 +303,26 @@ export default function ShipmentInvoicePage({
               amount={invoice.taxableValueMinor}
               currency={invoice.currency}
             />
-            {invoice.totalTaxAmountMinor > 0 ? (
-              invoice.taxType === "CGST_SGST" ? (
+            {invoice.taxType === "CGST_SGST" ? (
                 <>
                   <Total
-                    label={`CGST ${invoice.gstRatePercent / 2}%`}
-                    amount={invoice.cgstAmountMinor}
+                    label={noGst ? "CGST" : `CGST ${invoice.gstRatePercent / 2}%`}
+                    amount={noGst ? null : invoice.cgstAmountMinor}
                     currency={invoice.currency}
                   />
                   <Total
-                    label={`SGST ${invoice.gstRatePercent / 2}%`}
-                    amount={invoice.sgstAmountMinor}
+                    label={noGst ? "SGST" : `SGST ${invoice.gstRatePercent / 2}%`}
+                    amount={noGst ? null : invoice.sgstAmountMinor}
                     currency={invoice.currency}
                   />
                 </>
               ) : (
                 <Total
-                  label={`IGST ${invoice.gstRatePercent}%`}
-                  amount={invoice.igstAmountMinor}
+                  label={noGst ? "IGST" : `IGST ${invoice.gstRatePercent}%`}
+                  amount={noGst ? null : invoice.igstAmountMinor}
                   currency={invoice.currency}
                 />
-              )
-            ) : <div className="min-h-12" aria-hidden="true" />}
+              )}
             <Total
               label="Total Chargeable"
               amount={invoice.totalAmountMinor}
@@ -426,7 +425,7 @@ function Total({
   strong = false,
 }: {
   label: string;
-  amount: number;
+  amount: number | null;
   currency: string;
   strong?: boolean;
 }) {
@@ -435,7 +434,7 @@ function Total({
       className={`flex justify-between gap-3 border-b border-slate-300 px-4 py-3 last:border-b-0 ${strong ? "bg-slate-100 text-sm font-bold" : ""}`}
     >
       <span>{label}</span>
-      <span>{money(amount, currency)}</span>
+      <span>{amount === null ? "-" : money(amount, currency)}</span>
     </div>
   );
 }

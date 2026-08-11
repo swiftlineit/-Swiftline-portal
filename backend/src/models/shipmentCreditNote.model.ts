@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import type { ShipmentInvoiceTaxType } from "./shipmentInvoice.model.js";
+import type { ShipmentInvoiceTaxTreatment, ShipmentInvoiceTaxType } from "./shipmentInvoice.model.js";
 
 export interface IShipmentCreditNote extends mongoose.Document {
   creditNoteNumber: string;
@@ -16,6 +16,7 @@ export interface IShipmentCreditNote extends mongoose.Document {
   shipment: Record<string, unknown>;
   taxableValueMinor: number;
   gstRatePercent: number;
+  taxTreatment: ShipmentInvoiceTaxTreatment;
   taxType: ShipmentInvoiceTaxType;
   cgstAmountMinor: number;
   sgstAmountMinor: number;
@@ -42,6 +43,7 @@ const schema = new mongoose.Schema<IShipmentCreditNote>({
   shipment: { type: mongoose.Schema.Types.Mixed, required: true, immutable: true },
   taxableValueMinor: { type: Number, required: true, immutable: true, min: 0 },
   gstRatePercent: { type: Number, required: true, immutable: true, min: 0 },
+  taxTreatment: { type: String, enum: ["GST_APPLICABLE", "NO_GST"], required: true, immutable: true, default: "GST_APPLICABLE" },
   taxType: { type: String, enum: ["CGST_SGST", "IGST"], required: true, immutable: true },
   cgstAmountMinor: { type: Number, required: true, immutable: true, min: 0 },
   sgstAmountMinor: { type: Number, required: true, immutable: true, min: 0 },

@@ -64,6 +64,7 @@ const catalog: Record<string, CatalogEntry> = {
   BUSINESS_ACCOUNT_SUBMITTED: { category: "TRANSACTIONAL", priority: 70 },
   BUSINESS_ACCOUNT_STATUS_CHANGED: { category: "TRANSACTIONAL", priority: 80 },
   BUSINESS_ACCOUNT_KYC_REVIEWED: { category: "TRANSACTIONAL", priority: 80 },
+  BUSINESS_ACCOUNT_GST_BILLING_REVIEWED: { category: "TRANSACTIONAL", priority: 80 },
 
   // Rate cards. Commercial rather than contractual, so it is preference-
   // controlled and carries List-Unsubscribe like every other operational mail.

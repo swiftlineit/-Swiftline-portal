@@ -31,6 +31,21 @@ export type BusinessAccountOperationalAction =
 export type CreditLimitStatus = "not_reviewed" | "approved" | "not_approved";
 export type DepositStatus = "not_required" | "required" | "received";
 export type AgreementStatus = "not_generated" | "generated" | "signed";
+export type GstBillingPreference = "GST_APPLICABLE" | "NO_GST";
+export type GstBillingReviewStatus = "NOT_REQUIRED" | "PENDING" | "APPROVED" | "REJECTED" | "REVOKED";
+export type BusinessGstBilling = {
+  requestedTreatment: GstBillingPreference;
+  status: GstBillingReviewStatus;
+  requestReason: string;
+  requestedAt?: string | null;
+  requestedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  decisionReason: string;
+  effectiveFrom?: string | null;
+  effectiveUntil?: string | null;
+  version: number;
+};
 export type DocumentType =
   | "aadhaarCard"
   | "panCard"
@@ -145,6 +160,7 @@ export type BusinessAccount = {
     reviewedAt?: string | null;
     reviewedBy?: string | null;
   };
+  gstBilling?: BusinessGstBilling;
   creditLimitStatus?: CreditLimitStatus;
   depositStatus?: DepositStatus;
   agreementStatus?: AgreementStatus;
@@ -167,6 +183,7 @@ export type BusinessAccountFormData = {
     requestedCreditCurrency: string;
     requestedCreditLimit: string;
   };
+  gstBilling: Pick<BusinessGstBilling, "requestedTreatment" | "requestReason">;
 };
 
 export type BusinessAccountFiles = Partial<Record<DocumentType, File | null>>;
@@ -276,6 +293,7 @@ function appendPayload(formData: FormData, data: BusinessAccountFormData, files:
     requestedCreditLimit: requestedCreditLimit ? Number(requestedCreditLimit) : null,
     website: data.company.website ?? ""
   }));
+  formData.append("gstBilling", JSON.stringify(data.gstBilling));
 
   for (const [key, file] of Object.entries(files)) {
     if (file) formData.append(key, file);
@@ -404,6 +422,18 @@ export async function updateBusinessAccount(
     body: formData
   });
 
+  return parseApiResponse<{ success: true; account: BusinessAccount }>(response);
+}
+
+export async function updateBusinessAccountGstBillingReview(
+  accountId: string,
+  input: { decision: "APPROVE" | "REJECT" | "REVOKE"; reason: string; expectedVersion: number }
+) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/business-accounts/${accountId}/gst-billing-review`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
   return parseApiResponse<{ success: true; account: BusinessAccount }>(response);
 }
 

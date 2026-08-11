@@ -7,6 +7,7 @@ import {
 } from "../services/countryRouteCharge.service.js";
 import {
   calculateChargeBreakdown,
+  resolveShipmentTaxSelection,
   type ShipmentPricingEstimate
 } from "../services/shipmentPricing.service.js";
 import {
@@ -14,6 +15,34 @@ import {
   buildPricingHash,
   ShipmentPriceChangedError
 } from "../services/shipmentCostEstimate.service.js";
+
+describe("shipment GST treatment", () => {
+  test("charges normal accounts and defaults approved accounts to no GST", () => {
+    assert.deepEqual(resolveShipmentTaxSelection({ noGstEligible: false }), {
+      gstRate: 0.18,
+      taxTreatment: "GST_APPLICABLE",
+      gstForced: false
+    });
+    assert.deepEqual(resolveShipmentTaxSelection({ noGstEligible: true }), {
+      gstRate: 0,
+      taxTreatment: "NO_GST",
+      gstForced: false
+    });
+  });
+
+  test("allows only an eligible account to force GST and preserves a frozen booked rate", () => {
+    assert.deepEqual(resolveShipmentTaxSelection({ noGstEligible: true, forceGst: true }), {
+      gstRate: 0.18,
+      taxTreatment: "GST_APPLICABLE",
+      gstForced: true
+    });
+    assert.deepEqual(resolveShipmentTaxSelection({ noGstEligible: false, forceGst: false, frozenGstRate: 0 }), {
+      gstRate: 0,
+      taxTreatment: "NO_GST",
+      gstForced: false
+    });
+  });
+});
 
 function routeCharges(overrides: Partial<RouteCharges> = {}): RouteCharges {
   return { ...emptyRouteCharges, ...overrides };

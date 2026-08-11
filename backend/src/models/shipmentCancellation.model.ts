@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { isMinorUnitInteger } from "./financialTypes.js";
+import type { ShipmentInvoiceTaxTreatment } from "./shipmentInvoice.model.js";
 
 export const shipmentCancellationStatusValues = ["REQUESTED", "COMPLETED", "REJECTED"] as const;
 export type ShipmentCancellationStatus = (typeof shipmentCancellationStatusValues)[number];
@@ -17,6 +18,7 @@ export interface IShipmentCancellation extends mongoose.Document {
   shipmentStatusAtRequest: string;
   status: ShipmentCancellationStatus;
   originalAmountMinor: number;
+  taxTreatment: ShipmentInvoiceTaxTreatment;
   requestedFeeBaseMinor: number;
   approvedFeeBaseMinor?: number | null;
   feeGstMinor?: number | null;
@@ -64,6 +66,7 @@ const shipmentCancellationSchema = new mongoose.Schema<IShipmentCancellation>({
   shipmentStatusAtRequest: { type: String, required: true, trim: true, maxlength: 60 },
   status: { type: String, enum: shipmentCancellationStatusValues, default: "REQUESTED", required: true, index: true },
   originalAmountMinor: { type: Number, required: true, min: 0, validate: isMinorUnitInteger },
+  taxTreatment: { type: String, enum: ["GST_APPLICABLE", "NO_GST"], required: true, default: "GST_APPLICABLE" },
   requestedFeeBaseMinor: { type: Number, required: true, min: 70000, validate: isMinorUnitInteger },
   approvedFeeBaseMinor: optionalMinorAmount,
   feeGstMinor: optionalMinorAmount,

@@ -333,9 +333,11 @@ export default function QuoteDetail({
                   />
                   <MoneyLine
                     label="GST"
-                    value={displayedPricing?.gstMinor ?? quote.estimate.gstMinor}
+                    value={(displayedPricing?.gstRate ?? quote.estimate.gstRate) === 0
+                      ? null
+                      : displayedPricing?.gstMinor ?? quote.estimate.gstMinor}
                     percentage={
-                      Math.round(
+                      (displayedPricing?.gstRate ?? quote.estimate.gstRate) === 0 ? undefined : Math.round(
                         (displayedPricing?.gstRate ?? quote.estimate.gstRate) *
                           10000,
                       ) / 100

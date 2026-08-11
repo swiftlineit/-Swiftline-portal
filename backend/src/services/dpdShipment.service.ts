@@ -9,7 +9,7 @@ import {
   type ShipmentBookingProvider
 } from "../models/dpdShipment.model.js";
 import { InvoiceUpload } from "../models/invoiceUpload.model.js";
-import { LabelDocument, type LabelType } from "../models/labelDocument.model.js";
+import { LabelDocument, type LabelFormat, type LabelType } from "../models/labelDocument.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import type { PaymentSource, ShippingEnvironment } from "../models/financialTypes.js";
 import { validateShipmentDraftFields } from "./shipmentValidation.service.js";
@@ -115,8 +115,22 @@ const swiftlineProviderConfiguration: DpdProviderConfiguration = {
   defaultServiceCode: "SWIFTLINE",
   defaultLabelSize: "A6",
   defaultPrintFormat: "PDF",
+  als: {
+    serviceCode: "DPD UK NEXTDAY"
+  },
   credentials: {}
 };
+
+function expectedDpdLabelCount(input: {
+  bookingProvider: ShipmentBookingProvider;
+  providerMode: DpdProviderMode;
+  parcelCount: number;
+}) {
+  if (input.bookingProvider === "SWIFTLINE") return 0;
+  // ALS returns one combined HTML document containing one printable page per
+  // parcel. Simulated mode still creates one local PDF per parcel.
+  return input.providerMode === "LIVE" ? 1 : input.parcelCount;
+}
 
 function toPaymentError(error: unknown) {
   if (!(error instanceof Error)) return null;
@@ -179,8 +193,12 @@ async function getReusableShipment(existingShipment: IDpdShipment | null, expect
     const labels = await LabelDocument.find({ dpdShipmentId: existingShipment._id }).lean().exec();
     const dpdLabelCount = labels.filter((label) => label.labelType === "DPD").length;
     const swiftlineLabelCount = labels.filter((label) => label.labelType === "SWIFTLINE").length;
-    const expectedDpdLabelCount = existingShipment.bookingProvider === "SWIFTLINE" ? 0 : expectedParcelCount;
-    if (dpdLabelCount !== expectedDpdLabelCount || swiftlineLabelCount !== expectedParcelCount) {
+    const requiredDpdLabelCount = expectedDpdLabelCount({
+      bookingProvider: existingShipment.bookingProvider,
+      providerMode: existingShipment.providerMode,
+      parcelCount: expectedParcelCount
+    });
+    if (dpdLabelCount !== requiredDpdLabelCount || swiftlineLabelCount !== expectedParcelCount) {
       throw new DpdShipmentServiceError(
         "This booking exists, but its label set is incomplete. Contact Swiftline Operations; do not book it again.",
         409
@@ -219,7 +237,11 @@ export async function storeGeneratedLabel(input: {
   labelType: LabelType;
   providerMode: DpdProviderMode;
   buffer: Buffer;
+  format?: LabelFormat;
+  labelSize?: "A4" | "A6";
 }) {
+  const format = input.format ?? "PDF";
+  const labelSize = input.labelSize ?? "A6";
   const existing = await LabelDocument.findOne({
     dpdShipmentId: input.dpdShipmentId,
     labelType: input.labelType,
@@ -242,8 +264,8 @@ export async function storeGeneratedLabel(input: {
     shipmentDraftId: booking.shipmentDraftId.toString(),
     parcelNumber: input.parcelNumber,
     buffer: input.buffer,
-    format: "PDF",
-    labelSize: "A6",
+    format,
+    labelSize,
     labelType: input.labelType
   });
 
@@ -258,8 +280,8 @@ export async function storeGeneratedLabel(input: {
       parcelNumber: input.parcelNumber,
       labelType: input.labelType,
       providerMode: input.providerMode,
-      format: "PDF",
-      labelSize: "A6",
+      format,
+      labelSize,
       storageKey: stored.storageKey,
       fileChecksum: stored.fileChecksum,
       generatedAt: new Date(),
@@ -513,15 +535,17 @@ export async function createLabelForShipmentDraft(
     dpdShipment.swiftlineTrackingNumber = trackingNumber;
 
     let response: DpdCreateShipmentResponse;
-    const dpdLabelBuffers: Array<{ parcelNumber: string; buffer: Buffer }> = [];
+    const dpdLabelBuffers: Array<{ parcelNumber: string; buffer: Buffer; format: LabelFormat }> = [];
 
     if (bookingProvider === "SWIFTLINE") {
       response = {
         dpdShipmentId: "",
         dpdTransactionId: "",
+        forwardingNumber: "",
+        entryNumber: "",
         parcelNumbers: [],
         labels: [],
-        labelBase64: "",
+        requestSnapshot,
         rawResponse: { mode: "SWIFTLINE", notice: "Internal Swiftline shipment" }
       };
     } else if (configuration.mode === "SIMULATED") {
@@ -529,9 +553,11 @@ export async function createLabelForShipmentDraft(
       response = {
         dpdShipmentId: `TEST-${trackingNumber}`,
         dpdTransactionId: `SIM-${trackingNumber}`,
+        forwardingNumber: "",
+        entryNumber: `TEST-${trackingNumber}`,
         parcelNumbers,
         labels: [],
-        labelBase64: "",
+        requestSnapshot,
         rawResponse: {
           mode: "SIMULATED",
           notice: "TEST - NOT FOR CARRIAGE",
@@ -539,7 +565,13 @@ export async function createLabelForShipmentDraft(
         }
       };
     } else {
-      response = await createDpdShipment(configuration, payload, idempotencyKey);
+      response = await createDpdShipment(
+        configuration,
+        lockedDraft,
+        invoiceUpload,
+        trackingNumber,
+        generatedAt
+      );
       // A successful carrier response may represent a real booking even if the
       // local adapter cannot finish parsing it. Such responses require review.
       providerAccepted = true;
@@ -549,7 +581,8 @@ export async function createLabelForShipmentDraft(
       for (const label of response.labels) {
         dpdLabelBuffers.push({
           parcelNumber: label.parcelNumber,
-          buffer: Buffer.from(label.labelBase64, "base64")
+          buffer: label.content,
+          format: label.format
         });
       }
     }
@@ -585,18 +618,26 @@ export async function createLabelForShipmentDraft(
         const labelData = bookingSnapshotToLabelData(bookingSnapshot, index, "DPD");
         dpdLabelBuffers.push({
           parcelNumber: labelData.parcelNumber,
-          buffer: await renderSimulatedDpdLabelPdf(labelData)
+          buffer: await renderSimulatedDpdLabelPdf(labelData),
+          format: "PDF"
         });
       }
     }
 
     const dpdLabelsByParcelNumber = new Map(dpdLabelBuffers.map((label) => [label.parcelNumber, label]));
-    const orderedDpdLabelBuffers = bookingProvider === "DPD"
-      ? response.parcelNumbers.map((parcelNumber) => dpdLabelsByParcelNumber.get(parcelNumber))
-      : [];
+    const orderedDpdLabelBuffers = bookingProvider !== "DPD"
+      ? []
+      : configuration.mode === "LIVE"
+        ? dpdLabelBuffers
+        : response.parcelNumbers.map((parcelNumber) => dpdLabelsByParcelNumber.get(parcelNumber));
+    const requiredDpdLabelCount = expectedDpdLabelCount({
+      bookingProvider,
+      providerMode: configuration.mode,
+      parcelCount: payload.parcels.length
+    });
     if (bookingProvider === "DPD" && (
-      dpdLabelBuffers.length !== payload.parcels.length
-      || dpdLabelsByParcelNumber.size !== payload.parcels.length
+      dpdLabelBuffers.length !== requiredDpdLabelCount
+      || dpdLabelsByParcelNumber.size !== requiredDpdLabelCount
       || orderedDpdLabelBuffers.some((label) => !label)
     )) {
       throw new Error("CARRIER_LABEL_SET_INCOMPLETE");
@@ -604,7 +645,10 @@ export async function createLabelForShipmentDraft(
 
     dpdShipment.dpdShipmentId = response.dpdShipmentId;
     dpdShipment.dpdTransactionId = response.dpdTransactionId;
+    dpdShipment.forwardingNumber = response.forwardingNumber;
+    dpdShipment.entryNumber = response.entryNumber;
     dpdShipment.parcelNumbers = response.parcelNumbers;
+    dpdShipment.requestSnapshot = response.requestSnapshot;
     dpdShipment.responseSnapshot = response.rawResponse;
     dpdShipment.bookingSnapshot = bookingSnapshot;
     dpdShipment.currentShipmentSnapshot = bookingSnapshot;
@@ -624,7 +668,8 @@ export async function createLabelForShipmentDraft(
         parcelNumber: item.parcelNumber,
         labelType: "DPD",
         providerMode: configuration.mode,
-        buffer: item.buffer
+        buffer: item.buffer,
+        format: item.format
       });
       if (label) labels.push(label);
     }
@@ -643,8 +688,7 @@ export async function createLabelForShipmentDraft(
 
     const dpdLabelCount = labels.filter((label) => label.labelType === "DPD").length;
     const swiftlineLabelCount = labels.filter((label) => label.labelType === "SWIFTLINE").length;
-    const expectedDpdLabelCount = bookingProvider === "DPD" ? payload.parcels.length : 0;
-    if (dpdLabelCount !== expectedDpdLabelCount || swiftlineLabelCount !== payload.parcels.length) {
+    if (dpdLabelCount !== requiredDpdLabelCount || swiftlineLabelCount !== payload.parcels.length) {
       throw new Error("SHIPMENT_LABEL_SET_INCOMPLETE");
     }
 
@@ -833,6 +877,17 @@ export async function reconcileShipmentDocuments(
   const existingLabels = await LabelDocument.find({ dpdShipmentId: dpdShipment._id }).exec();
   const expectedLabelVersion = dpdShipment.snapshotRevision || 1;
   const requiresDpdLabels = dpdShipment.bookingProvider !== "SWIFTLINE";
+  const hasLiveCombinedDpdLabel = existingLabels.some((label) => (
+    label.labelType === "DPD"
+    && label.labelVersion === expectedLabelVersion
+  ));
+
+  if (requiresDpdLabels && dpdShipment.providerMode === "LIVE" && !hasLiveCombinedDpdLabel) {
+    throw new DpdShipmentServiceError(
+      "The live ALS booking is missing its combined carrier label. Retrieve it from ALS before completing reconciliation.",
+      409
+    );
+  }
 
   for (let index = 0; index < snapshot.parcels.length; index += 1) {
     const carrierParcelNumber = snapshot.parcels[index]?.carrierParcelNumber ?? "";
@@ -848,13 +903,7 @@ export async function reconcileShipmentDocuments(
       && label.labelVersion === expectedLabelVersion
     ));
 
-    if (requiresDpdLabels && !hasDpdLabel) {
-      if (dpdShipment.providerMode !== "SIMULATED") {
-        throw new DpdShipmentServiceError(
-          "The live DPD booking is missing a carrier label. Retrieve it from DPD before completing reconciliation.",
-          409
-        );
-      }
+    if (requiresDpdLabels && dpdShipment.providerMode === "SIMULATED" && !hasDpdLabel) {
       const labelData = bookingSnapshotToLabelData(snapshot, index, "DPD");
       await storeGeneratedLabel({
         dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
@@ -883,8 +932,12 @@ export async function reconcileShipmentDocuments(
   }).exec();
   const dpdLabelCount = labels.filter((label) => label.labelType === "DPD").length;
   const swiftlineLabelCount = labels.filter((label) => label.labelType === "SWIFTLINE").length;
-  const expectedDpdLabelCount = requiresDpdLabels ? snapshot.parcels.length : 0;
-  if (dpdLabelCount !== expectedDpdLabelCount || swiftlineLabelCount !== snapshot.parcels.length) {
+  const requiredDpdLabelCount = expectedDpdLabelCount({
+    bookingProvider: dpdShipment.bookingProvider,
+    providerMode: dpdShipment.providerMode,
+    parcelCount: snapshot.parcels.length
+  });
+  if (dpdLabelCount !== requiredDpdLabelCount || swiftlineLabelCount !== snapshot.parcels.length) {
     throw new DpdShipmentServiceError("The complete parcel label set could not be finalized.", 409);
   }
 

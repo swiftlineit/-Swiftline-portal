@@ -6,6 +6,7 @@ import {
   ComboBoxField,
   CountryRegistrationSelect,
   Field,
+  FieldShell,
   MultiSearchableSelect,
   SearchableSelect,
   type CompanyUpdater,
@@ -54,6 +55,7 @@ export function CompanyStep({
   fieldErrors,
   validatingFields,
   onCompanyChange,
+  onGstBillingChange,
   onValidateUniqueField,
   onFieldBlur
 }: {
@@ -64,6 +66,7 @@ export function CompanyStep({
   fieldErrors: Partial<Record<UniqueField, string>>;
   validatingFields: Partial<Record<UniqueField, boolean>>;
   onCompanyChange: CompanyUpdater;
+  onGstBillingChange: <Key extends keyof BusinessAccountFormData["gstBilling"]>(key: Key, value: BusinessAccountFormData["gstBilling"][Key]) => void;
   onValidateUniqueField: (field: UniqueField) => Promise<boolean>;
   onFieldBlur: (...keys: string[]) => void;
 }) {
@@ -501,6 +504,43 @@ export function CompanyStep({
             ) : null}
           </div>
         ) : null}
+      </section>
+
+      <section className="space-y-5 border-slate-200 px-5">
+        <h3 className="text-sm font-bold text-slate-950">Shipment billing</h3>
+        <div className="grid gap-5 md:grid-cols-2">
+          <FieldShell
+            label="GST treatment"
+            labelFor="gst-billing-treatment"
+            helper="No GST remains subject to administrator approval. Pending or rejected requests are billed with normal GST."
+          >
+            <select
+              id="gst-billing-treatment"
+              value={formData.gstBilling.requestedTreatment}
+              onChange={(event) => {
+                const value = event.target.value as BusinessAccountFormData["gstBilling"]["requestedTreatment"];
+                onGstBillingChange("requestedTreatment", value);
+                if (value === "GST_APPLICABLE") onGstBillingChange("requestReason", "");
+              }}
+              className="block h-14 w-full rounded-xl border border-[#EEEDED] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#F0DE36]/35"
+            >
+              <option value="GST_APPLICABLE">GST applicable</option>
+              <option value="NO_GST">No GST requested</option>
+            </select>
+          </FieldShell>
+          {formData.gstBilling.requestedTreatment === "NO_GST" ? (
+            <Field
+              label="Reason for no-GST billing"
+              value={formData.gstBilling.requestReason}
+              onChange={(value) => onGstBillingChange("requestReason", value)}
+              onBlur={() => onFieldBlur("gstBillingRequestReason")}
+              error={validationErrors.gstBillingRequestReason}
+              status={fieldStatus.gstBillingRequestReason}
+              maxLength={500}
+              required
+            />
+          ) : null}
+        </div>
       </section>
 
       <section className="space-y-5 border-slate-200 px-5">

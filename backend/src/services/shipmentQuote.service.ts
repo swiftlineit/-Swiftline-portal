@@ -170,6 +170,9 @@ export async function calculateQuoteEstimate(context: QuoteContext, input: Shipm
     // The full breakdown, so the quote shows the same charges the booking will.
     lines: pricing.lines,
     gstRate: pricing.gstRate,
+    taxTreatment: pricing.taxTreatment ?? (pricing.gstRate === 0 ? "NO_GST" : "GST_APPLICABLE"),
+    noGstEligible: Boolean(pricing.noGstEligible),
+    gstBillingVersion: pricing.gstBillingVersion ?? 1,
     gstMinor: minor(pricing.gstAmount),
     totalMinor: minor(pricing.totalAmount),
     missingRate: pricing.missingRate,
@@ -231,16 +234,21 @@ export function effectiveQuoteStatus(quote: Pick<IShipmentQuote, "status" | "val
 
 export function calculatePublishedQuotePricing(input: {
   freightMinor: number; fuelSurchargeMinor: number; taxableAddOnsMinor: number;
+  gstRate?: number;
 }) {
   const taxableSubtotalMinor = input.freightMinor + input.fuelSurchargeMinor + input.taxableAddOnsMinor;
-  const gstMinor = Math.round(taxableSubtotalMinor * defaultShipmentGstRate);
+  const gstRate = input.gstRate ?? defaultShipmentGstRate;
+  const gstMinor = Math.round(taxableSubtotalMinor * gstRate);
   return {
     currency: "INR" as const,
     freightMinor: input.freightMinor,
     fuelSurchargeMinor: input.fuelSurchargeMinor,
     taxableAddOnsMinor: input.taxableAddOnsMinor,
     taxableSubtotalMinor,
-    gstRate: defaultShipmentGstRate, gstMinor, totalMinor: taxableSubtotalMinor + gstMinor
+    gstRate,
+    taxTreatment: gstRate === 0 ? "NO_GST" as const : "GST_APPLICABLE" as const,
+    gstMinor,
+    totalMinor: taxableSubtotalMinor + gstMinor
   };
 }
 
@@ -292,9 +300,19 @@ export async function publishShipmentQuote(input: {
   }
   if (input.validUntil.getTime() <= Date.now()) throw new ShipmentQuoteError("Quote validity must end in the future.", 400);
   const now = new Date();
-  const finalPricing = calculatePublishedQuotePricing(input);
+  // Re-resolve the account permission at publication time. A request may have
+  // waited in the queue while no-GST access was approved or revoked.
+  const currentEstimate = await calculateQuoteEstimate(
+    await loadQuoteContext(input.quote),
+    input.quote.requestSnapshot as unknown as ShipmentQuoteRequestInput
+  );
+  const finalPricing = calculatePublishedQuotePricing({
+    ...input,
+    gstRate: currentEstimate.gstRate
+  });
   input.quote.status = "QUOTED";
   input.quote.finalPricingSnapshot = finalPricing;
+  input.quote.estimateSnapshot = currentEstimate;
   input.quote.validUntil = input.validUntil;
   input.quote.customerNote = input.customerNote;
   input.quote.internalNote = input.internalNote;
@@ -370,7 +388,8 @@ export async function createShipmentDraftFromEstimate(input: {
   draft.serviceType = input.request.serviceType;
   // Carried across so the booked shipment prices on the same CSB route the
   // customer was quoted for.
-  draft.csbType = normalizeCsbType(input.request.csbType);
+    draft.csbType = normalizeCsbType(input.request.csbType);
+    draft.forceGst = estimate.taxTreatment === "GST_APPLICABLE" && Boolean(estimate.noGstEligible);
   draft.parcelList = input.request.parcels.map((parcel) => ({
     sequence: parcel.sequence, weightKg: parcel.actualWeightKg,
     lengthCm: parcel.lengthCm, widthCm: parcel.widthCm, heightCm: parcel.heightCm,
@@ -415,6 +434,8 @@ export async function convertShipmentQuoteToDraft(input: {
     draft.serviceType = request.serviceType;
     // Preserved from the published quote so the draft prices identically.
     draft.csbType = normalizeCsbType(request.csbType);
+    const finalPricing = input.quote.finalPricingSnapshot as Record<string, unknown> | null;
+    draft.forceGst = finalPricing?.taxTreatment === "GST_APPLICABLE" && Boolean(estimate.noGstEligible);
     draft.parcelList = request.parcels.map((parcel) => ({
       sequence: parcel.sequence, weightKg: parcel.actualWeightKg,
       lengthCm: parcel.lengthCm, widthCm: parcel.widthCm, heightCm: parcel.heightCm,

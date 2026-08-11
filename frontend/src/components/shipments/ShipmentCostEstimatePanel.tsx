@@ -1,6 +1,6 @@
 "use client";
 
-import { FiAlertTriangle, FiLock, FiShield } from "react-icons/fi";
+import { FiAlertTriangle, FiLock } from "react-icons/fi";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { formatCountryRateService, getCountryFlag } from "@/lib/countryRateCards";
 import type { ShipmentServiceType } from "@/lib/dpdLabels";
@@ -28,6 +28,8 @@ export default function ShipmentCostEstimatePanel({
   countryName,
   insuranceOptIn,
   onInsuranceOptInChange,
+  forceGst,
+  onForceGstChange,
   insuranceDisabled = false
 }: {
   estimate: ShipmentCostEstimate | null;
@@ -38,6 +40,8 @@ export default function ShipmentCostEstimatePanel({
   countryName: string;
   insuranceOptIn: boolean;
   onInsuranceOptInChange: (next: boolean) => void;
+  forceGst: boolean;
+  onForceGstChange: (next: boolean) => void;
   /** Set while a save or booking is in flight, so cover cannot be toggled mid-request. */
   insuranceDisabled?: boolean;
 }) {
@@ -127,6 +131,26 @@ export default function ShipmentCostEstimatePanel({
         premiumMinor={pricing?.insuranceApplied ? Math.round(pricing.insuranceAmount * 100) : null}
         declaredGoodsValue={pricing?.declaredGoodsValue ?? 0}
       />
+      <div className="mt-3 flex items-start justify-between gap-4 border-t border-slate-200 pt-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Apply GST</p>
+          <p className="mt-0.5 text-xs leading-5 text-slate-500">
+            {pricing?.noGstEligible
+              ? "This account is approved for no-GST billing. Turn this on to charge GST for this shipment."
+              : "GST is mandatory unless the account has an approved no-GST permission."}
+          </p>
+        </div>
+        <label className={`relative mt-1 inline-flex shrink-0 items-center ${pricing?.noGstEligible ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
+          <input
+            type="checkbox"
+            className="peer sr-only"
+            checked={pricing?.noGstEligible ? forceGst : true}
+            disabled={insuranceDisabled || !pricing?.noGstEligible}
+            onChange={(event) => onForceGstChange(event.target.checked)}
+          />
+          <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-[#0D1282] peer-focus-visible:ring-2 peer-focus-visible:ring-[#F0DE36] peer-disabled:cursor-not-allowed after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5" />
+        </label>
+      </div>
     </div>
   );
 }

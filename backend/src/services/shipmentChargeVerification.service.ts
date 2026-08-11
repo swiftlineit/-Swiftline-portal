@@ -164,6 +164,7 @@ function mergeVerifiedParcels(current: ShipmentParcel[], verified: VerifiedParce
 async function calculateVerificationPricing(
   draft: InstanceType<typeof ShipmentDraft>,
   parcels: ShipmentParcel[],
+  frozenGstRate: number,
   session?: mongoose.ClientSession
 ) {
   const pricing = await calculateShipmentPricingEstimate({
@@ -173,6 +174,9 @@ async function calculateVerificationPricing(
     // would read zero, because verified parcels carry no item lines.
     ...buildPricingInputFromDraft(draft),
     parcels,
+    // Warehouse verification may change weights, never the commercial tax
+    // treatment accepted and frozen when the shipment was booked.
+    gstRate: frozenGstRate,
     session
   });
   if (pricing.missingRate) {
@@ -214,7 +218,7 @@ export async function previewShipmentChargeVerification(input: {
   if (!draft || !invoice) throw new ShipmentChargeVerificationError(409, "Shipment billing information is incomplete.");
 
   const verifiedParcels = mergeVerifiedParcels(draft.parcelList, input.parcels);
-  const verifiedPricing = await calculateVerificationPricing(draft, verifiedParcels);
+  const verifiedPricing = await calculateVerificationPricing(draft, verifiedParcels, invoice.gstRatePercent / 100);
   const fundingPreview = await previewAmendmentFunding({
     shipmentDraftId: draft._id as mongoose.Types.ObjectId,
     businessAccountId: draft.businessAccountId,
@@ -256,7 +260,7 @@ export async function finalizeShipmentChargeVerification(input: {
 
       const previousParcels = parcelSnapshot(draft.parcelList);
       const verifiedParcels = mergeVerifiedParcels(draft.parcelList, input.parcels);
-      const verifiedPricing = await calculateVerificationPricing(draft, verifiedParcels, session);
+      const verifiedPricing = await calculateVerificationPricing(draft, verifiedParcels, invoice.gstRatePercent / 100, session);
       if (toMinor(verifiedPricing.totalAmount) !== input.expectedTotalAmountMinor) {
         throw new ShipmentChargeVerificationError(409, "The final charge changed after preview. Check the charges again.");
       }

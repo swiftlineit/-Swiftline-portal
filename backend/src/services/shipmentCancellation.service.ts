@@ -35,16 +35,17 @@ export class ShipmentCancellationError extends Error {
 
 export function calculateCancellationAmounts(
   originalAmountMinor: number,
-  requestedFeeBaseMinor = DEFAULT_CANCELLATION_FEE_BASE_MINOR
+  requestedFeeBaseMinor = DEFAULT_CANCELLATION_FEE_BASE_MINOR,
+  taxTreatment: "GST_APPLICABLE" | "NO_GST" = "GST_APPLICABLE"
 ) {
   if (!Number.isInteger(originalAmountMinor) || originalAmountMinor < 0) {
     throw new ShipmentCancellationError(400, "The shipment invoice amount is invalid.");
   }
   if (!Number.isInteger(requestedFeeBaseMinor) || requestedFeeBaseMinor < DEFAULT_CANCELLATION_FEE_BASE_MINOR) {
-    throw new ShipmentCancellationError(400, "The cancellation fee must be at least INR 700 before GST.");
+    throw new ShipmentCancellationError(400, "The cancellation fee must be at least INR 700 before any applicable GST.");
   }
 
-  const requestedGstMinor = Math.round(requestedFeeBaseMinor * CANCELLATION_GST_RATE_PERCENT / 100);
+  const requestedGstMinor = taxTreatment === "NO_GST" ? 0 : Math.round(requestedFeeBaseMinor * CANCELLATION_GST_RATE_PERCENT / 100);
   const requestedTotalMinor = requestedFeeBaseMinor + requestedGstMinor;
   if (requestedTotalMinor <= originalAmountMinor) {
     return {
@@ -57,7 +58,9 @@ export function calculateCancellationAmounts(
   }
 
   // Cancellation must never create a new payable balance for a low-value shipment.
-  const feeBaseMinor = Math.round(originalAmountMinor * 100 / (100 + CANCELLATION_GST_RATE_PERCENT));
+  const feeBaseMinor = taxTreatment === "NO_GST"
+    ? originalAmountMinor
+    : Math.round(originalAmountMinor * 100 / (100 + CANCELLATION_GST_RATE_PERCENT));
   const feeGstMinor = originalAmountMinor - feeBaseMinor;
   return {
     feeBaseMinor,
@@ -179,6 +182,7 @@ export function serializeShipmentCancellation(cancellation: IShipmentCancellatio
     shipmentStatusAtRequest: cancellation.shipmentStatusAtRequest,
     status: cancellation.status,
     originalAmountMinor: cancellation.originalAmountMinor,
+    taxTreatment: cancellation.taxTreatment ?? "GST_APPLICABLE",
     requestedFeeBaseMinor: cancellation.requestedFeeBaseMinor,
     approvedFeeBaseMinor: cancellation.approvedFeeBaseMinor ?? null,
     feeGstMinor: cancellation.feeGstMinor ?? null,
@@ -242,6 +246,7 @@ export async function requestShipmentCancellation(input: {
     shipmentStatusAtRequest: latestEvent?.status ?? "SHIPMENT_BOOKED",
     status: "REQUESTED",
     originalAmountMinor: invoice.totalAmountMinor,
+    taxTreatment: invoice.taxTreatment ?? (invoice.gstRatePercent === 0 ? "NO_GST" : "GST_APPLICABLE"),
     requestedFeeBaseMinor: DEFAULT_CANCELLATION_FEE_BASE_MINOR,
     requestedAt: new Date()
   });
@@ -380,7 +385,8 @@ export async function approveShipmentCancellation(input: {
         );
       }
 
-      const amounts = calculateCancellationAmounts(invoice.totalAmountMinor, input.feeBaseMinor);
+      const taxTreatment = invoice.taxTreatment ?? (invoice.gstRatePercent === 0 ? "NO_GST" : "GST_APPLICABLE");
+      const amounts = calculateCancellationAmounts(invoice.totalAmountMinor, input.feeBaseMinor, taxTreatment);
       const businessCharge = await ShipmentCharge.exists({
         shipmentDraftId: cancellation.shipmentDraftId,
         paymentSource: "BUSINESS_ACCOUNT"
@@ -532,6 +538,7 @@ export async function approveShipmentCancellation(input: {
         shipment: invoice.shipment,
         taxableValueMinor: invoice.taxableValueMinor,
         gstRatePercent: invoice.gstRatePercent,
+        taxTreatment,
         taxType: invoice.taxType,
         cgstAmountMinor: invoice.cgstAmountMinor,
         sgstAmountMinor: invoice.sgstAmountMinor,
@@ -552,7 +559,8 @@ export async function approveShipmentCancellation(input: {
         supplier: invoice.supplier,
         customer: invoice.customer,
         taxableValueMinor: amounts.feeBaseMinor,
-        gstRatePercent: CANCELLATION_GST_RATE_PERCENT,
+        gstRatePercent: taxTreatment === "NO_GST" ? 0 : CANCELLATION_GST_RATE_PERCENT,
+        taxTreatment,
         taxType: invoice.taxType,
         ...feeTaxes,
         totalTaxAmountMinor: amounts.feeGstMinor,

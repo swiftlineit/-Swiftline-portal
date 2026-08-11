@@ -407,6 +407,7 @@ export default function DpdLabelsPage() {
     dpdShipmentId: string,
     labelId: string,
     parcelNumber?: string,
+    format = "PDF",
   ) {
     setBusy(true);
     setError("");
@@ -416,7 +417,7 @@ export default function DpdLabelsPage() {
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `dpd-label-${parcelNumber || dpdShipmentId}.pdf`;
+      anchor.download = `dpd-label-${parcelNumber || dpdShipmentId}.${format.toLowerCase()}`;
       anchor.click();
       window.URL.revokeObjectURL(url);
     } catch (caughtError) {
@@ -1084,6 +1085,7 @@ export default function DpdLabelsPage() {
                                   item.dpdShipment.id,
                                   label.id,
                                   label.parcelNumber,
+                                  label.format,
                                 );
                             }}
                             className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800"

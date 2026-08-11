@@ -68,6 +68,9 @@ export type QuoteEstimate = {
   // existed, which fall back to the freight and clearance figures above.
   lines?: ShipmentChargeLine[];
   gstRate: number;
+  taxTreatment?: "GST_APPLICABLE" | "NO_GST";
+  noGstEligible?: boolean;
+  gstBillingVersion?: number;
   gstMinor: number;
   totalMinor: number;
   missingRate: boolean;
@@ -80,6 +83,7 @@ export type FinalQuotePricing = {
   taxableAddOnsMinor: number;
   taxableSubtotalMinor: number;
   gstRate: number;
+  taxTreatment?: "GST_APPLICABLE" | "NO_GST";
   gstMinor: number;
   totalMinor: number;
 };

@@ -2,9 +2,15 @@ import crypto from "crypto";
 import mongoose from "mongoose";
 import { AuditLog } from "../../models/auditLog.model.js";
 import { Claim } from "../../models/claim.model.js";
-import { ClaimAppeal, ClaimDecision } from "../../models/claimDecision.model.js";
+import {
+  ClaimAppeal,
+  ClaimDecision,
+} from "../../models/claimDecision.model.js";
 import { ClaimEvent } from "../../models/claimEvent.model.js";
-import { ClaimBeneficiary, ClaimSettlement } from "../../models/claimSettlement.model.js";
+import {
+  ClaimBeneficiary,
+  ClaimSettlement,
+} from "../../models/claimSettlement.model.js";
 import { ClaimRecovery } from "../../models/claimRecovery.model.js";
 import type { ClaimDecisionOutcome } from "../../models/claimTypes.js";
 import { encryptSecret } from "../credentialEncryption.service.js";
@@ -15,7 +21,7 @@ import {
   notifyClaimBankDetailsRejected,
   notifyClaimDecision,
   notifyClaimPaid,
-  notifyClaimSettlementAccepted
+  notifyClaimSettlementAccepted,
 } from "./claimNotification.service.js";
 
 /**
@@ -27,7 +33,10 @@ import {
  */
 
 export class ClaimDecisionError extends Error {
-  constructor(message: string, public readonly statusCode = 400) {
+  constructor(
+    message: string,
+    public readonly statusCode = 400,
+  ) {
     super(message);
     this.name = "ClaimDecisionError";
   }
@@ -58,12 +67,17 @@ export async function decideClaim(input: {
     status: claim.status,
     actorKind: "STAFF",
     reason: input.customerExplanation,
-    decisionOutcome: input.outcome
+    decisionOutcome: input.outcome,
   });
 
-  const previous = await ClaimDecision.findOne({ claimId: claim._id }).sort({ revision: -1 }).exec();
-  const isAppealOutcome = claim.appealState === "SUBMITTED" || claim.appealState === "UNDER_REVIEW";
-  const appeal = isAppealOutcome ? await ClaimAppeal.findOne({ claimId: claim._id }).exec() : null;
+  const previous = await ClaimDecision.findOne({ claimId: claim._id })
+    .sort({ revision: -1 })
+    .exec();
+  const isAppealOutcome =
+    claim.appealState === "SUBMITTED" || claim.appealState === "UNDER_REVIEW";
+  const appeal = isAppealOutcome
+    ? await ClaimAppeal.findOne({ claimId: claim._id }).exec()
+    : null;
 
   const session = await mongoose.startSession();
   let decision: InstanceType<typeof ClaimDecision> | null = null;
@@ -78,18 +92,23 @@ export async function decideClaim(input: {
             outcome: input.outcome,
             requestedAmountMinor: claim.requestedAmountMinor,
             approvedAmountMinor: input.approvedAmountMinor,
-            declaredValueMinor: claim.shipmentSnapshot?.totalDeclaredValueMinor ?? 0,
+            declaredValueMinor:
+              claim.shipmentSnapshot?.totalDeclaredValueMinor ?? 0,
             reasonCode: input.reasonCode,
             customerExplanation: input.customerExplanation,
             internalNote: input.internalNote ?? "",
             decidedBy: new mongoose.Types.ObjectId(input.reviewerId),
             supersedesDecisionId: previous?._id ?? null,
-            appealId: appeal?._id ?? null
-          }
+            appealId: appeal?._id ?? null,
+          },
         ],
-        { session }
+        { session },
       );
-      if (!created) throw new ClaimDecisionError("The decision could not be recorded.", 500);
+      if (!created)
+        throw new ClaimDecisionError(
+          "The decision could not be recorded.",
+          500,
+        );
       decision = created;
 
       claim.status = "DECIDED";
@@ -98,7 +117,8 @@ export async function decideClaim(input: {
       claim.decidedAt = now;
       // A rejection has nothing to accept, so acceptance never becomes pending —
       // the client's route from here is an appeal, not a settlement.
-      claim.acceptanceState = input.outcome === "REJECTED" ? "NOT_REQUIRED" : "PENDING";
+      claim.acceptanceState =
+        input.outcome === "REJECTED" ? "NOT_REQUIRED" : "PENDING";
       if (appeal) claim.appealState = "RESOLVED";
 
       if (claim.deadlines) {
@@ -129,11 +149,11 @@ export async function decideClaim(input: {
             metadata: {
               outcome: input.outcome,
               approvedAmountMinor: input.approvedAmountMinor,
-              revision: created.revision
-            }
-          }
+              revision: created.revision,
+            },
+          },
         ],
-        { session }
+        { session },
       );
     });
   } finally {
@@ -149,22 +169,26 @@ export async function decideClaim(input: {
     metadata: {
       outcome: input.outcome,
       approvedAmountMinor: input.approvedAmountMinor,
-      reasonCode: input.reasonCode
-    }
+      reasonCode: input.reasonCode,
+    },
   });
 
   await notifyClaimDecision(
     claim,
     input.outcome,
     input.approvedAmountMinor,
-    input.customerExplanation
+    input.customerExplanation,
   );
 
   return { claim, decision };
 }
 
 /** The client accepts the decision, moving the claim toward payment. */
-export async function acceptSettlement(input: { claimId: string; userId: string; now?: Date }) {
+export async function acceptSettlement(input: {
+  claimId: string;
+  userId: string;
+  now?: Date;
+}) {
   const now = input.now ?? new Date();
   const claim = await Claim.findById(input.claimId).exec();
   if (!claim) throw new ClaimDecisionError("Claim not found.", 404);
@@ -172,7 +196,7 @@ export async function acceptSettlement(input: { claimId: string; userId: string;
   assertTransition("ACCEPT_SETTLEMENT", {
     status: claim.status,
     actorKind: "CLIENT",
-    decisionOutcome: claim.decisionOutcome
+    decisionOutcome: claim.decisionOutcome,
   });
 
   claim.status = "SETTLEMENT_PENDING";
@@ -188,7 +212,7 @@ export async function acceptSettlement(input: { claimId: string; userId: string;
     actorUserId: new mongoose.Types.ObjectId(input.userId),
     actorKind: "CLIENT",
     visibility: "PUBLIC",
-    reason: "Client accepted the settlement."
+    reason: "Client accepted the settlement.",
   });
 
   // Finance needs to know a payment is now due, not just operations.
@@ -209,7 +233,9 @@ export async function submitAppeal(input: {
   const claim = await Claim.findById(input.claimId).exec();
   if (!claim) throw new ClaimDecisionError("Claim not found.", 404);
 
-  const existingAppeals = await ClaimAppeal.countDocuments({ claimId: claim._id });
+  const existingAppeals = await ClaimAppeal.countDocuments({
+    claimId: claim._id,
+  });
 
   assertTransition("SUBMIT_APPEAL", {
     status: claim.status,
@@ -217,11 +243,14 @@ export async function submitAppeal(input: {
     reason: input.reason,
     appealDeadlineAt: claim.deadlines?.appealDeadlineAt ?? null,
     appealCount: existingAppeals,
-    now
+    now,
   });
 
-  const decision = await ClaimDecision.findOne({ claimId: claim._id }).sort({ revision: -1 }).exec();
-  if (!decision) throw new ClaimDecisionError("This claim has no decision to appeal.", 409);
+  const decision = await ClaimDecision.findOne({ claimId: claim._id })
+    .sort({ revision: -1 })
+    .exec();
+  if (!decision)
+    throw new ClaimDecisionError("This claim has no decision to appeal.", 409);
 
   claim.status = "UNDER_REVIEW";
   claim.appealState = "SUBMITTED";
@@ -237,8 +266,8 @@ export async function submitAppeal(input: {
     submittedBy: new mongoose.Types.ObjectId(input.userId),
     submittedAt: now,
     newEvidenceDocumentIds: (input.newEvidenceDocumentIds ?? []).map(
-      (id) => new mongoose.Types.ObjectId(id)
-    )
+      (id) => new mongoose.Types.ObjectId(id),
+    ),
   });
 
   await ClaimEvent.create({
@@ -249,7 +278,7 @@ export async function submitAppeal(input: {
     actorUserId: new mongoose.Types.ObjectId(input.userId),
     actorKind: "CLIENT",
     visibility: "PUBLIC",
-    reason: input.reason
+    reason: input.reason,
   });
 
   await AuditLog.create({
@@ -258,7 +287,7 @@ export async function submitAppeal(input: {
     entityId: claim._id,
     performedBy: new mongoose.Types.ObjectId(input.userId),
     performedAt: now,
-    metadata: { appealId: String(appeal._id) }
+    metadata: { appealId: String(appeal._id) },
   });
 
   await notifyClaimAppealSubmitted(claim, input.reason);
@@ -295,7 +324,10 @@ export async function submitBeneficiary(input: {
   if (!claim) throw new ClaimDecisionError("Claim not found.", 404);
 
   if (claim.decisionOutcome === "REJECTED" || !claim.decisionOutcome) {
-    throw new ClaimDecisionError("Bank details are collected once a claim has been approved.", 409);
+    throw new ClaimDecisionError(
+      "Bank details are collected once a claim has been approved.",
+      409,
+    );
   }
   if (input.accountNumber !== input.confirmAccountNumber) {
     throw new ClaimDecisionError("The account numbers do not match.");
@@ -308,7 +340,9 @@ export async function submitBeneficiary(input: {
   }
 
   const digits = input.accountNumber.replace(/\s+/g, "");
-  const previous = await ClaimBeneficiary.findOne({ claimId: claim._id }).sort({ version: -1 }).exec();
+  const previous = await ClaimBeneficiary.findOne({ claimId: claim._id })
+    .sort({ version: -1 })
+    .exec();
 
   if (previous) {
     // Any change forces re-verification, so a corrected account cannot inherit
@@ -328,11 +362,13 @@ export async function submitBeneficiary(input: {
     ifsc: input.ifsc.toUpperCase(),
     bankName: input.bankName,
     accountType: input.accountType,
-    proofDocumentId: input.proofDocumentId ? new mongoose.Types.ObjectId(input.proofDocumentId) : null,
+    proofDocumentId: input.proofDocumentId
+      ? new mongoose.Types.ObjectId(input.proofDocumentId)
+      : null,
     authorityDocumentId: input.authorityDocumentId
       ? new mongoose.Types.ObjectId(input.authorityDocumentId)
       : null,
-    submittedBy: new mongoose.Types.ObjectId(input.userId)
+    submittedBy: new mongoose.Types.ObjectId(input.userId),
   });
 
   await ClaimEvent.create({
@@ -344,7 +380,10 @@ export async function submitBeneficiary(input: {
     reason: "Settlement bank details submitted.",
     // Masked only. A full account number never reaches the timeline, the audit
     // log, a notification, or a URL.
-    metadata: { version: beneficiary.version, accountNumberMasked: beneficiary.accountNumberMasked }
+    metadata: {
+      version: beneficiary.version,
+      accountNumberMasked: beneficiary.accountNumberMasked,
+    },
   });
 
   await AuditLog.create({
@@ -353,7 +392,7 @@ export async function submitBeneficiary(input: {
     entityId: beneficiary._id,
     performedBy: new mongoose.Types.ObjectId(input.userId),
     performedAt: new Date(),
-    metadata: { claimId: String(claim._id), version: beneficiary.version }
+    metadata: { claimId: String(claim._id), version: beneficiary.version },
   });
 
   return beneficiary;
@@ -368,10 +407,11 @@ export async function verifyBeneficiary(input: {
 }) {
   const beneficiary = await ClaimBeneficiary.findOne({
     _id: input.beneficiaryId,
-    claimId: input.claimId
+    claimId: input.claimId,
   }).exec();
 
-  if (!beneficiary) throw new ClaimDecisionError("Bank details not found.", 404);
+  if (!beneficiary)
+    throw new ClaimDecisionError("Bank details not found.", 404);
 
   if (!input.approved && !input.reason?.trim()) {
     throw new ClaimDecisionError("Explain why the bank details were rejected.");
@@ -390,7 +430,7 @@ export async function verifyBeneficiary(input: {
     actorKind: "STAFF",
     visibility: "PUBLIC",
     reason: input.reason ?? "",
-    metadata: { approved: input.approved, version: beneficiary.version }
+    metadata: { approved: input.approved, version: beneficiary.version },
   });
 
   await AuditLog.create({
@@ -399,7 +439,7 @@ export async function verifyBeneficiary(input: {
     entityId: beneficiary._id,
     performedBy: new mongoose.Types.ObjectId(input.verifierId),
     performedAt: new Date(),
-    metadata: { approved: input.approved }
+    metadata: { approved: input.approved },
   });
 
   // Only the rejection is announced. A successful verification is invisible to
@@ -436,26 +476,34 @@ export async function recordSettlement(input: {
   // Replaying the same key returns the original payment rather than creating a
   // second one. Permanent, unlike the shared 24-hour idempotency store — a
   // duplicate payout a day later is still a duplicate payout.
-  const existing = await ClaimSettlement.findOne({ idempotencyKey: input.idempotencyKey }).exec();
+  const existing = await ClaimSettlement.findOne({
+    idempotencyKey: input.idempotencyKey,
+  }).exec();
   if (existing) {
     return {
       settlement: existing,
       claim,
       duplicate: true,
       settledInFull: claim.status === "SETTLED",
-      outstandingMinor: Math.max(0, (claim.approvedAmountMinor ?? 0) - (claim.paidAmountMinor ?? 0))
+      outstandingMinor: Math.max(
+        0,
+        (claim.approvedAmountMinor ?? 0) - (claim.paidAmountMinor ?? 0),
+      ),
     };
   }
 
   const beneficiary = await ClaimBeneficiary.findOne({
     claimId: claim._id,
-    state: "VERIFIED"
+    state: "VERIFIED",
   })
     .sort({ version: -1 })
     .exec();
 
   if (!beneficiary) {
-    throw new ClaimDecisionError("Verify the client's bank details before recording a payment.", 409);
+    throw new ClaimDecisionError(
+      "Verify the client's bank details before recording a payment.",
+      409,
+    );
   }
 
   /**
@@ -471,26 +519,29 @@ export async function recordSettlement(input: {
    */
   const priorPayments = await ClaimSettlement.find({
     claimId: claim._id,
-    state: "RECORDED"
+    state: "RECORDED",
   })
     .select("paidAmountMinor")
     .lean()
     .exec();
 
-  const alreadyPaid = priorPayments.reduce((total, row) => total + row.paidAmountMinor, 0);
+  const alreadyPaid = priorPayments.reduce(
+    (total, row) => total + row.paidAmountMinor,
+    0,
+  );
   const approved = claim.approvedAmountMinor ?? 0;
   const outstanding = approved - alreadyPaid;
 
   if (outstanding <= 0) {
     throw new ClaimDecisionError(
       `This claim is already paid in full (${(alreadyPaid / 100).toFixed(2)} of ${(approved / 100).toFixed(2)}).`,
-      409
+      409,
     );
   }
   if (input.paidAmountMinor > outstanding) {
     throw new ClaimDecisionError(
       `Only ${(outstanding / 100).toFixed(2)} is outstanding on this claim.`,
-      400
+      400,
     );
   }
 
@@ -503,14 +554,14 @@ export async function recordSettlement(input: {
     assertTransition("RECORD_PAYMENT", {
       status: claim.status,
       actorKind: "STAFF",
-      hasConfirmedPayment: true
+      hasConfirmedPayment: true,
     });
   } else if (claim.status !== "SETTLEMENT_PENDING") {
     // Part payments do not move the claim, so the transition rules never run —
     // which means the status has to be checked here instead.
     throw new ClaimDecisionError(
       "A payment can only be recorded once the client has accepted the settlement.",
-      409
+      409,
     );
   }
 
@@ -533,12 +584,13 @@ export async function recordSettlement(input: {
             paymentDate: input.paymentDate,
             proofDocumentId: new mongoose.Types.ObjectId(input.proofDocumentId),
             recordedBy: new mongoose.Types.ObjectId(input.userId),
-            idempotencyKey: input.idempotencyKey
-          }
+            idempotencyKey: input.idempotencyKey,
+          },
         ],
-        { session }
+        { session },
       );
-      if (!created) throw new ClaimDecisionError("The payment could not be recorded.", 500);
+      if (!created)
+        throw new ClaimDecisionError("The payment could not be recorded.", 500);
       settlement = created;
 
       // The running total, not this instalment: `paidAmountMinor` is what the
@@ -568,11 +620,11 @@ export async function recordSettlement(input: {
             metadata: {
               transactionReference: input.transactionReference,
               beneficiaryVersion: beneficiary.version,
-              accountNumberMasked: beneficiary.accountNumberMasked
-            }
-          }
+              accountNumberMasked: beneficiary.accountNumberMasked,
+            },
+          },
         ],
-        { session }
+        { session },
       );
     });
   } finally {
@@ -588,20 +640,24 @@ export async function recordSettlement(input: {
     metadata: {
       claimId: String(claim._id),
       paidAmountMinor: input.paidAmountMinor,
-      transactionReference: input.transactionReference
-    }
+      transactionReference: input.transactionReference,
+    },
   });
 
   // Announced per payment: a client receiving ₹100 today should be told about
   // ₹100, not about the total they are eventually owed.
-  await notifyClaimPaid(claim, input.paidAmountMinor, input.transactionReference);
+  await notifyClaimPaid(
+    claim,
+    input.paidAmountMinor,
+    input.transactionReference,
+  );
 
   return {
     settlement: settlement!,
     claim,
     duplicate: false,
     settledInFull: settlesInFull,
-    outstandingMinor: Math.max(0, approved - totalAfter)
+    outstandingMinor: Math.max(0, approved - totalAfter),
   };
 }
 
@@ -632,17 +688,24 @@ export async function upsertRecovery(input: {
   if (!claim) throw new ClaimDecisionError("Claim not found.", 404);
 
   const recovery = input.recoveryId
-    ? await ClaimRecovery.findOne({ _id: input.recoveryId, claimId: claim._id }).exec()
+    ? await ClaimRecovery.findOne({
+        _id: input.recoveryId,
+        claimId: claim._id,
+      }).exec()
     : new ClaimRecovery({ claimId: claim._id });
 
   if (!recovery) throw new ClaimDecisionError("Recovery case not found.", 404);
 
   recovery.partyType = input.partyType;
   recovery.partyName = input.partyName;
-  if (input.externalReference !== undefined) recovery.externalReference = input.externalReference;
-  if (input.submittedAmountMinor !== undefined) recovery.submittedAmountMinor = input.submittedAmountMinor;
-  if (input.admittedAmountMinor !== undefined) recovery.admittedAmountMinor = input.admittedAmountMinor;
-  if (input.receivedAmountMinor !== undefined) recovery.receivedAmountMinor = input.receivedAmountMinor;
+  if (input.externalReference !== undefined)
+    recovery.externalReference = input.externalReference;
+  if (input.submittedAmountMinor !== undefined)
+    recovery.submittedAmountMinor = input.submittedAmountMinor;
+  if (input.admittedAmountMinor !== undefined)
+    recovery.admittedAmountMinor = input.admittedAmountMinor;
+  if (input.receivedAmountMinor !== undefined)
+    recovery.receivedAmountMinor = input.receivedAmountMinor;
   if (input.followUpAt !== undefined) recovery.followUpAt = input.followUpAt;
   if (input.notes !== undefined) recovery.notes = input.notes;
   if (input.filedOutsideCarrierWindow !== undefined) {
@@ -654,7 +717,9 @@ export async function upsertRecovery(input: {
   // case as recovered while its figures say otherwise.
   if (recovery.receivedAmountMinor > 0) {
     recovery.state =
-      recovery.receivedAmountMinor >= recovery.admittedAmountMinor ? "RECOVERED" : "PARTIALLY_RECOVERED";
+      recovery.receivedAmountMinor >= recovery.admittedAmountMinor
+        ? "RECOVERED"
+        : "PARTIALLY_RECOVERED";
   } else if (recovery.submittedAmountMinor > 0) {
     recovery.state = "SUBMITTED";
   }
@@ -672,7 +737,7 @@ export async function upsertRecovery(input: {
     entityId: recovery._id,
     performedBy: new mongoose.Types.ObjectId(input.userId),
     performedAt: new Date(),
-    metadata: { claimId: String(claim._id), state: recovery.state }
+    metadata: { claimId: String(claim._id), state: recovery.state },
   });
 
   return recovery;

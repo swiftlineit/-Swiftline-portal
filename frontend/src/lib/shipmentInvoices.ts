@@ -84,6 +84,7 @@ export type ShipmentInvoice = {
   description: string;
   taxableValueMinor: number;
   gstRatePercent: number;
+  taxTreatment?: "GST_APPLICABLE" | "NO_GST";
   taxType: "CGST_SGST" | "IGST";
   cgstAmountMinor: number;
   sgstAmountMinor: number;
