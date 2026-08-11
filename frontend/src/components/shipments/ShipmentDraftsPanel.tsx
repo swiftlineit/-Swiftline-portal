@@ -15,10 +15,7 @@ function formatCapitalized(value?: string | null) {
 }
 
 function draftLabel(draft: EditableShipmentDraft) {
-  return draft.shipmentReference
-    || draft.invoiceNumber
-    || formatCapitalized(draft.consigneeName)
-    || "This draft";
+  return formatCapitalized(draft.consigneeName) || "This shipment draft";
 }
 
 /**
@@ -102,7 +99,7 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
-              <th className="px-4 py-3">Reference</th>
+              <th className="px-4 py-3">AWB / Tracking No.</th>
               <th className="px-4 py-3">Consignee</th>
               <th className="px-4 py-3">Account</th>
               <th className="px-4 py-3">Parcels</th>
@@ -118,10 +115,8 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
             ) : drafts.map((draft) => (
               <tr key={draft.id} className="border-b border-slate-100 text-slate-700 last:border-b-0">
                 <td className="px-4 py-3">
-                  <p className="font-semibold text-slate-950">{draftLabel(draft)}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {draft.customerType === "INDIVIDUAL" ? "Walk-in customer" : draft.invoiceNumber || "No invoice"}
-                  </p>
+                  <p className="font-semibold text-slate-950">AWB Pending</p>
+                  <p className="mt-1 text-xs text-slate-500">Assigned after booking</p>
                 </td>
                 <td className="px-4 py-3">
                   <p className="font-medium text-slate-900">

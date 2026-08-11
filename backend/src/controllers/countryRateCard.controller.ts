@@ -115,7 +115,7 @@ export async function listCountryRateCards(request: Request, response: Response)
   return response.status(200).json({ success: true, rates });
 }
 
-/** Assignment picker for admin and branch-scoped finance users. */
+/** Assignment picker for admin and branch-scoped finance/operations users. */
 export async function listRateCardAssignmentAccounts(request: Request, response: Response): Promise<Response> {
   const scope = await businessAccountBranchFilter(request);
   const filter = excludeSentinel(scope ?? {});

@@ -170,6 +170,19 @@ function getAuthenticatedPortalRole(request: Request) {
   return typeof user?.role === "string" ? user.role : "";
 }
 
+/**
+ * Branches this caller may open a draft in, or null when unscoped.
+ *
+ * Only internal staff carry a branch assignment. Clients reach these handlers
+ * through client.controller.ts, which resolves the branch from their own
+ * account membership and overwrites the request body with it before delegating
+ * here — so a client is already confined to its own branch, and reading a
+ * branch assignment it does not have would refuse every client booking.
+ */
+function draftCreationBranchScope(request: Request) {
+  return getAuthenticatedPortalRole(request) === "client" ? null : operationsBranchIds(request);
+}
+
 function sendDraftPolicyError(response: Response, error: unknown) {
   return error instanceof ShipmentDraftPolicyError
     ? response.status(error.statusCode).json({ success: false, message: error.message })
@@ -475,7 +488,8 @@ export async function createManualShipmentDraft(request: Request, response: Resp
   try {
     const shipmentDraft = await createBlankShipmentDraft({
       ...parsed.data,
-      createdBy: userId
+      createdBy: userId,
+      allowedBranchIds: draftCreationBranchScope(request)
     });
 
     return response.status(201).json({ success: true, shipmentDraft });
@@ -502,7 +516,8 @@ export async function createIndividualShipmentDraftHandler(request: Request, res
   try {
     const shipmentDraft = await createIndividualShipmentDraft({
       ...parsed.data,
-      createdBy: userId
+      createdBy: userId,
+      allowedBranchIds: draftCreationBranchScope(request)
     });
 
     return response.status(201).json({ success: true, shipmentDraft });

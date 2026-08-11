@@ -113,11 +113,14 @@ function serializeEligibleShipment(draft: IShipmentDraft, dpdShipment: IDpdShipm
   const snapshot = readShipmentBookingSnapshot(dpdShipment.currentShipmentSnapshot)
     ?? readShipmentBookingSnapshot(dpdShipment.bookingSnapshot);
   if (!snapshot) return null;
+  const customerReference = snapshot.parcels.find((parcel) => (
+    typeof parcel.reference === "string" && Boolean(parcel.reference.trim())
+  ))?.reference;
   return {
     shipmentDraftId: String(draft._id),
     dpdShipmentId: String(dpdShipment._id),
     consignmentNumber: snapshot.tracking.swiftlineTrackingNumber,
-    shipmentReference: snapshot.source.shipmentReference,
+    shipmentReference: typeof customerReference === "string" ? customerReference : "",
     consignee: snapshot.consignee.companyName || snapshot.consignee.contactName || "Consignee",
     destination: [snapshot.consignee.townOrCity, snapshot.consignee.countryName || snapshot.consignee.countryCode].filter(Boolean).join(", "),
     pieces: snapshot.parcels.length,

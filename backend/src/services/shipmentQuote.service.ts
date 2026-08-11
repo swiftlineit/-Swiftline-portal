@@ -369,11 +369,33 @@ export async function changeShipmentQuoteStatus(input: {
   return input.quote;
 }
 
+/**
+ * Refuses a conversion into a branch the caller does not hold. `null` means
+ * unscoped, as it does throughout the branch middleware.
+ *
+ * Raised as a ShipmentQuoteError rather than left to the draft service, because
+ * handleQuoteError only translates quote errors — a ManualShipmentDraftError
+ * would reach the client as a 500 instead of a 403.
+ */
+function assertQuoteBranchAllowed(allowedBranchIds: string[] | null, branchId: unknown) {
+  if (allowedBranchIds === null) return;
+  if (allowedBranchIds.includes(String(branchId))) return;
+
+  throw new ShipmentQuoteError("You do not have access to this branch.", 403);
+}
+
 export async function createShipmentDraftFromEstimate(input: {
   context: QuoteContext;
   request: ShipmentQuoteRequestInput;
   userId: mongoose.Types.ObjectId;
+  /**
+   * Branches the caller may open a draft in, or null when unscoped. Clients
+   * pass null: they hold no branch assignment, and the quote context already
+   * confines them to their own account's branch.
+   */
+  allowedBranchIds: string[] | null;
 }) {
+  assertQuoteBranchAllowed(input.allowedBranchIds, input.context.branchId);
   const estimate = await calculateQuoteEstimate(input.context, input.request);
   if (estimate.missingRate) {
     throw new ShipmentQuoteError("No active rate is available for this route. Contact your assigned branch.", 409);
@@ -381,7 +403,8 @@ export async function createShipmentDraftFromEstimate(input: {
   const draft = await createBlankShipmentDraft({
     businessAccountId: String(input.context.businessAccountId),
     branchId: String(input.context.branchId),
-    createdBy: input.userId
+    createdBy: input.userId,
+    allowedBranchIds: input.allowedBranchIds
   }) as unknown as InstanceType<typeof ShipmentDraft>;
   draft.consigneeEnteredAddress.countryCode = input.request.destinationCountryCode;
   draft.consigneeEnteredAddress.countryName = input.request.destinationCountryName;
@@ -410,7 +433,12 @@ export async function createShipmentDraftFromEstimate(input: {
 
 export async function convertShipmentQuoteToDraft(input: {
   quote: InstanceType<typeof ShipmentQuote>; userId: mongoose.Types.ObjectId;
+  /** See createShipmentDraftFromEstimate; clients pass null. */
+  allowedBranchIds: string[] | null;
 }) {
+  // Before the claim below, so a refused conversion never marks the quote as
+  // being converted and relies on the rollback to undo it.
+  assertQuoteBranchAllowed(input.allowedBranchIds, input.quote.branchId);
   if (effectiveQuoteStatus(input.quote) === "EXPIRED") throw new ShipmentQuoteError("This quote has expired and cannot be converted.", 409);
   if (input.quote.status === "CONVERTED" && input.quote.convertedDraftId) {
     return ShipmentDraft.findById(input.quote.convertedDraftId).exec();
@@ -427,7 +455,8 @@ export async function convertShipmentQuoteToDraft(input: {
 
   try {
     const draft = await createBlankShipmentDraft({
-      businessAccountId: String(input.quote.businessAccountId), branchId: String(input.quote.branchId), createdBy: input.userId
+      businessAccountId: String(input.quote.businessAccountId), branchId: String(input.quote.branchId), createdBy: input.userId,
+      allowedBranchIds: input.allowedBranchIds
     }) as unknown as InstanceType<typeof ShipmentDraft>;
     draft.consigneeEnteredAddress.countryCode = request.destinationCountryCode;
     draft.consigneeEnteredAddress.countryName = request.destinationCountryName;

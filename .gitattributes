@@ -1,0 +1,11 @@
+# This repository is developed on Windows with core.autocrlf=true and deployed to
+# Linux, so anything the server executes has to be pinned to LF explicitly.
+#
+# A shell script with CRLF endings fails on Linux with the famously unhelpful
+# "\r: command not found", and cron ignores a crontab whose lines end in \r
+# without reporting anything at all. Both are deployment-day problems that look
+# nothing like their cause.
+
+*.sh            text eol=lf
+*.cron          text eol=lf
+logrotate.conf  text eol=lf

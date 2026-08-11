@@ -71,6 +71,8 @@ async function main() {
   //    sentinel and stores the customer on the draft.
   const draft = await createIndividualShipmentDraft({
     branchId: String(branch._id),
+    // A seeding script runs outside any branch assignment.
+    allowedBranchIds: null,
     customer: {
       contactName: customerName,
       mobileCountryCode: "+91",

@@ -246,10 +246,11 @@ export default function NewSupportTicketPage() {
                   <option value="">Select a Shipment</option>
                   {shipments.map((shipment) => {
                     const openTicket = blockedShipments.get(shipment.id);
-                    const label =
-                      shipment.shipmentReference ||
-                      shipment.invoiceNumber ||
-                      shipment.id;
+                    const draftConsignee = shipment.destination.companyName
+                      || shipment.destination.contactName
+                      || "Shipment draft";
+                    const label = shipment.swiftlineTrackingNumber
+                      || `AWB Pending - ${draftConsignee}`;
                     return (
                       <option
                         key={shipment.id}

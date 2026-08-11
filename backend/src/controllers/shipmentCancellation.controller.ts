@@ -185,7 +185,7 @@ export async function listShipmentCancellations(request: Request, response: Resp
       .select("consigneeEnteredAddress businessAccountId branchId customerType consignorAddress.contactName")
       .lean()
       .exec(),
-    DpdShipment.find({ shipmentDraftId: { $in: draftIds } }).select("shipmentDraftId dpdShipmentId").lean().exec(),
+    DpdShipment.find({ shipmentDraftId: { $in: draftIds } }).select("shipmentDraftId dpdShipmentId swiftlineTrackingNumber").lean().exec(),
     Branch.find({ _id: { $in: cancellations.map((item) => item.branchId) } }).select("name code").lean().exec(),
     BusinessAccount.find({ _id: { $in: cancellations.map((item) => item.businessAccountId) } }).select("accountId company.companyName").lean().exec()
   ]);
@@ -206,7 +206,7 @@ export async function listShipmentCancellations(request: Request, response: Resp
       return {
         ...serializeShipmentCancellation(item),
         customerType: draft?.customerType ?? "BUSINESS",
-        shipmentReference: shipment?.dpdShipmentId || String(item.dpdShipmentId),
+        shipmentReference: shipment?.swiftlineTrackingNumber || "AWB Pending",
         consignee: draft?.consigneeEnteredAddress?.companyName
           || draft?.consigneeEnteredAddress?.contactName
           || "Not provided",

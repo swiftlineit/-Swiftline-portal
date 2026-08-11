@@ -288,7 +288,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                     className="h-4 w-4 accent-[#0D1282]"
                   />
                 </th>
-                <th className="px-4 py-3">Shipment</th>
+                <th className="px-4 py-3">AWB / Shipment No.</th>
                 <th className="px-4 py-3">Consignee</th>
                 <th className="px-4 py-3">Route</th>
                 <th className="px-4 py-3">Chargeable Amount</th>
@@ -306,16 +306,20 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                       checked={selected.has(shipment.id)}
                       onChange={() => toggleOne(shipment)}
                       disabled={!shipment.manifestEligible}
-                      aria-label={`Select shipment ${shipment.shipmentReference || shipment.id}`}
+                      aria-label={`Select shipment ${shipment.swiftlineTrackingNumber || shipment.id}`}
                       className="h-4 w-4 accent-[#0D1282] disabled:opacity-40"
                     />
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-950">
-                      {shipment.shipmentReference || shipment.swiftlineTrackingNumber || "Pending"}
+                      {shipment.swiftlineTrackingNumber || "AWB Pending"}
                     </p>
                     <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span>{shipment.invoiceNumber || shipment.serviceInfo}</span>
+                      <span>
+                        {shipment.shipmentInvoice?.invoiceNumber
+                          ? `Tax Invoice: ${shipment.shipmentInvoice.invoiceNumber}`
+                          : "Tax Invoice Pending"}
+                      </span>
                       {/* Customs route, so CSB-V shipments are identifiable at a glance. */}
                       <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
                         {formatCsbType(shipment.csbType)}

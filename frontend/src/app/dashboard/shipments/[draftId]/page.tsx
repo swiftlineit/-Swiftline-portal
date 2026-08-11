@@ -350,7 +350,9 @@ export default function AdminShipmentDetailsPage() {
               Shipments
             </Link>
             <h1 className="mt-3 text-2xl font-semibold text-slate-950">Shipment Details</h1>
-            <p className="mt-1 text-sm text-slate-500">Customer-facing shipment view for admin support.</p>
+            <p className="mt-1 text-sm font-medium text-slate-600">
+              AWB / Tracking No.: {history?.dpdShipment.swiftlineTrackingNumber || "AWB Pending"}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <StatusPill label={getShipmentStatus(history)} tone={isOnHold ? "warning" : history?.dpdShipment ? "success" : "neutral"} />
@@ -517,15 +519,15 @@ export default function AdminShipmentDetailsPage() {
             <section className="border border-slate-200 bg-white rounded-2xl">
               <div className="grid gap-0 lg:grid-cols-3">
                 <DetailPanel title="Shipment" icon={<FiTruck aria-hidden="true" className="h-4 w-4" />}>
-                  <DetailRow label="Shipment Reference" value={history?.invoiceUpload?.shipmentReference} />
-                  <DetailRow label="Invoice Number" value={history?.invoiceUpload?.invoiceNumber} />
+                  <DetailRow label="AWB / Tracking No." value={history?.dpdShipment.swiftlineTrackingNumber || "AWB Pending"} />
+                  <DetailRow label="Customer Reference" value={history?.bookingConfirmation?.customerReference || "Not provided"} />
                   <DetailRow label="Current Status" value={getShipmentStatus(history)} />
                   <DetailRow label="Updated" value={formatDateTime(history?.dpdShipment.updatedAt)} />
                 </DetailPanel>
 
                 <DetailPanel title="Booking" icon={<FiFileText aria-hidden="true" className="h-4 w-4" />}>
-                  {history?.dpdShipment.bookingProvider !== "SWIFTLINE" ? <DetailRow label="DPD Shipment ID" value={history?.dpdShipment.dpdShipmentId || "Pending"} /> : null}
-                  <DetailRow label="Swiftline Tracking" value={history?.dpdShipment.swiftlineTrackingNumber || "Pending"} />
+                  <DetailRow label="Swiftline Tax Invoice No." value={history?.shipmentInvoice?.invoiceNumber || "Tax Invoice Pending"} />
+                  {history?.dpdShipment.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Shipment ID" value={history?.dpdShipment.dpdShipmentId || "Pending"} /> : null}
                   {history?.dpdShipment.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Parcels" value={history?.dpdShipment.parcelNumbers.join(", ") || "Pending"} /> : null}
                   <DetailRow label="Booked At" value={formatDateTime(history?.dpdShipment.createdAt)} />
                 </DetailPanel>

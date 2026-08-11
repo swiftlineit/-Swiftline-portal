@@ -197,6 +197,16 @@ export const contactTitles = ["mr.", "mrs.", "ms.", "dr.", "prof."];
  *
  * KEEP IN SYNC with portal/backend/src/controllers/profile.controller.ts
  */
+/**
+ * A number is typed the way it reads — "+91 87450 63206" — and checked as
+ * digits. Kept in step with `isValidProfilePhone` in profile.controller.ts, so
+ * this cannot reject a value the server would have accepted, or the reverse.
+ */
+function isValidProfilePhone(value: string) {
+  const compact = value.trim().replace(/[\s\-()]/g, "");
+  return !compact || /^\+?\d{6,15}$/.test(compact);
+}
+
 export function validateProfileUser(input: {
   firstName: string;
   lastName: string;
@@ -208,15 +218,14 @@ export function validateProfileUser(input: {
   if (input.firstName.trim().length < 2) errors.firstName = "First name must be at least 2 characters.";
   if (input.firstName.trim().length > 22) errors.firstName = "First name must be 22 characters or fewer.";
   if (input.lastName.trim().length > 22) errors.lastName = "Last name must be 22 characters or fewer.";
-  if (input.phone.trim() && !/^\+?\d{6,15}$/.test(input.phone.trim())) {
+  if (!isValidProfilePhone(input.phone)) {
     errors.phone = "Enter a valid phone number, 6 to 15 digits.";
   }
 
   const postalCode = input.address?.postalCode.trim();
   if (postalCode && !/^\d{6}$/.test(postalCode)) errors.postalCode = "Enter a valid 6-digit PIN code.";
 
-  const emergencyPhone = input.emergencyContact?.phone.trim();
-  if (emergencyPhone && !/^\+?\d{6,15}$/.test(emergencyPhone)) {
+  if (!isValidProfilePhone(input.emergencyContact?.phone ?? "")) {
     errors.emergencyContactPhone = "Enter a valid phone number, 6 to 15 digits.";
   }
 

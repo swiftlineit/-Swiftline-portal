@@ -34,7 +34,7 @@ import {
   BUSINESS_ACCOUNT_AREA,
   COUNTER_SALES_AREA,
   CREDIT_VIEW_AREA,
-  FINANCE_AREA,
+  RATE_CARD_AREA,
   CLAIMS_AREA,
   OPERATIONS_AREA,
   SHIPMENT_VIEW_AREA,
@@ -129,7 +129,7 @@ const staffNavigation: Array<
     items: [
       { label: "Quote Requests", href: "/dashboard/quote-requests", icon: FiClipboard, roles: withAdmin(OPERATIONS_AREA) },
       { label: "Counter Sales", href: "/dashboard/counter-sales", icon: BsCurrencyRupee, roles: withAdmin(COUNTER_SALES_AREA) },
-      { label: "Country Rate Card", href: "/dashboard/country-rate-card", icon: FiFileText, roles: withAdmin(FINANCE_AREA) },
+      { label: "Country Rate Card", href: "/dashboard/country-rate-card", icon: FiFileText, roles: withAdmin(RATE_CARD_AREA) },
     ],
   },
   {

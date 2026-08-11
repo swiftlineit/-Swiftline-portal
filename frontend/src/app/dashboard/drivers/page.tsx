@@ -20,9 +20,9 @@ import {
   type Driver,
   type DriverEngagementType,
 } from "@/lib/drivers";
+import { listManifestBranches } from "@/lib/operationsManifests";
 import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
-import { listUserBranchOptions } from "@/lib/users";
 import { listPodPartners, type DeliveryPartner } from "@/lib/pods";
 
 const emptyForm = {
@@ -58,7 +58,10 @@ export default function DriversPage() {
     let active = true;
     void Promise.all([
       listDrivers(),
-      listUserBranchOptions(),
+      // Operations reaches this page, so read branches from the operations
+      // endpoint: it is scoped to the member's assigned branches, unlike the
+      // admin/HR-only list under /api/v1/users.
+      listManifestBranches(),
       listPodPartners(),
     ])
       .then(([driverData, branchData, partnerData]) => {

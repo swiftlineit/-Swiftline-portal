@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { isValidProfilePhone } from "../controllers/profile.controller.js";
 import {
   isHttpOrHttpsUrl, isValidBusinessContactEmail, isValidPhoneForCountryCode, isValidPostalCodeForCountry
 } from "../services/businessAccountRules.js";
@@ -36,5 +37,39 @@ describe("profile edits reuse the business account rules", () => {
     assert.equal(isValidPostalCodeForCountry("India", "110001"), true);
     assert.equal(isValidPostalCodeForCountry("United Kingdom", "999999"), false);
     assert.equal(isValidPostalCodeForCountry("United Kingdom", "SW1A 2AA"), true);
+  });
+});
+
+/**
+ * The staff form accepts "+91 87450 63206" and the record stores "+918745063206".
+ * Before separators were stripped, the profile form refused both the readable
+ * form and its own stored value, so a stale phone blocked every other edit on
+ * that form — including fields the user had not touched.
+ */
+describe("profile phone rule", () => {
+  it("accepts a number typed with separators", () => {
+    assert.equal(isValidProfilePhone("+91 8745063206"), true);
+    assert.equal(isValidProfilePhone("+91 87450 63206"), true);
+    assert.equal(isValidProfilePhone("(011) 4567-8901"), true);
+  });
+
+  it("accepts the compact form the record already holds", () => {
+    assert.equal(isValidProfilePhone("+918745063206"), true);
+  });
+
+  it("keeps the country code optional", () => {
+    assert.equal(isValidProfilePhone("8799789886"), true);
+  });
+
+  it("treats an empty value as unset rather than invalid", () => {
+    assert.equal(isValidProfilePhone(""), true);
+    assert.equal(isValidProfilePhone("   "), true);
+  });
+
+  it("still rejects what is not a number of the right length", () => {
+    assert.equal(isValidProfilePhone("12345"), false);
+    assert.equal(isValidProfilePhone("+9187450632060000"), false);
+    assert.equal(isValidProfilePhone("87450a63206"), false);
+    assert.equal(isValidProfilePhone("+91+8745063206"), false);
   });
 });

@@ -1,0 +1,54 @@
+# Swiftline Portal — scheduled maintenance jobs
+#
+# Install as /etc/cron.d/swiftline-jobs (root-owned, mode 0644, and it MUST end
+# with a newline or cron silently ignores the last entry).
+#
+# Cadences come from each script's own header comment. Every job is idempotent
+# and self-healing: a missed run is picked up by the next one, so a reboot or a
+# deploy in the middle of the schedule needs no manual catch-up.
+#
+# Times are IST because that is the day boundary the credit module bills on —
+# see the Asia/Kolkata handling in dailyTopUpLimit.service.ts. CRON_TZ makes the
+# entries below mean what they say regardless of the server clock, which on EC2
+# is normally UTC.
+
+CRON_TZ=Asia/Kolkata
+SHELL=/bin/bash
+MAILTO=""
+
+# Release booking holds whose TTL passed without the booking completing.
+# Left unrun, an abandoned booking keeps consuming the client's credit forever.
+*/5 * * * *   ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:credit:expire-reservations
+
+# Retry queued email that the post-enqueue drain did not manage to send, and
+# reclaim rows stranded in SENDING by a crash. First-attempt sends already happen
+# in-process; this is what walks the 1m/5m/30m/2h/12h backoff ladder behind them.
+*/5 * * * *   ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:email:drain
+
+# Mark due-passed statements overdue, expire credit facilities past their
+# validity window, and send utilisation warnings.
+# Note: overdue *blocking* is computed live at booking time and does not depend
+# on this job. What depends on it is the reported status, facility expiry, and
+# the warnings clients receive.
+7 * * * *     ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:credit:mark-overdue
+
+# Issue statements for completed billing periods. This is the job that turns a
+# period of shipments into something a client can be asked to pay.
+0 2 * * *     ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:credit:close-billing
+
+# Warn clients whose appeal window is closing (7/3/1 days) and flag claims past
+# their review target. Nothing else triggers these: they are due to time passing.
+30 2 * * *    ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:claims:sweep-deadlines
+
+# Read-only. Re-adds every credit account against its ledger and notifies admins
+# on drift. Corrects nothing by design; it is the smoke detector for the money.
+0 3 * * *     ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:credit:reconcile
+
+# Deliberately NOT scheduled: purging claim evidence past its eight-year
+# retention is destructive and needs `--apply` to do anything. Nothing in the
+# system can be eight years old yet. Run it as a reported dry run first:
+#
+#   npm run job:claims:purge-expired
+#
+# and only schedule it once the output has been reviewed and the retention
+# policy signed off.

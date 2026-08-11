@@ -4,7 +4,7 @@ import { ShipmentDraft, type IShipmentDraft } from "../models/shipmentDraft.mode
 import {
   ShipmentDraftPolicyError,
   assertShipmentDraftDeletable,
-  clientCanAccessShipmentDraft
+  canModifyShipmentDraft
 } from "./shipmentDraftPolicy.service.js";
 
 /**
@@ -88,15 +88,10 @@ export async function restoreShipmentDraft(input: {
     throw new ShipmentDraftPolicyError("Shipment draft not found.", 404);
   }
 
-  if (input.portalRole !== "admin") {
-    const allowed = input.portalRole === "client" && await clientCanAccessShipmentDraft({
-      userId: input.userId,
-      draft,
-      requireEditPermission: true
-    });
-    if (!allowed) {
-      throw new ShipmentDraftPolicyError("You do not have permission to restore this shipment draft.", 403);
-    }
+  // Same rule as every other mutation; only the wording differs, because a
+  // restore is refused for reasons a caller reads differently from an edit.
+  if (!await canModifyShipmentDraft({ draft, userId: input.userId, portalRole: input.portalRole })) {
+    throw new ShipmentDraftPolicyError("You do not have permission to restore this shipment draft.", 403);
   }
 
   if (Date.now() - draft.deletedAt.getTime() > shipmentDraftRestoreWindowMs) {

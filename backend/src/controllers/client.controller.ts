@@ -115,6 +115,7 @@ type ClientShipmentDraftSnapshot = {
 type ClientDpdShipmentSnapshot = {
   shipmentDraftId: unknown;
   dpdShipmentId?: string;
+  swiftlineTrackingNumber?: string;
   parcelNumbers?: string[];
   status?: string;
   updatedAt?: Date;
@@ -247,6 +248,7 @@ async function buildClientShipmentDashboard(accountId: string, branchIds: string
         currentStatusLabel: currentEvent ? formatShipmentEventLabel(currentEvent.status) : "",
         holdReason: currentEvent?.status === "ON_HOLD" ? currentEvent.holdReason ?? "" : "",
         dpdShipmentId: dpdShipment?.dpdShipmentId ?? "",
+        swiftlineTrackingNumber: dpdShipment?.swiftlineTrackingNumber ?? "",
         parcelNumbers: dpdShipment?.parcelNumbers ?? [],
         shipmentInvoice: shipmentInvoice ? {
           invoiceNumber: shipmentInvoice.invoiceNumber,
@@ -601,6 +603,7 @@ export async function listClientShipments(request: Request, response: Response):
       branchId: String(draft.branchId),
       invoiceNumber: upload?.invoiceNumber ?? "",
       shipmentReference: upload?.shipmentReference ?? "",
+      swiftlineTrackingNumber: dpdShipment?.swiftlineTrackingNumber ?? "",
       destination: {
         companyName: draft.consigneeEnteredAddress?.companyName ?? "",
         contactName: draft.consigneeEnteredAddress?.contactName ?? "",
@@ -1070,8 +1073,9 @@ function serializeClientShipmentDetails(params: {
     eventAt: Date;
   }>;
   currentInvoiceRevision?: number;
+  currentInvoiceNumber?: string;
 }) {
-  const { draft, invoiceUpload, dpdShipment, labels, events, currentInvoiceRevision } = params;
+  const { draft, invoiceUpload, dpdShipment, labels, events, currentInvoiceRevision, currentInvoiceNumber } = params;
   const currentEvent = events[0] ?? null;
   const originalBookingSnapshot = readShipmentBookingSnapshot(dpdShipment?.bookingSnapshot);
   const snapshotIsCurrent = (currentInvoiceRevision ?? 1) <= (dpdShipment?.snapshotRevision ?? 1);
@@ -1141,6 +1145,7 @@ function serializeClientShipmentDetails(params: {
     bookingConfirmation: (currentInvoiceRevision ?? 1) === 1 && originalBookingSnapshot
       ? serializeShipmentBookingConfirmation(originalBookingSnapshot)
       : null,
+    taxInvoiceNumber: currentInvoiceNumber ?? "",
     labels: labels.map(serializeClientLabel),
     currentEvent: currentEvent ? serializeClientShipmentEvent(currentEvent) : null,
     events: events.map(serializeClientShipmentEvent)
@@ -1185,7 +1190,7 @@ export async function getClientShipmentDetails(request: Request, response: Respo
       .lean()
       .exec()
     ,
-    ShipmentInvoice.findOne({ shipmentDraftId: draft._id }).select("revision").lean().exec()
+    ShipmentInvoice.findOne({ shipmentDraftId: draft._id }).select("invoiceNumber revision").lean().exec()
   ]);
 
   return response.status(200).json({
@@ -1196,7 +1201,8 @@ export async function getClientShipmentDetails(request: Request, response: Respo
       dpdShipment,
       labels,
       events,
-      currentInvoiceRevision: currentInvoice?.revision ?? 1
+      currentInvoiceRevision: currentInvoice?.revision ?? 1,
+      currentInvoiceNumber: currentInvoice?.invoiceNumber ?? ""
     })
   });
 }

@@ -832,8 +832,7 @@ export default function DpdLabelsPage() {
                     Release Action
                   </p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {shipmentAction.shipment.invoiceUpload?.shipmentReference ||
-                      shipmentAction.shipment.dpdShipment.dpdShipmentId}
+                    {shipmentAction.shipment.dpdShipment.swiftlineTrackingNumber || "AWB Pending"}
                   </p>
                 </div>
               )}
@@ -895,7 +894,7 @@ export default function DpdLabelsPage() {
           <table className="min-w-full text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3">Shipment</th>
+                <th className="px-4 py-3">AWB / Shipment No.</th>
                 <th className="px-4 py-3">Consignee</th>
                 <th className="px-4 py-3">Route</th>
                 <th className="px-4 py-3">Chargeable Amount</th>
@@ -922,13 +921,12 @@ export default function DpdLabelsPage() {
                   >
                     <td className="px-4 py-3">
                       <p className="font-semibold text-slate-950">
-                        {item.invoiceUpload?.shipmentReference ||
-                          item.dpdShipment.dpdShipmentId ||
-                          "Pending"}
+                        {item.dpdShipment.swiftlineTrackingNumber || "AWB Pending"}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {item.invoiceUpload?.invoiceNumber ||
-                          item.dpdShipment.serviceCode}
+                        {item.shipmentInvoice?.invoiceNumber
+                          ? `Tax Invoice: ${item.shipmentInvoice.invoiceNumber}`
+                          : "Tax Invoice Pending"}
                       </p>
                     </td>
                     <td className="px-4 py-3">

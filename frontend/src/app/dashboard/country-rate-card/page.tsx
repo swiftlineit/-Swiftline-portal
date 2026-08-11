@@ -36,7 +36,7 @@ import {
   listCountryRouteCharges,
   saveCountryRateCard,
 } from "@/lib/countryRateCards";
-import { FINANCE_AREA } from "@/lib/roles";
+import { RATE_CARD_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 type FormState = {
@@ -82,7 +82,7 @@ function toPayload(form: FormState, band: RateCardBand): CountryRateCardInput {
 }
 
 export default function CountryRateCardPage() {
-  const { user, loading } = useAdminUser(FINANCE_AREA);
+  const { user, loading } = useAdminUser(RATE_CARD_AREA);
   const [rates, setRates] = useState<CountryRateCard[]>([]);
   const [routeCharges, setRouteCharges] = useState<CountryRouteCharge[]>([]);
   const [selectedBand, setSelectedBand] = useState<RateCardBand>("BAND_A");

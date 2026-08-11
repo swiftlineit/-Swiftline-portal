@@ -176,7 +176,7 @@ export default function ShipmentInvoicePage({
               <strong>Date:</strong> {date(invoice.issuedAt)}
             </p>
             <p className="mt-1 text-xs">
-              <strong>Reference:</strong>{" "}
+              <strong>AWB / Tracking No.:</strong>{" "}
               {value(invoice.shipment, "shipmentReference")}
             </p>
           </div>

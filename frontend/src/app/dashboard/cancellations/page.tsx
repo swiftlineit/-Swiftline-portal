@@ -99,7 +99,7 @@ export default function CancellationsPage() {
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
-              <th className="px-4 py-3">Shipment</th><th className="px-4 py-3">Consignee</th>
+              <th className="px-4 py-3">AWB / Shipment No.</th><th className="px-4 py-3">Consignee</th>
               <th className="px-4 py-3">Account / Branch</th><th className="px-4 py-3">Requested</th>
               <th className="px-4 py-3">Invoice Amount</th><th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 ">Actions</th>
@@ -113,7 +113,7 @@ export default function CancellationsPage() {
             ) : items.map((item) => (
               <tr key={item.id} id={`cancellation-${item.id}`} className="border-b border-slate-100 last:border-0">
                 <td className="px-4 py-4">
-                  <Link href={"/dashboard/shipments/" + item.shipmentDraftId} className="font-semibold text-blue-900 hover:text-blue-700">{item.shipmentReference || item.dpdShipmentId}</Link>
+                  <Link href={"/dashboard/shipments/" + item.shipmentDraftId} className="font-semibold text-blue-900 hover:text-blue-700">{item.shipmentReference || "AWB Pending"}</Link>
                   <p className="mt-1 text-xs capitalize text-slate-500">{item.requesterType.toLowerCase()} request</p>
                 </td>
                 <td className="px-4 py-4 font-medium text-slate-800">{item.consignee || "Not provided"}</td>
@@ -159,7 +159,7 @@ function CancellationModal({ cancellation, onClose, onChanged }: {
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true">
     <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto bg-white shadow-xl rounded-2xl">
       <div className="flex items-start justify-between border-b border-slate-200 p-5">
-        <div><p className="text-xs font-semibold uppercase text-slate-500">Shipment Cancellation</p><h2 className="mt-1 text-xl font-semibold text-slate-950">{cancellation.shipmentReference || cancellation.dpdShipmentId}</h2><p className="mt-1 text-sm text-slate-500">{cancellation.consignee}</p></div>
+        <div><p className="text-xs font-semibold uppercase text-slate-500">Shipment Cancellation</p><h2 className="mt-1 text-xl font-semibold text-slate-950">{cancellation.shipmentReference || "AWB Pending"}</h2><p className="mt-1 text-sm text-slate-500">{cancellation.consignee}</p></div>
         <button type="button" onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center border border-slate-300 text-slate-600"><FiX /></button>
       </div>
       <CancellationReview cancellation={cancellation} onChanged={onChanged} />

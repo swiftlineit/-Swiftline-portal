@@ -135,7 +135,7 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   doc.font("Helvetica-Bold").fontSize(18).fillColor("#0f172a").text(invoiceTitle, 310, 40, { width: 239, align: "right" });
   doc.font("Helvetica-Bold").fontSize(8).text(`Invoice No: ${invoice.invoiceNumber}`, 310, 72, { width: 239, align: "right" });
   doc.font("Helvetica").text(`Date: ${date(invoice.issuedAt)}`, 310, 87, { width: 239, align: "right" });
-  doc.text(`Reference: ${textValue(shipment, "shipmentReference")}`, 310, 102, { width: 239, align: "right" });
+  doc.text(`AWB / Tracking No.: ${textValue(shipment, "shipmentReference")}`, 310, 102, { width: 239, align: "right" });
   doc.moveTo(42, 132).lineTo(549, 132).lineWidth(1.5).strokeColor("#0f172a").stroke();
 
   const partyY = 148;

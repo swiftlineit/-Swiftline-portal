@@ -5,7 +5,7 @@ import { getEmailTemplate, hasEmailTemplate } from "../services/email/templates/
 
 const shipmentPayload = {
   trackingNumber: "SWL000123456",
-  shipmentReference: "REF-8891",
+  customerReference: "REF-8891",
   serviceType: "Courier",
   bookingProvider: "DPD",
   destination: "Manchester, United Kingdom",

@@ -34,6 +34,23 @@ async function resolveBranch(value: string) {
 }
 
 /**
+ * Refuses a draft opened in a branch the caller does not hold.
+ *
+ * Checked against the resolved branch rather than the requested value, because
+ * `branchId` may arrive as either an id or a branch code — a guard reading the
+ * raw request body would reject every code-form call as malformed.
+ * `null` means unrestricted, as it does throughout the branch middleware. It is
+ * a required argument rather than an optional one so a new caller cannot open
+ * an unscoped path by leaving it off.
+ */
+function assertBranchAllowed(allowedBranchIds: string[] | null, branchId: mongoose.Types.ObjectId) {
+  if (allowedBranchIds === null) return;
+  if (allowedBranchIds.includes(String(branchId))) return;
+
+  throw new ManualShipmentDraftError("You do not have access to this branch.", 403);
+}
+
+/**
  * Identity of a walk-in customer. Only the name is taken at the counter — every
  * other field is filled in on the draft form and enforced before booking.
  */
@@ -66,9 +83,11 @@ export async function createIndividualShipmentDraft(input: {
   branchId: string;
   customer: IndividualCustomerInput;
   createdBy: mongoose.Types.ObjectId;
+  allowedBranchIds: string[] | null;
 }) {
   const branch = await resolveBranch(input.branchId);
   if (!branch) throw new ManualShipmentDraftError("Sender branch not found.", 404);
+  assertBranchAllowed(input.allowedBranchIds, branch._id);
   if (branch.status !== "ACTIVE") {
     throw new ManualShipmentDraftError("The selected branch is not active.", 409);
   }
@@ -206,6 +225,7 @@ export async function createBlankShipmentDraft(input: {
   businessAccountId: string;
   branchId: string;
   createdBy: mongoose.Types.ObjectId;
+  allowedBranchIds: string[] | null;
 }) {
   const [businessAccount, branch] = await Promise.all([
     resolveBusinessAccount(input.businessAccountId),
@@ -214,6 +234,9 @@ export async function createBlankShipmentDraft(input: {
 
   if (!businessAccount) throw new ManualShipmentDraftError("Business account not found.", 404);
   if (!branch) throw new ManualShipmentDraftError("Sender branch not found.", 404);
+  // Before the account checks below, so a member cannot read another branch's
+  // account state out of the error it gets back.
+  assertBranchAllowed(input.allowedBranchIds, branch._id);
   if (!["approved", "active"].includes(businessAccount.status)) {
     throw new ManualShipmentDraftError("The business account must be approved before creating a shipment draft.", 409);
   }

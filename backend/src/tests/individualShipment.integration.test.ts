@@ -23,6 +23,17 @@ import { resolveShipmentInvoicePaymentAllocation } from "../services/shipmentInv
 // Kept short: Atlas caps database names at 38 bytes.
 const databaseName = `swiftline_ind_test_${Date.now()}`;
 
+/**
+ * Opens a counter draft as an unrestricted actor.
+ *
+ * These cases are about counter billing rather than branch access, so they all
+ * book the way an admin does. The branch scope itself is covered in
+ * shipmentDraftBranchScope.integration.test.ts.
+ */
+const createCounterDraft = (
+  input: Omit<Parameters<typeof createIndividualShipmentDraft>[0], "allowedBranchIds">
+) => createIndividualShipmentDraft({ ...input, allowedBranchIds: null });
+
 function createResponseRecorder() {
   let statusCode = 200;
   let body: unknown;
@@ -140,7 +151,7 @@ describe("individual shipment sentinel", () => {
 
 describe("individual shipment drafts", () => {
   test("books against the sentinel and stores the payer on the draft", async () => {
-    const draft = await createIndividualShipmentDraft({
+    const draft = await createCounterDraft({
       branchId: String(branchId),
       customer: {
         contactName: "Asha Kumari",
@@ -174,7 +185,7 @@ describe("individual shipment drafts", () => {
     });
 
     await assert.rejects(
-      () => createIndividualShipmentDraft({
+      () => createCounterDraft({
         branchId: String(closed._id),
         customer: { contactName: "Test", mobileCountryCode: "+91", mobileNumber: "9876500012" },
         createdBy: adminId
@@ -185,7 +196,7 @@ describe("individual shipment drafts", () => {
 
   test("requires a name", async () => {
     await assert.rejects(
-      () => createIndividualShipmentDraft({
+      () => createCounterDraft({
         branchId: String(branchId),
         customer: { contactName: "  ", mobileCountryCode: "+91", mobileNumber: "9876500013" },
         createdBy: adminId
@@ -197,7 +208,7 @@ describe("individual shipment drafts", () => {
   test("opens on the name alone, leaving the rest for the draft form", async () => {
     // The counter only takes the name; the sender's contact details and address
     // are filled in on the form and enforced before booking.
-    const draft = await createIndividualShipmentDraft({
+    const draft = await createCounterDraft({
       branchId: String(branchId),
       customer: { contactName: "Rahul Verma" },
       createdBy: adminId
@@ -219,8 +230,8 @@ describe("individual shipment drafts", () => {
       email: "shared@example.com"
     };
 
-    const first = await createIndividualShipmentDraft({ branchId: String(branchId), customer, createdBy: adminId });
-    const second = await createIndividualShipmentDraft({ branchId: String(branchId), customer, createdBy: adminId });
+    const first = await createCounterDraft({ branchId: String(branchId), customer, createdBy: adminId });
+    const second = await createCounterDraft({ branchId: String(branchId), customer, createdBy: adminId });
 
     assert.notEqual(String(first._id), String(second._id));
     assert.equal(String(first.businessAccountId), String(second.businessAccountId));
@@ -229,7 +240,7 @@ describe("individual shipment drafts", () => {
 
 describe("counter payment and billing", () => {
   test("the charge is completed with no reservation, so credit transitions no-op", async () => {
-    const draft = await createIndividualShipmentDraft({
+    const draft = await createCounterDraft({
       branchId: String(branchId),
       customer: { contactName: "Charge Test", mobileCountryCode: "+91", mobileNumber: "9876500015" },
       createdBy: adminId
@@ -252,7 +263,7 @@ describe("counter payment and billing", () => {
   });
 
   test("re-recording a charge for the same draft updates rather than duplicates", async () => {
-    const draft = await createIndividualShipmentDraft({
+    const draft = await createCounterDraft({
       branchId: String(branchId),
       customer: { contactName: "Retry Test", mobileCountryCode: "+91", mobileNumber: "9876500016" },
       createdBy: adminId
@@ -265,7 +276,7 @@ describe("counter payment and billing", () => {
   });
 
   test("a retried booking does not double-count the branch's takings", async () => {
-    const draft = await createIndividualShipmentDraft({
+    const draft = await createCounterDraft({
       branchId: String(branchId),
       customer: { contactName: "Collection Test", mobileCountryCode: "+91", mobileNumber: "9876500017" },
       createdBy: adminId
@@ -287,7 +298,7 @@ describe("counter payment and billing", () => {
   });
 
   test("a refund is a separate row and leaves the collection intact", async () => {
-    const draft = await createIndividualShipmentDraft({
+    const draft = await createCounterDraft({
       branchId: String(branchId),
       customer: { contactName: "Refund Test", mobileCountryCode: "+91", mobileNumber: "9876500018" },
       createdBy: adminId
@@ -332,17 +343,17 @@ describe("counter payment and billing", () => {
     // Every walk-in is booked against the same sentinel, so the "same business
     // account" rule the manifest normally relies on would let two unrelated
     // customers onto one manifest headed with whichever name came first.
-    const asha = await createIndividualShipmentDraft({
+    const asha = await createCounterDraft({
       branchId: String(branchId),
       customer: { contactName: "Asha", mobileCountryCode: "+91", mobileNumber: "9876500021" },
       createdBy: adminId
     });
-    const ashaAgain = await createIndividualShipmentDraft({
+    const ashaAgain = await createCounterDraft({
       branchId: String(branchId),
       customer: { contactName: "Asha", mobileCountryCode: "+91", mobileNumber: "9876500021" },
       createdBy: adminId
     });
-    const ravi = await createIndividualShipmentDraft({
+    const ravi = await createCounterDraft({
       branchId: String(branchId),
       customer: { contactName: "Ravi", mobileCountryCode: "+91", mobileNumber: "9876500022" },
       createdBy: adminId

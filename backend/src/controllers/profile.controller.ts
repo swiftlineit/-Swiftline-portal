@@ -15,6 +15,7 @@ import {
   putObject,
   streamObjectToResponse
 } from "../services/storage/storage.service.js";
+import { normalizeUserPhone } from "../services/userIdentity.service.js";
 import { serializeStaffProfile } from "./staff.controller.js";
 import {
   emailValidationMessage,
@@ -29,12 +30,35 @@ import {
 /** Business-account roles allowed to maintain their account's own details. */
 const accountEditorRoles = new Set(["account_owner", "account_admin"]);
 
+/**
+ * People type a number the way they read it — "+91 87450 63206" — while it is
+ * stored and compared as digits. Separators are dropped before the length is
+ * counted so the same number cannot be valid on the staff form, which already
+ * accepts them, and invalid here. Mirrored in the frontend's validateProfileUser.
+ */
+function compactPhone(value: string) {
+  return value.replace(/[\s\-()]/g, "");
+}
+
+export function isValidProfilePhone(value: string) {
+  // Emptiness is judged after separators are removed, so a value of only spaces
+  // reads as "not provided" here exactly as it does in the frontend twin.
+  const compact = compactPhone(value);
+  return !compact || /^\+?\d{6,15}$/.test(compact);
+}
+
+// Staff are onboarded in India, matching STAFF_DEFAULT_PHONE_COUNTRY, so a
+// number entered without a country code is read as Indian rather than refused.
+const PROFILE_DEFAULT_PHONE_COUNTRY = "IN" as const;
+
 // Name bounds mirror the business-account contact rules so one person is not
 // described two different ways across the portal.
 const userDetailsSchema = z.object({
   firstName: z.string().trim().min(2, "First name must be at least 2 characters.").max(22),
   lastName: z.string().trim().max(22).default(""),
-  phone: z.string().trim().max(20).regex(/^$|^\+?\d{6,15}$/, "Enter a valid phone number, 6 to 15 digits.").default(""),
+  phone: z.string().trim().max(20)
+    .refine(isValidProfilePhone, "Enter a valid phone number, 6 to 15 digits.")
+    .default(""),
   // Contact details a staff member maintains for themselves. Everything else on
   // the staff record (designation, dates, role, branches, documents, Aadhaar) is
   // HR/admin-owned and is only editable from the staff detail page.
@@ -49,7 +73,7 @@ const userDetailsSchema = z.object({
   emergencyContact: z.object({
     name: z.string().trim().max(80).default(""),
     phone: z.string().trim().max(20)
-      .refine((value) => !value || /^\+?\d{6,15}$/.test(value), "Enter a valid emergency contact number.")
+      .refine(isValidProfilePhone, "Enter a valid emergency contact number.")
       .default(""),
     relationship: z.enum(["parent", "spouse", "sibling", "child", "guardian", "friend", "other"]).or(z.literal("")).default("")
   }).optional()
@@ -270,11 +294,36 @@ export async function updateProfileDetails(request: Request, response: Response)
   if (!parsed.success) return response.status(400).json({ success: false, message: firstIssue(parsed.error) });
 
   const { firstName, lastName, phone, address, emergencyContact } = parsed.data;
+
+  // Stored in E.164, as staff.controller.ts does on create and edit, so the same
+  // number typed as "+91 87450 63206" here and "+918745063206" there stays one
+  // identity rather than two. The schema above has already accepted the shape;
+  // this rejects numbers that are well-formed but not real.
+  const normalizedPhone = phone ? normalizeUserPhone(phone, PROFILE_DEFAULT_PHONE_COUNTRY) : "";
+  if (phone && !normalizedPhone) {
+    return response.status(400).json({
+      success: false,
+      message: "Enter a valid phone number, for example +91 98765 43210."
+    });
+  }
+
+  // A login is one identity across staff, drivers and clients, so this looks at
+  // every user rather than only at staff — the same check the staff and driver
+  // paths already make. Editing your own record must not be the way a number
+  // already in use gets taken over. A blank number is skipped: "not provided"
+  // is not a value that can collide.
+  if (normalizedPhone && await User.exists({ _id: { $ne: userId }, phone: normalizedPhone })) {
+    return response.status(409).json({
+      success: false,
+      message: "A user with this phone number already exists."
+    });
+  }
+
   // `name` is the display name the portal chrome shows, so it tracks the parts.
   const changes: Record<string, unknown> = {
     firstName,
     lastName,
-    phone,
+    phone: normalizedPhone,
     name: [firstName, lastName].filter(Boolean).join(" ")
   };
 

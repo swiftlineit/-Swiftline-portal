@@ -13,7 +13,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const countryRateCardRouter = Router();
 
 countryRateCardRouter.use(attachUser);
-countryRateCardRouter.use(requireRole("admin", "finance"));
+countryRateCardRouter.use(requireRole("admin", "finance", "operations"));
 
 countryRateCardRouter.get("/", listCountryRateCards);
 countryRateCardRouter.post("/", createCountryRateCard);

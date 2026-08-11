@@ -34,7 +34,6 @@ type TrackingRecord = {
   carrierShipmentNumber: string;
   swiftlineTrackingNumber: string;
   parcelNumbers: string[];
-  shipmentReference: string;
   branchName: string;
   service: string;
   parcelCount: number;
@@ -84,7 +83,6 @@ function fromAdmin(item: DpdShipmentHistoryItem): TrackingRecord {
     carrierShipmentNumber: item.dpdShipment.dpdShipmentId,
     swiftlineTrackingNumber: item.dpdShipment.swiftlineTrackingNumber,
     parcelNumbers: item.dpdShipment.parcelNumbers,
-    shipmentReference: item.invoiceUpload?.shipmentReference || "",
     branchName: item.branch ? `${item.branch.name} (${item.branch.code})` : "",
     service:
       item.bookingConfirmation?.serviceType ||
@@ -127,7 +125,6 @@ function fromClient(shipment: ClientShipmentDetails): TrackingRecord {
     swiftlineTrackingNumber:
       shipment.dpdShipment?.swiftlineTrackingNumber || "",
     parcelNumbers: shipment.dpdShipment?.parcelNumbers || [],
-    shipmentReference: shipment.invoiceUpload?.shipmentReference || "",
     branchName: "",
     service:
       shipment.bookingConfirmation?.serviceType ||
@@ -155,8 +152,7 @@ function shipmentParcels(shipment: ShipmentListItem): SelectableParcel[] {
 }
 
 function shipmentLabel(shipment: ShipmentListItem) {
-  const reference =
-    shipment.shipmentReference || shipment.swiftlineTrackingNumber || shipment.id;
+  const reference = shipment.swiftlineTrackingNumber || "AWB Pending";
   return [reference, shipment.consignee, shipment.destination]
     .filter(Boolean)
     .join(" · ");
@@ -429,7 +425,7 @@ export default function ShipmentTrackingPage({
               <span className="font-semibold tracking-wide">Tracking parcel {trackedParcel}</span>
               <span className="text-blue-800">
                 of shipment{" "}
-                {result.shipmentReference || result.swiftlineTrackingNumber} (
+                {result.swiftlineTrackingNumber || "AWB Pending"} (
                 {result.parcelCount}{" "}
                 {result.parcelCount === 1 ? "parcel" : "parcels"}). Events below
                 cover the whole shipment.
@@ -459,16 +455,16 @@ export default function ShipmentTrackingPage({
             </div>
             <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
               <Info
-                label="Swiftline Tracking"
-                value={result.swiftlineTrackingNumber || "Not assigned"}
+                label="AWB / Tracking No."
+                value={result.swiftlineTrackingNumber || "AWB Pending"}
               />
               <Info
-                label="Carrier Shipment"
+                label="Carrier Shipment ID"
                 value={result.carrierShipmentNumber || "Not assigned"}
               />
               <Info
-                label="Shipment Reference"
-                value={result.shipmentReference || "Not provided"}
+                label="Parcels"
+                value={String(result.parcelCount)}
               />
               <Info
                 label="Booked"

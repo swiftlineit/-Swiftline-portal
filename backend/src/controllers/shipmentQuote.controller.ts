@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
+import { allowedBranchIds } from "../middleware/branchAccess.middleware.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { ShipmentQuote, shipmentQuoteStatusValues } from "../models/shipmentQuote.model.js";
 import { dateRangeCondition, dateRangeParams } from "../utils/dateRangeFilter.js";
@@ -67,6 +68,17 @@ const publishSchema = z.object({
 function getUserId(request: Request) {
   const value = (request as Request & { user?: { _id?: unknown } }).user?._id;
   return value && mongoose.Types.ObjectId.isValid(String(value)) ? new mongoose.Types.ObjectId(String(value)) : null;
+}
+
+/**
+ * Branches this caller may convert a quote into, or null when unscoped.
+ *
+ * Only staff carry a branch assignment. A client's reach is already fixed by
+ * its account membership, and reading a branch assignment it does not have
+ * would refuse every client conversion.
+ */
+function quoteDraftBranchScope(request: Request, audience: "CLIENT" | "ADMIN") {
+  return audience === "CLIENT" ? null : allowedBranchIds(request);
 }
 
 function handleQuoteError(error: unknown, response: Response): Response {
@@ -165,7 +177,10 @@ async function createDraft(request: Request, response: Response, audience: "CLIE
     const context = audience === "ADMIN"
       ? await resolveAdminQuoteContext(input.businessAccountId ?? "")
       : await resolveClientQuoteContext(String(actor), input.businessAccountId, true);
-    const draft = await createShipmentDraftFromEstimate({ context, request: input, userId: actor });
+    const draft = await createShipmentDraftFromEstimate({
+      context, request: input, userId: actor,
+      allowedBranchIds: quoteDraftBranchScope(request, audience)
+    });
     return response.status(201).json({ success: true, shipmentDraftId: String(draft._id) });
   } catch (error) {
     return handleQuoteError(error, response);
@@ -266,7 +281,10 @@ async function convert(request: Request, response: Response, audience: "CLIENT" 
     const actor = getUserId(request);
     if (!actor) return response.status(401).json({ success: false, message: "Sign in to continue." });
     const quote = await authorizedQuote(request, audience, audience === "CLIENT");
-    const draft = await convertShipmentQuoteToDraft({ quote, userId: actor });
+    const draft = await convertShipmentQuoteToDraft({
+      quote, userId: actor,
+      allowedBranchIds: quoteDraftBranchScope(request, audience)
+    });
     if (!draft) throw new ShipmentQuoteError("Shipment draft could not be created. Please try again.", 500);
     return response.status(201).json({ success: true, shipmentDraftId: String(draft._id) });
   } catch (error) {

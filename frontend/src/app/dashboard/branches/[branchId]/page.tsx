@@ -656,7 +656,7 @@ function BranchShipmentsSection({ branchId }: { branchId: string }) {
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
-              <th className="px-4 py-3">Shipment</th>
+              <th className="px-4 py-3">AWB / Shipment No.</th>
               <th className="px-4 py-3">Consignee</th>
               <th className="px-4 py-3">Route</th>
               <th className="px-4 py-3">Chargeable Amount</th>
@@ -692,12 +692,12 @@ function BranchShipmentsSection({ branchId }: { branchId: string }) {
                 >
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-950">
-                      {shipment.shipmentReference ||
-                        shipment.swiftlineTrackingNumber ||
-                        "Pending"}
+                      {shipment.swiftlineTrackingNumber || "AWB Pending"}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
-                      {shipment.invoiceNumber || shipment.serviceInfo}
+                      {shipment.shipmentInvoice?.invoiceNumber
+                        ? `Tax Invoice: ${shipment.shipmentInvoice.invoiceNumber}`
+                        : "Tax Invoice Pending"}
                     </p>
                   </td>
                   <td className="px-4 py-3">

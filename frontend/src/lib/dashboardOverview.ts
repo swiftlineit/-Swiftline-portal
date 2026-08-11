@@ -9,6 +9,7 @@ import { listSupportTickets, type SupportTicket } from "@/lib/supportTickets";
 import {
   FINANCE_AREA,
   OPERATIONS_AREA,
+  RATE_CARD_AREA,
   SHIPMENT_VIEW_AREA,
   STAFF_DIRECTORY_AREA,
   withAdmin
@@ -420,7 +421,7 @@ function shipmentActivity(items: DpdShipmentHistoryItem[]): ActivityItem[] {
   return items.slice(0, 8).map((item) => {
     const status = shipmentStatus(item);
     const consignee = item.shipmentDraft?.consigneeName || "Consignee not recorded";
-    const reference = item.invoiceUpload?.shipmentReference || item.dpdShipment.swiftlineTrackingNumber;
+    const reference = item.dpdShipment.swiftlineTrackingNumber || "AWB Pending";
     const exception = shipmentExceptions.find((stage) => stage.statuses.includes(status));
 
     return {
@@ -484,7 +485,7 @@ export const quickLinks: QuickLink[] = [
   { label: "Manifests", description: "Pack bags, scan parcels, seal, and dispatch", href: "/dashboard/operations-manifests", roles: withAdmin(OPERATIONS_AREA) },
   { label: "Business Accounts", description: "Onboard clients and review KYC", href: "/dashboard/business-accounts", roles: ["admin"] },
   { label: "Credit Accounts", description: "Limits, statements, and payments", href: "/dashboard/credit-accounts", roles: withAdmin(FINANCE_AREA) },
-  { label: "Country Rate Card", description: "Lane pricing and weight slabs", href: "/dashboard/country-rate-card", roles: withAdmin(FINANCE_AREA) },
+  { label: "Country Rate Card", description: "Lane pricing and weight slabs", href: "/dashboard/country-rate-card", roles: withAdmin(RATE_CARD_AREA) },
   { label: "Branches", description: "Locations, codes, and assignments", href: "/dashboard/branches", roles: ["admin"] },
   { label: "Staff", description: "Add internal staff and review the directory", href: "/dashboard/users", roles: withAdmin(STAFF_DIRECTORY_AREA) },
   { label: "Support Tickets", description: "Answer client queries", href: "/dashboard/tickets", roles: withAdmin(OPERATIONS_AREA) }

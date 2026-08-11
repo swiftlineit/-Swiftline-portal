@@ -8,6 +8,7 @@ import { Branch } from "../models/branch.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { LabelDocument } from "../models/labelDocument.model.js";
+import { canAccessBranch } from "../middleware/branchAccess.middleware.js";
 import { labelContentType, labelFileExtension } from "../services/labelStorage.service.js";
 import {
   ShipmentEvent,
@@ -475,6 +476,12 @@ async function createShipment(
   // sale and skip its credit reservation.
   const draft = await ShipmentDraft.findById(shipmentDraftId).select("customerType branchId").lean().exec();
   if (!draft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  // Booking is the heaviest write on a draft, so it is held to the same branch
+  // scope as editing one. Admin is unrestricted; operations books only for the
+  // branches it is assigned to.
+  if (!canAccessBranch(request, draft.branchId)) {
+    return response.status(403).json({ success: false, message: "You do not have access to this branch." });
+  }
   const isIndividual = draft.customerType === "INDIVIDUAL";
 
   const collection = counterCollectionSchema.safeParse(request.body ?? {});

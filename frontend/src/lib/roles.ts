@@ -59,8 +59,16 @@ export const BUSINESS_ACCOUNT_AREA: readonly PortalRole[] = ["operations"];
  */
 export const BRANCH_VIEW_AREA: readonly PortalRole[] = ["operations", "finance", "hr"];
 
-/** Credit, rate cards, and tax invoices. */
+/** Credit and tax invoices. Rate cards moved to `RATE_CARD_AREA`. */
 export const FINANCE_AREA: readonly PortalRole[] = ["finance"];
+
+/**
+ * Country rate cards, route charges, and the client share links built from them.
+ * Operations holds the same actions as finance here: it quotes and books against
+ * these lanes, so it maintains the pricing it sells rather than routing every
+ * slab change through finance.
+ */
+export const RATE_CARD_AREA: readonly PortalRole[] = ["finance", "operations"];
 
 /**
  * Credit accounts, statements, payments, and the ledger. Operations reads these

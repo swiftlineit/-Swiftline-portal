@@ -6,8 +6,10 @@
 // stable for a given shipment across regenerations.
 
 import mongoose from "mongoose";
+import { DpdShipment } from "../../models/dpdShipment.model.js";
 import { InvoiceUpload } from "../../models/invoiceUpload.model.js";
 import { ShipmentDraft } from "../../models/shipmentDraft.model.js";
+import { publicShipmentSourceIdentity } from "../shipmentSourceIdentity.service.js";
 import { buildCustomsInvoiceModel, type CustomsInvoiceModel } from "./customsInvoiceModel.service.js";
 import { renderCustomsInvoicePdfBuffer } from "./customsInvoicePdf.service.js";
 import { buildCustomsInvoiceWorkbook } from "./customsInvoiceWorkbook.service.js";
@@ -56,10 +58,15 @@ export async function buildCustomsInvoiceForDraft(input: {
     throw new CustomsInvoiceError("Shipment not found.", 404);
   }
 
-  const upload = await InvoiceUpload.findById(draft.invoiceUploadId).exec();
+  const [upload, booking] = await Promise.all([
+    InvoiceUpload.findById(draft.invoiceUploadId).exec(),
+    DpdShipment.findOne({ shipmentDraftId: draft._id }).select("swiftlineTrackingNumber").lean().exec()
+  ]);
+  const sourceIdentity = publicShipmentSourceIdentity(upload);
   const invoiceNumber = resolveCustomsInvoiceNumber({
-    invoiceNumber: upload?.invoiceNumber,
-    shipmentReference: upload?.shipmentReference,
+    invoiceNumber: sourceIdentity.invoiceNumber,
+    shipmentReference: sourceIdentity.shipmentReference,
+    swiftlineTrackingNumber: booking?.swiftlineTrackingNumber,
     draftId: String(draft._id)
   });
 

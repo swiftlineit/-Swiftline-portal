@@ -18,7 +18,7 @@ export const rateCardShareRouter = Router();
 // Pricing is commercial: the same roles that maintain the rate card decide who
 // sees it and at what markup.
 rateCardShareRouter.use(attachUser);
-rateCardShareRouter.use(requireRole("admin", "finance"));
+rateCardShareRouter.use(requireRole("admin", "finance", "operations"));
 
 rateCardShareRouter.get("/", listRateCardShares);
 rateCardShareRouter.post("/", createRateCardShare);

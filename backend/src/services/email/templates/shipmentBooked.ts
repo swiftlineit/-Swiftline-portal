@@ -11,8 +11,8 @@ import {
 
 function shipmentFacts(payload: Record<string, unknown>) {
   const rows: Array<{ label: string; value: string }> = [
-    { label: "Tracking number", value: asText(payload.trackingNumber) },
-    { label: "Shipment reference", value: asText(payload.shipmentReference) },
+    { label: "AWB / Tracking No.", value: asText(payload.trackingNumber) },
+    { label: "Customer reference", value: asText(payload.customerReference) },
     { label: "Service", value: asText(payload.serviceType) },
     { label: "Destination", value: asText(payload.destination) },
     { label: "Parcels", value: String(asNumber(payload.parcelCount)) },

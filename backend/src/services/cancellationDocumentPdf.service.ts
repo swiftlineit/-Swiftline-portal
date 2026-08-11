@@ -201,7 +201,7 @@ export function createShipmentCreditNotePdf(note: IShipmentCreditNote) {
   document.rect(pageLeft, referenceY, contentWidth, 43).lineWidth(0.8).strokeColor("#cbd5e1").stroke();
   document.fillColor("#0f172a").font("Helvetica").fontSize(8.5)
     .text(`Original invoice: ${note.originalInvoiceNumber} (Revision ${note.originalInvoiceRevision})`, pageLeft + 10, referenceY + 10, { width: contentWidth - 20 })
-    .text(`Shipment reference: ${text(shipment, "shipmentReference", "dpdShipmentId")}`, pageLeft + 10, referenceY + 25, { width: contentWidth - 20 });
+    .text(`AWB / Tracking No.: ${text(shipment, "shipmentReference", "dpdShipmentId")}`, pageLeft + 10, referenceY + 25, { width: contentWidth - 20 });
   const totalsBottom = addAmounts(document, [
     ["Taxable value reversed", note.taxableValueMinor],
     ["CGST reversed", noGst ? null : note.cgstAmountMinor],

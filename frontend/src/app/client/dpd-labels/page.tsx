@@ -500,7 +500,7 @@ function ClientShipmentTable({
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
-              <th className="px-4 py-3">Shipment</th>
+              <th className="px-4 py-3">AWB / Shipment No.</th>
               <th className="px-4 py-3">Consignee</th>
               <th className="px-4 py-3">Route</th>
               <th className="px-4 py-3">Chargeable Amount</th>
@@ -533,8 +533,12 @@ function ClientShipmentTable({
               return (
                 <tr key={shipment.id} className="border-b border-slate-100 text-slate-700 last:border-b-0">
                   <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-950">{shipment.shipmentReference || shipment.invoiceNumber || shipment.id}</p>
-                    <p className="mt-1 text-xs text-slate-500">{shipment.invoiceNumber || "Invoice Pending"}</p>
+                    <p className="font-semibold text-slate-950">{shipment.swiftlineTrackingNumber || "AWB Pending"}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {shipment.shipmentInvoice?.invoiceNumber
+                        ? `Tax Invoice: ${shipment.shipmentInvoice.invoiceNumber}`
+                        : "Tax Invoice Pending"}
+                    </p>
                   </td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-slate-900">{formatCapitalized(consignee)}</p>
@@ -573,9 +577,7 @@ function ClientShipmentTable({
                           aria-label="Delete draft"
                           onClick={() => onDeleteDraft({
                             id: shipment.id,
-                            label: shipment.shipmentReference
-                              || shipment.invoiceNumber
-                              || formatCapitalized(consignee)
+                            label: formatCapitalized(consignee)
                               || "This draft"
                           })}
                           className="inline-flex rounded h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 transition hover:border-red-600 hover:text-red-600"

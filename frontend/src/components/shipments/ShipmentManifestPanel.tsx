@@ -251,7 +251,7 @@ export default function ShipmentManifestPanel({
       {showForm && context && audience === "client" && currentShipment ? (
         <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,1fr)_minmax(240px,360px)] md:items-end">
           <div className="grid gap-4 border border-slate-200 bg-slate-50 p-4 sm:grid-cols-3">
-            <ManifestSummaryItem label="Swiftline Tracking" value={currentShipment.consignmentNumber} />
+            <ManifestSummaryItem label="AWB / Tracking No." value={currentShipment.consignmentNumber} />
             <ManifestSummaryItem label="Pieces" value={String(currentShipment.pieces)} />
             <ManifestSummaryItem label="Weight" value={`${currentShipment.weightKg.toFixed(2)} kg`} />
             <ManifestSummaryItem label="Goods Value" value={formatMoneyMinor(currentShipment.declaredValueMinor)} />
@@ -394,7 +394,9 @@ function ManifestShipmentRow({
       </td>
       <td className="px-3 py-3">
         <p className="font-semibold text-slate-950">{shipment.consignmentNumber}</p>
-        <p className="mt-1 text-xs text-slate-500">{shipment.shipmentReference}</p>
+        {shipment.shipmentReference ? (
+          <p className="mt-1 text-xs text-slate-500">Customer Ref: {shipment.shipmentReference}</p>
+        ) : null}
       </td>
       <td className="px-3 py-3">
         <p className="font-medium text-slate-800">{shipment.consignee}</p>

@@ -31,13 +31,11 @@ function buildPayload(input: ShipmentBookedInput, context: {
   const destination = [consignee?.townOrCity, consignee?.countryName || consignee?.countryCode]
     .filter(Boolean)
     .join(", ");
-  // The draft carries references per parcel; the shipment-level one is the
-  // snapshot the invoice was raised against, which is what the client quotes.
-  const shipmentReference = shipmentInvoice.shipment?.shipmentReference;
+  const customerReference = shipmentInvoice.shipment?.customerReference;
 
   return {
     trackingNumber: dpdShipment.swiftlineTrackingNumber || "",
-    shipmentReference: typeof shipmentReference === "string" ? shipmentReference : "",
+    customerReference: typeof customerReference === "string" ? customerReference : "",
     serviceType: draft.serviceType === "CARGO" ? "Cargo" : "Courier",
     bookingProvider: dpdShipment.bookingProvider === "SWIFTLINE" ? "Swiftline" : "DPD",
     destination,

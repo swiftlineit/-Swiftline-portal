@@ -108,6 +108,7 @@ export type ClientRecentShipment = {
   branchId: string;
   invoiceNumber: string;
   shipmentReference: string;
+  swiftlineTrackingNumber: string;
   destination: {
     companyName: string;
     contactName: string;
@@ -143,6 +144,7 @@ export type ClientShipmentListItem = {
   branchId: string;
   invoiceNumber: string;
   shipmentReference: string;
+  swiftlineTrackingNumber: string;
   destination: {
     companyName: string;
     contactName: string;
@@ -231,6 +233,7 @@ export type ClientShipmentDetails = {
     updatedAt?: string;
   } | null;
   bookingConfirmation: ShipmentBookingConfirmation | null;
+  taxInvoiceNumber: string;
   labels: Array<{
     id: string;
     dpdShipmentId: string;

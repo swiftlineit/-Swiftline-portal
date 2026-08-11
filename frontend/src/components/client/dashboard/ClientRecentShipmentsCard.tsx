@@ -92,9 +92,13 @@ function RecentShipmentRow({ shipment }: { shipment: ClientRecentShipment }) {
           href={viewHref}
           className="font-semibold text-slate-900 hover:text-[#0D1282] hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
         >
-          {shipment.shipmentReference || shipment.invoiceNumber || shipment.id}
+          {shipment.swiftlineTrackingNumber || "AWB Pending"}
         </Link>
-        <p className="mt-0.5 text-xs text-slate-500">{shipment.invoiceNumber || "No invoice number"}</p>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {shipment.shipmentInvoice?.invoiceNumber
+            ? `Tax Invoice: ${shipment.shipmentInvoice.invoiceNumber}`
+            : "Tax Invoice Pending"}
+        </p>
       </td>
       <td className="px-5 py-3">
         <p className="font-medium text-slate-900">{destinationName}</p>

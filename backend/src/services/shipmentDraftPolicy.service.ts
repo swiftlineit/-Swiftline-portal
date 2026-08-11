@@ -7,12 +7,16 @@ import { OperationsManifestConsignment } from "../models/operationsManifestConsi
 import { PickupRequestShipment } from "../models/pickupRequestShipment.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentManifest } from "../models/shipmentManifest.model.js";
+import { User } from "../models/user.model.js";
 import {
   ShipmentDraft,
   type IShipmentDraft,
   type ShipmentDraftBookingState
 } from "../models/shipmentDraft.model.js";
 
+// Business-account seats, not portal roles. "operations" appears in both
+// vocabularies and means different things: here it is a client's own staff
+// member, not Swiftline operations.
 const clientShipmentEditorRoles = new Set(["account_owner", "account_admin", "operations"]);
 export class ShipmentDraftPolicyError extends Error {
   constructor(message: string, readonly statusCode: number) {
@@ -145,20 +149,57 @@ export async function clientCanAccessShipmentDraft(input: {
   return Boolean(account?.assignedBranch && String(account.assignedBranch) === String(input.draft.branchId));
 }
 
+/**
+ * Branches an internal member may act in.
+ *
+ * Mirrors `allowedBranchIds` in branchAccess.middleware.ts, which reads the same
+ * assignment off the request. The policy is called from services that have no
+ * request to read, so the assignment is loaded from the user record instead.
+ * A member with no assignment reaches nothing, matching the branch middleware
+ * and the draft list, which already shows such a member no drafts at all.
+ */
+async function assignedBranchIds(userId: string | mongoose.Types.ObjectId) {
+  const user = await User.findById(userId).select("assignedBranches").lean().exec();
+  return (user?.assignedBranches ?? []).map(String);
+}
+
+/**
+ * Whether a signed-in member may modify this draft.
+ *
+ * Admin reaches every branch. Swiftline operations is held to its assigned
+ * branches, and the branch on the draft is what that is checked against: a
+ * business draft can only be created in the branch its account is assigned to
+ * (enforced in manualShipmentDraft.service.ts), so the draft's branch *is* the
+ * account's branch. Walk-in drafts point at the individual sentinel, which
+ * serves every branch, leaving the draft's branch the only meaningful scope
+ * there too. Clients are reached through their business-account membership.
+ */
+export async function canModifyShipmentDraft(input: {
+  draft: Pick<IShipmentDraft, "businessAccountId" | "branchId">;
+  userId: string | mongoose.Types.ObjectId;
+  portalRole: string;
+}) {
+  if (input.portalRole === "admin") return true;
+
+  if (input.portalRole === "operations") {
+    const branchIds = await assignedBranchIds(input.userId);
+    return branchIds.includes(String(input.draft.branchId));
+  }
+
+  return input.portalRole === "client" && await clientCanAccessShipmentDraft({
+    userId: input.userId,
+    draft: input.draft,
+    requireEditPermission: true
+  });
+}
+
 export async function assertShipmentDraftMutationAllowed(input: {
   draft: IShipmentDraft;
   userId: string | mongoose.Types.ObjectId;
   portalRole: string;
 }) {
-  if (input.portalRole !== "admin") {
-    const allowed = input.portalRole === "client" && await clientCanAccessShipmentDraft({
-      userId: input.userId,
-      draft: input.draft,
-      requireEditPermission: true
-    });
-    if (!allowed) {
-      throw new ShipmentDraftPolicyError("You do not have permission to modify this shipment draft.", 403);
-    }
+  if (!await canModifyShipmentDraft(input)) {
+    throw new ShipmentDraftPolicyError("You do not have permission to modify this shipment draft.", 403);
   }
 
   await assertShipmentDraftEditable(input.draft);

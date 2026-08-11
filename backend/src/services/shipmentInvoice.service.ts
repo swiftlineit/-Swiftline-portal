@@ -311,12 +311,23 @@ export async function ensureShipmentInvoiceForDraft(input: {
     phone: `${asString(snapshotContact.countryCode) || fallbackContact.countryCode} ${asString(snapshotContact.mobileNumber) || fallbackContact.mobileNumber}`.trim()
   };
   const snapshotParcels = bookingSnapshot?.parcels ?? [];
-  const shipmentReference = bookingSnapshot?.source.shipmentReference || upload.shipmentReference;
+  // The shipment's public identity is the Swiftline AWB. The source upload
+  // reference remains stored separately for internal/import traceability.
+  const shipmentReference = bookingSnapshot?.tracking.swiftlineTrackingNumber
+    || dpdShipment.swiftlineTrackingNumber
+    || "";
+  const snapshotCustomerReference = bookingSnapshot?.parcels.find((parcel) => (
+    typeof parcel.reference === "string" && Boolean(parcel.reference.trim())
+  ))?.reference;
+  const customerReference = typeof snapshotCustomerReference === "string"
+    ? snapshotCustomerReference
+    : draft.parcelList.find((parcel) => parcel.shipmentReference1?.trim())?.shipmentReference1 || "";
   const sourceInvoiceNumber = bookingSnapshot?.source.invoiceNumber || upload.invoiceNumber;
   const serviceType = bookingSnapshot?.service.type || draft.serviceType;
   const serviceCode = bookingSnapshot?.service.code || draft.serviceCode || dpdShipment.serviceCode;
   const shipment = {
     shipmentReference,
+    customerReference,
     sourceInvoiceNumber,
     dpdShipmentId: bookingSnapshot?.tracking.carrierShipmentId || dpdShipment.dpdShipmentId || "",
     serviceType,
@@ -365,7 +376,7 @@ export async function ensureShipmentInvoiceForDraft(input: {
     sacCode: asString(snapshotSender.invoiceSacCode) || branch.invoiceSacCode || "",
     // The CSB route is part of the invoice description so the customs category
     // this shipment was billed under is visible on the invoice record itself.
-    description: `${serviceType === "CARGO" ? "Cargo" : "Courier"} shipment service (${formatCsbType(pricing.csbType)}) - ${shipmentReference}`,
+    description: `${serviceType === "CARGO" ? "Cargo" : "Courier"} shipment service (${formatCsbType(pricing.csbType)}) - ${shipmentReference || "AWB Pending"}`,
     taxableValueMinor,
     gstRatePercent: pricing.gstRate * 100,
     taxTreatment: pricing.taxTreatment ?? (pricing.gstRate === 0 ? "NO_GST" : "GST_APPLICABLE"),

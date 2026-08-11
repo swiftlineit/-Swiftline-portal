@@ -1575,13 +1575,13 @@ export default function DpdLabelDraftPage() {
                   </div>
                 </div>
                 {/* <dl className="grid gap-px bg-emerald-200 sm:grid-cols-2">
-                  <ResultValue className="sm:col-span-2" label="Swiftline Tracking" value={result.bookingConfirmation?.swiftlineTrackingNumber ?? result.dpdShipment.swiftlineTrackingNumber} />
+                  <ResultValue className="sm:col-span-2" label="AWB / Tracking No." value={result.bookingConfirmation?.swiftlineTrackingNumber ?? result.dpdShipment.swiftlineTrackingNumber} />
                   <ResultValue className="sm:col-span-2" label="Carrier Shipment" value={result.bookingConfirmation?.carrierShipmentId ?? result.dpdShipment.dpdShipmentId} />
                   <ResultValue label="Parcels" value={result.bookingConfirmation
                     ? `${result.bookingConfirmation.parcelCount} / ${result.bookingConfirmation.totalActualWeightKg.toFixed(2)} kg`
                     : String(result.dpdShipment.parcelNumbers.length)} />
                   <ResultValue label="Total Charge" value={result.bookingConfirmation ? formatMoney(result.bookingConfirmation.totalAmountMinor / 100) : result.shipmentInvoice ? formatMoney(result.shipmentInvoice.totalAmountMinor / 100) : "Pending"} />
-                  <ResultValue label="Invoice" value={result.shipmentInvoice?.invoiceNumber ?? "Pending"} />
+                  <ResultValue label="Swiftline Tax Invoice No." value={result.shipmentInvoice?.invoiceNumber ?? "Tax Invoice Pending"} />
                   <ResultValue
                     label="Funding"
                     value={result.bookingConfirmation
