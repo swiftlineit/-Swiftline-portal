@@ -2,9 +2,15 @@ import type { IInvoiceUpload } from "../models/invoiceUpload.model.js";
 import type {
   IShipmentDraft,
   ShipmentAddressSnapshot,
-  ShipmentConsignorSnapshot
+  ShipmentConsignorSnapshot,
+  ShipmentParcel
 } from "../models/shipmentDraft.model.js";
-import { getDeclaredGoodsValue } from "./parcelItems.service.js";
+import {
+  getDeclaredGoodsValue,
+  getParcelItemAmount,
+  isValidHsnCode,
+  normalizeParcelItems
+} from "./parcelItems.service.js";
 import type { DpdProviderConfiguration } from "./dpdProviderConfiguration.service.js";
 
 export interface AlsDocketItem {
@@ -13,6 +19,18 @@ export interface AlsDocketItem {
   width: string;
   height: string;
   number_of_boxes: "1";
+}
+
+export interface AlsFreeFormLineItem {
+  total: string;
+  no_of_packages: string;
+  box_no: string;
+  rate: string;
+  hscode: string;
+  description: string;
+  unit_of_measurement: string;
+  unit_weight: string;
+  igst_amount: "0.00";
 }
 
 export interface AlsCreateDocketPayload {
@@ -33,7 +51,11 @@ export interface AlsCreateDocketPayload {
   remark: string;
   entry_type: 2;
   api_service_code: string;
-  new_docket_free_form_invoice: "0";
+  new_docket_free_form_invoice: "1";
+  free_form_invoice_type_id: "1";
+  free_form_currency: "GBP";
+  terms_of_trade: "CFR";
+  free_form_note_master_code: 0;
   shipper_name: string;
   shipper_company_name: string;
   shipper_contact_no: string;
@@ -61,6 +83,7 @@ export interface AlsCreateDocketPayload {
   consignee_gstin_type: string;
   consignee_gstin_no: string;
   docket_items: AlsDocketItem[];
+  free_form_line_items: AlsFreeFormLineItem[];
 }
 
 export class AlsPayloadError extends Error {
@@ -86,6 +109,54 @@ function digitsOnly(...parts: Array<string | undefined>) {
 
 function decimal(value: number) {
   return value.toFixed(2);
+}
+
+function alsUnitOfMeasurement(value: string) {
+  const units: Record<string, string> = {
+    Pkt: "PKT",
+    Pcs: "PC",
+    Set: "SET",
+    Box: "BOX",
+    Kg: "KG",
+    Pair: "PAIR"
+  };
+  return units[value] ?? value.trim().toUpperCase();
+}
+
+function freeFormLineItems(parcels: ShipmentParcel[], inrPerGbp: number): AlsFreeFormLineItem[] {
+  return parcels.flatMap((parcel, parcelIndex) => {
+    const items = normalizeParcelItems(parcel);
+    if (!items.length) {
+      throw new AlsPayloadError(`Parcel ${parcelIndex + 1} requires at least one goods item for the ALS shipment invoice.`);
+    }
+
+    const totalUnits = items.reduce((sum, item) => sum + item.quantity, 0);
+    if (!Number.isFinite(totalUnits) || totalUnits <= 0) {
+      throw new AlsPayloadError(`Parcel ${parcelIndex + 1} item quantities must be greater than zero for the ALS shipment invoice.`);
+    }
+    const unitWeight = parcel.weightKg / totalUnits;
+
+    return items.map((item, itemIndex) => {
+      const itemLabel = `Parcel ${parcelIndex + 1} item ${itemIndex + 1}`;
+      if (!item.description.trim()) throw new AlsPayloadError(`${itemLabel} description is required for the ALS shipment invoice.`);
+      if (!isValidHsnCode(item.hsnCode)) throw new AlsPayloadError(`${itemLabel} requires a valid HS code for the ALS shipment invoice.`);
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) throw new AlsPayloadError(`${itemLabel} quantity must be greater than zero for the ALS shipment invoice.`);
+      if (!Number.isFinite(item.unitRate) || item.unitRate <= 0) throw new AlsPayloadError(`${itemLabel} unit value must be greater than zero for the ALS shipment invoice.`);
+      if (!item.unitType.trim()) throw new AlsPayloadError(`${itemLabel} unit type is required for the ALS shipment invoice.`);
+
+      return {
+        total: decimal(getParcelItemAmount(item) / inrPerGbp),
+        no_of_packages: String(item.quantity),
+        box_no: String(parcel.sequence || parcelIndex + 1),
+        rate: decimal(item.unitRate / inrPerGbp),
+        hscode: item.hsnCode,
+        description: truncate(item.description, 120),
+        unit_of_measurement: truncate(alsUnitOfMeasurement(item.unitType), 12),
+        unit_weight: decimal(unitWeight),
+        igst_amount: "0.00" as const
+      };
+    });
+  });
 }
 
 function indiaDateParts(value: Date) {
@@ -198,6 +269,7 @@ export function buildAlsCreateDocketPayload(input: {
     .map((parcel) => parcel.contentsDescription.trim())
     .filter(Boolean))];
   const consignee = consigneeAddress(draft);
+  const invoiceLineItems = freeFormLineItems(draft.parcelList, inrPerGbp);
 
   return {
     tracking_no: required(trackingNumber, "Swiftline tracking number"),
@@ -220,9 +292,13 @@ export function buildAlsCreateDocketPayload(input: {
     remark: truncate(consignee.deliveryInstructions || "", 250),
     entry_type: 2,
     api_service_code: configuration.als.serviceCode,
-    // Swiftline creates and stores its own INR invoice. ALS receives only the
-    // mandatory shipment declaration fields needed to create the DPD booking.
-    new_docket_free_form_invoice: "0",
+    // ALS requires customs invoice data for this India-to-UK service. Swiftline
+    // still creates and stores its separate customer/accounting invoice in INR.
+    new_docket_free_form_invoice: "1",
+    free_form_invoice_type_id: "1",
+    free_form_currency: "GBP",
+    terms_of_trade: "CFR",
+    free_form_note_master_code: 0,
     ...shipperFields(draft.consignorAddress),
     ...consigneeFields(consignee),
     docket_items: draft.parcelList.map((parcel, index) => {
@@ -237,7 +313,8 @@ export function buildAlsCreateDocketPayload(input: {
         height: decimal(parcel.heightCm),
         number_of_boxes: "1" as const
       };
-    })
+    }),
+    free_form_line_items: invoiceLineItems
   };
 }
 

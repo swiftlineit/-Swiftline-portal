@@ -71,7 +71,10 @@ function draft() {
         widthCm: 20,
         heightCm: 10,
         contentsDescription: "Clothing",
-        items: [{ description: "Clothing", hsnCode: "62034200", unitType: "Pcs", quantity: 2, unitRate: 6_000 }]
+        items: [
+          { description: "Clothing", hsnCode: "62034200", unitType: "Pcs", quantity: 2, unitRate: 6_000 },
+          { description: "Belts", hsnCode: "42033000", unitType: "Pcs", quantity: 1, unitRate: 1_200 }
+        ]
       },
       {
         sequence: 2,
@@ -87,7 +90,7 @@ function draft() {
 }
 
 describe("ALS create_docket request mapping", () => {
-  test("maps two portal parcels to one GBP ALS booking without an ALS invoice", () => {
+  test("maps portal parcel goods to the mandatory GBP ALS shipment invoice", () => {
     const payload = buildAlsCreateDocketPayload({
       draft: draft() as never,
       invoiceUpload: {
@@ -104,10 +107,52 @@ describe("ALS create_docket request mapping", () => {
     assert.equal(payload.pcs, "2");
     assert.equal(payload.actual_weight, "18.00");
     assert.equal(payload.shipment_value_currency, "GBP");
-    assert.equal(payload.shipment_value, "400.00");
+    assert.equal(payload.shipment_value, "410.00");
     assert.equal(payload.shipment_invoice_no, "SLCDEL110826001");
-    assert.equal(payload.new_docket_free_form_invoice, "0");
-    assert.equal("free_form_line_items" in payload, false);
+    assert.equal(payload.new_docket_free_form_invoice, "1");
+    assert.equal(payload.free_form_invoice_type_id, "1");
+    assert.equal(payload.free_form_currency, "GBP");
+    assert.equal(payload.terms_of_trade, "CFR");
+    assert.equal(payload.free_form_note_master_code, 0);
+    assert.deepEqual(payload.free_form_line_items, [
+      {
+        total: "100.00",
+        no_of_packages: "2",
+        box_no: "1",
+        rate: "50.00",
+        hscode: "62034200",
+        description: "Clothing",
+        unit_of_measurement: "PC",
+        unit_weight: "2.33",
+        igst_amount: "0.00"
+      },
+      {
+        total: "10.00",
+        no_of_packages: "1",
+        box_no: "1",
+        rate: "10.00",
+        hscode: "42033000",
+        description: "Belts",
+        unit_of_measurement: "PC",
+        unit_weight: "2.33",
+        igst_amount: "0.00"
+      },
+      {
+        total: "300.00",
+        no_of_packages: "3",
+        box_no: "2",
+        rate: "100.00",
+        hscode: "64039900",
+        description: "Shoes",
+        unit_of_measurement: "PAIR",
+        unit_weight: "3.67",
+        igst_amount: "0.00"
+      }
+    ]);
+    assert.equal(
+      payload.free_form_line_items.reduce((sum, item) => sum + Number(item.total), 0).toFixed(2),
+      payload.shipment_value
+    );
     assert.deepEqual(payload.docket_items, [
       { actual_weight: "7.00", length: "30.00", width: "20.00", height: "10.00", number_of_boxes: "1" },
       { actual_weight: "11.00", length: "40.00", width: "30.00", height: "20.00", number_of_boxes: "1" }
@@ -117,6 +162,23 @@ describe("ALS create_docket request mapping", () => {
     assert.equal(snapshot.shipper_contact_no, "[redacted-phone]");
     assert.equal(snapshot.shipper_gstin_no, "[redacted-id]");
     assert.equal(snapshot.consignee_email, "[redacted-email]");
+  });
+
+  test("rejects an ALS shipment invoice item without a valid HS code before any request", () => {
+    const invalidDraft = draft();
+    invalidDraft.parcelList[0]!.items[0]!.hsnCode = "";
+
+    assert.throws(
+      () => buildAlsCreateDocketPayload({
+        draft: invalidDraft as never,
+        invoiceUpload: { uploadedAt: new Date("2026-08-11T06:30:00.000Z") } as never,
+        configuration,
+        customerId: 18,
+        trackingNumber: "SLCDEL110826004",
+        bookedAt: new Date("2026-08-11T06:30:00.000Z")
+      }),
+      /requires a valid HS code/
+    );
   });
 });
 
