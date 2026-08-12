@@ -1,4 +1,4 @@
-import { claimLabel, type ClaimDecisionOutcome, type ClaimStatus } from "@/lib/claims";
+import { claimLabel, claimStatusText, type ClaimDecisionOutcome, type ClaimStatus } from "@/lib/claims";
 
 /**
  * Colour carries meaning here, so the tones are grouped by what the client
@@ -8,16 +8,29 @@ import { claimLabel, type ClaimDecisionOutcome, type ClaimStatus } from "@/lib/c
 const statusTones: Record<ClaimStatus, string> = {
   DRAFT: "border-slate-300 bg-slate-100 text-slate-700",
   SUBMITTED: "border-blue-200 bg-blue-50 text-blue-800",
-  DOCUMENTS_REQUIRED: "border-amber-200 bg-amber-50 text-amber-800",
+  DOCUMENTS_PENDING: "border-amber-200 bg-amber-50 text-amber-800",
   UNDER_REVIEW: "border-blue-200 bg-blue-50 text-blue-800",
   NEEDS_INFORMATION: "border-amber-200 bg-amber-50 text-amber-800",
-  AWAITING_THIRD_PARTY: "border-violet-200 bg-violet-50 text-violet-800",
+  // Both carrier states share a tone: to a client they mean the same thing —
+  // it is out of Swiftline's hands — and the wording carries the difference.
+  SUBMITTED_TO_CARRIER: "border-violet-200 bg-violet-50 text-violet-800",
+  CARRIER_REVIEWING: "border-violet-200 bg-violet-50 text-violet-800",
   PENDING_APPROVAL: "border-blue-200 bg-blue-50 text-blue-800",
   DECIDED: "border-indigo-200 bg-indigo-50 text-indigo-800",
-  SETTLEMENT_PENDING: "border-teal-200 bg-teal-50 text-teal-800",
+  PAYMENT_PROCESSING: "border-teal-200 bg-teal-50 text-teal-800",
   SETTLED: "border-emerald-200 bg-emerald-50 text-emerald-800",
   CLOSED: "border-slate-300 bg-slate-100 text-slate-700",
   WITHDRAWN: "border-slate-300 bg-slate-100 text-slate-600"
+};
+
+/**
+ * A rejected claim is decided, but showing it in the neutral "decided" tone
+ * reads as though nothing has happened. Outcome overrides the status tone.
+ */
+const decidedTones: Record<ClaimDecisionOutcome, string> = {
+  FULLY_APPROVED: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  PARTIALLY_APPROVED: "border-amber-200 bg-amber-50 text-amber-800",
+  REJECTED: "border-red-200 bg-red-50 text-red-800"
 };
 
 const outcomeText: Record<ClaimDecisionOutcome, string> = {
@@ -26,12 +39,21 @@ const outcomeText: Record<ClaimDecisionOutcome, string> = {
   REJECTED: "text-red-700"
 };
 
-export function ClaimStatusBadge({ status }: { status: ClaimStatus }) {
+export function ClaimStatusBadge({
+  status,
+  decisionOutcome
+}: {
+  status: ClaimStatus;
+  /** Supply it where known, so a decided claim reads as Approved or Rejected. */
+  decisionOutcome?: ClaimDecisionOutcome | null;
+}) {
+  const tone = status === "DECIDED" && decisionOutcome
+    ? decidedTones[decisionOutcome]
+    : statusTones[status];
+
   return (
-    <span
-      className={`inline-flex rounded-4xl border px-2.5 py-1 text-xs font-semibold uppercase ${statusTones[status]}`}
-    >
-      {claimLabel(status)}
+    <span className={`inline-flex rounded-4xl border px-2.5 py-1 text-xs font-semibold uppercase ${tone}`}>
+      {claimStatusText(status, decisionOutcome)}
     </span>
   );
 }

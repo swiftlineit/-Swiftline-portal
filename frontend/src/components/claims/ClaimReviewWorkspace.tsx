@@ -158,7 +158,7 @@ export default function ClaimReviewWorkspace({
               <h1 className="text-xl font-bold text-slate-900">
                 {claim.claimNumber ?? "Draft claim"}
               </h1>
-              <ClaimStatusBadge status={claim.status} />
+              <ClaimStatusBadge status={claim.status} decisionOutcome={claim.decisionOutcome} />
             </div>
             <p className="mt-1 text-sm text-slate-500">
               {claimLabel(claim.category)} ·{" "}
@@ -172,7 +172,7 @@ export default function ClaimReviewWorkspace({
                   <span className="text-sm text-slate-500">
                     {" "}
                     — {formatClaimAmount(claim.approvedAmountMinor)}
-                    {claim.status === "SETTLEMENT_PENDING" ? ", awaiting payment" : ""}
+                    {claim.status === "PAYMENT_PROCESSING" ? ", awaiting payment" : ""}
                     {claim.status === "SETTLED" ? ", paid" : ""}
                   </span>
                 ) : null}

@@ -2,8 +2,36 @@ import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 
 export type TicketAudience = "client" | "admin";
-export type TicketStatus = "OPEN" | "IN_PROGRESS" | "WAITING_FOR_CUSTOMER" | "RESOLVED" | "CLOSED";
-export type TicketPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
+export type TicketStatus =
+  | "OPEN"
+  | "ASSIGNED"
+  | "IN_PROGRESS"
+  | "AWAITING_CARRIER"
+  | "WAITING_FOR_CUSTOMER"
+  | "ACTION_REQUIRED"
+  | "RESOLVED"
+  | "CLOSED";
+export type TicketPriority = "NORMAL" | "URGENT" | "CRITICAL";
+
+/** Mirrors `supportTicketStatusLabels` on the server so both say the same word. */
+export const ticketStatusLabels: Record<TicketStatus, string> = {
+  OPEN: "Open",
+  ASSIGNED: "Assigned",
+  IN_PROGRESS: "Under Investigation",
+  AWAITING_CARRIER: "Awaiting Carrier",
+  WAITING_FOR_CUSTOMER: "Awaiting Customer",
+  ACTION_REQUIRED: "Action Required",
+  RESOLVED: "Resolved",
+  CLOSED: "Closed"
+};
+
+export const ticketStatuses = Object.keys(ticketStatusLabels) as TicketStatus[];
+
+export const ticketPriorities: Array<{ value: TicketPriority; label: string }> = [
+  { value: "NORMAL", label: "Normal" },
+  { value: "URGENT", label: "Urgent" },
+  { value: "CRITICAL", label: "Critical" }
+];
 export type TicketCategory = "SHIPMENT_BOOKING" | "TRACKING" | "LABEL_MANIFEST" | "AMENDMENT_CANCELLATION" | "SHIPMENT_DELAYED" | "SHIPMENT_NOT_RECEIVED" | "SHIPMENT_LOST" | "SHIPMENT_THEFT" | "SHIPMENT_DAMAGED" | "INVOICE_PAYMENT" | "CREDIT_ACCOUNT" | "ACCOUNT_ACCESS" | "TECHNICAL" | "OTHER";
 
 export const ticketCategories: Array<{ value: TicketCategory; label: string }> = [
@@ -27,7 +55,14 @@ export function requiresRelatedShipment(category: TicketCategory) {
 }
 
 /** Statuses in which a ticket still blocks a second ticket for the same shipment. */
-export const openTicketStatuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_FOR_CUSTOMER"];
+export const openTicketStatuses: TicketStatus[] = [
+  "OPEN",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "AWAITING_CARRIER",
+  "WAITING_FOR_CUSTOMER",
+  "ACTION_REQUIRED"
+];
 
 export type SupportTicket = {
   id: string; ticketNumber: string; businessAccountId: string; branchId: string;

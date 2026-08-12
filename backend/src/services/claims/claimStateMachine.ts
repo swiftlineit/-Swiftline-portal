@@ -21,6 +21,7 @@ export const claimTransitionValues = [
   "REQUEST_INFORMATION",
   "RECEIVE_INFORMATION",
   "AWAIT_THIRD_PARTY",
+  "CARRIER_ACKNOWLEDGED",
   "THIRD_PARTY_RESPONDED",
   "SEND_FOR_APPROVAL",
   "DECIDE",
@@ -52,7 +53,7 @@ const transitions: Record<ClaimTransition, TransitionRule> = {
 
   REQUEST_DOCUMENTS: {
     from: ["SUBMITTED", "UNDER_REVIEW"],
-    to: "DOCUMENTS_REQUIRED",
+    to: "DOCUMENTS_PENDING",
     actor: "STAFF",
     requiresReason: true
   },
@@ -60,17 +61,23 @@ const transitions: Record<ClaimTransition, TransitionRule> = {
   /**
    * The client's evidence pack is complete. Reachable straight from SUBMITTED
    * because a client who uploads everything at once should never be routed
-   * through DOCUMENTS_REQUIRED just to leave it again.
+   * through DOCUMENTS_PENDING just to leave it again.
    */
   COMPLETE_DOCUMENTS: {
-    from: ["SUBMITTED", "DOCUMENTS_REQUIRED"],
+    from: ["SUBMITTED", "DOCUMENTS_PENDING"],
     to: "UNDER_REVIEW",
     actor: "EITHER",
     requiresReason: false
   },
 
   START_REVIEW: {
-    from: ["SUBMITTED", "DOCUMENTS_REQUIRED", "NEEDS_INFORMATION", "AWAITING_THIRD_PARTY"],
+    from: [
+      "SUBMITTED",
+      "DOCUMENTS_PENDING",
+      "NEEDS_INFORMATION",
+      "SUBMITTED_TO_CARRIER",
+      "CARRIER_REVIEWING"
+    ],
     to: "UNDER_REVIEW",
     actor: "STAFF",
     requiresReason: false
@@ -90,15 +97,33 @@ const transitions: Record<ClaimTransition, TransitionRule> = {
     requiresReason: false
   },
 
+  /** Swiftline has passed the claim to the carrier and is waiting for pick-up. */
   AWAIT_THIRD_PARTY: {
     from: ["UNDER_REVIEW", "PENDING_APPROVAL"],
-    to: "AWAITING_THIRD_PARTY",
+    to: "SUBMITTED_TO_CARRIER",
     actor: "STAFF",
     requiresReason: true
   },
 
+  /**
+   * The carrier has picked the claim up and started looking at it. A separate
+   * step because "sent" and "being reviewed" are the two things a client chasing
+   * a claim actually wants told apart.
+   */
+  CARRIER_ACKNOWLEDGED: {
+    from: ["SUBMITTED_TO_CARRIER"],
+    to: "CARRIER_REVIEWING",
+    actor: "STAFF",
+    requiresReason: false
+  },
+
+  /**
+   * The carrier has come back. Allowed from either carrier state, because a
+   * carrier that answers immediately never passes through CARRIER_REVIEWING and
+   * must not be stranded in SUBMITTED_TO_CARRIER for it.
+   */
   THIRD_PARTY_RESPONDED: {
-    from: ["AWAITING_THIRD_PARTY"],
+    from: ["SUBMITTED_TO_CARRIER", "CARRIER_REVIEWING"],
     to: "UNDER_REVIEW",
     actor: "STAFF",
     requiresReason: false
@@ -121,7 +146,7 @@ const transitions: Record<ClaimTransition, TransitionRule> = {
 
   ACCEPT_SETTLEMENT: {
     from: ["DECIDED"],
-    to: "SETTLEMENT_PENDING",
+    to: "PAYMENT_PROCESSING",
     actor: "CLIENT",
     requiresReason: false
   },
@@ -130,7 +155,7 @@ const transitions: Record<ClaimTransition, TransitionRule> = {
 
   /** Only a confirmed bank payment reaches SETTLED. Approval alone does not. */
   RECORD_PAYMENT: {
-    from: ["SETTLEMENT_PENDING"],
+    from: ["PAYMENT_PROCESSING"],
     to: "SETTLED",
     actor: "STAFF",
     requiresReason: false
@@ -152,10 +177,11 @@ const transitions: Record<ClaimTransition, TransitionRule> = {
     from: [
       "DRAFT",
       "SUBMITTED",
-      "DOCUMENTS_REQUIRED",
+      "DOCUMENTS_PENDING",
       "UNDER_REVIEW",
       "NEEDS_INFORMATION",
-      "AWAITING_THIRD_PARTY",
+      "SUBMITTED_TO_CARRIER",
+      "CARRIER_REVIEWING",
       "PENDING_APPROVAL"
     ],
     to: "WITHDRAWN",

@@ -36,6 +36,7 @@ const eventTypes: Partial<Record<ClaimTransition, ClaimEventType>> = {
   REQUEST_INFORMATION: "INFORMATION_REQUESTED",
   RECEIVE_INFORMATION: "STATUS_CHANGED",
   AWAIT_THIRD_PARTY: "STATUS_CHANGED",
+  CARRIER_ACKNOWLEDGED: "STATUS_CHANGED",
   THIRD_PARTY_RESPONDED: "STATUS_CHANGED",
   SEND_FOR_APPROVAL: "STATUS_CHANGED",
   DISPUTE_SETTLEMENT: "SETTLEMENT_DISPUTED",
@@ -55,6 +56,9 @@ const publicTransitions = new Set<ClaimTransition>([
   "REQUEST_DOCUMENTS",
   "REQUEST_INFORMATION",
   "AWAIT_THIRD_PARTY",
+  // The carrier picking the claim up is one of the statuses a client is shown,
+  // so the move onto it belongs on their timeline too.
+  "CARRIER_ACKNOWLEDGED",
   "DISPUTE_SETTLEMENT",
   "CLOSE",
   "WITHDRAW",
@@ -241,6 +245,16 @@ export async function awaitClaimThirdParty(input: {
     ...input,
     actorKind: "STAFF",
     transition: "AWAIT_THIRD_PARTY"
+  });
+  return claim;
+}
+
+/** The carrier has picked the claim up and begun reviewing it. */
+export async function claimCarrierAcknowledged(input: { claimId: string; actorUserId: string }) {
+  const { claim } = await runTransition({
+    ...input,
+    actorKind: "STAFF",
+    transition: "CARRIER_ACKNOWLEDGED"
   });
   return claim;
 }

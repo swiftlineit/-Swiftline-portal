@@ -165,7 +165,7 @@ export default function ClaimDetail({
               <h1 className="text-xl font-bold text-slate-900">
                 {claim.claimNumber ?? "Draft claim"}
               </h1>
-              <ClaimStatusBadge status={claim.status} />
+              <ClaimStatusBadge status={claim.status} decisionOutcome={claim.decisionOutcome} />
             </div>
             <p className="mt-1 text-sm text-slate-500">
               {claimLabel(claim.category)}
@@ -180,7 +180,7 @@ export default function ClaimDetail({
                   <span className="text-sm text-slate-500">
                     {" "}
                     — {formatClaimAmount(claim.approvedAmountMinor)}
-                    {claim.status === "SETTLEMENT_PENDING" ? ", awaiting payment" : ""}
+                    {claim.status === "PAYMENT_PROCESSING" ? ", awaiting payment" : ""}
                     {claim.status === "SETTLED" ? ", paid" : ""}
                   </span>
                 ) : null}
@@ -397,7 +397,7 @@ export default function ClaimDetail({
       ) : null}
 
       {/* Bank details are asked for only once there is money to pay. */}
-      {claim.status === "SETTLEMENT_PENDING" || beneficiary ? (
+      {claim.status === "PAYMENT_PROCESSING" || beneficiary ? (
         <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
             Settlement account

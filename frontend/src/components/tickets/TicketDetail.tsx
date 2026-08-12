@@ -12,6 +12,9 @@ import {
   replySupportTicket,
   shipmentIssueCategories,
   ticketLabel,
+  ticketPriorities,
+  ticketStatuses,
+  ticketStatusLabels,
   updateSupportTicket,
   type SupportTicket,
   type TicketAudience,
@@ -319,15 +322,9 @@ export default function TicketDetail({
                     }
                     className="h-10 w-full border rounded-xl border-slate-300 bg-white px-3 pr-9 text-sm"
                   >
-                    {[
-                      "OPEN",
-                      "IN_PROGRESS",
-                      "WAITING_FOR_CUSTOMER",
-                      "RESOLVED",
-                      "CLOSED",
-                    ].map((value) => (
+                    {ticketStatuses.map((value) => (
                       <option key={value} value={value}>
-                        {ticketLabel(value)}
+                        {ticketStatusLabels[value]}
                       </option>
                     ))}
                   </select>
@@ -340,9 +337,9 @@ export default function TicketDetail({
                     }
                     className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 pr-9 text-sm"
                   >
-                    {["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => (
-                      <option key={value} value={value}>
-                        {ticketLabel(value)}
+                    {ticketPriorities.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
                       </option>
                     ))}
                   </select>

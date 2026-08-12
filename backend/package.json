@@ -27,6 +27,8 @@
     "job:credit:mark-overdue": "tsx src/scripts/markCreditOverdue.ts",
     "job:credit:reconcile": "tsx src/scripts/reconcileCredit.ts",
     "migrate:claim-indexes": "tsx src/scripts/migrateClaimIndexes.ts",
+    "audit:claim-vocabulary": "tsx src/scripts/migrateClaimTicketVocabulary.ts",
+    "migrate:claim-vocabulary": "tsx src/scripts/migrateClaimTicketVocabulary.ts --apply",
     "seed:claim-policy": "tsx src/scripts/seedClaimPolicy.ts",
     "job:claims:purge-expired": "tsx src/scripts/purgeExpiredClaims.ts",
     "job:claims:sweep-deadlines": "tsx src/scripts/sweepClaimDeadlines.ts",

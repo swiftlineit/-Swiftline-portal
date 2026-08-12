@@ -321,10 +321,24 @@ export async function addSupportTicketReply(input: {
   }
 }
 
+/**
+ * Where a ticket may go from where it is.
+ *
+ * The three waiting states move freely between each other: a ticket held for a
+ * carrier often turns out to need the customer instead, and forcing it back
+ * through IN_PROGRESS to get there would put a step in the history that nobody
+ * actually took. Everything live can be resolved or closed outright, because a
+ * ticket answered in one reply should not need a detour to be finished.
+ */
 const allowedTransitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
-  OPEN: ["IN_PROGRESS", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"],
-  IN_PROGRESS: ["WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"],
-  WAITING_FOR_CUSTOMER: ["IN_PROGRESS", "RESOLVED", "CLOSED"],
+  OPEN: ["ASSIGNED", "IN_PROGRESS", "AWAITING_CARRIER", "WAITING_FOR_CUSTOMER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  ASSIGNED: ["IN_PROGRESS", "AWAITING_CARRIER", "WAITING_FOR_CUSTOMER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  IN_PROGRESS: ["AWAITING_CARRIER", "WAITING_FOR_CUSTOMER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  AWAITING_CARRIER: ["IN_PROGRESS", "WAITING_FOR_CUSTOMER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  WAITING_FOR_CUSTOMER: ["IN_PROGRESS", "AWAITING_CARRIER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  ACTION_REQUIRED: ["IN_PROGRESS", "AWAITING_CARRIER", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"],
+  // A resolved ticket reopens into investigation rather than back to Open, so
+  // the queue never shows a second-time ticket as though nobody had seen it.
   RESOLVED: ["IN_PROGRESS", "CLOSED"],
   CLOSED: ["IN_PROGRESS"]
 };

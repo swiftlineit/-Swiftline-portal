@@ -53,6 +53,9 @@ import { listShipments, type ShipmentListItem } from "@/lib/shipmentsList";
 import {
   listSupportTickets,
   ticketCategories,
+  ticketPriorities,
+  ticketStatuses,
+  ticketStatusLabels,
   type SupportTicket,
 } from "@/lib/supportTickets";
 import { BRANCH_VIEW_AREA } from "@/lib/roles";
@@ -868,15 +871,9 @@ function BranchTicketsSection({ branchId }: { branchId: string }) {
     className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-sm"
   >
     <option value="">All Status</option>
-    {[
-      "OPEN",
-      "IN_PROGRESS",
-      "WAITING_FOR_CUSTOMER",
-      "RESOLVED",
-      "CLOSED",
-    ].map((value) => (
+    {ticketStatuses.map((value) => (
       <option key={value} value={value}>
-        {value.replaceAll("_", " ")}
+        {ticketStatusLabels[value]}
       </option>
     ))}
   </select>
@@ -904,9 +901,9 @@ function BranchTicketsSection({ branchId }: { branchId: string }) {
     className="h-10 w-full appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-sm"
   >
     <option value="">All priorities</option>
-    {["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => (
-      <option key={value} value={value}>
-        {value}
+    {ticketPriorities.map((option) => (
+      <option key={option.value} value={option.value}>
+        {option.label}
       </option>
     ))}
   </select>

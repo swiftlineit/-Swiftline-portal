@@ -62,7 +62,7 @@ export default function ClaimTable({
                   : formatClaimAmount(claim.requestedAmountMinor)}
               </td>
               <td className="px-4 py-3">
-                <ClaimStatusBadge status={claim.status} />
+                <ClaimStatusBadge status={claim.status} decisionOutcome={claim.decisionOutcome} />
               </td>
               <td className="px-4 py-3 text-slate-500">
                 {formatDashboardDateTime(claim.updatedAt)}

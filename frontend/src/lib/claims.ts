@@ -16,13 +16,14 @@ export type ClaimCategory =
 export type ClaimStatus =
   | "DRAFT"
   | "SUBMITTED"
-  | "DOCUMENTS_REQUIRED"
+  | "DOCUMENTS_PENDING"
   | "UNDER_REVIEW"
   | "NEEDS_INFORMATION"
-  | "AWAITING_THIRD_PARTY"
+  | "SUBMITTED_TO_CARRIER"
+  | "CARRIER_REVIEWING"
   | "PENDING_APPROVAL"
   | "DECIDED"
-  | "SETTLEMENT_PENDING"
+  | "PAYMENT_PROCESSING"
   | "SETTLED"
   | "CLOSED"
   | "WITHDRAWN";
@@ -145,6 +146,31 @@ export function claimLabel(value: string) {
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+/**
+ * Statuses whose wording is not just their stored value title-cased.
+ * Everything else falls through to `claimLabel`.
+ */
+const claimStatusOverrides: Partial<Record<ClaimStatus, string>> = {
+  NEEDS_INFORMATION: "Information Requested",
+  SUBMITTED_TO_CARRIER: "Submitted to Carrier"
+};
+
+/**
+ * The status as a client should read it.
+ *
+ * A decided claim reads as "Approved" or "Rejected" rather than "Decided" — the
+ * outcome is the part anyone wants, and a partial approval is still an approval
+ * in the headline; the settled amount tells the rest. Mirrors
+ * `claimStatusLabel` on the server so both sides say the same word.
+ */
+export function claimStatusText(status: ClaimStatus, decisionOutcome?: ClaimDecisionOutcome | null) {
+  if (status === "DECIDED" && decisionOutcome) {
+    return decisionOutcome === "REJECTED" ? "Rejected" : "Approved";
+  }
+
+  return claimStatusOverrides[status] ?? claimLabel(status);
 }
 
 export type ClaimAffectedItem = {

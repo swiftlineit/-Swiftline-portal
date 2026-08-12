@@ -21,6 +21,8 @@ import TicketTable from "@/components/tickets/TicketTable";
 import {
   listSupportTickets,
   ticketCategories,
+  ticketStatuses,
+  ticketStatusLabels,
   type SupportTicket,
 } from "@/lib/supportTickets";
 import { useClientUser } from "@/lib/useClientUser";
@@ -174,15 +176,9 @@ export default function ClientTicketsPage() {
               className="h-10 w-full appearance-none border border-slate-300 bg-white px-3 pr-9 rounded-xl text-sm"
             >
               <option value="">All Status</option>
-              {[
-                "OPEN",
-                "IN_PROGRESS",
-                "WAITING_FOR_CUSTOMER",
-                "RESOLVED",
-                "CLOSED",
-              ].map((value) => (
+              {ticketStatuses.map((value) => (
                 <option key={value} value={value}>
-                  {value.replaceAll("_", " ")}
+                  {ticketStatusLabels[value]}
                 </option>
               ))}
             </select>

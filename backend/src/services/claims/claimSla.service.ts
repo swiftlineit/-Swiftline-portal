@@ -15,10 +15,10 @@ import type { IClaim } from "../../models/claim.model.js";
  */
 
 /** Statuses in which the ball is with the client, not with Swiftline. */
-const waitingOnClient = new Set(["DRAFT", "DOCUMENTS_REQUIRED", "NEEDS_INFORMATION"]);
+const waitingOnClient = new Set(["DRAFT", "DOCUMENTS_PENDING", "NEEDS_INFORMATION"]);
 
 /** Statuses in which everyone is waiting on someone outside the portal. */
-const waitingOnThirdParty = new Set(["AWAITING_THIRD_PARTY"]);
+const waitingOnThirdParty = new Set(["SUBMITTED_TO_CARRIER", "CARRIER_REVIEWING"]);
 
 /** Statuses in which the claim is finished and the clock has stopped. */
 const stopped = new Set(["SETTLED", "CLOSED", "WITHDRAWN"]);

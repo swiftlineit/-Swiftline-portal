@@ -21,13 +21,13 @@ import { useAdminUser } from "@/lib/useAdminUser";
 
 const queueStatuses: ClaimStatus[] = [
   "SUBMITTED",
-  "DOCUMENTS_REQUIRED",
+  "DOCUMENTS_PENDING",
   "UNDER_REVIEW",
   "NEEDS_INFORMATION",
-  "AWAITING_THIRD_PARTY",
+  "SUBMITTED_TO_CARRIER",
   "PENDING_APPROVAL",
   "DECIDED",
-  "SETTLEMENT_PENDING",
+  "PAYMENT_PROCESSING",
   "SETTLED",
   "CLOSED"
 ];
@@ -60,7 +60,7 @@ function Dropdown({
 }
 
 /** Statuses where the next move is Swiftline's rather than the client's. */
-const actionOnUs: ClaimStatus[] = ["SUBMITTED", "UNDER_REVIEW", "PENDING_APPROVAL", "SETTLEMENT_PENDING"];
+const actionOnUs: ClaimStatus[] = ["SUBMITTED", "UNDER_REVIEW", "PENDING_APPROVAL", "PAYMENT_PROCESSING"];
 
 export default function StaffClaimsPage() {
   const { user, loading } = useAdminUser(CLAIMS_AREA);
@@ -301,7 +301,7 @@ export default function StaffClaimsPage() {
                       {formatClaimAmount(declared)}
                     </td>
                     <td className="px-4 py-3">
-                      <ClaimStatusBadge status={claim.status} />
+                      <ClaimStatusBadge status={claim.status} decisionOutcome={claim.decisionOutcome} />
                     </td>
                     <td className="px-4 py-3 text-slate-600">
                       {claim.assignedToName || (
