@@ -502,6 +502,7 @@ export const shipmentHoldReasonOptions = [
   { value: "address_issue", label: "Address issue" },
   { value: "restricted_item_check", label: "Restricted item check" },
   { value: "operational_delay", label: "Operational delay" },
+  { value: "missed_connection", label: "Missed connection" },
   { value: "other", label: "Other" }
 ] as const;
 

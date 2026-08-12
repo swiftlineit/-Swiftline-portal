@@ -41,6 +41,10 @@ export const shipmentHoldReasonValues = [
   "address_issue",
   "restricted_item_check",
   "operational_delay",
+  // A shipment that missed its flight or road connection. Recorded as a hold so
+  // the client is told why it stopped moving, rather than left to infer it from
+  // a gap between "flight assigned" and the next scan.
+  "missed_connection",
   "other"
 ] as const;
 
