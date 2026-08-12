@@ -68,7 +68,13 @@ export type SupportTicket = {
   id: string; ticketNumber: string; businessAccountId: string; branchId: string;
   category: TicketCategory; priority: TicketPriority; status: TicketStatus; subject: string;
   relatedShipmentDraftId: string | null; assignedTo: string | null;
-  lastMessageAt: string; resolvedAt: string | null; closedAt: string | null; createdAt: string; updatedAt: string;
+  lastMessageAt: string;
+  sla?: {
+    firstResponseDueAt: string;
+    firstRespondedAt: string | null;
+    breached: boolean;
+    open: boolean;
+  } | null; resolvedAt: string | null; closedAt: string | null; createdAt: string; updatedAt: string;
   // Present only on a resolved ticket loaded with its messages; null otherwise.
   resolvedReplyAllowance: { used: number; max: number } | null;
   account: { id: string; accountId: string; companyName: string } | null;

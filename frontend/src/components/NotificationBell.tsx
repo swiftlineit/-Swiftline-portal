@@ -31,6 +31,31 @@ export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [error, setError] = useState("");
 
+  /**
+   * Unread notifications grouped into the handful of things a customer acts on.
+   *
+   * Matched on the notification type rather than a stored category, so a type
+   * added later simply falls outside the summary instead of needing this list
+   * kept in step to keep working.
+   */
+  const unreadSummary = (() => {
+    const unread = notifications.filter((notification) => !notification.readAt);
+    const groups = [
+      { label: "Action required", className: "border-red-200 bg-red-50 text-red-700", match: /DOCUMENTS_REQUIRED|ACTION_REQUIRED|INFORMATION_REQUESTED|BANK_DETAILS_REQUIRED|ACCEPTANCE_REQUIRED/ },
+      { label: "Customs holds", className: "border-amber-200 bg-amber-50 text-amber-800", match: /HOLD|CUSTOMS/ },
+      { label: "Delivery exceptions", className: "border-amber-200 bg-amber-50 text-amber-800", match: /DELIVERY|POD_DISPUTED|PICKUP_CANCELLED/ },
+      { label: "Claim updates", className: "border-violet-200 bg-violet-50 text-violet-800", match: /^CLAIM_/ },
+      { label: "Payments due", className: "border-red-200 bg-red-50 text-red-700", match: /PAYMENT_DUE|PAYMENT_OVERDUE|STATEMENT_ISSUED/ },
+    ];
+
+    return groups
+      .map((group) => ({
+        ...group,
+        count: unread.filter((notification) => group.match.test(notification.type)).length,
+      }))
+      .filter((group) => group.count > 0);
+  })();
+
   const load = useCallback(async () => {
     try {
       const result = await listNotifications();
@@ -159,15 +184,35 @@ export default function NotificationBell() {
             ) : null}
           </div>
 
+          {/* A summary of what is unread, above the list itself.
+              Twelve rows do not tell you at a glance that two are customs
+              holds; a count of each kind does. */}
+          {unreadSummary.length ? (
+            <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-4 py-2.5">
+              {unreadSummary.map((group) => (
+                <span
+                  key={group.label}
+                  className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${group.className}`}
+                >
+                  {group.count} {group.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
           <div className="max-h-90 overflow-y-auto">
             {error ? (
               <p className="p-4 text-sm text-red-700">{error}</p>
             ) : null}
 
             {!error && !notifications.length ? (
-              <p className="p-6 text-center text-sm text-slate-500">
-                No notifications yet.
-              </p>
+              <div className="px-6 py-8 text-center">
+                <p className="text-sm font-semibold text-slate-700">You are all caught up</p>
+                <p className="mx-auto mt-1 max-w-xs text-xs leading-5 text-slate-500">
+                  Holds, delivery exceptions, claim decisions, payment reminders and replies from
+                  Swiftline all arrive here.
+                </p>
+              </div>
             ) : null}
 
             {notifications.map((notification) => (

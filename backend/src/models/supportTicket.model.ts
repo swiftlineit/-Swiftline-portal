@@ -90,10 +90,32 @@ export interface ISupportTicket extends mongoose.Document {
   subject: string;
   statusHistory: SupportTicketStatusHistoryItem[];
   lastMessageAt: Date;
+  /** When Swiftline owes this customer a first reply. Set once, at creation. */
+  firstResponseDueAt: Date;
+  /** When the first Swiftline reply actually landed. Null until it does. */
+  firstRespondedAt?: Date | null;
   resolvedAt?: Date | null;
   closedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * Hours to first response, by priority.
+ *
+ * Whether an SLA is breached is worked out on read from these and
+ * `firstRespondedAt`, not written by a sweeper: a stored "breached" flag is
+ * wrong for every minute between the deadline passing and the job noticing,
+ * and the queue is read far more often than it is swept.
+ */
+export const firstResponseHoursByPriority: Record<SupportTicketPriority, number> = {
+  NORMAL: 24,
+  URGENT: 8,
+  CRITICAL: 2
+};
+
+export function firstResponseDueFrom(priority: SupportTicketPriority, from: Date) {
+  return new Date(from.getTime() + firstResponseHoursByPriority[priority] * 60 * 60 * 1000);
 }
 
 const statusHistorySchema = new mongoose.Schema<SupportTicketStatusHistoryItem>({
@@ -117,6 +139,10 @@ const supportTicketSchema = new mongoose.Schema<ISupportTicket>({
   subject: { type: String, required: true, trim: true, minlength: 5, maxlength: 120 },
   statusHistory: { type: [statusHistorySchema], default: [] },
   lastMessageAt: { type: Date, required: true, default: Date.now, index: true },
+  // Defaulted so tickets created before SLAs existed still carry a deadline
+  // rather than reading as overdue since 1970.
+  firstResponseDueAt: { type: Date, required: true, default: Date.now, index: true },
+  firstRespondedAt: { type: Date, default: null },
   resolvedAt: { type: Date, default: null },
   closedAt: { type: Date, default: null }
 }, { timestamps: true });
