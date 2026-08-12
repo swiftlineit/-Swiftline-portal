@@ -59,7 +59,8 @@ import { listClientBookedShipments } from "../controllers/shipmentListing.contro
 import {
   getClientOverview,
   listClientActions,
-  listClientExceptions
+  listClientExceptions,
+  searchClient
 } from "../controllers/clientOverview.controller.js";
 import { listClientCountryRateCards } from "../controllers/clientRateCard.controller.js";
 import {
@@ -134,6 +135,7 @@ clientRouter.get("/dashboard", getClientDashboard);
 clientRouter.get("/overview", getClientOverview);
 clientRouter.get("/exceptions", listClientExceptions);
 clientRouter.get("/actions", listClientActions);
+clientRouter.get("/search", searchClient);
 clientRouter.get("/quotes/context", getClientQuoteContext);
 clientRouter.post("/quotes/estimate", estimateClientShipmentQuote);
 clientRouter.post("/quotes/draft", createClientQuoteShipmentDraft);

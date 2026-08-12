@@ -28,6 +28,7 @@ import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
 import UnsavedChangesDialog from "@/components/UnsavedChangesDialog";
 import RateCardTray from "@/components/rate-cards/RateCardTray";
+import GlobalSearch from "@/components/client/GlobalSearch";
 import { getClientDashboard } from "@/lib/clientDashboard";
 import { BsWhatsapp, BsCurrencyRupee } from "react-icons/bs";
 import OperationsCalendarIcon from "@/components/OperationsCalendarIcon";
@@ -134,6 +135,10 @@ export function ClientDashboardShell({
   // Stable identity: the sidebar holds a media-query listener keyed on it, and
   // a fresh closure each render would rebind that listener each render.
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
+  // Taken from the dashboard call the navigation already makes, so search costs
+  // no extra request. Search stays hidden until it resolves — a box that
+  // returns nothing because it does not know the account is worse than none.
+  const [searchAccountId, setSearchAccountId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -172,6 +177,10 @@ export function ClientDashboardShell({
 
     void getClientDashboard()
       .then((dashboard) => {
+        const searchable = dashboard.accounts.find((item) => item.dashboardAccess.state === "READY")
+          ?? dashboard.accounts[0];
+        if (active) setSearchAccountId(searchable?.account.id ?? "");
+
         resolve(
           dashboard.accounts.some((item) =>
             ["account_owner", "account_admin", "finance"].includes(
@@ -239,8 +248,12 @@ export function ClientDashboardShell({
               <FiMenu aria-hidden="true" className="h-5 w-5" />
             </button>
 
-            {/* Pushes the controls right, and is where global search will sit. */}
-            <div className="min-w-0 flex-1" />
+            {/* From `lg` the search bar lives inline; below it moves to its own
+                row, where a full-width field is usable on a phone. */}
+            <div className="hidden min-w-0 flex-1 lg:block">
+              {searchAccountId ? <GlobalSearch businessAccountId={searchAccountId} /> : null}
+            </div>
+            <div className="min-w-0 flex-1 lg:hidden" />
 
             <div className="flex shrink-0 items-center gap-2 lg:gap-4">
               {/* The name is the first thing to go when width is short: it is
@@ -309,6 +322,16 @@ export function ClientDashboardShell({
               </div>
             </div>
           </header>
+
+          {/* Below `lg` search gets its own row: sharing the first one with the
+              hamburger and five controls would leave it too narrow to read an
+              AWB in. */}
+          {searchAccountId ? (
+            <div className="shrink-0 border-b border-slate-200 bg-white px-4 pb-3 lg:hidden">
+              <GlobalSearch businessAccountId={searchAccountId} />
+            </div>
+          ) : null}
+
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [overflow-anchor:none] scrollbar-none [-ms-overflow-style:none] sm:px-6 lg:px-8 lg:py-6 [&::-webkit-scrollbar]:hidden">
             {children}
           </div>
