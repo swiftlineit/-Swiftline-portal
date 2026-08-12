@@ -978,6 +978,7 @@ function serializeClientShipmentEvent(event: {
   status: string;
   holdReason?: string | null;
   note?: string;
+  location?: string;
   customerVisible: boolean;
   eventAt: Date;
 }) {
@@ -989,6 +990,7 @@ function serializeClientShipmentEvent(event: {
     statusLabel: formatShipmentEventLabel(event.status),
     holdReason: event.holdReason ?? null,
     note: event.note ?? "",
+    location: event.location ?? "",
     customerVisible: event.customerVisible,
     eventAt: event.eventAt
   };

@@ -500,6 +500,14 @@ export default function ShipmentTrackingPage({
                         <p className="mt-1 text-sm text-slate-500">
                           {formatDashboardDateTime(item.eventAt)}
                         </p>
+                        {/* Only scans Operations recorded a place for carry one;
+                            the rest of the timeline reads normally without it. */}
+                        {item.location ? (
+                          <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                            <FiMapPin aria-hidden="true" className="h-3.5 w-3.5 text-slate-400" />
+                            {item.location}
+                          </p>
+                        ) : null}
                         {item.note ? (
                           <p className="mt-1 text-sm text-slate-600">
                             {item.note}

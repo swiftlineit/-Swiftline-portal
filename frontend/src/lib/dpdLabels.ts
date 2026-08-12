@@ -487,6 +487,8 @@ export type ShipmentEvent = {
   statusLabel: string;
   holdReason?: string | null;
   note: string;
+  /** Where the scan happened, as Operations recorded it. Empty when not known. */
+  location: string;
   customerVisible: boolean;
   eventAt: string;
   createdBy?: string;
@@ -956,11 +958,12 @@ export async function holdDpdShipment(input: {
   dpdShipmentId: string;
   reason: ShipmentHoldReason;
   note: string;
+  location?: string;
 }) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/dpd-shipments/${input.dpdShipmentId}/hold`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason: input.reason, note: input.note })
+    body: JSON.stringify({ reason: input.reason, note: input.note, location: input.location ?? "" })
   });
 
   return parseApiResponse<{
@@ -973,11 +976,12 @@ export async function holdDpdShipment(input: {
 export async function releaseDpdShipment(input: {
   dpdShipmentId: string;
   note: string;
+  location?: string;
 }) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/dpd-shipments/${input.dpdShipmentId}/release`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note: input.note })
+    body: JSON.stringify({ note: input.note, location: input.location ?? "" })
   });
 
   return parseApiResponse<{
@@ -991,11 +995,12 @@ export async function updateDpdShipmentOperationalStatus(input: {
   dpdShipmentId: string;
   status: ShipmentOperationalStatus;
   note?: string;
+  location?: string;
 }) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/dpd-shipments/${input.dpdShipmentId}/status-events`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: input.status, note: input.note })
+    body: JSON.stringify({ status: input.status, note: input.note, location: input.location ?? "" })
   });
 
   return parseApiResponse<{

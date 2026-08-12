@@ -183,6 +183,9 @@ export default function AdminShipmentDetailsPage() {
   const [holdReason, setHoldReason] = useState<ShipmentHoldReason>("missing_documents");
   const [nextStatus, setNextStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [actionNote, setActionNote] = useState("");
+  // Where this scan happened. Optional — an event without a location is still
+  // recorded, it just does not move the shipment's "current location".
+  const [actionLocation, setActionLocation] = useState("");
   const [amendmentBusy, setAmendmentBusy] = useState(false);
   const [chargeVerified, setChargeVerified] = useState(false);
   const [cancellationBusy, setCancellationBusy] = useState(false);
@@ -249,23 +252,27 @@ export default function AdminShipmentDetailsPage() {
         await holdDpdShipment({
           dpdShipmentId: history.dpdShipment.id,
           reason: holdReason,
-          note: actionNote
+          note: actionNote,
+          location: actionLocation
         });
       } else if (actionMode === "release") {
         await releaseDpdShipment({
           dpdShipmentId: history.dpdShipment.id,
-          note: actionNote
+          note: actionNote,
+          location: actionLocation
         });
       } else {
         await updateDpdShipmentOperationalStatus({
           dpdShipmentId: history.dpdShipment.id,
           status: nextStatus,
-          note: actionNote || "Live action updated by Swiftline Operations"
+          note: actionNote || "Live action updated by Swiftline Operations",
+          location: actionLocation
         });
       }
 
       setActionMode(null);
       setActionNote("");
+      setActionLocation("");
       await loadShipment();
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Shipment action failed.";
@@ -418,7 +425,7 @@ export default function AdminShipmentDetailsPage() {
             ) : null}
             {actionMode ? (
              <section className="border  bg-white p-5 rounded-2xl border-amber-300">
-                <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_auto] lg:items-end">
+                <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_220px_auto] lg:items-end">
                   {actionMode === "hold" ? (
                     <label>
                       <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hold Reason</span>
@@ -468,6 +475,19 @@ export default function AdminShipmentDetailsPage() {
                       className="mt-2 h-10 w-full border border-slate-300 px-3  rounded-xl text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
                     />
                   </label>
+                  <label>
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Location <span className="font-normal normal-case text-slate-400">(optional)</span>
+                    </span>
+                    <input
+                      value={actionLocation}
+                      onChange={(event) => setActionLocation(event.target.value)}
+                      maxLength={120}
+                      placeholder="Delhi Hub"
+                      title="Where this scan happened. Shown to the customer as the shipment's current location."
+                      className="mt-2 h-10 w-full border border-slate-300 px-3 rounded-xl text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
+                    />
+                  </label>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -482,6 +502,7 @@ export default function AdminShipmentDetailsPage() {
                       onClick={() => {
                         setActionMode(null);
                         setActionNote("");
+                        setActionLocation("");
                       }}
                       className="h-10 border     border-slate-300 px-4  rounded-2xl text-sm font-semibold text-slate-700 hover:border-slate-500"
                     >
