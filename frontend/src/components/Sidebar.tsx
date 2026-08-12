@@ -17,6 +17,7 @@ import {
   FiCreditCard,
   FiEdit3,
   FiFileText,
+  FiGlobe,
   FiGrid,
   FiHelpCircle,
   FiShield,
@@ -121,6 +122,7 @@ const staffNavigation: Array<
       { label: "Pickup Drivers", href: "/dashboard/drivers", icon: FiUsers, roles: withAdmin(OPERATIONS_AREA) },
       { label: "International POD", href: "/dashboard/pod", icon: FiFileText, roles: withAdmin(OPERATIONS_AREA) },
       { label: "Operations Advisory", href: "/dashboard/operations-advisory", icon: FiAlertOctagon, roles: withAdmin(OPERATIONS_AREA) },
+      { label: "Swiftline Routes", href: "/dashboard/swiftline-routes", icon: FiGlobe, roles: withAdmin(OPERATIONS_AREA) },
     ],
   },
   {

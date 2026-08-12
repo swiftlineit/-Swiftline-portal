@@ -17,6 +17,7 @@ import { addressLookupRouter } from "./routes/addressLookup.routes.js";
 import { referenceRouter } from "./routes/reference.routes.js";
 import { clientRouter } from "./routes/client.routes.js";
 import { countryRateCardRouter } from "./routes/countryRateCard.routes.js";
+import { swiftlineRouteRouter } from "./routes/swiftlineRoute.routes.js";
 import {
   publicRateCardRouter,
   rateCardShareRouter,
@@ -125,6 +126,7 @@ app.use("/api/v1/address-lookup", addressLookupRouter);
 app.use("/api/v1/reference", referenceRouter);
 app.use("/api/v1/client", clientRouter);
 app.use("/api/v1/country-rate-cards", countryRateCardRouter);
+app.use("/api/v1/swiftline-routes", swiftlineRouteRouter);
 app.use("/api/v1/rate-card-shares", rateCardShareRouter);
 // Session-free by design: the link token in the query string is the credential.
 app.use("/api/v1/public/rate-cards", publicRateCardRouter);
