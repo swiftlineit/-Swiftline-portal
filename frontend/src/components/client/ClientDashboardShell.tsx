@@ -1,16 +1,20 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useState } from "react";
 import {
   FiArchive,
+  FiCalendar,
   FiClipboard,
   FiCreditCard,
   FiFileText,
   FiGrid,
   FiHelpCircle,
+  FiMapPin,
+  FiMenu,
   FiShield,
   FiLogOut,
   FiPackage,
+  FiPlusSquare,
   FiTag,
   FiTruck,
   FiUser,
@@ -39,8 +43,17 @@ export type ClientShellUser = {
  * Client navigation, grouped by what the customer came to do. `access` names the
  * permission a link waits on; the rest are open to every member of an account.
  */
-type ClientAccess = "financial" | "quote" | "quoteRequest";
+type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking";
 
+/**
+ * Grouped by the job the customer came to do.
+ *
+ * Only destinations that exist are listed. The requested structure also names
+ * Address Book, Shipment Templates, Bulk Upload, POD Centre, Documents Centre,
+ * Customs & KYC, Serviceability and Team Members; those arrive with the pages
+ * themselves rather than as links that 404 in the meantime. Exceptions and
+ * Action Required join Operations when their pages land.
+ */
 const clientNavigation: Array<
   | { label: string; href: string; icon: IconType }
   | {
@@ -54,9 +67,16 @@ const clientNavigation: Array<
     label: "Shipments",
     icon: FiPackage,
     items: [
+      { label: "Create Shipment", href: "/client/dpd-labels", icon: FiPlusSquare, access: "booking" },
       { label: "My Shipments", href: "/client/shipments", icon: FiPackage },
-      { label: "Request Pickup", href: "/client/pickups", icon: FiTruck },
-      { label: "Tracking", href: "/client/tracking", icon: FiTruck },
+      { label: "Tracking", href: "/client/tracking", icon: FiMapPin },
+    ],
+  },
+  {
+    label: "Operations",
+    icon: FiTruck,
+    items: [
+      { label: "Pickup Management", href: "/client/pickups", icon: FiTruck },
       { label: "Manifests", href: "/client/manifests", icon: FiArchive },
     ],
   },
@@ -78,10 +98,24 @@ const clientNavigation: Array<
       { label: "Top-up & Payments", href: "/client/payments", icon: FiCreditCard, access: "financial" },
     ],
   },
-  { label: "Help-Desk", href: "/client/tickets", icon: FiHelpCircle },
-  // Claims sit beside Help-Desk rather than inside it: enquiries and
-  // compensation are separate journeys with separate rules.
-  { label: "Claims", href: "/client/claims", icon: FiShield },
+  {
+    // Enquiries and compensation are separate journeys with separate rules, so
+    // they sit side by side under one heading rather than nested.
+    label: "Claims & Support",
+    icon: FiShield,
+    items: [
+      { label: "Claims", href: "/client/claims", icon: FiShield },
+      { label: "Help Desk", href: "/client/tickets", icon: FiHelpCircle },
+    ],
+  },
+  {
+    label: "Account",
+    icon: FiUser,
+    items: [
+      { label: "My Profile", href: "/client/profile", icon: FiUser },
+      { label: "Holiday & Cut-Off Calendar", href: "/client/operations-calendar", icon: FiCalendar },
+    ],
+  },
 ];
 
 export function ClientDashboardShell({
@@ -95,6 +129,11 @@ export function ClientDashboardShell({
   // The permission-gated links depend on an API call, so the whole list stays
   // empty until it settles and every link then appears in one paint.
   const [navigation, setNavigation] = useState<SidebarNavEntry[] | null>(null);
+  // Below `lg` the sidebar is an off-canvas drawer; this is what opens it.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Stable identity: the sidebar holds a media-query listener keyed on it, and
+  // a fresh closure each render would rebind that listener each render.
+  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
 
   useEffect(() => {
     let active = true;
@@ -103,6 +142,7 @@ export function ClientDashboardShell({
       hasFinancialAccess: boolean,
       hasQuoteAccess: boolean,
       canRequestQuote: boolean,
+      canBook: boolean,
     ) {
       if (!active) return;
 
@@ -110,6 +150,7 @@ export function ClientDashboardShell({
         financial: hasFinancialAccess,
         quote: hasQuoteAccess,
         quoteRequest: canRequestQuote,
+        booking: canBook,
       };
 
       setNavigation(
@@ -153,9 +194,20 @@ export function ClientDashboardShell({
               item.account.rateCard.assigned &&
               item.dashboardAccess.state === "READY",
           ),
+          // Mirrors canCreateShipment: a member who cannot book should not be
+          // shown the way to the booking form.
+          dashboard.accounts.some(
+            (item) =>
+              ["account_owner", "account_admin", "operations"].includes(
+                item.membership.role,
+              ) &&
+              item.assignedBranches.length > 0 &&
+              item.bookingAccess.state === "READY" &&
+              item.dashboardAccess.state === "READY",
+          ),
         );
       })
-      .catch(() => resolve(false, false, false));
+      .catch(() => resolve(false, false, false, false));
 
     return () => {
       active = false;
@@ -171,11 +223,29 @@ export function ClientDashboardShell({
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#EEEDED]/60">
       <div className="h-1 shrink-0 bg-[#0D1282]" />
       <div className="flex min-h-0 flex-1">
-        <Sidebar items={navigation ?? []} />
+        <Sidebar
+          items={navigation ?? []}
+          mobileOpen={mobileNavOpen}
+          onMobileClose={closeMobileNav}
+        />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8">
-            <div className="flex items-center gap-4">
-              <div className="text-right">
+          <header className="flex h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4 lg:h-20 lg:gap-4 lg:px-8">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30 lg:hidden"
+            >
+              <FiMenu aria-hidden="true" className="h-5 w-5" />
+            </button>
+
+            {/* Pushes the controls right, and is where global search will sit. */}
+            <div className="min-w-0 flex-1" />
+
+            <div className="flex shrink-0 items-center gap-2 lg:gap-4">
+              {/* The name is the first thing to go when width is short: it is
+                  the only item here that is not a control. */}
+              <div className="hidden text-right md:block">
                 <p className="text-sm font-semibold tracking-wide uppercase text-[#0D1282]">
                   {user.name || user.email}
                 </p>
@@ -217,10 +287,11 @@ export function ClientDashboardShell({
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="inline-flex items-center gap-2 rounded-4xl bg-[#D71313] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2"
+                  aria-label="Logout"
+                  className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#D71313] px-3 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2 sm:px-4"
                 >
                   <FiLogOut aria-hidden="true" className="h-4 w-4" />
-                  Logout
+                  <span className="hidden sm:inline">Logout</span>
                 </button>
 
                 <div
@@ -238,7 +309,7 @@ export function ClientDashboardShell({
               </div>
             </div>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 [overflow-anchor:none] scrollbar-none [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [overflow-anchor:none] scrollbar-none [-ms-overflow-style:none] sm:px-6 lg:px-8 lg:py-6 [&::-webkit-scrollbar]:hidden">
             {children}
           </div>
           <DeepLinkTarget />
@@ -255,7 +326,9 @@ export function ClientDashboardShell({
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Contact support on WhatsApp"
-        className="fixed bottom-5 right-5 z-60 flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow transition hover:scale-105 hover:bg-[#1ea952]"
+        // Below the nav drawer (z-50) and its backdrop (z-40), so an open menu
+        // covers it instead of leaving it floating over the overlay.
+        className="fixed bottom-5 right-5 z-30 flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow transition hover:scale-105 hover:bg-[#1ea952]"
       >
         <BsWhatsapp className="h-5 w-5" />
         <span className="hidden sm:inline"> WhatsApp Support</span>

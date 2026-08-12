@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useGuardedNavigate } from "@/lib/useUnsavedChanges";
@@ -26,6 +26,7 @@ import {
   FiSettings,
   FiTruck,
   FiUsers,
+  FiX,
   FiXCircle,
 } from "react-icons/fi";
 import { BsCurrencyRupee } from "react-icons/bs";
@@ -191,23 +192,62 @@ function matchesRoute(pathname: string, href: string) {
 export default function Sidebar({
   userRole,
   items,
+  mobileOpen,
+  onMobileClose,
 }: {
   userRole?: string;
   items?: SidebarNavEntry[];
+  /**
+   * Supplying these two turns the rail into an off-canvas drawer below `lg`.
+   *
+   * Opt-in rather than automatic: this component is also the staff sidebar,
+   * which has no drawer to open it with. Making the drawer the default would
+   * leave that portal with a sidebar permanently slid off-screen on a phone.
+   */
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }) {
   const pathname = usePathname();
   const guardNavigate = useGuardedNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  /**
+   * Widening past `lg` dismisses the drawer.
+   *
+   * Without this, a menu opened on a phone stays "open" after a rotate or a
+   * resize, and because an open drawer forces labels on, the desktop collapse
+   * button would then appear to do nothing. Closing on the breakpoint change
+   * hands control back to the rail.
+   */
+  useEffect(() => {
+    if (!onMobileClose) return;
+
+    const desktop = window.matchMedia("(min-width: 64rem)");
+    const closeIfDesktop = () => { if (desktop.matches) onMobileClose(); };
+
+    desktop.addEventListener("change", closeIfDesktop);
+    return () => desktop.removeEventListener("change", closeIfDesktop);
+  }, [onMobileClose]);
   // Only groups the user has toggled appear here; the rest fall back to opening
   // when they hold the current page, so you always land with your section open.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const navigation = items ?? staffNavigationFor(userRole ?? "");
+  const isDrawer = typeof onMobileClose === "function";
+
+  /**
+   * Whether labels are showing.
+   *
+   * Derived rather than stored so an open drawer is always full width: the
+   * drawer is 18rem regardless, and a rail collapsed earlier on a desktop would
+   * otherwise reopen on a phone as unlabelled icons in a wide panel.
+   */
+  const expanded = isDrawer && mobileOpen ? true : sidebarOpen;
 
   function toggleGroup(label: string, isOpen: boolean) {
     // There is nowhere to show children while collapsed, so opening a group
     // opens the rail with it.
-    if (!sidebarOpen) {
+    if (!expanded) {
       setSidebarOpen(true);
       setOpenGroups((current) => ({ ...current, [label]: true }));
       return;
@@ -215,8 +255,13 @@ export default function Sidebar({
     setOpenGroups((current) => ({ ...current, [label]: !isOpen }));
   }
 
+  /** Tapping a destination in the drawer should also dismiss it. */
+  function handleNavigated() {
+    if (isDrawer) onMobileClose?.();
+  }
+
   const rowBase = "group flex h-11 items-center rounded-lg text-sm font-medium transition";
-  const rowLayout = sidebarOpen ? "w-full justify-start gap-3 px-3" : "mx-auto w-11 justify-center";
+  const rowLayout = expanded ? "w-full justify-start gap-3 px-3" : "mx-auto w-11 justify-center";
 
   function iconClass(active: boolean) {
     return `h-4 w-4 shrink-0 transition-colors ${
@@ -224,18 +269,51 @@ export default function Sidebar({
     }`;
   }
 
+  // The static rail is left exactly as it was, so the staff portal renders
+  // byte-for-byte the same chrome it did before the drawer existed.
+  const asideClass = isDrawer
+    ? [
+      "flex min-h-0 flex-col overflow-hidden border-r border-slate-200 bg-white",
+      // Below lg: an off-canvas panel that slides over the page.
+      //
+      // `invisible` while closed keeps its links out of the tab order — a menu
+      // sitting off-screen must not be reachable by keyboard. Transitioning
+      // visibility alongside transform is what stops that from cutting the
+      // slide-out short: it flips only once the panel has finished moving.
+      "fixed inset-y-0 left-0 z-50 w-72 transition-[transform,visibility] duration-300",
+      mobileOpen ? "translate-x-0 visible" : "-translate-x-full invisible",
+      // From lg: back to the in-flow rail. Always visible there, and no width
+      // utility other than the collapse pair below — two `lg:w-*` classes on one
+      // element resolve by stylesheet order, not by which was written last.
+      "lg:static lg:z-auto lg:h-full lg:shrink-0 lg:visible lg:translate-x-0 lg:transition-all",
+      sidebarOpen ? "lg:w-60" : "lg:w-20"
+    ].join(" ")
+    : `flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white transition-all duration-300 ${
+      sidebarOpen ? "w-60" : "w-20"
+    }`;
+
   return (
-    <aside
-      className={`flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white transition-all duration-300 ${
-        sidebarOpen ? "w-60" : "w-20"
-      }`}
-    >
+    <>
+      {isDrawer ? (
+        <div
+          aria-hidden="true"
+          onClick={onMobileClose}
+          className={`fixed inset-0 z-40 bg-slate-900/40 transition-opacity duration-300 lg:hidden ${
+            mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        />
+      ) : null}
+
+      {/* No aria-hidden here: `mobileOpen` is false on desktop too, where this
+          rail is plainly visible. Visibility above does the hiding, and it is
+          breakpoint-aware in a way an attribute cannot be. */}
+      <aside className={asideClass}>
       <div
         className={`flex h-20 shrink-0 items-center border-b border-slate-200 px-3 ${
-          sidebarOpen ? "justify-between gap-3" : "justify-center"
+          expanded ? "justify-between gap-3" : "justify-center"
         }`}
       >
-        {sidebarOpen ? (
+        {expanded ? (
           <div className="flex min-w-0 items-center gap-3">
             <Link href="/dashboard" onNavigate={guardNavigate("/dashboard")}>
               <Image
@@ -249,11 +327,26 @@ export default function Sidebar({
           </div>
         ) : null}
 
+        {/* In the drawer this closes it; on the rail it collapses to icons.
+            One control, because on a phone there is no rail to collapse. */}
+        {isDrawer ? (
+          <button
+            type="button"
+            onClick={onMobileClose}
+            aria-label="Close menu"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-lg font-semibold text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30 lg:hidden"
+          >
+            <FiX aria-hidden="true" />
+          </button>
+        ) : null}
+
         <button
           type="button"
           onClick={() => setSidebarOpen((current) => !current)}
           aria-label={sidebarOpen ? "Collapse sidebar" : "Open sidebar"}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-lg font-semibold text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30"
+          className={`h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-lg font-semibold text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30 ${
+            isDrawer ? "hidden lg:flex" : "flex"
+          }`}
         >
           {sidebarOpen ? (
             <FiChevronLeft aria-hidden="true" />
@@ -281,15 +374,16 @@ export default function Sidebar({
                 // silently. One guard here covers every form in the portal,
                 // because the dirty state is held in a shared registry.
                 onNavigate={guardNavigate(entry.href)}
+                onClick={handleNavigated}
                 className={`${rowBase} ${rowLayout} ${
                   isActive
                     ? "bg-[#0D1282]/8 font-semibold text-[#0D1282]"
                     : "text-slate-600 hover:bg-[#0D1282]/8 hover:text-slate-900"
                 }`}
-                title={sidebarOpen ? undefined : entry.label}
+                title={expanded ? undefined : entry.label}
               >
                 <Icon aria-hidden="true" className={iconClass(isActive)} />
-                {sidebarOpen ? <span className="truncate">{entry.label}</span> : null}
+                {expanded ? <span className="truncate">{entry.label}</span> : null}
               </Link>
             );
           }
@@ -302,16 +396,16 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={() => toggleGroup(entry.label, isOpen)}
-                aria-expanded={sidebarOpen ? isOpen : false}
+                aria-expanded={expanded ? isOpen : false}
                 className={`${rowBase} ${rowLayout} ${
                   holdsCurrentPage
                     ? "font-semibold text-[#0D1282]"
                     : "text-slate-600 hover:bg-[#0D1282]/8 hover:text-slate-900"
                 }`}
-                title={sidebarOpen ? undefined : entry.label}
+                title={expanded ? undefined : entry.label}
               >
                 <Icon aria-hidden="true" className={iconClass(holdsCurrentPage)} />
-                {sidebarOpen ? (
+                {expanded ? (
                   <>
                     <span className="flex-1 truncate text-left">{entry.label}</span>
                     <FiChevronDown
@@ -325,7 +419,7 @@ export default function Sidebar({
               </button>
 
               {/* The rail down the left ties the children to their heading. */}
-              {sidebarOpen && isOpen ? (
+              {expanded && isOpen ? (
                 <div className="mt-0.5 ml-[26px] space-y-0.5 border-l border-slate-200 pl-3">
                   {entry.items.map((item) => {
                     const isActive = matchesRoute(pathname, item.href);
@@ -335,6 +429,7 @@ export default function Sidebar({
                         key={item.label}
                         href={item.href}
                         onNavigate={guardNavigate(item.href)}
+                        onClick={handleNavigated}
                         className={`flex h-9 items-center rounded-lg px-3 text-[13px] transition ${
                           isActive
                             ? "bg-[#0D1282]/8 font-semibold text-[#0D1282]"
@@ -351,6 +446,7 @@ export default function Sidebar({
           );
         })}
       </nav>
-    </aside>
+      </aside>
+    </>
   );
 }
