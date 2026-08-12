@@ -56,6 +56,11 @@ import {
   listClientShipmentManifests
 } from "../controllers/shipmentManifest.controller.js";
 import { listClientBookedShipments } from "../controllers/shipmentListing.controller.js";
+import {
+  getClientOverview,
+  listClientActions,
+  listClientExceptions
+} from "../controllers/clientOverview.controller.js";
 import { listClientCountryRateCards } from "../controllers/clientRateCard.controller.js";
 import {
   downloadClientRateCardSharePdf,
@@ -124,6 +129,11 @@ clientRouter.get("/support-tickets/:ticketId", getClientTicket);
 clientRouter.post("/support-tickets/:ticketId/replies", replyClientTicket);
 
 clientRouter.get("/dashboard", getClientDashboard);
+// The control tower: every dashboard figure counted server-side, plus the
+// exception and action feeds the same engine produces.
+clientRouter.get("/overview", getClientOverview);
+clientRouter.get("/exceptions", listClientExceptions);
+clientRouter.get("/actions", listClientActions);
 clientRouter.get("/quotes/context", getClientQuoteContext);
 clientRouter.post("/quotes/estimate", estimateClientShipmentQuote);
 clientRouter.post("/quotes/draft", createClientQuoteShipmentDraft);

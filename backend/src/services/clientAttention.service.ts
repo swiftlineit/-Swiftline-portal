@@ -275,22 +275,27 @@ export async function collectClientAttention(scope: AttentionScope): Promise<Cli
   };
   if (scope.branchIds?.length) draftFilter.branchId = { $in: scope.branchIds };
 
+  // The account's own drafts first, then their bookings — not every booked
+  // shipment in the system narrowed down afterwards. Both steps ride an index
+  // (businessAccountId on the draft, shipmentDraftId on the booking), so the
+  // work stays proportional to one account rather than to the whole database.
+  const accountDrafts = await ShipmentDraft.find(draftFilter).select("_id").lean().exec();
+  if (!accountDrafts.length) {
+    return { exceptions: [], actions: [], exceptionCountsByType: {} };
+  }
+
   // Only booked shipments can carry an operational exception, and only booked
   // shipments have an AWB to show against one.
-  const booked = await DpdShipment.find({ status: "LABEL_RECEIVED" })
+  const booked = await DpdShipment.find({
+    shipmentDraftId: { $in: accountDrafts.map((draft) => draft._id) },
+    status: "LABEL_RECEIVED"
+  })
     .select("shipmentDraftId swiftlineTrackingNumber dpdShipmentId")
     .lean()
     .exec();
-  const bookedByDraftId = new Map(booked.map((item) => [String(item.shipmentDraftId), item]));
 
-  const drafts = await ShipmentDraft.find({
-    ...draftFilter,
-    _id: { $in: booked.map((item) => item.shipmentDraftId) }
-  })
-    .select("_id")
-    .lean()
-    .exec();
-  const draftIds = drafts.map((draft) => draft._id as mongoose.Types.ObjectId);
+  const bookedByDraftId = new Map(booked.map((item) => [String(item.shipmentDraftId), item]));
+  const draftIds = booked.map((item) => item.shipmentDraftId as mongoose.Types.ObjectId);
 
   const awbFor = (draftId: string) => {
     const shipment = bookedByDraftId.get(draftId);
@@ -354,8 +359,8 @@ export async function collectClientAttention(scope: AttentionScope): Promise<Cli
   }
 
   const inFlightDraftIds = new Set(
-    drafts
-      .map((draft) => String(draft._id))
+    draftIds
+      .map((id) => String(id))
       .filter((id) => {
         const latest = latestEventByDraft.get(id);
         return !latest || !settledEventStatuses.includes(latest.status);
