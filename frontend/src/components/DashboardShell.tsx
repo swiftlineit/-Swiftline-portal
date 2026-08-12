@@ -1,7 +1,7 @@
 "use client";
 
-import { ReactNode, useEffect, useRef, useState } from "react";
-import { FiLogOut, FiUser } from "react-icons/fi";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { FiLogOut, FiMenu, FiUser } from "react-icons/fi";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -28,6 +28,10 @@ export default function DashboardShell({
   const pathname = usePathname();
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const [profileImageUrl, setProfileImageUrl] = useState("");
+  // Below `lg` the staff rail is an off-canvas drawer, the same one the client
+  // shell uses. Stable callback: the sidebar keys a media-query listener on it.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   const initials = (user.name ?? "").trim().split(/\s+/).filter(Boolean);
   const fallbackInitials = initials.length
     ? `${initials[0][0] ?? ""}${initials.length > 1 ? initials[initials.length - 1][0] ?? "" : ""}`.toUpperCase()
@@ -76,16 +80,34 @@ export default function DashboardShell({
     <div className="fixed inset-0 flex h-dvh max-h-dvh flex-col overflow-hidden overscroll-none bg-[#EEEDED]/60">
       <div className="h-1 shrink-0 bg-[#0D1282]" />
       <div className="flex min-h-0 flex-1">
-        <Sidebar userRole={user.role} />
+        <Sidebar
+          userRole={user.role}
+          mobileOpen={mobileNavOpen}
+          onMobileClose={closeMobileNav}
+        />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="flex h-20 shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-8">
+          <header className="flex h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4 lg:h-20 lg:gap-4 lg:px-8">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30 lg:hidden"
+            >
+              <FiMenu aria-hidden="true" className="h-5 w-5" />
+            </button>
+
             {/* Staff search spans every account this user may see. */}
             <div className="hidden min-w-0 flex-1 lg:block">
               <GlobalSearch audience="staff" />
             </div>
             <div className="min-w-0 flex-1 lg:hidden" />
-            <div className="flex items-center gap-4">
-              <div className="text-right">
+
+            {/* shrink-0 matters: without it the flexible search above squeezes
+                these controls until the logout button is off the edge. */}
+            <div className="flex shrink-0 items-center gap-2 lg:gap-4">
+              {/* The only item here that is not a control, so it goes first when
+                  width is short. */}
+              <div className="hidden text-right md:block">
                 <p className="text-sm font-semibold tracking-wide uppercase text-[#0D1282]">
                   {user.name || user.email}
                 </p>
@@ -126,10 +148,11 @@ export default function DashboardShell({
               <div className="group relative inline-flex">
                 <button
                   onClick={handleLogout}
-                  className="inline-flex items-center gap-2 rounded-4xl bg-[#D71313] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2"
+                  aria-label="Logout"
+                  className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#D71313] px-3 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2 sm:px-4"
                 >
                   <FiLogOut aria-hidden="true" className="h-4 w-4" />
-                  Logout
+                  <span className="hidden sm:inline">Logout</span>
                 </button>
 
                 <div
