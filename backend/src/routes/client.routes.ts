@@ -60,7 +60,10 @@ import {
   getClientOverview,
   listClientActions,
   listClientExceptions,
-  searchClient
+  searchClient,
+  listClientShipmentDocuments,
+  uploadClientShipmentDocument,
+  downloadClientShipmentDocument
 } from "../controllers/clientOverview.controller.js";
 import { listClientCountryRateCards } from "../controllers/clientRateCard.controller.js";
 import {
@@ -73,6 +76,7 @@ import {
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { invoiceUpload } from "../middleware/invoiceUpload.middleware.js";
 import { shipmentKycUpload } from "../middleware/shipmentKycUpload.middleware.js";
+import { shipmentSupportingDocumentUpload } from "../middleware/shipmentSupportingDocumentUpload.middleware.js";
 import {
   acceptClientPaymentTerms, getClientCreditSummary, getClientPaymentTerms, requestClientCredit
 } from "../controllers/clientCredit.controller.js";
@@ -136,6 +140,10 @@ clientRouter.get("/overview", getClientOverview);
 clientRouter.get("/exceptions", listClientExceptions);
 clientRouter.get("/actions", listClientActions);
 clientRouter.get("/search", searchClient);
+// Documents supplied after booking, which is when customs asks for them.
+clientRouter.get("/shipments/:draftId/documents", listClientShipmentDocuments);
+clientRouter.post("/shipments/:draftId/documents", shipmentSupportingDocumentUpload, uploadClientShipmentDocument);
+clientRouter.get("/shipments/:draftId/documents/:documentId", downloadClientShipmentDocument);
 clientRouter.get("/quotes/context", getClientQuoteContext);
 clientRouter.post("/quotes/estimate", estimateClientShipmentQuote);
 clientRouter.post("/quotes/draft", createClientQuoteShipmentDraft);

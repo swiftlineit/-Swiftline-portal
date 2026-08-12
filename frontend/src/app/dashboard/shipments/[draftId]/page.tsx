@@ -180,7 +180,10 @@ export default function AdminShipmentDetailsPage() {
   const [actionFeedback, setActionFeedback] = useState<{ message: string; tone: "warning" | "error" } | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionMode, setActionMode] = useState<"hold" | "release" | "status" | null>(null);
-  const [holdReason, setHoldReason] = useState<ShipmentHoldReason>("missing_documents");
+  // Starts unchosen. Defaulting to a reason meant a hold placed without touching
+  // the dropdown was recorded as "missing documents", which raises a customer
+  // -facing demand for paperwork nobody actually asked for.
+  const [holdReason, setHoldReason] = useState<ShipmentHoldReason | "">("");
   const [nextStatus, setNextStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [actionNote, setActionNote] = useState("");
   // Where this scan happened. Optional — an event without a location is still
@@ -243,6 +246,8 @@ export default function AdminShipmentDetailsPage() {
   async function handleShipmentAction() {
     if (!history?.dpdShipment || !actionMode) return;
     if ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3) return;
+    // A hold must name its reason: the reason is what the customer is told.
+    if (actionMode === "hold" && !holdReason) return;
 
     setActionBusy(true);
     setActionFeedback(null);
@@ -251,7 +256,7 @@ export default function AdminShipmentDetailsPage() {
       if (actionMode === "hold") {
         await holdDpdShipment({
           dpdShipmentId: history.dpdShipment.id,
-          reason: holdReason,
+          reason: holdReason as ShipmentHoldReason,
           note: actionNote,
           location: actionLocation
         });
@@ -433,8 +438,11 @@ export default function AdminShipmentDetailsPage() {
                         <select
                           value={holdReason}
                           onChange={(event) => setHoldReason(event.target.value as ShipmentHoldReason)}
-                          className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
+                          className={`h-10 w-full appearance-none rounded-xl border bg-white px-3 pr-9 text-sm font-semibold focus:border-blue-900 focus:outline-none ${
+                            holdReason ? "border-slate-300 text-slate-900" : "border-amber-300 text-slate-400"
+                          }`}
                         >
+                          <option value="" disabled>Select a hold reason</option>
                           {shipmentHoldReasonOptions.map((option) => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
@@ -492,7 +500,7 @@ export default function AdminShipmentDetailsPage() {
                     <button
                       type="button"
                       onClick={handleShipmentAction}
-                      disabled={actionBusy || ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3)}
+                      disabled={actionBusy || ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3) || (actionMode === "hold" && !holdReason)}
                       className="h-10 bg-blue-900 px-4  rounded-2xl text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                     >
                       {actionBusy ? "Saving..." : actionMode === "hold" ? "Hold" : actionMode === "release" ? "Release" : "Update"}

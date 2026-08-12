@@ -1229,7 +1229,13 @@ export type ClientDeliveryScheduleState =
   | "POTENTIAL_DELAY"
   | "DELAYED"
   | "DELIVERED"
-  | "ACTION_REQUIRED";
+  /**
+   * The shipment is held, so the date is no longer a forecast anyone should
+   * plan on. Deliberately not "action required": this chip sits on the
+   * Estimated Delivery card and has to describe that date, and the hold itself
+   * is already stated by the status chip beside it.
+   */
+  | "ON_HOLD";
 
 /**
  * When this shipment should arrive, and whether it is going to.
@@ -1264,7 +1270,7 @@ async function buildClientDeliveryEstimate(input: {
 
   let state: ClientDeliveryScheduleState = "ON_SCHEDULE";
   if (delivered) state = "DELIVERED";
-  else if (latest?.status === "ON_HOLD") state = "ACTION_REQUIRED";
+  else if (latest?.status === "ON_HOLD") state = "ON_HOLD";
   else if (now > due) state = "DELAYED";
   // Inside the last day before the date, with the shipment not yet out for
   // delivery, it is not late but it is no longer comfortable.

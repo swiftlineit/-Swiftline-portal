@@ -239,9 +239,19 @@ export async function buildClientOverview(input: {
 
   // Actions lead: the customer can clear those, and a control tower should put
   // what they can do above what they can only watch.
+  //
+  // A shipment whose problem the customer can fix produces both an action and
+  // an exception. Only the action is listed — the exception says the same thing
+  // without the button, so showing both filled this strip with each shipment
+  // twice and pushed other shipments off it entirely.
+  const shipmentsWithActions = new Set(
+    attention.actions.map((action) => action.shipmentDraftId).filter(Boolean)
+  );
   const needsAttention = [
     ...attention.actions.map((action) => toAttentionItem(action)),
-    ...attention.exceptions.map((exception) => toAttentionItem(exception))
+    ...attention.exceptions
+      .filter((exception) => !shipmentsWithActions.has(exception.shipmentDraftId))
+      .map((exception) => toAttentionItem(exception))
   ].slice(0, NEEDS_ATTENTION_LIMIT);
 
   return {

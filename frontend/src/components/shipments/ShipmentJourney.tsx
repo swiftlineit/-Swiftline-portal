@@ -17,7 +17,7 @@ export type DeliveryEstimate = {
   transitDaysMin: number;
   transitDaysMax: number;
   transitBasis: "BUSINESS_DAYS" | "CALENDAR_DAYS";
-  state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ACTION_REQUIRED";
+  state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ON_HOLD";
   deliveredAt: string | null;
 };
 
@@ -38,7 +38,8 @@ const scheduleChips: Record<DeliveryEstimate["state"], { label: string; classNam
   POTENTIAL_DELAY: { label: "Potential Delay", className: "border-amber-200 bg-amber-50 text-amber-800" },
   DELAYED: { label: "Delayed", className: "border-red-200 bg-red-50 text-red-700" },
   DELIVERED: { label: "Delivered", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  ACTION_REQUIRED: { label: "Action Required", className: "border-red-200 bg-red-50 text-red-700" }
+  // A hold means the date can no longer be relied on — not that it has passed.
+  ON_HOLD: { label: "Estimate Paused", className: "border-slate-300 bg-slate-100 text-slate-600" }
 };
 
 export function ScheduleChip({ estimate }: { estimate: DeliveryEstimate | null }) {

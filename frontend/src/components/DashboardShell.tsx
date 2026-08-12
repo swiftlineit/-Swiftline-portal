@@ -11,6 +11,7 @@ import { AuthenticatedUser } from "@/lib/useAdminUser";
 import { logout } from "@/lib/auth";
 import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
+import GlobalSearch from "@/components/client/GlobalSearch";
 import OperationsCalendarIcon from "@/components/OperationsCalendarIcon";
 import { loadProfileImageUrl } from "@/lib/profile";
 
@@ -77,7 +78,12 @@ export default function DashboardShell({
       <div className="flex min-h-0 flex-1">
         <Sidebar userRole={user.role} />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="flex h-20 shrink-0 items-center justify-end border-b border-slate-200 bg-white px-8">
+          <header className="flex h-20 shrink-0 items-center gap-4 border-b border-slate-200 bg-white px-8">
+            {/* Staff search spans every account this user may see. */}
+            <div className="hidden min-w-0 flex-1 lg:block">
+              <GlobalSearch audience="staff" />
+            </div>
+            <div className="min-w-0 flex-1 lg:hidden" />
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <p className="text-sm font-semibold tracking-wide uppercase text-[#0D1282]">

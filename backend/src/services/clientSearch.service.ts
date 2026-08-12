@@ -55,24 +55,31 @@ function containsPattern(term: string) {
   return new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
 }
 
-function draftHref(draftId: unknown) {
-  return `/client/shipments/${String(draftId)}`;
+function draftHref(draftId: unknown, staff = false) {
+  return staff ? `/dashboard/shipments/${String(draftId)}` : `/client/shipments/${String(draftId)}`;
 }
 
 export async function searchClientRecords(input: {
-  businessAccountId: mongoose.Types.ObjectId;
+  /**
+   * Omitted for a staff search, which spans accounts. Every client-facing
+   * caller passes it, and the client route is the only thing that can reach
+   * this without one — see `searchStaffRecords` below.
+   */
+  businessAccountId?: mongoose.Types.ObjectId;
   branchIds?: mongoose.Types.ObjectId[];
   term: string;
+  /** Where a hit should link to, which differs between the two portals. */
+  audience?: "client" | "staff";
 }): Promise<ClientSearchResult[]> {
   const term = input.term.trim();
   // Two characters is the shortest thing worth matching; one would return most
   // of the account and read as a broken search.
   if (term.length < 2) return [];
 
+  const staff = input.audience === "staff";
   const pattern = containsPattern(term);
-  const accountScope: Record<string, unknown> = {
-    businessAccountId: input.businessAccountId,
-  };
+  const accountScope: Record<string, unknown> = {};
+  if (input.businessAccountId) accountScope.businessAccountId = input.businessAccountId;
   if (input.branchIds?.length) accountScope.branchId = { $in: input.branchIds };
 
   // The account's drafts bound every shipment-shaped lookup below, so a hit can
@@ -125,24 +132,18 @@ export async function searchClientRecords(input: {
         .limit(PER_KIND_LIMIT)
         .lean()
         .exec(),
-      PickupRequest.find({
-        businessAccountId: input.businessAccountId,
-        requestNumber: pattern,
-      })
+      PickupRequest.find({ ...(input.businessAccountId ? { businessAccountId: input.businessAccountId } : {}), requestNumber: pattern })
         .select("_id requestNumber status")
         .limit(PER_KIND_LIMIT)
         .lean()
         .exec(),
-      Claim.find({
-        businessAccountId: input.businessAccountId,
-        claimNumber: pattern,
-      })
+      Claim.find({ ...(input.businessAccountId ? { businessAccountId: input.businessAccountId } : {}), claimNumber: pattern })
         .select("_id claimNumber status")
         .limit(PER_KIND_LIMIT)
         .lean()
         .exec(),
       SupportTicket.find({
-        businessAccountId: input.businessAccountId,
+        ...(input.businessAccountId ? { businessAccountId: input.businessAccountId } : {}),
         $or: [{ ticketNumber: pattern }, { subject: pattern }],
       })
         .select("_id ticketNumber subject status")
@@ -163,7 +164,7 @@ export async function searchClientRecords(input: {
       kind: "SHIPMENT",
       title: awb,
       subtitle: piece && piece !== awb ? `Piece ${piece}` : "Shipment",
-      href: draftHref(shipment.shipmentDraftId),
+      href: draftHref(shipment.shipmentDraftId, staff),
       matchedOn: piece && piece !== awb ? "Piece number" : "AWB",
     });
   }
@@ -181,7 +182,7 @@ export async function searchClientRecords(input: {
     .slice(0, PER_KIND_LIMIT);
 
   for (const draft of matchedByReference) {
-    if (results.some((result) => result.href === draftHref(draft._id)))
+    if (results.some((result) => result.href === draftHref(draft._id, staff)))
       continue;
     const parcel = (draft.parcelList ?? []).find(
       (item) =>
@@ -199,7 +200,7 @@ export async function searchClientRecords(input: {
         draft.consigneeEnteredAddress?.companyName ||
         draft.consigneeEnteredAddress?.contactName ||
         "Shipment",
-      href: draftHref(draft._id),
+      href: draftHref(draft._id, staff),
       matchedOn: "Your reference",
     });
   }
@@ -209,7 +210,7 @@ export async function searchClientRecords(input: {
       kind: "INVOICE",
       title: invoice.invoiceNumber,
       subtitle: "Shipment invoice",
-      href: `/client/shipments/${String(invoice.shipmentDraftId)}/invoice`,
+      href: staff ? `/dashboard/shipments/${String(invoice.shipmentDraftId)}/invoice` : `/client/shipments/${String(invoice.shipmentDraftId)}/invoice`,
       matchedOn: "Invoice number",
     });
   }
@@ -219,7 +220,7 @@ export async function searchClientRecords(input: {
       kind: "MANIFEST",
       title: manifest.manifestNumber,
       subtitle: "Manifest",
-      href: "/client/manifests",
+      href: staff ? "/dashboard/shipment-manifests" : "/client/manifests",
       matchedOn: "Manifest number",
     });
   }
@@ -229,7 +230,7 @@ export async function searchClientRecords(input: {
       kind: "PICKUP",
       title: pickup.requestNumber,
       subtitle: `Pickup — ${String(pickup.status).replaceAll("_", " ").toLowerCase()}`,
-      href: `/client/pickups`,
+      href: staff ? "/dashboard/pickups" : "/client/pickups",
       matchedOn: "Pickup reference",
     });
   }
@@ -239,7 +240,7 @@ export async function searchClientRecords(input: {
       kind: "CLAIM",
       title: claim.claimNumber ?? "Claim",
       subtitle: `Claim — ${String(claim.status).replaceAll("_", " ").toLowerCase()}`,
-      href: `/client/claims/${String(claim._id)}`,
+      href: staff ? `/dashboard/claims/${String(claim._id)}` : `/client/claims/${String(claim._id)}`,
       matchedOn: "Claim number",
     });
   }
@@ -250,10 +251,25 @@ export async function searchClientRecords(input: {
       kind: "TICKET",
       title: ticket.ticketNumber,
       subtitle: ticket.subject,
-      href: `/client/tickets/${String(ticket._id)}`,
+      href: staff ? `/dashboard/tickets/${String(ticket._id)}` : `/client/tickets/${String(ticket._id)}`,
       matchedOn: matchedNumber ? "Ticket number" : "Subject",
     });
   }
 
   return results;
+}
+
+/**
+ * The same search for staff, across every account.
+ *
+ * A separate entry point rather than an extra flag on the client one: forgetting
+ * to pass a business account to a function that accepts an optional account is
+ * a silent data leak, whereas calling the wrong named function is a decision
+ * someone has to make on purpose.
+ */
+export async function searchStaffRecords(input: {
+  term: string;
+  branchIds?: mongoose.Types.ObjectId[];
+}): Promise<ClientSearchResult[]> {
+  return searchClientRecords({ term: input.term, branchIds: input.branchIds, audience: "staff" });
 }

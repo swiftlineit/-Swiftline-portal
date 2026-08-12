@@ -15,6 +15,7 @@ import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel"
 import ShipmentCancellationPanel from "@/components/shipments/ShipmentCancellationPanel";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/components/shipments/ShipmentKycDocumentsPanel";
+import ShipmentSupportingDocuments from "@/components/shipments/ShipmentSupportingDocuments";
 import RaiseClaimButton from "@/components/claims/RaiseClaimButton";
 import ClientPodPanel from "@/components/pods/ClientPodPanel";
 import { apiUrl } from "@/lib/api";
@@ -464,6 +465,30 @@ export default function ClientShipmentDetailsPage() {
                     : openClientShipmentKycDocument(params.draftId, document.type)}
                 />
               </div>
+
+              {/* Why the shipment stopped, in the operator's own words, at the
+                  top of the page rather than buried in the timeline. Without it
+                  the customer is told to act without being told what happened. */}
+              {shipment.currentEvent?.status === "ON_HOLD" ? (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-900">
+                    Shipment on hold
+                  </h2>
+                  {shipment.currentEvent.holdReason ? (
+                    <p className="mt-1 text-sm font-semibold text-amber-900">
+                      {shipment.currentEvent.holdReason.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </p>
+                  ) : null}
+                  {shipment.currentEvent.note ? (
+                    <p className="mt-1 text-sm text-amber-900">{shipment.currentEvent.note}</p>
+                  ) : null}
+                  {shipment.currentEvent.location ? (
+                    <p className="mt-1 text-xs text-amber-800">At {shipment.currentEvent.location}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <ShipmentSupportingDocuments draftId={params.draftId} />
 
               <div className="border border-slate-200 bg-white p-5 rounded-2xl">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Shipment Timeline</h2>

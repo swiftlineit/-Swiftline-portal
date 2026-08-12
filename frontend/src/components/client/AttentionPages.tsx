@@ -165,16 +165,15 @@ export function ClientExceptionsPage() {
               <th className="px-4 py-3">Problem</th>
               <th className="px-4 py-3">Last update</th>
               <th className="px-4 py-3">Required action</th>
-              <th className="px-4 py-3">Assigned team</th>
               <th className="px-4 py-3 text-right">Details</th>
             </tr>
           </thead>
           <tbody>
             {busy ? (
-              <TableSkeleton columns={6} />
+              <TableSkeleton columns={5} />
             ) : showEmpty ? (
               <tr>
-                <td colSpan={6} className="px-4 py-14 text-center">
+                <td colSpan={5} className="px-4 py-14 text-center">
                   <FiCheckCircle aria-hidden="true" className="mx-auto h-8 w-8 text-emerald-500" />
                   <p className="mt-3 text-sm font-semibold text-slate-800">
                     {exceptions.length ? "No exceptions match this filter" : "No exceptions right now"}
@@ -202,7 +201,6 @@ export function ClientExceptionsPage() {
                       {formatDashboardDateTime(item.lastUpdateAt)}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{item.requiredAction}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-600">{item.assignedTeam}</td>
                     <td className="px-4 py-3 text-right">
                       <Link
                         href={item.href}
@@ -254,7 +252,7 @@ export function ClientActionsPage() {
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-8xl">
       <PageHeading
         title="Action Required"
         description="Everything waiting on you. Each one can be cleared from here."

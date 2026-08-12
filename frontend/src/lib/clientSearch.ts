@@ -59,18 +59,20 @@ async function fetchWithAuth(input: string, init: RequestInit = {}) {
 }
 
 export async function searchClientRecords(input: {
-  businessAccountId: string;
+  /** Required for a client search. Staff search spans accounts and omits it. */
+  businessAccountId?: string;
+  audience?: "client" | "staff";
   term: string;
   signal?: AbortSignal;
 }): Promise<ClientSearchResult[]> {
-  const query = new URLSearchParams({
-    businessAccountId: input.businessAccountId,
-    q: input.term
-  });
+  const query = new URLSearchParams({ q: input.term });
+  if (input.businessAccountId) query.set("businessAccountId", input.businessAccountId);
 
-  const response = await fetchWithAuth(apiUrl(`/api/v1/client/search?${query.toString()}`), {
-    signal: input.signal
-  });
+  const path = input.audience === "staff"
+    ? `/api/v1/shipments/search?${query.toString()}`
+    : `/api/v1/client/search?${query.toString()}`;
+
+  const response = await fetchWithAuth(apiUrl(path), { signal: input.signal });
   const data = await response.json();
 
   if (!response.ok || !data.success) {

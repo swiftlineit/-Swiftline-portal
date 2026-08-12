@@ -160,48 +160,119 @@ export default function ClientTicketsPage() {
         </div>
 
         {/* One prominent way to reach Swiftline; the rest are one click away. */}
-        <div className="mb-5 grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Swiftline Customer Support
-            </p>
-            <p className="mt-1 text-lg font-semibold text-slate-950">Available 24/7</p>
-            <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-              <a href={`tel:${PRIMARY_PHONE.replaceAll(" ", "")}`} className="flex items-center gap-2 font-medium text-slate-700 hover:text-[#0D1282]">
-                <FiPhone aria-hidden="true" className="h-4 w-4 text-slate-400" />
-                {PRIMARY_PHONE}
-              </a>
-              <a href={`mailto:${PRIMARY_EMAIL}`} className="flex items-center gap-2 font-medium text-slate-700 hover:text-[#0D1282]">
-                <FiMail aria-hidden="true" className="h-4 w-4 text-slate-400" />
-                {PRIMARY_EMAIL}
+       <div className="mb-5 rounded-2xl bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_28px_-22px_rgba(15,23,42,0.18)] sm:px-6">
+  <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+    {/* Left: heading + alternate contacts */}
+    <div className="min-w-0 xl:max-w-[430px]">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
+        Swiftline Customer Support
+      </p>
+
+      <p className="mt-1.5 text-[19px] font-semibold tracking-[-0.02em] text-slate-950">
+        Available 24/7
+      </p>
+
+      <details className="group mt-3">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-[#0D1282]">
+          Other contact options
+          <span className="text-slate-400 transition group-open:rotate-180">
+            ↓
+          </span>
+        </summary>
+
+        <div className="mt-3 grid gap-y-2.5">
+          {OTHER_CONTACTS.map((contact) => (
+            <div
+              key={contact.value}
+              className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3"
+            >
+              <span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                {contact.label}
+              </span>
+
+              <a
+                href={contact.href}
+                className="truncate text-[11.5px] font-medium text-slate-600 transition hover:text-[#0D1282]"
+              >
+                {contact.value}
               </a>
             </div>
-
-            <details className="mt-3 group">
-              <summary className="cursor-pointer list-none text-xs font-semibold text-[#0D1282] hover:underline">
-                Other contact options
-              </summary>
-              <ul className="mt-2 flex flex-col gap-1 text-sm text-slate-600">
-                {OTHER_CONTACTS.map((contact) => (
-                  <li key={contact.value}>
-                    <span className="text-xs uppercase tracking-wide text-slate-400">{contact.label}</span>{" "}
-                    <a href={contact.href} className="font-medium hover:text-[#0D1282]">{contact.value}</a>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          </div>
-
-          <a
-            href={whatsappHref({ accountCode: tickets[0]?.account?.accountId })}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-4xl bg-[#25D366] px-5 text-sm font-semibold text-white transition hover:bg-[#1eb455]"
-          >
-            <FaWhatsapp className="h-4 w-4" />
-            Chat on WhatsApp
-          </a>
+          ))}
         </div>
+      </details>
+    </div>
+
+    {/* Right: primary actions */}
+    <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:max-w-[760px] xl:grid-cols-[1fr_1fr_auto]">
+      <a
+        href={`tel:${PRIMARY_PHONE.replaceAll(" ", "")}`}
+        className="group flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-4 py-3.5 transition hover:bg-[#0D1282]/[0.035]"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#0D1282] ring-1 ring-slate-200/80">
+          <FiPhone aria-hidden="true" className="h-4 w-4" />
+        </span>
+
+        <span className="min-w-0">
+          <span className="block text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Call us
+          </span>
+
+          <span className="mt-0.5 block truncate text-[12.5px] font-semibold text-slate-800 transition group-hover:text-[#0D1282]">
+            {PRIMARY_PHONE}
+          </span>
+        </span>
+      </a>
+
+      <a
+        href={`mailto:${PRIMARY_EMAIL}`}
+        className="group flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-4 py-3.5 transition hover:bg-[#0D1282]/[0.035]"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#0D1282] ring-1 ring-slate-200/80">
+          <FiMail aria-hidden="true" className="h-4 w-4" />
+        </span>
+
+        <span className="min-w-0">
+          <span className="block text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Email
+          </span>
+
+          <span className="mt-0.5 block truncate text-[12.5px] font-semibold text-slate-800 transition group-hover:text-[#0D1282]">
+            {PRIMARY_EMAIL}
+          </span>
+        </span>
+      </a>
+
+      <a
+        href={whatsappHref({
+          accountCode: tickets[0]?.account?.accountId,
+        })}
+        target="_blank"
+        rel="noreferrer"
+        className="group flex min-h-[64px] items-center justify-between gap-4 rounded-xl bg-[#25D366] px-4 py-3 text-white transition hover:bg-[#1fbd59] sm:col-span-2 xl:col-span-1 xl:min-w-[210px]"
+      >
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15">
+            <FaWhatsapp className="h-4 w-4" />
+          </span>
+
+          <span>
+            <span className="block text-[12px] font-medium text-white/75">
+              Fastest response
+            </span>
+
+            <span className="mt-0.5 block text-[12.5px] font-semibold">
+              Chat on WhatsApp
+            </span>
+          </span>
+        </div>
+
+        <span className="text-lg transition-transform duration-200 group-hover:translate-x-1">
+          →
+        </span>
+      </a>
+    </div>
+  </div>
+</div>
 
         <div className="mb-5 grid gap-3 border border-slate-200 bg-white rounded-2xl p-4 md:grid-cols-[minmax(220px,1fr)_220px_220px_auto]">
           <label className="relative">

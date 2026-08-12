@@ -257,7 +257,7 @@ export type ClientShipmentDetails = {
     transitDaysMin: number;
     transitDaysMax: number;
     transitBasis: "BUSINESS_DAYS" | "CALENDAR_DAYS";
-    state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ACTION_REQUIRED";
+    state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ON_HOLD";
     deliveredAt: string | null;
   } | null;
 };

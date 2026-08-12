@@ -18,7 +18,14 @@ import {
  * which kind of record it belongs to, so results say what each hit is rather
  * than making them pick a category first.
  */
-export default function GlobalSearch({ businessAccountId }: { businessAccountId: string }) {
+export default function GlobalSearch({
+  businessAccountId,
+  audience = "client"
+}: {
+  /** Required for a client search; ignored for staff, who span accounts. */
+  businessAccountId?: string;
+  audience?: "client" | "staff";
+}) {
   const router = useRouter();
   const listId = useId();
   const [term, setTerm] = useState("");
@@ -47,14 +54,15 @@ export default function GlobalSearch({ businessAccountId }: { businessAccountId:
   const error = longEnough && isCurrent ? outcome.error : "";
 
   useEffect(() => {
-    if (!longEnough || !businessAccountId) return;
+    if (!longEnough) return;
+    if (audience === "client" && !businessAccountId) return;
 
     // Debounced, and the previous request is abandoned rather than left to
     // land after a newer one and overwrite it with stale results.
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setSearching(true);
-      searchClientRecords({ businessAccountId, term: trimmed, signal: controller.signal })
+      searchClientRecords({ businessAccountId, audience, term: trimmed, signal: controller.signal })
         .then((found) => setOutcome({ term: trimmed, results: found, error: "" }))
         .catch((caught: unknown) => {
           if (controller.signal.aborted) return;
@@ -73,7 +81,7 @@ export default function GlobalSearch({ businessAccountId }: { businessAccountId:
       clearTimeout(timer);
       controller.abort();
     };
-  }, [businessAccountId, longEnough, trimmed]);
+  }, [audience, businessAccountId, longEnough, trimmed]);
 
   // A dropdown that outlives a click elsewhere reads as a stuck overlay.
   useEffect(() => {
