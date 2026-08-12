@@ -1,4 +1,3 @@
-import { apiUrl } from "@/lib/api";
 import { requestJson } from "@/lib/shipmentsList";
 
 export type BranchCreditRow = {
@@ -86,14 +85,14 @@ export type BranchUsersResult = {
 };
 
 export async function getBranchFinanceSummary(branchId: string, from: string, to: string) {
-  const url = new URL(apiUrl(`/api/v1/branches/${encodeURIComponent(branchId)}/finance-summary`));
-  url.searchParams.set("from", from);
-  url.searchParams.set("to", to);
-  return requestJson<{ success: true } & BranchFinanceSummary>(url.toString());
+  const query = new URLSearchParams({ from, to });
+  return requestJson<{ success: true } & BranchFinanceSummary>(
+    `/api/v1/branches/${encodeURIComponent(branchId)}/finance-summary?${query.toString()}`
+  );
 }
 
 export async function getBranchUsers(branchId: string) {
   return requestJson<{ success: true } & BranchUsersResult>(
-    apiUrl(`/api/v1/branches/${encodeURIComponent(branchId)}/users`)
+    `/api/v1/branches/${encodeURIComponent(branchId)}/users`
   );
 }
