@@ -169,7 +169,10 @@ describe("individual shipment drafts", () => {
     const sentinel = await getOrCreateIndividualSentinel(adminId);
     assert.equal(draft.customerType, "INDIVIDUAL");
     assert.equal(String(draft.businessAccountId), String(sentinel._id));
-    assert.equal(draft.consignorAddress.contactName, "Asha Kumari");
+    // Every address field on the draft is stored uppercase, because that is how
+    // an address has to appear on an AWB and on a customs declaration. The name
+    // is keyed in mixed case at the counter and normalized on save.
+    assert.equal(draft.consignorAddress.contactName, "ASHA KUMARI");
     assert.equal(draft.consignorAddress.aadhaarNumber, "123456789012", "Aadhaar is stored as digits only.");
     assert.ok(draft.invoiceUploadId, "A source record is still required by the shipment chain.");
   });
@@ -214,7 +217,7 @@ describe("individual shipment drafts", () => {
       createdBy: adminId
     });
 
-    assert.equal(draft.consignorAddress.contactName, "Rahul Verma");
+    assert.equal(draft.consignorAddress.contactName, "RAHUL VERMA", "Address fields are stored uppercase for the AWB.");
     assert.equal(draft.consignorAddress.mobileNumber, "");
     assert.equal(draft.consignorAddress.mobileCountryCode, "+91", "The country code falls back to the local default.");
   });
