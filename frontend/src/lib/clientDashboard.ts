@@ -251,6 +251,15 @@ export type ClientShipmentDetails = {
   }>;
   currentEvent: ClientShipmentEvent | null;
   events: ClientShipmentEvent[];
+  deliveryEstimate?: {
+    estimatedDeliveryAt: string;
+    earliestDeliveryAt: string;
+    transitDaysMin: number;
+    transitDaysMax: number;
+    transitBasis: "BUSINESS_DAYS" | "CALENDAR_DAYS";
+    state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ACTION_REQUIRED";
+    deliveredAt: string | null;
+  } | null;
 };
 
 export type ClientPrepaidAccount = {

@@ -2,8 +2,10 @@
 
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import {
+  FiAlertTriangle,
   FiArchive,
   FiCalendar,
+  FiCheckSquare,
   FiClipboard,
   FiCreditCard,
   FiFileText,
@@ -79,6 +81,8 @@ const clientNavigation: Array<
     items: [
       { label: "Pickup Management", href: "/client/pickups", icon: FiTruck },
       { label: "Manifests", href: "/client/manifests", icon: FiArchive },
+      { label: "Exceptions", href: "/client/exceptions", icon: FiAlertTriangle },
+      { label: "Action Required", href: "/client/actions", icon: FiCheckSquare },
     ],
   },
   {
