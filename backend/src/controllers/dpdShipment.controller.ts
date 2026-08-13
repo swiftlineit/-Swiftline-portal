@@ -29,6 +29,11 @@ import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentChargeVerification } from "../models/shipmentChargeVerification.model.js";
 import { ShipmentCancellation } from "../models/shipmentCancellation.model.js";
 import {
+  buildDeliveryEstimate,
+  buildTrackingAttention,
+  buildTrackingSummary
+} from "../services/shipmentTracking.service.js";
+import {
   DpdShipmentServiceError,
   createLabelForShipmentDraft,
   reconcileShipmentDocuments,
@@ -727,6 +732,26 @@ export async function listDpdShipments(request: Request, response: Response): Pr
     labelsByShipment.set(key, [...(labelsByShipment.get(key) ?? []), label]);
   }
 
+  /**
+   * Delivery estimates, only when the caller asks for them.
+   *
+   * Each one costs a route and holiday lookup, and this endpoint also backs the
+   * dashboard's bulk shipment feed where nothing reads an estimate. Staff
+   * tracking searches a single tracking number, so it pays for one.
+   */
+  const estimatesByDraftId = new Map<string, Awaited<ReturnType<typeof buildDeliveryEstimate>>>();
+  if (request.query.withEstimate === "1") {
+    await Promise.all(shipments.map(async (shipment) => {
+      const draft = draftsById.get(String(shipment.shipmentDraftId));
+      if (!draft) return;
+      const events = eventsByDraftId.get(String(shipment.shipmentDraftId)) ?? [];
+      estimatesByDraftId.set(
+        String(shipment.shipmentDraftId),
+        await buildDeliveryEstimate({ draft, events })
+      );
+    }));
+  }
+
   return response.status(200).json({
     success: true,
     shipments: shipments.map((shipment) => {
@@ -758,7 +783,15 @@ export async function listDpdShipments(request: Request, response: Response): Pr
           .filter((label) => label.labelVersion === (shipment.snapshotRevision || 1))
           .map(serializeLabel),
         currentEvent: currentEvent ? serializeShipmentEvent(currentEvent) : null,
-        events: events.map(serializeShipmentEvent)
+        events: events.map(serializeShipmentEvent),
+        // Staff tracking shows the same schedule, weights and required action
+        // the client sees, so Operations and the customer never read two
+        // different accounts of the same shipment.
+        deliveryEstimate: estimatesByDraftId.get(String(shipment.shipmentDraftId)) ?? null,
+        trackingSummary: draft
+          ? buildTrackingSummary({ draft, dpdShipment: shipment, events })
+          : null,
+        trackingAttention: buildTrackingAttention(events)
       };
     })
   });

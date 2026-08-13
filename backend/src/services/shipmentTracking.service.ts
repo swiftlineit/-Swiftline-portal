@@ -1,0 +1,222 @@
+/**
+ * What the tracking pages say about a shipment.
+ *
+ * Client and staff tracking used to be served by two different endpoints that
+ * had drifted: only the client one computed a delivery estimate, so Operations
+ * could see a shipment's journey but not whether it was going to arrive on
+ * time. Everything either page shows about schedule, weights, references or
+ * required action is built here so both read the same shipment the same way.
+ */
+import type { IShipmentDraft } from "../models/shipmentDraft.model.js";
+import type { ShipmentHoldReason } from "../models/shipmentEvent.model.js";
+import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
+import { calculateParcelVolumetricWeight } from "./shipmentPricing.service.js";
+import { estimateRouteDelivery } from "./swiftlineRoute.service.js";
+
+/** The events tracking needs. Both callers already load more than this. */
+export type TrackingEvent = {
+  status: string;
+  holdReason?: ShipmentHoldReason | string | null;
+  eventAt: Date | string;
+};
+
+/** Delivery schedule state, as the Estimated Delivery card's chip reads it. */
+export type ShipmentScheduleState =
+  | "ON_SCHEDULE"
+  | "POTENTIAL_DELAY"
+  | "DELAYED"
+  | "DELIVERED"
+  /**
+   * The shipment is held, so the date is no longer a forecast anyone should
+   * plan on. Deliberately not "action required": this chip sits on the
+   * Estimated Delivery card and has to describe that date. Whether the customer
+   * has to do something about the hold is a separate question, answered by
+   * `buildTrackingAttention` and shown on the status card instead.
+   */
+  | "ON_HOLD";
+
+/** Newest event first is how both callers sort; this needs the opposite. */
+function orderedByTime(events: TrackingEvent[]) {
+  return [...events].sort(
+    (left, right) => new Date(left.eventAt).getTime() - new Date(right.eventAt).getTime()
+  );
+}
+
+/**
+ * When this shipment should arrive, and whether it is going to.
+ *
+ * Measured from despatch rather than from booking: a parcel collected three days
+ * after it was booked has not spent those days in transit, and quoting from the
+ * booking date would report it late before the carrier ever touched it.
+ */
+export async function buildDeliveryEstimate(input: {
+  draft: Pick<IShipmentDraft, "consigneeEnteredAddress" | "serviceType" | "createdAt">;
+  events: TrackingEvent[];
+}) {
+  const destinationCountryCode = input.draft.consigneeEnteredAddress?.countryCode ?? "";
+  if (!destinationCountryCode) return null;
+
+  const ordered = orderedByTime(input.events);
+  const delivered = ordered.find((event) => event.status === "DELIVERED");
+  const collected = ordered.find((event) => event.status === "PARCEL_COLLECTED");
+  const latest = ordered[ordered.length - 1];
+
+  const estimate = await estimateRouteDelivery({
+    destinationCountryCode,
+    service: input.draft.serviceType === "CARGO" ? "CARGO" : "COURIER",
+    dispatchedAt: collected ? new Date(collected.eventAt) : input.draft.createdAt
+  });
+  if (!estimate) return null;
+
+  const now = new Date();
+  const due = estimate.estimatedDeliveryAt;
+
+  let state: ShipmentScheduleState = "ON_SCHEDULE";
+  if (delivered) state = "DELIVERED";
+  else if (latest?.status === "ON_HOLD") state = "ON_HOLD";
+  else if (now > due) state = "DELAYED";
+  // Inside the last day before the date, with the shipment not yet out for
+  // delivery, it is not late but it is no longer comfortable.
+  else if (
+    due.getTime() - now.getTime() < 24 * 60 * 60 * 1000
+    && latest?.status !== "OUT_FOR_DELIVERY"
+  ) state = "POTENTIAL_DELAY";
+
+  return {
+    estimatedDeliveryAt: due.toISOString(),
+    earliestDeliveryAt: estimate.earliestDeliveryAt.toISOString(),
+    transitDaysMin: estimate.transitDaysMin,
+    transitDaysMax: estimate.transitDaysMax,
+    transitBasis: estimate.transitBasis,
+    state,
+    deliveredAt: delivered ? new Date(delivered.eventAt).toISOString() : null
+  };
+}
+
+/**
+ * Holds only the customer can clear, and what they have to do about each.
+ *
+ * Kept here rather than derived from `exceptionNextSteps` in
+ * clientAttention.service, because that table answers "what is Swiftline doing"
+ * for a dashboard list, and a payment hold maps there to a generic delay whose
+ * next step reads as Operations chasing it — the opposite of the truth. Every
+ * other hold reason is Swiftline's move and produces no chip.
+ */
+const clientActionByHoldReason: Partial<Record<ShipmentHoldReason, { label: string; detail: string }>> = {
+  missing_documents: {
+    label: "Documents required",
+    detail: "Customs has asked for more paperwork. Upload it on the shipment page to release this shipment."
+  },
+  address_issue: {
+    label: "Address confirmation required",
+    detail: "The delivery address could not be used. Confirm or correct it so delivery can be attempted again."
+  },
+  payment_issue: {
+    label: "Payment required",
+    detail: "An outstanding payment is holding this shipment. Settle it to release the shipment."
+  }
+};
+
+export type TrackingAttention = {
+  label: string;
+  detail: string;
+  holdReason: string;
+};
+
+/**
+ * Whether this shipment is waiting on the customer.
+ *
+ * Read off the newest event rather than any hold in the history, so a shipment
+ * released from a hold stops asking for something that has already been done.
+ */
+export function buildTrackingAttention(events: TrackingEvent[]): TrackingAttention | null {
+  const latest = orderedByTime(events).at(-1);
+  if (!latest || latest.status !== "ON_HOLD") return null;
+
+  const action = clientActionByHoldReason[latest.holdReason as ShipmentHoldReason];
+  return action ? { ...action, holdReason: String(latest.holdReason ?? "") } : null;
+}
+
+export type TrackingSummary = {
+  serviceType: string;
+  serviceCode: string;
+  /** Who actually carries it, so a client can chase the right party. */
+  carrierName: string;
+  pieces: number;
+  actualWeightKg: number;
+  chargeableWeightKg: number;
+  customerReference: string;
+  /** Newest scan time, or the last time the shipment record itself changed. */
+  lastUpdateAt: string | null;
+};
+
+const carrierNames: Record<string, string> = {
+  DPD: "DPD",
+  SWIFTLINE: "Swiftline"
+};
+
+function round3(value: number) {
+  return Number(value.toFixed(3));
+}
+
+/**
+ * The shipment's own facts, as the tracking details panel lists them.
+ *
+ * Weights come from the booking snapshot where one exists, because that is what
+ * the customer was actually charged on; an amended shipment carries a newer
+ * snapshot and the panel should agree with the invoice, not with the original
+ * booking. Only an unbooked draft falls back to recomputing.
+ */
+export function buildTrackingSummary(input: {
+  draft: Pick<IShipmentDraft, "parcelList" | "serviceType" | "serviceCode" | "updatedAt">;
+  dpdShipment?: {
+    bookingProvider?: string | null;
+    bookingSnapshot?: unknown;
+    currentShipmentSnapshot?: unknown;
+    updatedAt?: Date | null;
+  } | null;
+  events: TrackingEvent[];
+}): TrackingSummary {
+  const snapshot = readShipmentBookingSnapshot(input.dpdShipment?.currentShipmentSnapshot)
+    ?? readShipmentBookingSnapshot(input.dpdShipment?.bookingSnapshot);
+
+  const serviceType = snapshot?.service?.type ?? input.draft.serviceType;
+  const parcels = snapshot?.parcels ?? [];
+
+  const actualWeightKg = parcels.length
+    ? parcels.reduce((sum, parcel) => sum + (Number(parcel.actualWeightKg) || 0), 0)
+    : input.draft.parcelList.reduce((sum, parcel) => sum + (parcel.weightKg || 0), 0);
+
+  // The priced chargeable weight is authoritative; recomputing is only for a
+  // shipment that has never been priced, where nothing has been charged yet.
+  const pricedParcels = snapshot?.pricing?.parcels ?? [];
+  const chargeableWeightKg = pricedParcels.length
+    ? pricedParcels.reduce((sum, parcel) => sum + (Number(parcel.chargeableWeightKg) || 0), 0)
+    : input.draft.parcelList.reduce((sum, parcel) => sum + Math.max(
+      parcel.weightKg || 0,
+      calculateParcelVolumetricWeight(parcel, serviceType === "CARGO" ? "CARGO" : "COURIER")
+    ), 0);
+
+  // The first parcel reference is the one sent to the carrier as the customer's
+  // own reference, so it is the one to show back to them.
+  const customerReference = parcels.find((parcel) => typeof parcel.reference === "string" && parcel.reference.trim())?.reference
+    ?? input.draft.parcelList.find((parcel) => parcel.shipmentReference1?.trim())?.shipmentReference1
+    ?? "";
+
+  const newestEvent = orderedByTime(input.events).at(-1);
+  const lastUpdateAt = newestEvent?.eventAt
+    ?? input.dpdShipment?.updatedAt
+    ?? input.draft.updatedAt
+    ?? null;
+
+  return {
+    serviceType,
+    serviceCode: snapshot?.service?.code ?? input.draft.serviceCode ?? "",
+    carrierName: carrierNames[input.dpdShipment?.bookingProvider ?? ""] ?? "Not assigned",
+    pieces: parcels.length || input.draft.parcelList.length,
+    actualWeightKg: round3(actualWeightKg),
+    chargeableWeightKg: round3(chargeableWeightKg),
+    customerReference: String(customerReference),
+    lastUpdateAt: lastUpdateAt ? new Date(lastUpdateAt).toISOString() : null
+  };
+}

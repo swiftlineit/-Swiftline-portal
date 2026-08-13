@@ -1,6 +1,7 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import { toPriceChangedError } from "@/lib/shipmentCostEstimate";
+import type { TrackingAttention, TrackingSummary } from "@/lib/shipmentTracking";
 import {
   AddressPrediction,
   AddressValidationResult,
@@ -253,6 +254,10 @@ export type ClientShipmentDetails = {
     state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ON_HOLD";
     deliveredAt: string | null;
   } | null;
+  // Optional because a backend older than the tracking panel does not send
+  // them; the page falls back to what it can derive rather than assuming.
+  trackingSummary?: TrackingSummary | null;
+  trackingAttention?: TrackingAttention | null;
 };
 
 export type ClientPrepaidAccount = {

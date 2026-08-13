@@ -42,6 +42,29 @@ const scheduleChips: Record<DeliveryEstimate["state"], { label: string; classNam
   ON_HOLD: { label: "Estimate Paused", className: "border-slate-300 bg-slate-100 text-slate-600" }
 };
 
+/**
+ * The customer's cue that this shipment is waiting on them.
+ *
+ * Kept off the Estimated Delivery card deliberately. That card's chip has to
+ * describe the date, and "action required" says nothing about when a parcel
+ * arrives — it belongs beside the status, which is what the customer would act
+ * on. The two chips can and often do show at once: a held shipment is both
+ * waiting on the customer and no longer on a reliable schedule.
+ */
+export function ActionRequiredChip({
+  attention
+}: {
+  attention: { label: string } | null | undefined;
+}) {
+  if (!attention) return null;
+
+  return (
+    <span className="inline-flex rounded-4xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold uppercase text-red-700">
+      Action required
+    </span>
+  );
+}
+
 export function ScheduleChip({ estimate }: { estimate: DeliveryEstimate | null }) {
   if (!estimate) return null;
   const chip = scheduleChips[estimate.state];

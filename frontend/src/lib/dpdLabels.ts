@@ -3,6 +3,7 @@ import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
 import { toPriceChangedError } from "@/lib/shipmentCostEstimate";
+import type { TrackingAttention, TrackingSummary } from "@/lib/shipmentTracking";
 
 export type ShipmentAddress = {
   companyName?: string;
@@ -439,6 +440,18 @@ export type DpdShipmentHistoryItem = {
   } | null;
   currentEvent: ShipmentEvent | null;
   events: ShipmentEvent[];
+  /** Only populated when the caller asked for it — see `listDpdShipments`. */
+  deliveryEstimate?: {
+    estimatedDeliveryAt: string;
+    earliestDeliveryAt: string;
+    transitDaysMin: number;
+    transitDaysMax: number;
+    transitBasis: "BUSINESS_DAYS" | "CALENDAR_DAYS";
+    state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ON_HOLD";
+    deliveredAt: string | null;
+  } | null;
+  trackingSummary?: TrackingSummary | null;
+  trackingAttention?: TrackingAttention | null;
 };
 
 export type ShipmentBookingConfirmation = {
@@ -872,9 +885,15 @@ export async function getDpdLabelAccessUrl(
   }>(response);
 }
 
-export async function listDpdShipments(limit = 25, trackingNumber = "") {
+/**
+ * `withEstimate` costs a route and holiday lookup per shipment, so it is opt-in:
+ * tracking searches one number and wants it, the dashboard feeds pull many rows
+ * and never read it.
+ */
+export async function listDpdShipments(limit = 25, trackingNumber = "", withEstimate = false) {
   const url = new URL(apiUrl("/api/v1/dpd-shipments"));
   url.searchParams.set("limit", String(limit));
+  if (withEstimate) url.searchParams.set("withEstimate", "1");
   if (trackingNumber.trim()) url.searchParams.set("trackingNumber", trackingNumber.trim());
   const response = await fetchWithAuth(url.toString());
 

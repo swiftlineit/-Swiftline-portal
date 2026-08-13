@@ -8,9 +8,9 @@ import {
   FiCheckCircle,
   FiChevronDown,
   FiMapPin,
-  FiPackage,
   FiSearch,
   FiTruck,
+  FiUser,
 } from "react-icons/fi";
 import {
   trackClientShipment,
@@ -24,10 +24,15 @@ import {
 import { listShipments, type ShipmentListItem } from "@/lib/shipmentsList";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import {
+  ActionRequiredChip,
   EstimatedDelivery,
   ShipmentJourney,
   type DeliveryEstimate,
 } from "@/components/shipments/ShipmentJourney";
+import type {
+  TrackingAttention,
+  TrackingSummary,
+} from "@/lib/shipmentTracking";
 
 type TrackingMode = "admin" | "client";
 type TrackingRecord = {
@@ -45,6 +50,8 @@ type TrackingRecord = {
   createdAt?: string | null;
   events: ShipmentEvent[];
   deliveryEstimate: DeliveryEstimate | null;
+  summary: TrackingSummary | null;
+  attention: TrackingAttention | null;
 };
 
 type ShipmentTrackingPageProps = {
@@ -58,6 +65,47 @@ function labelStatus(value: string) {
     .replaceAll("_", " ")
     .toLowerCase()
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/**
+ * A weight, or an honest blank.
+ *
+ * Zero is shown as unavailable rather than "0.000 kg": a booked shipment always
+ * weighs something, so a zero here means the figure is missing, not that the
+ * parcel is weightless.
+ */
+function weightLabel(weightKg: number | undefined) {
+  return weightKg ? `${weightKg.toFixed(3)} kg` : "Not available";
+}
+
+/**
+ * The reference strip under the status card.
+ *
+ * Built as a list rather than written out as JSX so the grid can tell how many
+ * cells it has and fill a short final row. Consignee and destination are
+ * deliberately absent: they have their own panel beside the timeline, and the
+ * strip is for the shipment's identifiers and measurements.
+ */
+function shipmentFacts(result: TrackingRecord): Array<{ label: string; value: string }> {
+  return [
+    { label: "AWB / Tracking No.", value: result.swiftlineTrackingNumber || "AWB Pending" },
+    { label: "Carrier Shipment ID", value: result.carrierShipmentNumber || "Not assigned" },
+    { label: "Carrier / Service Partner", value: result.summary?.carrierName || "Not assigned" },
+    { label: "Service Type", value: result.service ? labelStatus(result.service) : "Not available" },
+    { label: "Pieces", value: String(result.summary?.pieces ?? result.parcelCount) },
+    { label: "Actual Weight", value: weightLabel(result.summary?.actualWeightKg) },
+    // What the shipment was priced on: the greater of actual and volumetric
+    // weight, so it can legitimately exceed the row above.
+    { label: "Chargeable Weight", value: weightLabel(result.summary?.chargeableWeightKg) },
+    { label: "Customer Reference", value: result.summary?.customerReference || "Not provided" },
+    { label: "Booked", value: formatDashboardDateTime(result.createdAt) },
+    {
+      label: "Last Update",
+      value: result.summary?.lastUpdateAt
+        ? formatDashboardDateTime(result.summary.lastUpdateAt)
+        : "No updates yet"
+    }
+  ];
 }
 
 function statusTone(status: string) {
@@ -99,9 +147,11 @@ function fromAdmin(item: DpdShipmentHistoryItem): TrackingRecord {
       item.dpdShipment.parcelNumbers.length,
     createdAt: item.dpdShipment.createdAt,
     events: item.events,
-    // Admin tracking reads the staff history endpoint, which carries no route
-    // estimate; the client details endpoint is what computes one.
-    deliveryEstimate: null,
+    // Staff tracking asks the history endpoint for an estimate, so Operations
+    // sees the same schedule the customer does rather than no schedule at all.
+    deliveryEstimate: item.deliveryEstimate ?? null,
+    summary: item.trackingSummary ?? null,
+    attention: item.trackingAttention ?? null,
   };
 }
 
@@ -144,6 +194,8 @@ function fromClient(shipment: ClientShipmentDetails): TrackingRecord {
       shipment.dpdShipment?.createdAt || shipment.shipmentDraft.createdAt,
     events: shipment.events,
     deliveryEstimate: shipment.deliveryEstimate ?? null,
+    summary: shipment.trackingSummary ?? null,
+    attention: shipment.trackingAttention ?? null,
   };
 }
 
@@ -222,7 +274,7 @@ export default function ShipmentTrackingPage({
             fromClient((await trackClientShipment(trackingNumber)).shipment),
           );
         } else {
-          const matches = (await listDpdShipments(1, trackingNumber)).shipments;
+          const matches = (await listDpdShipments(1, trackingNumber, true)).shipments;
           if (!matches[0])
             throw new Error("No shipment was found for that tracking number.");
           setResult(fromAdmin(matches[0]));
@@ -259,6 +311,7 @@ export default function ShipmentTrackingPage({
   const currentLocation = [...(result?.events ?? [])]
     .sort((left, right) => new Date(right.eventAt).getTime() - new Date(left.eventAt).getTime())
     .find((event) => event.location)?.location ?? "";
+  const facts = result ? shipmentFacts(result) : [];
   // A parcel-level search is one whose number belongs to a piece rather than the
   // shipment itself, whether it was picked from the list or typed by hand.
   const trackedParcel =
@@ -473,35 +526,47 @@ export default function ShipmentTrackingPage({
                     </p>
                   ) : null}
                 </div>
-                <span
-                  className={`border px-3 py-1.5 text-xs font-semibold uppercase ${statusTone(result.status)}`}
-                >
-                  {result.statusLabel}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`border px-3 py-1.5 text-xs font-semibold uppercase ${statusTone(result.status)}`}
+                  >
+                    {result.statusLabel}
+                  </span>
+                  <ActionRequiredChip attention={result.attention} />
+                </div>
               </div>
+
+              {/* The chip says something is needed; this says what, because a
+                  customer told only "action required" still has to ring in. */}
+              {result.attention ? (
+                <div className="border-t border-red-100 bg-red-50/60 px-5 py-4">
+                  <p className="text-sm font-semibold text-red-800">
+                    {result.attention.label}
+                  </p>
+                  <p className="mt-1 text-sm text-red-700">
+                    {result.attention.detail}
+                  </p>
+                </div>
+              ) : null}
             </section>
 
             <EstimatedDelivery estimate={result.deliveryEstimate} />
           </div>
 
-          <section className="border border-slate-100 border-b-0 bg-white rounded-2xl">
+          <section className="overflow-hidden border border-slate-100 bg-white rounded-2xl">
             <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-              <Info
-                label="AWB / Tracking No."
-                value={result.swiftlineTrackingNumber || "AWB Pending"}
-              />
-              <Info
-                label="Carrier Shipment ID"
-                value={result.carrierShipmentNumber || "Not assigned"}
-              />
-              <Info
-                label="Parcels"
-                value={String(result.parcelCount)}
-              />
-              <Info
-                label="Booked"
-                value={formatDashboardDateTime(result.createdAt)}
-              />
+              {facts.map((fact) => (
+                <Info key={fact.label} label={fact.label} value={fact.value} />
+              ))}
+              {/* The grid draws its dividers by letting a slate background show
+                  through 1px gaps, so a short final row would read as a grey
+                  block. Only the four-column layout can be short — an even
+                  count always fills two columns — so the fillers appear there
+                  and nowhere else, where they would add a blank row instead. */}
+              {Array.from(
+                { length: (4 - (facts.length % 4)) % 4 },
+                (_, index) => <div key={`filler-${index}`} className="hidden bg-white lg:block" />
+              )}
             </div>
           </section>
 
@@ -569,10 +634,13 @@ export default function ShipmentTrackingPage({
                   value={result.destination}
                 />
                 <Detail
-                  icon={<FiPackage />}
-                  label="Packages"
-                  value={`${result.parcelCount} | ${result.service ? labelStatus(result.service) : "Service not available"}`}
+                  icon={<FiUser />}
+                  label="Consignee"
+                  value={result.consignee}
                 />
+                {/* Pieces and service used to share a "Packages" line here.
+                    Both now have their own field above, so repeating them
+                    would just be the same facts twice. */}
                 {result.parcelNumbers.length ? (
                   <div className="flex gap-3 p-5">
                     <span className="mt-0.5 text-blue-900">
