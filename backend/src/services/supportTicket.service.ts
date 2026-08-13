@@ -190,7 +190,15 @@ function serializeTicketSla(ticket: InstanceType<typeof SupportTicket>) {
     firstRespondedAt: respondedAt,
     breached: respondedAt ? respondedAt > dueAt : !settled && new Date() > dueAt,
     /** Still running, so the UI knows whether to count down or report an outcome. */
-    open: !settled
+    open: !settled,
+    /**
+     * When Swiftline was alerted, or null if the sweeper has not run yet.
+     *
+     * Stored rather than derived, unlike `breached`, because it records a
+     * message that was actually sent — the UI can only claim "escalated" if
+     * somebody was genuinely told.
+     */
+    escalatedAt: ticket.slaEscalatedAt ?? null
   };
 }
 

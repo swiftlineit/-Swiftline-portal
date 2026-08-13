@@ -132,6 +132,7 @@ export interface ISupportTicket extends mongoose.Document {
   firstResponseDueAt: Date;
   /** When the first Swiftline reply actually landed. Null until it does. */
   firstRespondedAt?: Date | null;
+  slaEscalatedAt?: Date | null;
   resolvedAt?: Date | null;
   closedAt?: Date | null;
   createdAt: Date;
@@ -181,6 +182,16 @@ const supportTicketSchema = new mongoose.Schema<ISupportTicket>({
   // rather than reading as overdue since 1970.
   firstResponseDueAt: { type: Date, required: true, default: Date.now, index: true },
   firstRespondedAt: { type: Date, default: null },
+  /**
+   * When the breach was escalated to Swiftline staff.
+   *
+   * Recorded even though `breached` itself is derived, because this is not a
+   * fact about the ticket but about a message already sent: without it the
+   * sweeper would re-alert on every run, and an alert that repeats every few
+   * minutes is one people learn to ignore. It is deliberately never cleared —
+   * answering a ticket late does not un-send the escalation.
+   */
+  slaEscalatedAt: { type: Date, default: null, index: true },
   resolvedAt: { type: Date, default: null },
   closedAt: { type: Date, default: null }
 }, { timestamps: true });

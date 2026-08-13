@@ -76,6 +76,8 @@ const catalog: Record<string, CatalogEntry> = {
   SUPPORT_TICKET_CREATED: { category: "TRANSACTIONAL", priority: 70 },
   SUPPORT_TICKET_REPLY: { category: "TRANSACTIONAL", priority: 70 },
   SUPPORT_TICKET_STATUS_UPDATED: { category: "OPERATIONAL", priority: 60 },
+  // Staff-facing and time-critical: a breach only matters if it is read soon.
+  SUPPORT_TICKET_SLA_BREACHED: { category: "OPERATIONAL", priority: 90 },
 
   // Claims.
   //

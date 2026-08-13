@@ -96,6 +96,8 @@ export type SupportTicket = {
     firstRespondedAt: string | null;
     breached: boolean;
     open: boolean;
+    /** Set once Swiftline has actually been alerted, not merely once overdue. */
+    escalatedAt?: string | null;
   } | null; resolvedAt: string | null; closedAt: string | null; createdAt: string; updatedAt: string;
   // Present only on a resolved ticket loaded with its messages; null otherwise.
   resolvedReplyAllowance: { used: number; max: number } | null;

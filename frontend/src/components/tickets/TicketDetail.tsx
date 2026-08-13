@@ -24,6 +24,43 @@ import {
 import { TicketPriorityBadge, TicketStatusBadge } from "./TicketStatusBadge";
 import TicketShipmentContext from "./TicketShipmentContext";
 
+/**
+ * The first-response clock.
+ *
+ * Shows the deadline while it is running and the outcome once it is not, so
+ * the ticket says the same thing the queue's badge does rather than making
+ * someone open the list to find out whether it is late.
+ *
+ * "Escalated" is only claimed when Swiftline was genuinely alerted — the
+ * sweeper stamps that, so an overdue ticket the job has not reached yet reads
+ * as exceeded but not yet escalated, which is the truth.
+ */
+function TicketSla({ sla }: { sla: SupportTicket["sla"] }) {
+  if (!sla) return null;
+
+  if (sla.breached) {
+    return (
+      <span className="inline-flex items-center rounded-4xl border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold uppercase text-red-700">
+        {sla.escalatedAt ? "SLA exceeded — escalated" : "SLA exceeded"}
+      </span>
+    );
+  }
+
+  if (!sla.open) {
+    return (
+      <span className="text-xs font-medium text-emerald-700">
+        First response met{sla.firstRespondedAt ? ` · ${formatDashboardDateTime(sla.firstRespondedAt)}` : ""}
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-xs font-medium text-slate-500">
+      First response due: {formatDashboardDateTime(sla.firstResponseDueAt)}
+    </span>
+  );
+}
+
 export default function TicketDetail({
   audience,
   ticketId,
@@ -206,9 +243,12 @@ export default function TicketDetail({
               {formatDashboardDateTime(ticket.createdAt)}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <TicketPriorityBadge priority={ticket.priority} />
-            <TicketStatusBadge status={ticket.status} />
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap gap-2">
+              <TicketPriorityBadge priority={ticket.priority} />
+              <TicketStatusBadge status={ticket.status} />
+            </div>
+            <TicketSla sla={ticket.sla} />
           </div>
         </div>
         <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
