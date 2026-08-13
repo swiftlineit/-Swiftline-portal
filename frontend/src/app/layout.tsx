@@ -13,8 +13,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [{ url: "/icon.png", type: "image/png", sizes: "192x192" }],
+    shortcut: [{ url: "/icon.png", type: "image/png", sizes: "192x192" }],
     apple: [{ url: "/icon.png", type: "image/png", sizes: "192x192" }],
   },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({
