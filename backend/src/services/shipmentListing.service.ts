@@ -14,6 +14,13 @@ export type ShipmentListingFilter = {
   businessAccountIds?: mongoose.Types.ObjectId[];
   branchIds?: mongoose.Types.ObjectId[];
   status?: string;
+  /**
+   * Free text over AWB, piece number, consignee and the customer's own
+   * reference. Applied in the database rather than to the fetched page: this
+   * list is paginated, so filtering what was already returned would silently
+   * miss the shipment sitting on page three.
+   */
+  search?: string;
   dateFrom?: string;
   dateTo?: string;
   page: number;
@@ -77,7 +84,44 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
     .select("shipmentDraftId")
     .lean()
     .exec();
-  const candidateFilter = { ...draftFilter, _id: { $in: bookedDraftIds.map((item) => item.shipmentDraftId) } };
+
+  let allowedDraftIds = bookedDraftIds.map((item) => item.shipmentDraftId);
+
+  if (filter.search?.trim()) {
+    // Escaped because these are identifiers people paste: a stray bracket from
+    // a copied email would otherwise be read as regex syntax.
+    const pattern = new RegExp(filter.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+
+    const [byBooking, byDraft] = await Promise.all([
+      DpdShipment.find({
+        shipmentDraftId: { $in: allowedDraftIds },
+        $or: [
+          { swiftlineTrackingNumber: pattern },
+          { dpdShipmentId: pattern },
+          { parcelNumbers: pattern }
+        ]
+      }).select("shipmentDraftId").lean().exec(),
+      ShipmentDraft.find({
+        ...draftFilter,
+        _id: { $in: allowedDraftIds },
+        $or: [
+          { "consigneeEnteredAddress.companyName": pattern },
+          { "consigneeEnteredAddress.contactName": pattern },
+          { "consigneeEnteredAddress.townOrCity": pattern },
+          { "parcelList.shipmentReference1": pattern },
+          { "parcelList.shipmentReference2": pattern }
+        ]
+      }).select("_id").lean().exec()
+    ]);
+
+    const matched = new Set([
+      ...byBooking.map((item) => String(item.shipmentDraftId)),
+      ...byDraft.map((draft) => String(draft._id))
+    ]);
+    allowedDraftIds = allowedDraftIds.filter((id) => matched.has(String(id)));
+  }
+
+  const candidateFilter = { ...draftFilter, _id: { $in: allowedDraftIds } };
 
   // The listed status is the newest customer-visible event, so filtering by
   // status means keeping drafts whose newest event matches.

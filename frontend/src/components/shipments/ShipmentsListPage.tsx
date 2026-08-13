@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiArchive, FiChevronDown, FiExternalLink, FiFileText, FiPlus, FiRefreshCw } from "react-icons/fi";
+import { FiArchive, FiChevronDown, FiExternalLink, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
@@ -44,6 +44,15 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
   const [selected, setSelected] = useState<Map<string, ShipmentListItem>>(new Map());
   const [manifestFlowActive, setManifestFlowActive] = useState(false);
   const [status, setStatus] = useState("");
+  /**
+   * What is typed, and what has actually been searched for.
+   *
+   * Held apart so the list refetches once the typing settles rather than on
+   * every keystroke — this is a server-side search across every page, not a
+   * filter over the rows already on screen.
+   */
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -58,7 +67,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     setLoading(true);
     setError("");
     try {
-      const data = await listShipments(audience, { page, status, dateRange });
+      const data = await listShipments(audience, { page, status, search, dateRange });
       setShipments(data.shipments);
       setPagination(data.pagination);
       // Refresh or drop only the selections that belong to this page - a shipment
@@ -79,7 +88,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     } finally {
       setLoading(false);
     }
-  }, [audience, dateRange, page, status]);
+  }, [audience, dateRange, page, search, status]);
 
   // Deferred so the fetch's setState lands after the first paint rather than
   // cascading a render, matching the other listing screens.
@@ -87,6 +96,20 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  // Applies the typed term once typing settles, and returns to page one — the
+  // page you were on rarely exists in a narrower result set.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearch((current) => {
+        if (current === searchInput.trim()) return current;
+        setPage(1);
+        return searchInput.trim();
+      });
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   const selectable = useMemo(() => shipments.filter((shipment) => shipment.manifestEligible), [shipments]);
   const selectedList = useMemo(() => [...selected.values()], [selected]);
@@ -156,6 +179,30 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
+          <label className="block">
+            <span className="sr-only">Search shipments</span>
+            <div className="relative mt-2">
+              <FiSearch aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                maxLength={80}
+                placeholder="Search AWB, consignee or reference"
+                className="h-10 w-64 rounded-xl border border-slate-300 bg-white pl-10 pr-9 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
+              />
+              {searchInput ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchInput("")}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <FiX aria-hidden="true" className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+          </label>
+
           <DateRangeFilter
             className="mt-2"
             value={dateRange}

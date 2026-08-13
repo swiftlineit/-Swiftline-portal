@@ -105,6 +105,8 @@ export async function listShipments(audience: ShipmentAudience, input: {
   page?: number;
   limit?: number;
   status?: string;
+  /** Free text over AWB, piece number, consignee and your own reference. */
+  search?: string;
   dateRange?: DateRange;
   businessAccountId?: string;
   branchId?: string;
@@ -113,6 +115,7 @@ export async function listShipments(audience: ShipmentAudience, input: {
   params.set("page", String(input.page ?? 1));
   params.set("limit", String(input.limit ?? 20));
   if (input.status) params.set("status", input.status);
+  if (input.search?.trim()) params.set("search", input.search.trim());
   setDateRangeParams(params, input.dateRange);
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
   if (input.branchId) params.set("branchId", input.branchId);
