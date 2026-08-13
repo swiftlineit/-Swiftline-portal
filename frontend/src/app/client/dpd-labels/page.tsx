@@ -1,18 +1,15 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   FiChevronLeft,
   FiChevronRight,
-  FiDownload,
   FiEdit3,
   FiExternalLink,
   FiFileText,
-  FiPrinter,
   FiTrash2,
-  FiUploadCloud,
   FiInfo
 } from "react-icons/fi";
 import { toast } from "react-toastify";
@@ -20,25 +17,20 @@ import {
   ClientDashboardLoading,
   ClientShellUser
 } from "@/components/client/ClientDashboardShell";
-import ShipmentDraftReadyCard from "@/components/shipments/ShipmentDraftReadyCard";
+import ShipmentImportPanel from "@/components/shipments/ShipmentImportPanel";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
 import {
   ClientDashboardAccount,
   ClientShipmentListItem,
   createClientManualShipmentDraft,
-  downloadClientDpdInvoiceTemplate,
   getClientDashboard,
-  getClientShipments,
-  processClientDpdInvoiceUpload,
-  uploadClientDpdInvoice
+  getClientShipments
 } from "@/lib/clientDashboard";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
-import { downloadShipmentInvoicePdf, shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
+import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
 import { useDeleteShipmentDraft } from "@/lib/useDeleteShipmentDraft";
 import { RiMenuAddLine } from "react-icons/ri";
-
-type ClientDraft = NonNullable<Awaited<ReturnType<typeof uploadClientDpdInvoice>>["shipmentDraft"]>;
 
 async function loadCurrentUser() {
   let token = getAccessToken() ?? await refreshAccessToken();
@@ -76,19 +68,14 @@ export default function ClientDpdLabelsPage() {
   const [accounts, setAccounts] = useState<ClientDashboardAccount[]>([]);
   const [accountId, setAccountId] = useState("");
   const [branchId, setBranchId] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [draft, setDraft] = useState<ClientDraft | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [creatingManual, setCreatingManual] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState("");
   const [shipments, setShipments] = useState<ClientShipmentListItem[]>([]);
   const [shipmentPage, setShipmentPage] = useState(1);
   const [shipmentRefreshKey, setShipmentRefreshKey] = useState(0);
   const [shipmentsLoading, setShipmentsLoading] = useState(true);
   const [shipmentError, setShipmentError] = useState("");
-  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState("");
   const [shipmentPagination, setShipmentPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
 
   const selectedAccount = useMemo(
@@ -98,9 +85,7 @@ export default function ClientDpdLabelsPage() {
   const branches = useMemo(() => selectedAccount ? getAvailableBranches(selectedAccount) : [], [selectedAccount]);
   const selectedBranch = branches.find((branch) => branch._id === branchId) ?? branches[0] ?? null;
   const rateCardAssigned = Boolean(selectedAccount?.account.rateCard.assigned);
-  const canUpload = Boolean(rateCardAssigned && selectedBranch && file && !busy && !creatingManual);
-  const canCreateManual = Boolean(rateCardAssigned && selectedBranch && !busy && !creatingManual);
-  const totalWeight = draft?.parcelList.reduce((total, parcel) => total + (parcel.weightKg || 0), 0) ?? 0;
+  const canCreateManual = Boolean(rateCardAssigned && selectedBranch && !creatingManual);
   const selectedAccountDocumentId = selectedAccount?.account.id ?? "";
   const selectedBranchId = selectedBranch?._id ?? "";
 
@@ -182,84 +167,6 @@ export default function ClientDpdLabelsPage() {
     };
   }, [selectedAccountDocumentId, selectedBranchId, shipmentPage, shipmentRefreshKey]);
 
-  function selectFile(nextFile: File | null) {
-    if (!nextFile || !rateCardAssigned) return;
-    setFile(nextFile);
-    setDraft(null);
-    setError("");
-  }
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    selectFile(event.target.files?.[0] ?? null);
-  }
-
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    setDragActive(false);
-    if (!rateCardAssigned) return;
-    selectFile(event.dataTransfer.files?.[0] ?? null);
-  }
-
-  async function handleTemplateDownload() {
-    setBusy(true);
-    setError("");
-
-    try {
-      const blob = await downloadClientDpdInvoiceTemplate();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "swiftline-shipment-invoice-template.xlsx";
-      anchor.click();
-      window.URL.revokeObjectURL(url);
-    } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to download invoice format.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleUpload() {
-    if (!rateCardAssigned || !file || !selectedBranch) return;
-
-    setBusy(true);
-    setError("");
-    setDraft(null);
-
-    try {
-      const uploadResult = await uploadClientDpdInvoice({ branchId: selectedBranch._id, file });
-      if (uploadResult.duplicate && uploadResult.shipmentDraft) {
-        if (uploadResult.alreadyBooked || (uploadResult.bookingState && uploadResult.bookingState !== "EDITABLE")) {
-          toast.info(uploadResult.message || "Existing shipment opened.");
-          router.push(`/client/shipments/${uploadResult.shipmentDraft._id}`);
-          return;
-        }
-        setDraft(uploadResult.shipmentDraft);
-        toast.info("Existing editable draft resumed.");
-        setShipmentPage(1);
-        setShipmentsLoading(true);
-        setShipmentRefreshKey((current) => current + 1);
-        return;
-      }
-
-      const processResult = await processClientDpdInvoiceUpload(uploadResult.invoiceUpload.id);
-      if (processResult.shipmentDraft && (processResult.alreadyBooked || processResult.bookingState === "BOOKED")) {
-        toast.info(processResult.message || "Existing shipment opened.");
-        router.push(`/client/shipments/${processResult.shipmentDraft._id}`);
-        return;
-      }
-      setDraft(processResult.shipmentDraft ?? null);
-      toast.success("Invoice processed and shipment draft created.");
-      setShipmentPage(1);
-      setShipmentsLoading(true);
-      setShipmentRefreshKey((current) => current + 1);
-    } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Invoice could not be processed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleManualDraft() {
     if (!rateCardAssigned || !selectedBranchId) return;
 
@@ -275,24 +182,6 @@ export default function ClientDpdLabelsPage() {
         ? caughtError.message
         : "Unable to start a blank shipment draft. Please try again.");
       setCreatingManual(false);
-    }
-  }
-
-  async function handleInvoiceDownload(shipment: ClientShipmentListItem) {
-    if (!shipment.shipmentInvoice) return;
-    setDownloadingInvoiceId(shipment.id);
-    setShipmentError("");
-
-    try {
-      await downloadShipmentInvoicePdf(
-        shipment.id,
-        "client",
-        shipment.shipmentInvoice.invoiceNumber
-      );
-    } catch (caughtError) {
-      setShipmentError(caughtError instanceof Error ? caughtError.message : "Unable to download shipment invoice.");
-    } finally {
-      setDownloadingInvoiceId("");
     }
   }
 
@@ -314,17 +203,8 @@ export default function ClientDpdLabelsPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl  text-[#0D1282]"> <RiMenuAddLine className="inline-block mb-1 mr-1 text-lg" />Create & Manage Shipment  </h1>
-            <p className="mt-1 text-sm text-slate-500">create a new shipment manually or upload an invoice to pre-fill details.</p>
+            <p className="mt-1 text-sm text-slate-500">Create a shipment manually or import workbooks to prefill editable drafts.</p>
           </div>
-          <button
-            type="button"
-            onClick={handleTemplateDownload}
-            disabled={busy || creatingManual}
-            className="inline-flex h-10 items-center rounded-4xl justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-400"
-          >
-            <FiDownload aria-hidden="true" className="h-4 w-4" />
-            Download Invoice Format 
-          </button>
         </div>
 
         {error ? (
@@ -353,94 +233,30 @@ export default function ClientDpdLabelsPage() {
           </section>
 
           <aside className="space-y-5">
+            <ShipmentImportPanel
+              audience="client"
+              branchId={selectedBranchId}
+              disabled={!rateCardAssigned || !selectedBranchId || creatingManual}
+              onDraftsCreated={() => {
+                setShipmentPage(1);
+                setShipmentsLoading(true);
+                setShipmentRefreshKey((current) => current + 1);
+              }}
+            />
             <section className="border border-slate-200 bg-white p-5 rounded-2xl">
-              <div className="flex items-center justify-center gap-2">
-  <h2 className="text-center text-sm font-semibold uppercase text-slate-500">
-    Invoice Upload
-  </h2>
-
-  <div className="group relative">
-    <button
-      type="button"
-      className="flex h-4 w-4 items-center justify-center rounded-full text-slate-400 transition hover:text-[#0D1282]"
-    >
-      <FiInfo className="h-3.5 w-3.5" />
-    </button>
-
-    <div
-      className="
-        pointer-events-none absolute left-1/2 top-full z-50 mt-3
-        w-64 -translate-x-1/2 rounded-xl
-        border border-slate-200 bg-white p-4
-        text-left opacity-0 shadow-xl
-        transition-all duration-200
-        group-hover:translate-y-1 group-hover:opacity-100
-      "
-    >
-      <p className="text-sm font-semibold text-slate-900">
-        Upload Invoice
-      </p>
-
-      <p className="mt-1 text-xs leading-5 text-slate-600">
-        Upload a supported Excel invoice to automatically pre-fill shipment
-        details, reducing manual entry and speeding up the booking process.
-      </p>
-
-      <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 border-l border-t border-slate-200 bg-white" />
-    </div>
-  </div>
-</div>
-              <label
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={handleDrop}
-                className={`mt-4 flex min-h-36 rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center ${rateCardAssigned ? "cursor-pointer" : "cursor-not-allowed opacity-60"} ${dragActive ? "border-blue-900 bg-blue-50" : "border-slate-300 bg-slate-50"}`}
-              >
-                <FiUploadCloud aria-hidden="true" className="h-8 w-8 text-blue-900" />
-                <span className="mt-3 text-sm font-semibold text-slate-900">
-                  {file ? file.name : "Drop .xlsx invoice here"}
-                </span>
-                <span className="mt-1 text-xs font-medium text-slate-500">Account and branch are locked to your login.</span>
-                <input type="file" accept=".xlsx" onChange={handleFileChange} disabled={!rateCardAssigned} className="hidden" />
-              </label>
-              <button
-                type="button"
-                onClick={handleUpload}
-                disabled={!canUpload}
-                className="mt-4 inline-flex h-10 w-full rounded-xl items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-              >
-                <FiFileText aria-hidden="true" className="h-4 w-4" />
-                {busy ? "Processing..." : "Create Draft"}
-              </button>
-              <div className="my-4 flex items-center gap-3" aria-hidden="true">
-                <span className="h-px flex-1 bg-slate-200" />
-                <span className="text-xs font-semibold uppercase text-slate-400">Or</span>
-                <span className="h-px flex-1 bg-slate-200" />
-              </div>
+              <h2 className="text-center text-sm font-semibold uppercase text-slate-500">
+                Manual Shipment
+              </h2>
               <button
                 type="button"
                 onClick={handleManualDraft}
                 disabled={!canCreateManual}
-                className="inline-flex h-10 w-full items-center rounded-xl justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                className="mt-4 inline-flex h-10 w-full items-center rounded-xl justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
               >
                 <FiEdit3 aria-hidden="true" className="h-4 w-4" />
-                {creatingManual ? "Starting Draft..." : "Create Without Invoice"}
+                {creatingManual ? "Starting Draft..." : "Create Manually"}
               </button>
             </section>
-
-            {draft ? (
-              <ShipmentDraftReadyCard
-                title="Draft ready from client account"
-                href={`/client/dpd-labels/${draft._id}`}
-                consignee={draft.consigneeEnteredAddress.contactName}
-                postcode={draft.consigneeEnteredAddress.postcode}
-                parcelCount={draft.parcelList.length}
-                totalWeightKg={totalWeight}
-              />
-            ) : null}
           </aside>
         </div>
 
@@ -449,9 +265,7 @@ export default function ClientDpdLabelsPage() {
           loading={shipmentsLoading}
           error={shipmentError}
           pagination={shipmentPagination}
-          downloadingInvoiceId={downloadingInvoiceId}
           onPageChange={handleShipmentPageChange}
-          onInvoiceDownload={handleInvoiceDownload}
           onDeleteDraft={requestDraftDelete}
         />
 
@@ -465,18 +279,14 @@ function ClientShipmentTable({
   loading,
   error,
   pagination,
-  downloadingInvoiceId,
   onPageChange,
-  onInvoiceDownload,
   onDeleteDraft
 }: {
   shipments: ClientShipmentListItem[];
   loading: boolean;
   error: string;
   pagination: { page: number; limit: number; total: number; totalPages: number };
-  downloadingInvoiceId: string;
   onPageChange: (page: number) => void;
-  onInvoiceDownload: (shipment: ClientShipmentListItem) => Promise<void>;
   onDeleteDraft: (draft: { id: string; label: string }) => void;
 }) {
   const firstItem = pagination.total ? (pagination.page - 1) * pagination.limit + 1 : 0;
@@ -590,12 +400,6 @@ function ClientShipmentTable({
                           <Link href={shipmentInvoicePageUrl(shipment.id, "client")} target="_blank" rel="noreferrer" title="View invoice" aria-label="View invoice" className="inline-flex rounded h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900">
                             <FiFileText aria-hidden="true" className="h-4 w-4" />
                           </Link>
-                          {/* <button type="button" title="Download invoice PDF" aria-label="Download invoice PDF" disabled={downloadingInvoiceId === shipment.id} onClick={() => void onInvoiceDownload(shipment)} className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:opacity-50">
-                            <FiDownload aria-hidden="true" className="h-4 w-4" />
-                          </button>
-                          <Link href={shipmentInvoicePageUrl(shipment.id, "client", true)} target="_blank" rel="noreferrer" title="Print invoice" aria-label="Print invoice" className="inline-flex h-8 w-8 items-center justify-center border border-slate-200 text-slate-700 hover:border-blue-900 hover:text-blue-900">
-                            <FiPrinter aria-hidden="true" className="h-4 w-4" />
-                          </Link> */}
                         </>
                       ) : null}
                     </div>

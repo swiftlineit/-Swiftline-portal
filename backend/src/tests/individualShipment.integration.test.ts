@@ -174,7 +174,7 @@ describe("individual shipment drafts", () => {
     // is keyed in mixed case at the counter and normalized on save.
     assert.equal(draft.consignorAddress.contactName, "ASHA KUMARI");
     assert.equal(draft.consignorAddress.aadhaarNumber, "123456789012", "Aadhaar is stored as digits only.");
-    assert.ok(draft.invoiceUploadId, "A source record is still required by the shipment chain.");
+    assert.equal(draft.creationSource, "INDIVIDUAL");
   });
 
   test("rejects a branch that is not active", async () => {

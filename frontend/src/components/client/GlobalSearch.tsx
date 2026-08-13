@@ -115,7 +115,9 @@ export default function GlobalSearch({
 
   return (
     <div ref={containerRef} className="relative w-full">
-      <label className="relative block">
+      {/* The offset sits on the label so the absolutely positioned icon, which
+          centres against this box, keeps tracking the input on small screens. */}
+      <label className="relative block mt-3 md:mt-0">
         <span className="sr-only">Search shipments, invoices, claims and tickets</span>
         <FiSearch aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input

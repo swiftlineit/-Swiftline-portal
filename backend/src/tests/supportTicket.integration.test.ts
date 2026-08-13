@@ -78,7 +78,7 @@ async function fixture() {
 /** A minimal draft, enough for the related-shipment ownership check. */
 async function shipmentFixture(businessAccountId: mongoose.Types.ObjectId, branchId: mongoose.Types.ObjectId, createdBy: mongoose.Types.ObjectId) {
   return ShipmentDraft.create({
-    invoiceUploadId: new mongoose.Types.ObjectId(), businessAccountId, branchId,
+    creationSource: "MANUAL", businessAccountId, branchId,
     consigneeEnteredAddress: { contactName: "Test Consignee" }, parcelCount: 1, createdBy
   });
 }

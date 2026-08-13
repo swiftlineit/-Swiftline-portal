@@ -2,7 +2,6 @@ import mongoose from "mongoose";
 import { env } from "../config/env.js";
 import { Branch } from "../models/branch.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent, type ShipmentEventStatus } from "../models/shipmentEvent.model.js";
 import { User } from "../models/user.model.js";
@@ -126,8 +125,6 @@ async function main() {
   await recordCounterShipmentCharge({ draft, pricing });
 
   const swiftlineTrackingNumber = `SLCIND${String(draft._id).slice(-6).toUpperCase()}`;
-  const invoiceUpload = await InvoiceUpload.findById(draft.invoiceUploadId).exec();
-  if (!invoiceUpload) throw new Error("The draft's internal source record is missing.");
   const sentinel = await getOrCreateIndividualSentinel(actorId);
   const branchDocument = await Branch.findById(branch._id).exec();
   if (!branchDocument) throw new Error("Branch disappeared while seeding.");
@@ -158,7 +155,6 @@ async function main() {
   const totalMinor = Math.round(pricing.totalAmount * 100);
   const bookingSnapshot = buildShipmentBookingSnapshot({
     draft,
-    invoiceUpload,
     account: sentinel,
     branch: branchDocument,
     pricing,
@@ -192,7 +188,7 @@ async function main() {
     weightKg: 6,
     serviceCode: draft.serviceCode || "SLC",
     shipmentReference: "IND-DEMO-01",
-    customerReference: invoiceUpload.invoiceNumber,
+    customerReference: "IND-DEMO-01",
     generatedAt: new Date(),
     consignee: {
       name: destinationAddress.contactName,

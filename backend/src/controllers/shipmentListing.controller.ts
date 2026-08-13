@@ -2,7 +2,11 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
-import { listBookedShipments } from "../services/shipmentListing.service.js";
+import {
+  allShipmentStatuses,
+  bookedShipmentStatuses,
+  listBookedShipments
+} from "../services/shipmentListing.service.js";
 import { dateRangeParams } from "../utils/dateRangeFilter.js";
 
 function getUserId(request: Request) {
@@ -34,7 +38,10 @@ export async function listAdminBookedShipments(request: Request, response: Respo
     status: typeof request.query.status === "string" ? request.query.status : "",
     ...dateRangeParams(request.query),
     businessAccountIds: businessAccountId ? [businessAccountId] : undefined,
-    branchIds: branchId ? [branchId] : undefined
+    branchIds: branchId ? [branchId] : undefined,
+    // Staff see every booking that reached the carrier, so this table and the DPD
+    // labels panel no longer disagree about which shipments exist.
+    bookingStatuses: allShipmentStatuses
   });
 
   return response.status(200).json({ success: true, ...result });
@@ -87,7 +94,10 @@ export async function listClientBookedShipments(request: Request, response: Resp
     status: typeof request.query.status === "string" ? request.query.status : "",
     ...dateRangeParams(request.query),
     businessAccountIds,
-    branchIds: requestedBranchId ? [requestedBranchId] : branchIds
+    branchIds: requestedBranchId ? [requestedBranchId] : branchIds,
+    // Customers only ever see shipments that completed. A booking still being
+    // reconciled with the carrier is internal.
+    bookingStatuses: bookedShipmentStatuses
   });
 
   return response.status(200).json({ success: true, ...result });

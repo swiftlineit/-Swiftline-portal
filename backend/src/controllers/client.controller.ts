@@ -4,13 +4,18 @@ import { z } from "zod";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { LabelDocument } from "../models/labelDocument.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ShipmentDraft, type IShipmentDraft } from "../models/shipmentDraft.model.js";
+import { ShipmentImportBatch } from "../models/shipmentImportBatch.model.js";
 import { estimateRouteDelivery } from "../services/swiftlineRoute.service.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
-import { createInvoiceUpload, processInvoiceUpload } from "./invoiceUpload.controller.js";
+import {
+  createShipmentImportBatch,
+  createShipmentImportDrafts,
+  downloadShipmentImportTemplate,
+  getShipmentImportBatch
+} from "./shipmentImport.controller.js";
 import {
   createManualShipmentDraft,
   deleteShipmentDraftHandler,
@@ -39,7 +44,6 @@ import {
   DpdShipmentServiceError,
   createLabelForShipmentDraft
 } from "../services/dpdShipment.service.js";
-import { buildCustomsInvoiceTemplateWorkbook } from "../services/customsInvoice/customsInvoice.service.js";
 import { normalizeCsbType } from "../services/csbType.service.js";
 import { buildPricingHash, ShipmentPriceChangedError } from "../services/shipmentCostEstimate.service.js";
 import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
@@ -96,7 +100,7 @@ function makeEmptyShipmentSummary(branchId?: string) {
 type ClientShipmentDraftSnapshot = {
   _id: unknown;
   branchId: unknown;
-  invoiceUploadId?: unknown;
+  parcelList?: Array<{ shipmentReference1?: string }>;
   parcelCount?: number;
   status?: string;
   bookingState?: string;
@@ -177,19 +181,8 @@ async function buildClientShipmentDashboard(accountId: string, branchIds: string
         .lean()
         .exec()
     : [];
-  const invoiceUploadIds = drafts
-    .map((draft) => String(draft.invoiceUploadId ?? ""))
-    .filter((invoiceUploadId) => mongoose.Types.ObjectId.isValid(invoiceUploadId))
-    .map((invoiceUploadId) => new mongoose.Types.ObjectId(invoiceUploadId));
-  const invoiceUploads = invoiceUploadIds.length
-    ? await InvoiceUpload.find({ _id: { $in: invoiceUploadIds } })
-        .select("invoiceNumber shipmentReference")
-        .lean()
-        .exec()
-    : [];
   const dpdByDraftId = new Map(dpdShipments.map((shipment) => [String(shipment.shipmentDraftId), shipment]));
   const shipmentInvoiceByDraftId = new Map(shipmentInvoices.map((invoice) => [String(invoice.shipmentDraftId), invoice]));
-  const invoiceById = new Map(invoiceUploads.map((invoice) => [String(invoice._id), invoice]));
   const events = draftIds.length
     ? await ShipmentEvent.find({
         shipmentDraftId: { $in: draftIds },
@@ -221,7 +214,6 @@ async function buildClientShipmentDashboard(accountId: string, branchIds: string
     summary,
     branchSummaries: Array.from(branchSummaryMap.values()),
     recentShipments: drafts.slice(0, 6).map((draft) => {
-      const invoice = invoiceById.get(String(draft.invoiceUploadId));
       const dpdShipment = dpdByDraftId.get(String(draft._id));
       const draftEvents = eventsByDraftId.get(String(draft._id)) ?? [];
       const currentEvent = draftEvents[0] ?? null;
@@ -230,8 +222,8 @@ async function buildClientShipmentDashboard(accountId: string, branchIds: string
       return {
         id: String(draft._id ?? ""),
         branchId: String(draft.branchId ?? ""),
-        invoiceNumber: invoice?.invoiceNumber ?? "",
-        shipmentReference: invoice?.shipmentReference ?? "",
+        invoiceNumber: "",
+        shipmentReference: draft.parcelList?.find((parcel) => parcel.shipmentReference1?.trim())?.shipmentReference1 ?? "",
         destination: {
           companyName: draft.consigneeEnteredAddress?.companyName ?? "",
           contactName: draft.consigneeEnteredAddress?.contactName ?? "",
@@ -551,24 +543,13 @@ export async function listClientShipments(request: Request, response: Response):
     .lean<ClientShipmentDraftSnapshot[]>()
     .exec();
   const draftIds = drafts.map((draft) => new mongoose.Types.ObjectId(String(draft._id)));
-  const invoiceUploadIds = drafts
-    .map((draft) => String(draft.invoiceUploadId ?? ""))
-    .filter((id) => mongoose.Types.ObjectId.isValid(id))
-    .map((id) => new mongoose.Types.ObjectId(id));
-
-  const [dpdShipments, shipmentInvoices, invoiceUploads, events, branches] = await Promise.all([
+  const [dpdShipments, shipmentInvoices, events, branches] = await Promise.all([
     draftIds.length
       ? DpdShipment.find({ shipmentDraftId: { $in: draftIds } }).lean<ClientDpdShipmentSnapshot[]>().exec()
       : [],
     draftIds.length
       ? ShipmentInvoice.find({ shipmentDraftId: { $in: draftIds } })
           .select("shipmentDraftId invoiceNumber currency totalAmountMinor status revision")
-          .lean()
-          .exec()
-      : [],
-    invoiceUploadIds.length
-      ? InvoiceUpload.find({ _id: { $in: invoiceUploadIds } })
-          .select("invoiceNumber shipmentReference")
           .lean()
           .exec()
       : [],
@@ -583,7 +564,6 @@ export async function listClientShipments(request: Request, response: Response):
 
   const dpdByDraftId = new Map(dpdShipments.map((item) => [String(item.shipmentDraftId), item]));
   const invoiceByDraftId = new Map(shipmentInvoices.map((item) => [String(item.shipmentDraftId), item]));
-  const uploadById = new Map(invoiceUploads.map((item) => [String(item._id), item]));
   const branchById = new Map(branches.map((item) => [String(item._id), item]));
   const currentEventByDraftId = new Map<string, (typeof events)[number]>();
   for (const event of events) {
@@ -593,7 +573,6 @@ export async function listClientShipments(request: Request, response: Response):
 
   const shipments = drafts.map((draft) => {
     const draftId = String(draft._id);
-    const upload = uploadById.get(String(draft.invoiceUploadId));
     const dpdShipment = dpdByDraftId.get(draftId);
     const shipmentInvoice = invoiceByDraftId.get(draftId);
     const currentEvent = currentEventByDraftId.get(draftId);
@@ -602,8 +581,8 @@ export async function listClientShipments(request: Request, response: Response):
     return {
       id: draftId,
       branchId: String(draft.branchId),
-      invoiceNumber: upload?.invoiceNumber ?? "",
-      shipmentReference: upload?.shipmentReference ?? "",
+      invoiceNumber: "",
+      shipmentReference: draft.parcelList?.find((parcel) => parcel.shipmentReference1?.trim())?.shipmentReference1 ?? "",
       swiftlineTrackingNumber: dpdShipment?.swiftlineTrackingNumber ?? "",
       destination: {
         companyName: draft.consigneeEnteredAddress?.companyName ?? "",
@@ -652,44 +631,60 @@ export async function listClientShipments(request: Request, response: Response):
   });
 }
 
-export async function downloadClientDpdInvoiceTemplate(_request: Request, response: Response): Promise<Response> {
-  const buffer = await buildCustomsInvoiceTemplateWorkbook();
-
-  response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-  response.setHeader("Content-Disposition", "attachment; filename=\"swiftline-shipment-invoice-template.xlsx\"");
-
-  return response.status(200).send(buffer);
+export async function downloadClientShipmentImportTemplate(request: Request, response: Response) {
+  return downloadShipmentImportTemplate(request, response);
 }
 
-export async function createClientInvoiceUpload(request: Request, response: Response): Promise<Response> {
+export async function createClientShipmentImportBatch(request: Request, response: Response) {
   const userId = getAuthenticatedUserId(request);
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
-
   const branchId = typeof request.body.branchId === "string" ? request.body.branchId : "";
   const clientContext = await getActiveClientMembership(userId, branchId);
-
   if (!clientContext || !clientContext.account._id || !clientContext.branchId) {
-    return response.status(403).json({
-      success: false,
-      message: "No active business account branch is available for this client."
-    });
+    return response.status(403).json({ success: false, message: "No active business account branch is available for this client." });
   }
   if (!canCreateClientShipment(clientContext.membership.role)) return sendShipmentRoleError(response);
-
   const bookingAccess = getBookingAccess(clientContext.account);
   if (bookingAccess.state !== "READY") {
-    return response.status(409).json({
-      success: false,
-      code: bookingAccess.code,
-      message: bookingAccess.message
-    });
+    return response.status(409).json({ success: false, code: bookingAccess.code, message: bookingAccess.message });
   }
-
-  // Client uploads are scoped from membership, so the browser never decides the account id.
   request.body.businessAccountId = String(clientContext.account._id);
   request.body.branchId = clientContext.branchId;
+  return createShipmentImportBatch(request, response);
+}
 
-  return createInvoiceUpload(request, response);
+async function authorizeClientShipmentImport(request: Request, response: Response) {
+  const userId = getAuthenticatedUserId(request);
+  const batchId = String(request.params.batchId ?? "");
+  if (!userId || !mongoose.Types.ObjectId.isValid(batchId)) {
+    response.status(404).json({ success: false, message: "Shipment import batch not found." });
+    return false;
+  }
+  const batch = await ShipmentImportBatch.findById(batchId).lean().exec();
+  if (!batch || String(batch.uploadedBy) !== userId) {
+    response.status(404).json({ success: false, message: "Shipment import batch not found." });
+    return false;
+  }
+  const clientContext = await getActiveClientMembership(userId, String(batch.branchId));
+  if (!clientContext || String(clientContext.account._id) !== String(batch.businessAccountId)) {
+    response.status(404).json({ success: false, message: "Shipment import batch not found." });
+    return false;
+  }
+  if (!canCreateClientShipment(clientContext.membership.role)) {
+    sendShipmentRoleError(response);
+    return false;
+  }
+  return true;
+}
+
+export async function getClientShipmentImportBatch(request: Request, response: Response) {
+  if (!await authorizeClientShipmentImport(request, response)) return response;
+  return getShipmentImportBatch(request, response);
+}
+
+export async function createClientShipmentImportDrafts(request: Request, response: Response) {
+  if (!await authorizeClientShipmentImport(request, response)) return response;
+  return createShipmentImportDrafts(request, response);
 }
 
 export async function createClientManualShipmentDraft(request: Request, response: Response): Promise<Response> {
@@ -719,36 +714,6 @@ export async function createClientManualShipmentDraft(request: Request, response
   request.body.businessAccountId = String(clientContext.account._id);
   request.body.branchId = clientContext.branchId;
   return createManualShipmentDraft(request, response);
-}
-
-export async function processClientInvoiceUpload(request: Request, response: Response): Promise<Response> {
-  const userId = getAuthenticatedUserId(request);
-  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
-
-  const uploadId = typeof request.params.id === "string" ? request.params.id : "";
-  if (!mongoose.Types.ObjectId.isValid(uploadId)) {
-    return response.status(404).json({ success: false, message: "Invoice upload not found" });
-  }
-
-  const invoiceUpload = await InvoiceUpload.findById(uploadId).lean().exec();
-  if (!invoiceUpload) return response.status(404).json({ success: false, message: "Invoice upload not found" });
-
-  const clientContext = await getActiveClientMembership(userId, String(invoiceUpload.branchId));
-  if (!clientContext || String(invoiceUpload.businessAccountId) !== String(clientContext.account._id)) {
-    return response.status(403).json({ success: false, message: "Invoice upload is not available for this client." });
-  }
-  if (!canCreateClientShipment(clientContext.membership.role)) return sendShipmentRoleError(response);
-
-  const bookingAccess = getBookingAccess(clientContext.account);
-  if (bookingAccess.state !== "READY") {
-    return response.status(409).json({
-      success: false,
-      code: bookingAccess.code,
-      message: bookingAccess.message
-    });
-  }
-
-  return processInvoiceUpload(request, response);
 }
 
 export async function getClientShipmentDraft(request: Request, response: Response): Promise<Response> {
@@ -1027,13 +992,6 @@ async function ensureClientShipmentBookedEvent(params: {
 
 function serializeClientShipmentDetails(params: {
   draft: IShipmentDraft;
-  invoiceUpload: {
-    _id: unknown;
-    invoiceNumber: string;
-    shipmentReference: string;
-    originalFilename: string;
-    uploadedAt?: Date;
-  } | null;
   dpdShipment: {
     _id: unknown;
     shipmentDraftId: unknown;
@@ -1078,7 +1036,7 @@ function serializeClientShipmentDetails(params: {
   currentInvoiceRevision?: number;
   currentInvoiceNumber?: string;
 }) {
-  const { draft, invoiceUpload, dpdShipment, labels, events, currentInvoiceRevision, currentInvoiceNumber } = params;
+  const { draft, dpdShipment, labels, events, currentInvoiceRevision, currentInvoiceNumber } = params;
   const currentEvent = events[0] ?? null;
   const originalBookingSnapshot = readShipmentBookingSnapshot(dpdShipment?.bookingSnapshot);
   const snapshotIsCurrent = (currentInvoiceRevision ?? 1) <= (dpdShipment?.snapshotRevision ?? 1);
@@ -1133,15 +1091,6 @@ function serializeClientShipmentDetails(params: {
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt
     },
-    invoiceUpload: invoiceUpload
-      ? {
-          id: String(invoiceUpload._id),
-          invoiceNumber: currentShipmentSnapshot?.source.invoiceNumber ?? invoiceUpload.invoiceNumber,
-          shipmentReference: currentShipmentSnapshot?.source.shipmentReference ?? invoiceUpload.shipmentReference,
-          originalFilename: invoiceUpload.originalFilename,
-          uploadedAt: invoiceUpload.uploadedAt ?? null
-        }
-      : null,
     dpdShipment: dpdShipment
       ? serializeClientDpdShipment(dpdShipment)
       : null,
@@ -1167,10 +1116,7 @@ export async function getClientShipmentDetails(request: Request, response: Respo
   const draft = await ShipmentDraft.findById(draftId).exec();
   if (!draft) return response.status(404).json({ success: false, message: "Shipment not found" });
 
-  const [invoiceUpload, dpdShipment] = await Promise.all([
-    InvoiceUpload.findById(draft.invoiceUploadId).lean().exec(),
-    DpdShipment.findOne({ shipmentDraftId: draft._id }).lean().exec()
-  ]);
+  const dpdShipment = await DpdShipment.findOne({ shipmentDraftId: draft._id }).lean().exec();
 
   if (dpdShipment) {
     await ensureClientShipmentBookedEvent({
@@ -1211,7 +1157,6 @@ export async function getClientShipmentDetails(request: Request, response: Respo
     shipment: {
       ...serializeClientShipmentDetails({
         draft,
-        invoiceUpload,
         dpdShipment,
         labels,
         events,

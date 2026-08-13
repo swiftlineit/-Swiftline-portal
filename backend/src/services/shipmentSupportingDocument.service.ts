@@ -56,11 +56,25 @@ export async function canAcceptSupportingDocuments(shipmentDraftId: mongoose.Typ
   };
 }
 
-export async function listSupportingDocuments(shipmentDraftId: mongoose.Types.ObjectId) {
+export async function listSupportingDocuments(
+  shipmentDraftId: mongoose.Types.ObjectId,
+  options: { includeUploader?: boolean } = {}
+) {
   const documents = await ShipmentSupportingDocument.find({ shipmentDraftId })
     .sort({ createdAt: -1 })
     .lean()
     .exec();
+
+  // Only staff are told who sent it. A client already knows — it was their own
+  // account — and naming a colleague back to them adds nothing.
+  const uploaders = options.includeUploader && documents.length
+    ? new Map(
+      (await User.find({ _id: { $in: documents.map((document) => document.uploadedBy) } })
+        .select("name email")
+        .lean()
+        .exec()).map((user) => [String(user._id), user.name || user.email])
+    )
+    : new Map<string, string>();
 
   return documents.map((document) => ({
     id: String(document._id),
@@ -70,7 +84,8 @@ export async function listSupportingDocuments(shipmentDraftId: mongoose.Types.Ob
     mimeType: document.mimeType,
     size: document.size,
     note: document.note,
-    uploadedAt: document.createdAt
+    uploadedAt: document.createdAt,
+    uploadedBy: uploaders.get(String(document.uploadedBy)) ?? ""
   }));
 }
 

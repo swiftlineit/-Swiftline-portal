@@ -15,7 +15,7 @@ import {
   ShipmentKycDocumentType,
   ShipmentKycDocuments,
   formatShipmentValidationIssues,
-  type InvoiceImportSummary
+  type ShipmentImportSummary
 } from "@/lib/dpdLabels";
 
 export type ClientDashboardAccount = {
@@ -211,13 +211,6 @@ export type ClientShipmentDetails = {
     createdAt?: string | null;
     updatedAt?: string | null;
   };
-  invoiceUpload: {
-    id: string;
-    invoiceNumber: string;
-    shipmentReference: string;
-    originalFilename: string;
-    uploadedAt?: string | null;
-  } | null;
   dpdShipment: {
     id: string;
     shipmentDraftId: string;
@@ -447,47 +440,6 @@ export async function verifyClientPrepaidTopUp(input: {
   }>(response);
 }
 
-export async function downloadClientDpdInvoiceTemplate() {
-  const response = await fetchWithAuth(apiUrl("/api/v1/client/dpd-labels/template"));
-  if (!response.ok) throw new Error("Unable to download invoice template.");
-  return response.blob();
-}
-
-export async function uploadClientDpdInvoice(input: { branchId: string; file: File }) {
-  const formData = new FormData();
-  formData.append("branchId", input.branchId);
-  formData.append("invoiceFile", input.file);
-
-  const response = await fetchWithAuth(apiUrl("/api/v1/client/dpd-labels/invoice-uploads"), {
-    method: "POST",
-    body: formData
-  });
-
-  return parseApiResponse<{
-    success: true;
-    duplicate: boolean;
-    alreadyBooked?: boolean;
-    bookingState?: "EDITABLE" | "BOOKING" | "BOOKED" | "REVIEW_REQUIRED";
-    message?: string;
-    invoiceUpload: {
-      id: string;
-      status: string;
-      processingErrors: string[];
-      invoiceNumber: string;
-      shipmentReference: string;
-    };
-    shipmentDraft?: {
-      _id: string;
-      parcelCount?: number;
-      parcelList: Array<{ weightKg: number; contentsDescription: string }>;
-      consigneeEnteredAddress: { contactName?: string; postcode?: string };
-      serviceCode?: string;
-      validationIssues: string[];
-      status: string;
-    } | null;
-  }>(response);
-}
-
 export async function createClientManualShipmentDraft(branchId: string) {
   const response = await fetchWithAuth(apiUrl("/api/v1/client/dpd-labels/drafts/manual"), {
     method: "POST",
@@ -497,16 +449,8 @@ export async function createClientManualShipmentDraft(branchId: string) {
 
   return parseApiResponse<{
     success: true;
-    shipmentDraft: NonNullable<Awaited<ReturnType<typeof uploadClientDpdInvoice>>["shipmentDraft"]>;
+    shipmentDraft: ShipmentDraft;
   }>(response);
-}
-
-export async function processClientDpdInvoiceUpload(invoiceUploadId: string) {
-  const response = await fetchWithAuth(apiUrl(`/api/v1/client/dpd-labels/invoice-uploads/${invoiceUploadId}/process`), {
-    method: "POST"
-  });
-
-  return parseApiResponse<Awaited<ReturnType<typeof uploadClientDpdInvoice>>>(response);
 }
 
 export async function getClientShipmentDraft(shipmentDraftId: string) {
@@ -515,7 +459,7 @@ export async function getClientShipmentDraft(shipmentDraftId: string) {
   return parseApiResponse<{
     success: true;
     shipmentDraft: ShipmentDraft;
-    invoiceImport?: InvoiceImportSummary | null;
+    shipmentImport?: ShipmentImportSummary | null;
   }>(response);
 }
 

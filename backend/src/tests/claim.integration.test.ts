@@ -139,7 +139,7 @@ async function createAccount(label: string) {
   });
 
   const shipment = await ShipmentDraft.create({
-    invoiceUploadId: new mongoose.Types.ObjectId(),
+    creationSource: "MANUAL",
     businessAccountId: account._id,
     branchId: branch._id,
     createdBy: owner._id,

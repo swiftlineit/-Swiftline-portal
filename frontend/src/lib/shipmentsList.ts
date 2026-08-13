@@ -37,6 +37,13 @@ export type ShipmentListItem = {
   weightKg: number;
   status: string;
   statusLabel: string;
+  /**
+   * Carrier-side booking state, distinct from the tracking status above. Staff
+   * lists include shipments that reached the carrier but have not completed;
+   * client lists only ever contain LABEL_RECEIVED.
+   */
+  bookingStatus: "LABEL_RECEIVED" | "DPD_CREATED" | "DPD_STATUS_UNKNOWN" | "DPD_CREATING" | "DPD_REJECTED";
+  bookingStatusLabel: string;
   manifest: { id: string; manifestNumber: string } | null;
   manifestEligible: boolean;
   createdAt: string | null;

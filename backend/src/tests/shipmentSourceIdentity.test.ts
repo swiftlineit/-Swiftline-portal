@@ -4,30 +4,24 @@ import { publicShipmentSourceIdentity } from "../services/shipmentSourceIdentity
 
 test("manual shipment source identifiers stay internal", () => {
   assert.deepEqual(publicShipmentSourceIdentity({
-    templateVersion: "MANUAL-1.0",
-    extractedData: { creationSource: "MANUAL" },
-    invoiceNumber: "MANUAL-INV-E1C6B60E5D8C4CB0",
-    shipmentReference: "MANUAL-SHIP-E1C6B60E5D8C4CB0"
+    _id: "66f10d7f0e8725a2c9a41b11",
+    parcelList: [{ shipmentReference1: "" }]
   } as never), { invoiceNumber: "", shipmentReference: "" });
 });
 
-test("walk-in source identifiers stay internal even when older metadata is incomplete", () => {
+test("walk-in source identifiers stay internal", () => {
   assert.deepEqual(publicShipmentSourceIdentity({
-    templateVersion: "INDIVIDUAL-1.0",
-    extractedData: {},
-    invoiceNumber: "IND-INV-1234",
-    shipmentReference: "IND-SHIP-1234"
+    _id: "66f10d7f0e8725a2c9a41b12",
+    parcelList: []
   } as never), { invoiceNumber: "", shipmentReference: "" });
 });
 
-test("genuine uploaded invoice identifiers remain customer-visible references", () => {
+test("a customer parcel reference remains visible without inventing an invoice number", () => {
   assert.deepEqual(publicShipmentSourceIdentity({
-    templateVersion: "DPD-LABEL-1.0",
-    extractedData: { creationSource: "UPLOAD" },
-    invoiceNumber: "CUSTOMER-INV-74",
-    shipmentReference: "CUSTOMER-REF-18"
+    _id: "66f10d7f0e8725a2c9a41b13",
+    parcelList: [{ shipmentReference1: " CUSTOMER-REF-18 " }]
   } as never), {
-    invoiceNumber: "CUSTOMER-INV-74",
+    invoiceNumber: "",
     shipmentReference: "CUSTOMER-REF-18"
   });
 });

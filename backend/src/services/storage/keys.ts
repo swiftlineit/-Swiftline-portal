@@ -79,12 +79,12 @@ export const storageModules = {
   businessAccountKyc: "business-accounts",
   branchKyc: "branches",
   shipment: "shipments",
-  invoice: "invoices",
   creditAgreement: "credit-agreements",
   pod: "pod",
   pickup: "pickups",
   staff: "staff",
   profileImage: "profile-images",
+  shipmentImport: "shipment-imports",
   claim: "claims"
 } as const;
 
@@ -137,8 +137,8 @@ export function shipmentLabelKey(shipmentDraftId: string, originalName = "label.
   return joinKey(storageModules.shipment, shipmentDraftId, "labels", generatedFilename(originalName));
 }
 
-export function invoiceUploadKey(invoiceId: string, originalName: string) {
-  return joinKey(storageModules.invoice, invoiceId, generatedFilename(originalName));
+export function shipmentImportKey(batchId: string, originalName: string) {
+  return joinKey(storageModules.shipmentImport, batchId, generatedFilename(originalName));
 }
 
 export function creditAgreementKey(agreementId: string, originalName = "agreement.pdf") {

@@ -1,9 +1,7 @@
-import crypto from "crypto";
 import mongoose from "mongoose";
 import { AuditLog } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { getOrCreateIndividualSentinel } from "./individualCustomer.service.js";
 import { validateShipmentDraftFields } from "./shipmentValidation.service.js";
@@ -71,10 +69,9 @@ export type IndividualCustomerInput = {
 /**
  * Opens a blank draft for a walk-in customer.
  *
- * Structurally the same as `createBlankShipmentDraft` — including the internal
- * `InvoiceUpload` that keeps label, invoice and billing references stable — with
- * two differences: it books against the system sentinel rather than a customer
- * account, and the person paying is written into `consignorAddress`, which is
+ * Structurally the same as `createBlankShipmentDraft`, with two differences: it
+ * books against the system sentinel rather than a customer account, and the
+ * person paying is written into `consignorAddress`, which is
  * where the booking snapshot and the invoice bill-to already read the sender
  * from. The sentinel serves every branch, so the assigned-branch checks that
  * ordinary accounts go through do not apply.
@@ -97,36 +94,13 @@ export async function createIndividualShipmentDraft(input: {
 
   const sentinel = await getOrCreateIndividualSentinel(input.createdBy);
 
-  const sourceToken = crypto.randomUUID().replace(/-/g, "").toUpperCase();
-  const sourceReference = sourceToken.slice(0, 16);
   const session = await mongoose.startSession();
   let shipmentDraft: InstanceType<typeof ShipmentDraft> | null = null;
 
   try {
     await session.withTransaction(async () => {
-      const invoiceUpload = new InvoiceUpload({
-        businessAccountId: sentinel._id,
-        branchId: branch._id,
-        templateVersion: "INDIVIDUAL-1.0",
-        invoiceNumber: `IND-INV-${sourceReference}`,
-        shipmentReference: `IND-SHIP-${sourceReference}`,
-        originalFilename: "Individual shipment entry",
-        // No stored workbook: a walk-in shipment is keyed in at the counter, and
-        // this record exists only so the shipment chain has an invoice to point
-        // at. An empty key says that plainly, where the placeholder URI it
-        // replaces looked like a document that had simply gone missing.
-        storageKey: "",
-        fileChecksum: crypto.createHash("sha256").update(sourceToken).digest("hex"),
-        extractedData: { creationSource: "INDIVIDUAL" },
-        status: "PARSED",
-        processingErrors: [],
-        uploadedBy: input.createdBy,
-        uploadedAt: new Date()
-      });
-      await invoiceUpload.save({ session });
-
       const draft = new ShipmentDraft({
-        invoiceUploadId: invoiceUpload._id,
+        creationSource: "INDIVIDUAL",
         businessAccountId: sentinel._id,
         customerType: "INDIVIDUAL",
         branchId: branch._id,
@@ -199,8 +173,7 @@ export async function createIndividualShipmentDraft(input: {
           creationSource: "INDIVIDUAL",
           customerType: "INDIVIDUAL",
           businessAccountId: sentinel._id,
-          branchId: branch._id,
-          invoiceUploadId: invoiceUpload._id
+          branchId: branch._id
         }
       }).save({ session });
 
@@ -250,33 +223,13 @@ export async function createBlankShipmentDraft(input: {
     throw new ManualShipmentDraftError("The assigned branch is not active. Contact Swiftline support.", 409);
   }
 
-  const sourceToken = crypto.randomUUID().replace(/-/g, "").toUpperCase();
-  const sourceReference = sourceToken.slice(0, 16);
   const session = await mongoose.startSession();
   let shipmentDraft: InstanceType<typeof ShipmentDraft> | null = null;
 
   try {
     await session.withTransaction(async () => {
-      // Keep an internal source record so label, invoice and billing flows retain stable references.
-      const invoiceUpload = new InvoiceUpload({
-        businessAccountId: businessAccount._id,
-        branchId: branch._id,
-        templateVersion: "MANUAL-1.0",
-        invoiceNumber: `MANUAL-INV-${sourceReference}`,
-        shipmentReference: `MANUAL-SHIP-${sourceReference}`,
-        originalFilename: "Manual shipment entry",
-        storagePath: `manual://shipment-draft/${sourceToken}`,
-        fileChecksum: crypto.createHash("sha256").update(sourceToken).digest("hex"),
-        extractedData: { creationSource: "MANUAL" },
-        status: "PARSED",
-        processingErrors: [],
-        uploadedBy: input.createdBy,
-        uploadedAt: new Date()
-      });
-      await invoiceUpload.save({ session });
-
       const draft = new ShipmentDraft({
-        invoiceUploadId: invoiceUpload._id,
+        creationSource: "MANUAL",
         businessAccountId: businessAccount._id,
         branchId: branch._id,
         sender: {
@@ -333,8 +286,7 @@ export async function createBlankShipmentDraft(input: {
         metadata: {
           creationSource: "MANUAL",
           businessAccountId: businessAccount._id,
-          branchId: branch._id,
-          invoiceUploadId: invoiceUpload._id
+          branchId: branch._id
         }
       }).save({ session });
 

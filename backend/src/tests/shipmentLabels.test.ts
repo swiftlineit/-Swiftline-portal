@@ -140,7 +140,6 @@ describe("immutable multi-parcel booking snapshot", () => {
     };
     const snapshot = buildShipmentBookingSnapshot({
       draft: draft as never,
-      invoiceUpload: { invoiceNumber: "INV-1001", shipmentReference: "SHIP-1001" } as never,
       account: { _id: "account", accountId: "BA-1001", contact: {}, company: {} } as never,
       branch: {
         _id: "branch",
@@ -213,7 +212,7 @@ describe("immutable multi-parcel booking snapshot", () => {
       swiftlineTrackingNumber: "SLCDEL200726001",
       carrierShipmentId: "TEST-SLCDEL200726001",
       providerMode: "SIMULATED",
-      shipmentReference: "SHIP-1001",
+      shipmentReference: "BOX-A",
       customerReference: "BOX-A",
       serviceType: "COURIER",
       serviceCode: "DPD_CLASSIC",

@@ -51,11 +51,10 @@ async function createCancellationFixture(input: {
   const businessAccountId = new mongoose.Types.ObjectId();
   const branchId = new mongoose.Types.ObjectId();
   const createdBy = new mongoose.Types.ObjectId();
-  const invoiceUploadId = new mongoose.Types.ObjectId();
   const taxableValueMinor = Math.round(input.originalAmountMinor / 1.18);
   const totalTaxAmountMinor = input.originalAmountMinor - taxableValueMinor;
   const draft = await ShipmentDraft.create({
-    invoiceUploadId,
+    creationSource: "MANUAL",
     businessAccountId,
     branchId,
     consigneeEnteredAddress: {

@@ -34,11 +34,18 @@ export const shipmentDraftBookingStateValues = [
   "REVIEW_REQUIRED",
 ] as const;
 
+export const shipmentDraftSourceValues = [
+  "MANUAL",
+  "INDIVIDUAL",
+  "SHIPMENT_IMPORT",
+] as const;
+
 export type AddressValidationStatus =
   (typeof addressValidationStatusValues)[number];
 export type ShipmentDraftStatus = (typeof shipmentDraftStatusValues)[number];
 export type ShipmentDraftBookingState =
   (typeof shipmentDraftBookingStateValues)[number];
+export type ShipmentDraftSource = (typeof shipmentDraftSourceValues)[number];
 export const shipmentContentTypeValues = [
   "DOCUMENTS",
   "PARCEL",
@@ -153,7 +160,8 @@ export interface ShipmentParcel {
 }
 
 export interface IShipmentDraft extends mongoose.Document {
-  invoiceUploadId: mongoose.Types.ObjectId;
+  creationSource: ShipmentDraftSource;
+  shipmentImportEntryId?: mongoose.Types.ObjectId | null;
   businessAccountId: mongoose.Types.ObjectId;
   /**
    * INDIVIDUAL marks a walk-in shipment booked at the counter. Those drafts point
@@ -201,14 +209,20 @@ export interface IShipmentDraft extends mongoose.Document {
   bookingAttemptId: string;
   lockedAt?: Date | null;
   /**
-   * Set when an unbooked draft is deleted. Deletion is soft because a draft is
-   * referenced by its InvoiceUpload, its KYC files on disk, and its AuditLog
-   * rows, and because a rejected carrier booking leaves a DpdShipment pointing
-   * at a draft that is once again EDITABLE.
+   * The Swiftline AWB reserved for this draft.
    *
-   * Every query for a live draft must filter `deletedAt: null` — including
-   * lookups by `invoiceUploadId`, which stop being one-to-one once a draft has
-   * been deleted and the same invoice re-uploaded.
+   * Allocated before the carrier is called, because it travels in the request as
+   * the carrier's `tracking_no`. It is held here rather than on the booking
+   * record because a rejected booking leaves no booking record behind: keeping it
+   * on the draft is what stops every retry burning a fresh number out of the
+   * station's daily sequence.
+   */
+  allocatedTrackingNumber: string;
+  /**
+   * Set when an unbooked draft is deleted. Deletion is soft because its KYC
+   * files and audit rows remain linked, and a rejected carrier booking can leave
+   * a DpdShipment pointing at a draft that is editable again. Every query for a
+   * live draft must filter `deletedAt: null`.
    */
   deletedAt?: Date | null;
   deletedBy?: mongoose.Types.ObjectId | null;
@@ -409,13 +423,16 @@ const parcelSchema = new mongoose.Schema<ShipmentParcel>(
 
 const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
   {
-    // Deliberately carries no `index: true`. The partial unique index declared
-    // below covers this field, and declaring both makes Mongoose build a second,
-    // plain `invoiceUploadId_1` that collides with it by name.
-    invoiceUploadId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "InvoiceUpload",
+    creationSource: {
+      type: String,
+      enum: shipmentDraftSourceValues,
       required: true,
+      index: true,
+    },
+    shipmentImportEntryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ShipmentImportEntry",
+      default: null,
     },
     businessAccountId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -511,6 +528,7 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
     },
     bookingAttemptId: { type: String, trim: true, maxlength: 80, default: "" },
     lockedAt: { type: Date, default: null },
+    allocatedTrackingNumber: { type: String, trim: true, maxlength: 40, default: "" },
     deletedAt: { type: Date, default: null, index: true },
     deletedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -528,13 +546,15 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
 );
 
 shipmentDraftSchema.index({ businessAccountId: 1, branchId: 1, status: 1 });
-
-// One live draft per invoice upload. Deleted drafts are excluded so the same
-// invoice can be uploaded again after its draft was discarded; the earlier
-// drafts stay on the record as history.
 shipmentDraftSchema.index(
-  { invoiceUploadId: 1 },
-  { unique: true, partialFilterExpression: { deletedAt: null } },
+  { shipmentImportEntryId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      shipmentImportEntryId: { $type: "objectId" },
+      deletedAt: null,
+    },
+  },
 );
 
 // The consignor is always an Indian sender, so these stay fixed no matter what

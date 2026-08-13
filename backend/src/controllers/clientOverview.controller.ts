@@ -162,6 +162,63 @@ export async function uploadClientShipmentDocument(request: Request, response: R
   });
 }
 
+/**
+ * The staff view of the same documents.
+ *
+ * Kept as its own pair of handlers rather than reusing the client ones, because
+ * the two answer different access questions: a client is a member of the
+ * shipment's account, a staff user is scoped by branch. Sharing one handler
+ * would mean a runtime branch on the caller's role, which is exactly where a
+ * scoping mistake hides.
+ */
+async function resolveStaffDraft(request: Request) {
+  const user = (request as Request & {
+    user?: { _id?: unknown; role?: string; assignedBranches?: unknown[] };
+  }).user;
+  const draftId = typeof request.params.draftId === "string" ? request.params.draftId : "";
+  if (!user?._id || !mongoose.Types.ObjectId.isValid(draftId)) return null;
+
+  const draft = await ShipmentDraft.findById(draftId).select("_id branchId").lean().exec();
+  if (!draft) return null;
+
+  // Admin sees every branch; everyone else only the branches they are assigned,
+  // matching how the rest of the staff shipment surfaces already scope.
+  if (user.role !== "admin") {
+    const allowed = (user.assignedBranches ?? []).map((branchId) => String(branchId));
+    if (!allowed.includes(String(draft.branchId))) return null;
+  }
+
+  return { shipmentDraftId: draft._id as mongoose.Types.ObjectId };
+}
+
+export async function listStaffShipmentDocuments(request: Request, response: Response): Promise<Response> {
+  const owned = await resolveStaffDraft(request);
+  if (!owned) return response.status(404).json({ success: false, message: "Shipment not found." });
+
+  return response.status(200).json({
+    success: true,
+    documents: await listSupportingDocuments(owned.shipmentDraftId, { includeUploader: true })
+  });
+}
+
+export async function downloadStaffShipmentDocument(request: Request, response: Response): Promise<Response | void> {
+  const owned = await resolveStaffDraft(request);
+  if (!owned) return response.status(404).json({ success: false, message: "Shipment not found." });
+
+  const document = await ShipmentSupportingDocument.findOne({
+    _id: request.params.documentId,
+    shipmentDraftId: owned.shipmentDraftId
+  }).lean().exec();
+  if (!document) return response.status(404).json({ success: false, message: "Document not found." });
+
+  return streamObjectToResponse({
+    key: document.storageKey,
+    response,
+    contentType: document.mimeType,
+    filename: document.originalName
+  });
+}
+
 export async function downloadClientShipmentDocument(request: Request, response: Response): Promise<Response | void> {
   const owned = await resolveOwnedDraft(request);
   if (!owned) return response.status(404).json({ success: false, message: "Shipment not found." });

@@ -1,8 +1,7 @@
 import mongoose from "mongoose";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
-import { DpdShipment } from "../models/dpdShipment.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
+import { DpdShipment, type DpdShipmentStatus } from "../models/dpdShipment.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
@@ -21,7 +20,36 @@ export type ShipmentListingFilter = {
   limit: number;
   /** Manifest assignments are per actor role, so eligibility is role-scoped. */
   actorRole: "admin" | "client";
+  /**
+   * Which carrier booking states belong in this list.
+   *
+   * Staff see every booking, so a shipment stuck awaiting reconciliation is
+   * visible here instead of only in the DPD labels panel — the two views
+   * disagreeing about what exists is what hid such shipments before. Customers
+   * see only shipments that completed.
+   */
+  bookingStatuses?: DpdShipmentStatus[];
 };
+
+/** Completed bookings: labels issued, and the only ones a customer may see. */
+export const bookedShipmentStatuses: DpdShipmentStatus[] = ["LABEL_RECEIVED"];
+
+/** Everything that reached the carrier, including outcomes needing review. */
+export const allShipmentStatuses: DpdShipmentStatus[] = [
+  "LABEL_RECEIVED",
+  "DPD_CREATED",
+  "DPD_STATUS_UNKNOWN",
+  "DPD_CREATING",
+  "DPD_REJECTED"
+];
+
+export function formatBookingStatusLabel(status: DpdShipmentStatus) {
+  if (status === "LABEL_RECEIVED") return "Booked";
+  if (status === "DPD_CREATED") return "Awaiting Documents";
+  if (status === "DPD_STATUS_UNKNOWN") return "Outcome Unconfirmed";
+  if (status === "DPD_CREATING") return "Booking";
+  return "Rejected";
+}
 
 export function formatShipmentStatusLabel(value?: string | null) {
   if (!value) return "Shipment Booked";
@@ -43,7 +71,9 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   const createdAt = dateRangeCondition(filter.dateFrom, filter.dateTo);
   if (createdAt) draftFilter.createdAt = createdAt;
 
-  const bookedDraftIds = await DpdShipment.find({ status: "LABEL_RECEIVED" })
+  const bookedDraftIds = await DpdShipment.find({
+    status: { $in: filter.bookingStatuses ?? bookedShipmentStatuses }
+  })
     .select("shipmentDraftId")
     .lean()
     .exec();
@@ -78,7 +108,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
     .exec();
 
   const draftIds = drafts.map((draft) => draft._id);
-  const [bookings, events, branches, accounts, uploads, manifests, invoices] = await Promise.all([
+  const [bookings, events, branches, accounts, manifests, invoices] = await Promise.all([
     DpdShipment.find({ shipmentDraftId: { $in: draftIds } }).lean().exec(),
     ShipmentEvent.find({ shipmentDraftId: { $in: draftIds }, customerVisible: true })
       .sort({ eventAt: -1, createdAt: -1 })
@@ -88,10 +118,6 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
     Branch.find({ _id: { $in: drafts.map((draft) => draft.branchId) } }).select("name code address").lean().exec(),
     BusinessAccount.find({ _id: { $in: drafts.map((draft) => draft.businessAccountId) } })
       .select("accountId company.companyName")
-      .lean()
-      .exec(),
-    InvoiceUpload.find({ _id: { $in: drafts.map((draft) => draft.invoiceUploadId) } })
-      .select("invoiceNumber shipmentReference")
       .lean()
       .exec(),
     ShipmentManifest.find({ shipmentDraftIds: { $in: draftIds }, actorRole: filter.actorRole })
@@ -107,7 +133,6 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   const bookingByDraft = new Map(bookings.map((booking) => [String(booking.shipmentDraftId), booking]));
   const branchById = new Map(branches.map((branch) => [String(branch._id), branch]));
   const accountById = new Map(accounts.map((account) => [String(account._id), account]));
-  const uploadById = new Map(uploads.map((upload) => [String(upload._id), upload]));
   const invoiceByDraft = new Map(invoices.map((invoice) => [String(invoice.shipmentDraftId), invoice]));
   const currentEventByDraft = new Map<string, (typeof events)[number]>();
   for (const event of events) {
@@ -132,7 +157,6 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
       : null;
     const branch = branchById.get(String(draft.branchId));
     const account = accountById.get(String(draft.businessAccountId));
-    const upload = uploadById.get(String(draft.invoiceUploadId));
     const currentEvent = currentEventByDraft.get(draftId);
     const manifest = manifestByDraft.get(draftId);
     const consignee = draft.consigneeValidatedAddress ?? draft.consigneeEnteredAddress;
@@ -155,8 +179,8 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
         code: branch?.code ?? "",
         city: branch?.address?.city ?? ""
       },
-      shipmentReference: upload?.shipmentReference ?? "",
-      invoiceNumber: upload?.invoiceNumber ?? "",
+      shipmentReference: draft.parcelList.find((parcel) => parcel.shipmentReference1?.trim())?.shipmentReference1 ?? "",
+      invoiceNumber: "",
       swiftlineTrackingNumber: booking?.swiftlineTrackingNumber ?? "",
       awbNumbers: parcels.map((parcel) => parcel.swiftlineParcelNumber).filter(Boolean),
       forwardingNumbers: parcels.map((parcel) => parcel.carrierParcelNumber).filter(Boolean),
@@ -187,8 +211,17 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
         : draft.parcelList.reduce((sum, parcel) => sum + (parcel.weightKg || 0), 0)).toFixed(3)),
       status: currentEvent?.status ?? "SHIPMENT_BOOKED",
       statusLabel: formatShipmentStatusLabel(currentEvent?.status),
+      // The carrier-side state, distinct from the tracking status above. Lets the
+      // table mark a shipment that reached the carrier but has not completed.
+      bookingStatus: booking?.status ?? "DPD_CREATING",
+      bookingStatusLabel: formatBookingStatusLabel(booking?.status ?? "DPD_CREATING"),
       manifest: manifest ? { id: String(manifest._id), manifestNumber: manifest.manifestNumber } : null,
-      manifestEligible: !manifest && Boolean(snapshot) && cancelledDraftIds.has(draftId) === false,
+      // Only a completed booking can be manifested: an unreconciled one has no
+      // final label set to hand over.
+      manifestEligible: !manifest
+        && booking?.status === "LABEL_RECEIVED"
+        && Boolean(snapshot)
+        && cancelledDraftIds.has(draftId) === false,
       createdAt: draft.createdAt ?? null,
       updatedAt: draft.updatedAt ?? null
     };

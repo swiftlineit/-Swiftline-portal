@@ -14,13 +14,6 @@
 import ExcelJS from "exceljs";
 import type { CustomsInvoiceModel, CustomsInvoiceParty } from "./customsInvoiceModel.service.js";
 import { customsInvoiceFooterNote } from "./customsInvoiceConstants.js";
-import {
-  shipmentDataFieldNotes,
-  shipmentDataFields,
-  shipmentDataSheetName,
-  shipmentDataTemplateVersion,
-  type ShipmentDataFieldKey
-} from "./customsInvoiceSheet.js";
 
 const lastColumn = 11; // K, 1-indexed for ExcelJS
 
@@ -284,8 +277,6 @@ export async function buildCustomsInvoiceWorkbook(invoice: CustomsInvoiceModel):
     rowHeights.generatedBy
   );
 
-  addShipmentDataSheet(workbook, invoice);
-
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
@@ -299,49 +290,3 @@ export async function buildCustomsInvoiceWorkbook(invoice: CustomsInvoiceModel):
  * the sheet is written even when a field is blank: the customer can fill it in
  * and upload it back.
  */
-function addShipmentDataSheet(workbook: ExcelJS.Workbook, invoice: CustomsInvoiceModel) {
-  const sheet = workbook.addWorksheet(shipmentDataSheetName);
-  sheet.columns = [
-    { header: "Field", key: "field", width: 32 },
-    { header: "Value", key: "value", width: 42 },
-    { header: "Notes", key: "notes", width: 62 }
-  ];
-
-  const headerRow = sheet.getRow(1);
-  headerRow.font = { name: "Calibri", size: 10, bold: true };
-  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: colours.headingFill } };
-  headerRow.height = 22;
-
-  const values: Record<ShipmentDataFieldKey, string> = {
-    templateVersion: shipmentDataTemplateVersion,
-    shipmentType: invoice.shipmentType,
-    serviceType: invoice.serviceType,
-    consignorContactName: invoice.shipper.name,
-    consignorCompanyName: invoice.shipper.companyName,
-    consignorEmail: invoice.shipper.email,
-    consignorMobileNumber: invoice.shipper.mobileNumber,
-    consignorAddressLine1: invoice.shipper.addressLine1,
-    consignorAddressLine2: invoice.shipper.addressLine2,
-    consignorTownOrCity: invoice.shipper.townOrCity,
-    consignorState: invoice.shipper.state,
-    consignorPinCode: invoice.shipper.postcode,
-    consignorAadhaarNumber: invoice.aadhaarNumber,
-    declarationNote: invoice.note
-  };
-
-  for (const key of Object.keys(shipmentDataFields) as ShipmentDataFieldKey[]) {
-    const row = sheet.addRow({
-      field: shipmentDataFields[key],
-      // Aadhaar and PIN are written as text so a leading zero is never dropped
-      // and long digit strings never render in scientific notation.
-      value: values[key] ?? "",
-      notes: shipmentDataFieldNotes[key]
-    });
-    row.height = 20;
-    row.getCell("field").font = { name: "Calibri", size: 10, bold: true };
-    row.getCell("value").alignment = { vertical: "middle", wrapText: true };
-    row.getCell("value").numFmt = "@";
-    row.getCell("notes").font = { name: "Calibri", size: 9, color: { argb: "FF666666" } };
-    row.getCell("notes").alignment = { vertical: "middle", wrapText: true };
-  }
-}
