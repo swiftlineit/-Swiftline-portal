@@ -13,6 +13,7 @@ import ShipmentInvoiceHistory from "@/components/shipments/ShipmentInvoiceHistor
 import CustomsInvoiceCard from "@/components/shipments/CustomsInvoiceCard";
 import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel";
 import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/components/shipments/ShipmentKycDocumentsPanel";
+import StaffSupportingDocuments from "@/components/shipments/StaffSupportingDocuments";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import {
   DpdShipmentHistoryItem,
@@ -681,6 +682,11 @@ export default function AdminShipmentDetailsPage() {
                   />
                 </div>
               </div>
+
+              {/* Anything the customer sent after booking. Sits directly below
+                  the KYC pack because an operator looking for a document does
+                  not care which side of booking it arrived on. */}
+              <StaffSupportingDocuments draftId={draft._id} onHold={isOnHold} />
 
               {/* Shipment timeline card */}
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
