@@ -145,6 +145,36 @@ export default function TicketDetail({
       </div>
     );
 
+  /**
+   * Messages and status changes as one stream, oldest first.
+   *
+   * They were two lists in two places, so working out whether Swiftline replied
+   * before or after a ticket was escalated meant reading both and interleaving
+   * them by eye. Oldest first because the reply box sits at the bottom, so the
+   * thread reads downward into the thing you are about to add to it.
+   *
+   * On a tie the message comes first. A reply that also moves the ticket writes
+   * both at the same instant, and "Under Investigation" reads as the
+   * consequence of the message above it rather than as something that happened
+   * before anyone spoke.
+   */
+  const timeline = [
+    ...ticket.messages.map((message) => ({
+      kind: "MESSAGE" as const,
+      key: `message-${message.id}`,
+      at: new Date(message.createdAt).getTime(),
+      order: 1,
+      message
+    })),
+    ...ticket.statusHistory.map((change, index) => ({
+      kind: "STATUS" as const,
+      key: `status-${change.changedAt}-${index}`,
+      at: new Date(change.changedAt).getTime(),
+      order: 0,
+      change
+    }))
+  ].sort((left, right) => left.at - right.at || right.order - left.order);
+
   // Loss and damage categories are the ones a claim can follow from. A billing
   // query or an access problem has nothing to compensate.
   const claimableCategories = shipmentIssueCategories;
@@ -210,38 +240,58 @@ export default function TicketDetail({
           <div className="border-b border-slate-200 px-5 py-4">
             <h2 className="flex items-center gap-2 font-semibold text-slate-950">
               <FiMessageSquare />
-              Conversation
+              Ticket Timeline
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Messages are retained as part of the ticket history.
+              Every message and every status change, in the order they happened.
             </p>
           </div>
           <div className="space-y-4 p-5">
-            {ticket.messages.map((message) => (
-              <article
-                key={message.id}
-                className={`border p-4 rounded-xl ${message.internal ? "border-amber-200 bg-amber-50" : message.authorType === "ADMIN" ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"}`}
-              >
-                <div className="flex items-start justify-between gap-3 ">
-                  <div className="flex items-center gap-2 ">
-                    <FiUser className="text-slate-500" />
-                    <p className="text-sm font-semibold tracking-wide text-slate-950">
-                      {message.authorName}
+            {timeline.map((entry) => (
+              entry.kind === "MESSAGE" ? (
+                <article
+                  key={entry.key}
+                  className={`border p-4 rounded-xl ${entry.message.internal ? "border-amber-200 bg-amber-50" : entry.message.authorType === "ADMIN" ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white"}`}
+                >
+                  <div className="flex items-start justify-between gap-3 ">
+                    <div className="flex items-center gap-2 ">
+                      <FiUser className="text-slate-500" />
+                      <p className="text-sm font-semibold tracking-wide text-slate-950">
+                        {entry.message.authorName}
+                      </p>
+                      {entry.message.internal ? (
+                        <span className="border border-amber-300 rounded-4xl px-2 py-0.5 text-xs font-semibold uppercase text-amber-800">
+                          Internal Note
+                        </span>
+                      ) : null}
+                    </div>
+                    <time className="whitespace-nowrap text-xs text-slate-500">
+                      {formatDashboardDateTime(entry.message.createdAt)}
+                    </time>
+                  </div>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6  text-slate-700">
+                    {entry.message.message}
+                  </p>
+                </article>
+              ) : (
+                /* A status change reads as a line rather than a card, so the eye
+                   can tell "somebody said something" from "something happened"
+                   without reading either. */
+                <div key={entry.key} className="flex items-start gap-3 px-1">
+                  <span aria-hidden="true" className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-700">
+                      {ticketStatusLabels[entry.change.toStatus] ?? ticketLabel(entry.change.toStatus)}
                     </p>
-                    {message.internal ? (
-                      <span className="border border-amber-300 rounded-4xl px-2 py-0.5 text-xs font-semibold uppercase text-amber-800">
-                        Internal Note
-                      </span>
+                    {entry.change.note ? (
+                      <p className="mt-0.5 text-sm text-slate-500">{entry.change.note}</p>
                     ) : null}
                   </div>
-                  <time className="whitespace-nowrap text-xs text-slate-500">
-                    {formatDashboardDateTime(message.createdAt)}
+                  <time className="whitespace-nowrap text-xs text-slate-400">
+                    {formatDashboardDateTime(entry.change.changedAt)}
                   </time>
-                </div> 
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-6  text-slate-700">
-                  {message.message}
-                </p>
-              </article>
+                </div>
+              )
             ))}
           </div>
           {audience === "client" && ticket.status === "CLOSED" ? (
@@ -418,26 +468,10 @@ export default function TicketDetail({
               ) : null}
             </section>
           ) : null}
-          <section className="border border-slate-200 bg-white rounded-2xl">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <h2 className="font-semibold text-slate-950">Progress History</h2>
-            </div>
-            <ol className="space-y-4 p-5">
-              {[...ticket.statusHistory].reverse().map((item, index) => (
-                <li key={`${item.changedAt}-${index}`}>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {ticketLabel(item.toStatus)}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {formatDashboardDateTime(item.changedAt)}
-                  </p>
-                  {item.note ? (
-                    <p className="mt-1 text-sm text-slate-600">{item.note}</p>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          </section>
+          {/* Progress History used to sit here as a second, separate list of the
+              same status changes now woven into the timeline. Two places showing
+              the same events, in opposite orders, is what made the sequence hard
+              to follow in the first place. */}
         </aside>
       </div>
     </div>
