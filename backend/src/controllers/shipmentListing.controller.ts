@@ -8,6 +8,14 @@ import {
   listBookedShipments
 } from "../services/shipmentListing.service.js";
 import { dateRangeParams } from "../utils/dateRangeFilter.js";
+import { shipmentExportColumns } from "../services/export/exportColumns.js";
+import {
+  describeFilters,
+  exportFormat,
+  listWindow,
+  sendTableExport,
+  type TableExportFormat
+} from "../services/export/tableExportHttp.js";
 
 function getUserId(request: Request) {
   const value = (request as Request & { user?: { _id?: unknown } }).user?._id;
@@ -28,12 +36,40 @@ function pagination(request: Request) {
   };
 }
 
+/**
+ * Sends the shipment list as a file when one was asked for.
+ *
+ * Both audiences share it so the columns, the title and the filter caption are
+ * identical whichever portal the export came from.
+ */
+function sendShipmentExport(
+  request: Request,
+  response: Response,
+  format: TableExportFormat,
+  shipments: unknown[],
+  accountLabel: string
+) {
+  return sendTableExport(response, format, {
+    title: "Shipments",
+    columns: shipmentExportColumns,
+    rows: shipments as never[],
+    accountLabel,
+    appliedFilters: describeFilters({
+      Status: request.query.status,
+      Search: request.query.search,
+      From: request.query.dateFrom,
+      To: request.query.dateTo
+    })
+  });
+}
+
 export async function listAdminBookedShipments(request: Request, response: Response) {
   const businessAccountId = objectIdParam(request, "businessAccountId");
   const branchId = objectIdParam(request, "branchId");
+  const format = exportFormat(request);
 
   const result = await listBookedShipments({
-    ...pagination(request),
+    ...(format ? listWindow(request, format) : pagination(request)),
     actorRole: "admin",
     status: typeof request.query.status === "string" ? request.query.status : "",
     search: typeof request.query.search === "string" ? request.query.search.slice(0, 80) : "",
@@ -45,12 +81,14 @@ export async function listAdminBookedShipments(request: Request, response: Respo
     bookingStatuses: allShipmentStatuses
   });
 
+  if (format) return sendShipmentExport(request, response, format, result.shipments, "Swiftline staff");
   return response.status(200).json({ success: true, ...result });
 }
 
 export async function listClientBookedShipments(request: Request, response: Response) {
   const userId = getUserId(request);
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+  const format = exportFormat(request);
 
   const memberships = await BusinessAccountMember.find({ user: userId, status: "active" })
     .select("businessAccount assignedBranches")
@@ -90,7 +128,7 @@ export async function listClientBookedShipments(request: Request, response: Resp
   }
 
   const result = await listBookedShipments({
-    ...pagination(request),
+    ...(format ? listWindow(request, format) : pagination(request)),
     actorRole: "client",
     status: typeof request.query.status === "string" ? request.query.status : "",
     search: typeof request.query.search === "string" ? request.query.search.slice(0, 80) : "",
@@ -102,5 +140,9 @@ export async function listClientBookedShipments(request: Request, response: Resp
     bookingStatuses: bookedShipmentStatuses
   });
 
+  if (format) {
+    const label = result.shipments[0]?.businessAccountName ?? "";
+    return sendShipmentExport(request, response, format, result.shipments, label);
+  }
   return response.status(200).json({ success: true, ...result });
 }
