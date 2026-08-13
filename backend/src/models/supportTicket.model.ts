@@ -1,14 +1,52 @@
 import mongoose from "mongoose";
 
 export const supportTicketCategoryValues = [
-  "SHIPMENT_BOOKING", "TRACKING", "LABEL_MANIFEST", "AMENDMENT_CANCELLATION",
-  "SHIPMENT_DELAYED", "SHIPMENT_NOT_RECEIVED", "SHIPMENT_LOST", "SHIPMENT_THEFT", "SHIPMENT_DAMAGED",
-  "INVOICE_PAYMENT", "CREDIT_ACCOUNT", "ACCOUNT_ACCESS", "TECHNICAL", "OTHER"
+  "TRACKING_ISSUE",
+  "PICKUP_ISSUE",
+  "DELIVERY_DELAY",
+  "CUSTOMS_CLEARANCE",
+  "SHIPMENT_HOLD",
+  "ADDRESS_CORRECTION",
+  "BILLING_ISSUE",
+  "WEIGHT_DISPUTE",
+  "POD_REQUEST",
+  "LOST_SHIPMENT",
+  "DAMAGED_SHIPMENT",
+  "MISSING_CONTENTS",
+  "RETURN_SHIPMENT",
+  "PORTAL_ISSUE",
+  "OTHER"
 ] as const;
 
 /** Categories that describe a problem with one shipment, so one must be named. */
 export const shipmentIssueCategoryValues = [
-  "SHIPMENT_DELAYED", "SHIPMENT_NOT_RECEIVED", "SHIPMENT_LOST", "SHIPMENT_THEFT", "SHIPMENT_DAMAGED"
+  "TRACKING_ISSUE",
+  "DELIVERY_DELAY",
+  "CUSTOMS_CLEARANCE",
+  "SHIPMENT_HOLD",
+  "ADDRESS_CORRECTION",
+  "WEIGHT_DISPUTE",
+  "POD_REQUEST",
+  "LOST_SHIPMENT",
+  "DAMAGED_SHIPMENT",
+  "MISSING_CONTENTS",
+  "RETURN_SHIPMENT"
+] as const;
+
+/**
+ * Categories a compensation claim can follow from.
+ *
+ * Deliberately narrower than the list above, and kept separate rather than
+ * reusing it. Naming a shipment and being owed money for it are different
+ * questions: a delivery delay or a POD request needs an AWB but has nothing to
+ * compensate, and claimTypes.ts is explicit that ordinary delay is Help Desk's
+ * business, not a claim's. Sharing one list would have offered "Raise Claim" on
+ * every shipment-linked ticket.
+ */
+export const claimableTicketCategoryValues = [
+  "LOST_SHIPMENT",
+  "DAMAGED_SHIPMENT",
+  "MISSING_CONTENTS"
 ] as const;
 
 /** A ticket in one of these states is still being worked, so it blocks a duplicate. */

@@ -4,6 +4,9 @@ import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
+import { DpdShipment } from "../models/dpdShipment.model.js";
+import { ShipmentEvent } from "../models/shipmentEvent.model.js";
+import { formatShipmentStatusLabel } from "./shipmentListing.service.js";
 import {
   SupportTicket, openSupportTicketStatusValues, resolvedClientReplyLimit, shipmentIssueCategoryValues,
   supportTicketCategoryValues, supportTicketPriorityValues, supportTicketStatusValues, firstResponseDueFrom,
@@ -94,14 +97,77 @@ async function contextFor(ticket: InstanceType<typeof SupportTicket>) {
     Branch.findById(ticket.branchId).select("name code").lean().exec(),
     User.findById(ticket.createdBy).select("name email").lean().exec(),
     ticket.assignedTo ? User.findById(ticket.assignedTo).select("name email").lean().exec() : null,
-    ticket.relatedShipmentDraftId ? ShipmentDraft.findById(ticket.relatedShipmentDraftId).select("_id").lean().exec() : null
+    ticket.relatedShipmentDraftId
+      ? ShipmentDraft.findById(ticket.relatedShipmentDraftId)
+        .select("_id consigneeEnteredAddress serviceType serviceCode createdAt")
+        .lean()
+        .exec()
+      : null
   ]);
+
+  /**
+   * The shipment a ticket is about, summarised onto the ticket itself.
+   *
+   * Sent with the ticket rather than fetched by the page, because both the
+   * customer writing it and the agent working it need the same facts, and
+   * neither should have to open the shipment to answer "where is it".
+   */
+  let relatedShipment: {
+    draftId: string;
+    awb: string;
+    origin: string;
+    destination: string;
+    consignee: string;
+    bookedAt: Date | null;
+    statusLabel: string;
+    lastScan: { statusLabel: string; location: string; at: Date } | null;
+    service: string;
+  } | null = null;
+
+  if (shipment) {
+    const [booking, latestEvent] = await Promise.all([
+      DpdShipment.findOne({ shipmentDraftId: shipment._id })
+        .select("swiftlineTrackingNumber dpdShipmentId")
+        .lean()
+        .exec(),
+      ShipmentEvent.findOne({ shipmentDraftId: shipment._id, customerVisible: true })
+        .sort({ eventAt: -1, createdAt: -1 })
+        .select("status eventAt location")
+        .lean()
+        .exec()
+    ]);
+
+    const consigneeAddress = shipment.consigneeEnteredAddress;
+    relatedShipment = {
+      draftId: String(shipment._id),
+      awb: booking?.swiftlineTrackingNumber || booking?.dpdShipmentId || "",
+      // The raising branch is where the shipment starts from.
+      origin: branch?.name ? `${branch.name}${branch.code ? ` (${branch.code})` : ""}` : "",
+      destination: [
+        consigneeAddress?.townOrCity,
+        consigneeAddress?.postcode,
+        consigneeAddress?.countryName || consigneeAddress?.countryCode
+      ].filter(Boolean).join(", "),
+      consignee: consigneeAddress?.companyName || consigneeAddress?.contactName || "",
+      bookedAt: shipment.createdAt ?? null,
+      statusLabel: formatShipmentStatusLabel(latestEvent?.status),
+      lastScan: latestEvent
+        ? {
+          statusLabel: formatShipmentStatusLabel(latestEvent.status),
+          location: latestEvent.location ?? "",
+          at: latestEvent.eventAt
+        }
+        : null,
+      service: shipment.serviceType || shipment.serviceCode || ""
+    };
+  }
+
   return {
     account: account ? { id: String(account._id), accountId: account.accountId, companyName: account.company.companyName } : null,
     branch: branch ? { id: String(branch._id), name: branch.name, code: branch.code } : null,
     creator: creator ? { id: String(creator._id), name: creator.name || creator.email, email: creator.email } : null,
     assignee: assignee ? { id: String(assignee._id), name: assignee.name || assignee.email, email: assignee.email } : null,
-    relatedShipment: shipment ? { draftId: String(shipment._id) } : null
+    relatedShipment
   };
 }
 

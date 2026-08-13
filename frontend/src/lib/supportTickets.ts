@@ -32,22 +32,44 @@ export const ticketPriorities: Array<{ value: TicketPriority; label: string }> =
   { value: "URGENT", label: "Urgent" },
   { value: "CRITICAL", label: "Critical" }
 ];
-export type TicketCategory = "SHIPMENT_BOOKING" | "TRACKING" | "LABEL_MANIFEST" | "AMENDMENT_CANCELLATION" | "SHIPMENT_DELAYED" | "SHIPMENT_NOT_RECEIVED" | "SHIPMENT_LOST" | "SHIPMENT_THEFT" | "SHIPMENT_DAMAGED" | "INVOICE_PAYMENT" | "CREDIT_ACCOUNT" | "ACCOUNT_ACCESS" | "TECHNICAL" | "OTHER";
+export type TicketCategory =
+  | "TRACKING_ISSUE" | "PICKUP_ISSUE" | "DELIVERY_DELAY" | "CUSTOMS_CLEARANCE"
+  | "SHIPMENT_HOLD" | "ADDRESS_CORRECTION" | "BILLING_ISSUE" | "WEIGHT_DISPUTE"
+  | "POD_REQUEST" | "LOST_SHIPMENT" | "DAMAGED_SHIPMENT" | "MISSING_CONTENTS"
+  | "RETURN_SHIPMENT" | "PORTAL_ISSUE" | "OTHER";
 
 export const ticketCategories: Array<{ value: TicketCategory; label: string }> = [
-  { value: "SHIPMENT_BOOKING", label: "Shipment Booking" }, { value: "TRACKING", label: "Tracking" },
-  { value: "LABEL_MANIFEST", label: "Label or Manifest" }, { value: "AMENDMENT_CANCELLATION", label: "Amendment or Cancellation" },
-  { value: "SHIPMENT_DELAYED", label: "Shipment Delayed" }, { value: "SHIPMENT_NOT_RECEIVED", label: "Shipment Not Received" },
-  { value: "SHIPMENT_LOST", label: "Shipment Lost" }, { value: "SHIPMENT_THEFT", label: "Shipment Theft" },
-  { value: "SHIPMENT_DAMAGED", label: "Shipment Damaged" },
-  { value: "INVOICE_PAYMENT", label: "Invoice or Payment" }, { value: "CREDIT_ACCOUNT", label: "Credit Account" },
-  { value: "ACCOUNT_ACCESS", label: "Account Access" }, { value: "TECHNICAL", label: "Technical Issue" },
+  { value: "TRACKING_ISSUE", label: "Tracking Issue" },
+  { value: "PICKUP_ISSUE", label: "Pickup Issue" },
+  { value: "DELIVERY_DELAY", label: "Delivery Delay" },
+  { value: "CUSTOMS_CLEARANCE", label: "Customs Clearance" },
+  { value: "SHIPMENT_HOLD", label: "Shipment Hold" },
+  { value: "ADDRESS_CORRECTION", label: "Address Correction" },
+  { value: "BILLING_ISSUE", label: "Billing Issue" },
+  { value: "WEIGHT_DISPUTE", label: "Weight Dispute" },
+  { value: "POD_REQUEST", label: "POD Request" },
+  { value: "LOST_SHIPMENT", label: "Lost Shipment" },
+  { value: "DAMAGED_SHIPMENT", label: "Damaged Shipment" },
+  { value: "MISSING_CONTENTS", label: "Missing Contents" },
+  { value: "RETURN_SHIPMENT", label: "Return Shipment" },
+  { value: "PORTAL_ISSUE", label: "Portal Issue" },
   { value: "OTHER", label: "Other" }
 ];
 
 /** Categories about a specific shipment, which therefore require one to be named. */
 export const shipmentIssueCategories: TicketCategory[] = [
-  "SHIPMENT_DELAYED", "SHIPMENT_NOT_RECEIVED", "SHIPMENT_LOST", "SHIPMENT_THEFT", "SHIPMENT_DAMAGED"
+  "TRACKING_ISSUE", "DELIVERY_DELAY", "CUSTOMS_CLEARANCE", "SHIPMENT_HOLD",
+  "ADDRESS_CORRECTION", "WEIGHT_DISPUTE", "POD_REQUEST", "LOST_SHIPMENT",
+  "DAMAGED_SHIPMENT", "MISSING_CONTENTS", "RETURN_SHIPMENT"
+];
+
+/**
+ * Categories a compensation claim can follow from — narrower than the list
+ * above. Needing an AWB and being owed money are different questions: a
+ * delivery delay names a shipment but has nothing to compensate.
+ */
+export const claimableTicketCategories: TicketCategory[] = [
+  "LOST_SHIPMENT", "DAMAGED_SHIPMENT", "MISSING_CONTENTS"
 ];
 
 export function requiresRelatedShipment(category: TicketCategory) {
@@ -81,7 +103,17 @@ export type SupportTicket = {
   branch: { id: string; name: string; code: string } | null;
   creator: { id: string; name: string; email: string } | null;
   assignee: { id: string; name: string; email: string } | null;
-  relatedShipment: { draftId: string } | null;
+  relatedShipment: {
+    draftId: string;
+    awb: string;
+    origin: string;
+    destination: string;
+    consignee: string;
+    bookedAt: string | null;
+    statusLabel: string;
+    lastScan: { statusLabel: string; location: string; at: string } | null;
+    service: string;
+  } | null;
   statusHistory: Array<{ fromStatus: TicketStatus | null; toStatus: TicketStatus; changedBy: string; note: string; changedAt: string }>;
   messages: Array<{ id: string; authorId: string; authorType: "CLIENT" | "ADMIN"; authorName: string; message: string; internal: boolean; createdAt: string }>;
 };

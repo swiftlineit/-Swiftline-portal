@@ -87,13 +87,16 @@ const listFilters = { page: 1, limit: 20 };
 
 describe("support ticket lifecycle", () => {
   test("enforces visibility, immutable conversation history and admin reopen", { timeout: 120_000 }, async () => {
-    const { admin, owner, operations, business } = await fixture();
+    const { admin, owner, operations, business, branch } = await fixture();
+    // Tracking is a shipment category, so the ticket has to name one.
+    const trackedShipment = await shipmentFixture(business._id, branch._id, owner._id);
     const ownerTicket = await createClientSupportTicket(owner._id, {
-      businessAccountId: String(business._id), category: "TRACKING",
+      businessAccountId: String(business._id), category: "TRACKING_ISSUE",
+      relatedShipmentDraftId: String(trackedShipment._id),
       subject: "Tracking status needs review", description: "The tracking status has not changed since collection."
     });
     const operationsTicket = await createClientSupportTicket(operations._id, {
-      businessAccountId: String(business._id), category: "SHIPMENT_BOOKING",
+      businessAccountId: String(business._id), category: "OTHER",
       subject: "Shipment booking requires help", description: "The shipment booking needs support from the assigned branch."
     });
     assert.match(ownerTicket.ticketNumber, /^TKT\/\d{2}-\d{2}\/\d{5}$/);
@@ -143,21 +146,21 @@ describe("support ticket lifecycle", () => {
     // A shipment problem is only actionable against a named shipment.
     await assert.rejects(
       createClientSupportTicket(owner._id, {
-        businessAccountId, category: "SHIPMENT_LOST",
+        businessAccountId, category: "LOST_SHIPMENT",
         subject: "Shipment cannot be found", description: "The shipment has not arrived and tracking has stopped."
       }),
       (error: unknown) => error instanceof SupportTicketError && error.statusCode === 400
     );
 
     const first = await createClientSupportTicket(owner._id, {
-      businessAccountId, category: "SHIPMENT_LOST", relatedShipmentDraftId,
+      businessAccountId, category: "LOST_SHIPMENT", relatedShipmentDraftId,
       subject: "Shipment cannot be found", description: "The shipment has not arrived and tracking has stopped."
     });
 
     // A second ticket for the same shipment would split one conversation.
     await assert.rejects(
       createClientSupportTicket(owner._id, {
-        businessAccountId, category: "SHIPMENT_DAMAGED", relatedShipmentDraftId,
+        businessAccountId, category: "DAMAGED_SHIPMENT", relatedShipmentDraftId,
         subject: "Shipment arrived damaged", description: "The parcel was delivered with a crushed corner."
       }),
       (error: unknown) => error instanceof SupportTicketError && error.statusCode === 409
@@ -167,7 +170,7 @@ describe("support ticket lifecycle", () => {
 
     // Resolving releases the shipment for a fresh ticket.
     const second = await createClientSupportTicket(owner._id, {
-      businessAccountId, category: "SHIPMENT_DAMAGED", relatedShipmentDraftId,
+      businessAccountId, category: "DAMAGED_SHIPMENT", relatedShipmentDraftId,
       subject: "Shipment arrived damaged", description: "The parcel was delivered with a crushed corner."
     });
     assert.notEqual(String(second._id), String(first._id));

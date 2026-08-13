@@ -37,6 +37,8 @@ export type ShipmentListItem = {
   weightKg: number;
   status: string;
   statusLabel: string;
+  /** The newest scan. Null until Operations records one. */
+  lastScan: { statusLabel: string; location: string; at: string } | null;
   /**
    * Carrier-side booking state, distinct from the tracking status above. Staff
    * lists include shipments that reached the carrier but have not completed;

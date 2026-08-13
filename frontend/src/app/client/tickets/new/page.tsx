@@ -10,10 +10,10 @@ import {
 } from "@/components/client/ClientDashboardShell";
 import {
   getClientDashboard,
-  getClientShipments,
   type ClientDashboardAccount,
-  type ClientShipmentListItem,
 } from "@/lib/clientDashboard";
+import { listShipments, type ShipmentListItem } from "@/lib/shipmentsList";
+import TicketShipmentContext from "@/components/tickets/TicketShipmentContext";
 import {
   createSupportTicket,
   listSupportTickets,
@@ -28,9 +28,9 @@ export default function NewSupportTicketPage() {
   const { user, loading } = useClientUser();
   const router = useRouter();
   const [accounts, setAccounts] = useState<ClientDashboardAccount[]>([]);
-  const [shipments, setShipments] = useState<ClientShipmentListItem[]>([]);
+  const [shipments, setShipments] = useState<ShipmentListItem[]>([]);
   const [businessAccountId, setBusinessAccountId] = useState("");
-  const [category, setCategory] = useState<TicketCategory>("SHIPMENT_BOOKING");
+  const [category, setCategory] = useState<TicketCategory>("TRACKING_ISSUE");
   const [relatedShipmentDraftId, setRelatedShipmentDraftId] = useState("");
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
@@ -65,7 +65,10 @@ export default function NewSupportTicketPage() {
 
   useEffect(() => {
     if (!businessAccountId) return;
-    void getClientShipments({ businessAccountId, limit: 50 })
+    // The booked list rather than every draft: each shipment-linked category
+    // describes a shipment already in motion, and this list is the one that
+    // carries the status, last scan and service the panel below shows.
+    void listShipments("client", { businessAccountId, limit: 50 })
       .then((result) => setShipments(result.shipments))
       .catch(() => setShipments([]));
   }, [businessAccountId]);
@@ -100,6 +103,25 @@ export default function NewSupportTicketPage() {
   );
   const shipmentRequired = requiresRelatedShipment(category);
   const missingShipment = shipmentRequired && !relatedShipmentDraftId;
+  // Mapped to the panel's own shape, and mapped the same way the server builds
+  // it for an existing ticket, so the details do not shift once the ticket is
+  // raised. Origin is the collecting branch; the list row carries no other one.
+  const selectedShipment = useMemo(() => {
+    const shipment = shipments.find((item) => item.id === relatedShipmentDraftId);
+    if (!shipment) return null;
+    return {
+      awb: shipment.swiftlineTrackingNumber,
+      origin: shipment.branch.name
+        ? `${shipment.branch.name}${shipment.branch.code ? ` (${shipment.branch.code})` : ""}`
+        : "",
+      destination: shipment.destination,
+      consignee: shipment.consignee,
+      bookedAt: shipment.createdAt,
+      statusLabel: shipment.statusLabel,
+      lastScan: shipment.lastScan,
+      service: shipment.serviceInfo,
+    };
+  }, [shipments, relatedShipmentDraftId]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -246,9 +268,7 @@ export default function NewSupportTicketPage() {
                   <option value="">Select a Shipment</option>
                   {shipments.map((shipment) => {
                     const openTicket = blockedShipments.get(shipment.id);
-                    const draftConsignee = shipment.destination.companyName
-                      || shipment.destination.contactName
-                      || "Shipment draft";
+                    const draftConsignee = shipment.consignee || "Shipment";
                     const label = shipment.swiftlineTrackingNumber
                       || `AWB Pending - ${draftConsignee}`;
                     return (
@@ -264,6 +284,14 @@ export default function NewSupportTicketPage() {
                 </select>
                 <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               </div>
+              {/* Picking an AWB shows what it is, so neither the customer nor
+                  the agent has to look the shipment up separately. */}
+              {selectedShipment ? (
+                <div className="mt-3">
+                  <TicketShipmentContext shipment={selectedShipment} />
+                </div>
+              ) : null}
+
               {shipmentRequired ? (
                 <span className="mt-1 block text-xs text-slate-500">
                   Shipments with a ticket still in progress cannot be selected.

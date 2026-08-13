@@ -156,7 +156,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
     DpdShipment.find({ shipmentDraftId: { $in: draftIds } }).lean().exec(),
     ShipmentEvent.find({ shipmentDraftId: { $in: draftIds }, customerVisible: true })
       .sort({ eventAt: -1, createdAt: -1 })
-      .select("shipmentDraftId status eventAt")
+      .select("shipmentDraftId status eventAt location")
       .lean()
       .exec(),
     Branch.find({ _id: { $in: drafts.map((draft) => draft.branchId) } }).select("name code address").lean().exec(),
@@ -255,6 +255,15 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
         : draft.parcelList.reduce((sum, parcel) => sum + (parcel.weightKg || 0), 0)).toFixed(3)),
       status: currentEvent?.status ?? "SHIPMENT_BOOKED",
       statusLabel: formatShipmentStatusLabel(currentEvent?.status),
+      // The newest scan, so a support agent can see where the shipment last was
+      // without opening it. Null until Operations records one.
+      lastScan: currentEvent
+        ? {
+          statusLabel: formatShipmentStatusLabel(currentEvent.status),
+          location: currentEvent.location ?? "",
+          at: currentEvent.eventAt
+        }
+        : null,
       // The carrier-side state, distinct from the tracking status above. Lets the
       // table mark a shipment that reached the carrier but has not completed.
       bookingStatus: booking?.status ?? "DPD_CREATING",

@@ -10,7 +10,7 @@ import {
   getSupportTicket,
   getSupportTicketContext,
   replySupportTicket,
-  shipmentIssueCategories,
+  claimableTicketCategories,
   ticketLabel,
   ticketPriorities,
   ticketStatuses,
@@ -22,6 +22,7 @@ import {
   type TicketStatus,
 } from "@/lib/supportTickets";
 import { TicketPriorityBadge, TicketStatusBadge } from "./TicketStatusBadge";
+import TicketShipmentContext from "./TicketShipmentContext";
 
 export default function TicketDetail({
   audience,
@@ -175,9 +176,9 @@ export default function TicketDetail({
     }))
   ].sort((left, right) => left.at - right.at || right.order - left.order);
 
-  // Loss and damage categories are the ones a claim can follow from. A billing
-  // query or an access problem has nothing to compensate.
-  const claimableCategories = shipmentIssueCategories;
+  // Loss and damage only. A delivery delay or a POD request names a shipment
+  // but has nothing to compensate.
+  const claimableCategories = claimableTicketCategories;
 
   const shipmentHref = ticket.relatedShipmentDraftId
     ? audience === "client"
@@ -234,6 +235,12 @@ export default function TicketDetail({
           />
         </div>
       </section>
+
+      {/* Full width rather than in the sidebar: seven fields need the room, and
+          both the customer and the agent want them before the conversation. */}
+      {ticket.relatedShipment ? (
+        <TicketShipmentContext shipment={ticket.relatedShipment} />
+      ) : null}
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section id="ticket-conversation" className="border border-slate-300 bg-white rounded-2xl  ">
