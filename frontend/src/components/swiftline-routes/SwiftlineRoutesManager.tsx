@@ -11,7 +11,6 @@ import {
 import { portalCountries } from "@/lib/portalCountries";
 import {
   deleteSwiftlineRoute,
-  formatRoutePath,
   formatTransitTime,
   listSwiftlineRoutes,
   routeTransitBases,
@@ -93,6 +92,42 @@ function toRouteInput(form: FormState): SwiftlineRouteInput {
     restrictions: form.restrictions.trim(),
     notes: form.notes.trim()
   };
+}
+
+/**
+ * The lane as a path: IN → GB → CA.
+ *
+ * Transit stops are picked out from the endpoints, because the thing an
+ * operator is scanning this column for is whether a lane goes direct or
+ * through somewhere. There is deliberately no separate "Via GB" badge beside
+ * it — the arrow already says that, and saying it twice is the repeated
+ * information the design brief asks us to avoid.
+ */
+function RoutePath({ route }: { route: SwiftlineRoute }) {
+  const stops = route.viaCountryCodes ?? [];
+
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-1 text-xs tabular-nums">
+      <span className="font-medium text-slate-500">{route.originCountryCode}</span>
+      {stops.map((code) => (
+        <span key={code} className="flex items-center gap-1">
+          <span aria-hidden="true" className="text-slate-300">→</span>
+          <span className="rounded bg-[#0D1282]/8 px-1.5 py-0.5 font-semibold text-[#0D1282]">
+            {code}
+          </span>
+        </span>
+      ))}
+      <span aria-hidden="true" className="text-slate-300">→</span>
+      <span className="font-semibold text-slate-700">{route.destinationCountryCode}</span>
+      {stops.length ? (
+        <span className="ml-1 text-slate-400">
+          ({stops.length} transit {stops.length === 1 ? "country" : "countries"})
+        </span>
+      ) : (
+        <span className="ml-1 text-slate-400">(direct)</span>
+      )}
+    </span>
+  );
 }
 
 export default function SwiftlineRoutesManager() {
@@ -493,7 +528,11 @@ export default function SwiftlineRoutesManager() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          {/* 620 rather than 720: the destination cell stacks its name above the
+              path now, so the table no longer needs the extra width — and at
+              720 the actions column fell off the edge of the slot beside the
+              form, leaving Delete unreachable without scrolling. */}
+          <table className="w-full min-w-155 text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase text-slate-500">
                 <th className="px-4 py-3">Destination</th>
@@ -525,16 +564,11 @@ export default function SwiftlineRoutesManager() {
                 visibleRoutes.map((route) => (
                   <tr key={route._id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
                     <td className="px-4 py-3">
-                      <span className="font-semibold text-slate-900">
+                      <span className="block font-semibold text-slate-900">
                         <span aria-hidden="true">{getCountryFlag(route.destinationCountryCode)}</span>{" "}
                         {route.destinationCountryName}
                       </span>
-                      <span className="ml-2 text-xs text-slate-400">{formatRoutePath(route)}</span>
-                      {route.viaCountryCodes?.length ? (
-                        <span className="ml-2 rounded-full bg-[#0D1282]/8 px-2 py-0.5 text-[10px] font-semibold uppercase text-[#0D1282]">
-                          Via {route.viaCountryCodes.join(", ")}
-                        </span>
-                      ) : null}
+                      <RoutePath route={route} />
                       {route.restrictions ? (
                         <span className="mt-1 block text-xs text-amber-700">{route.restrictions}</span>
                       ) : null}

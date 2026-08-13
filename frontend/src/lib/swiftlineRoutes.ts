@@ -90,13 +90,6 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-/** The lane as a person reads it: "IN → GB → CA". */
-export function formatRoutePath(
-  route: Pick<SwiftlineRoute, "originCountryCode" | "viaCountryCodes" | "destinationCountryCode">
-) {
-  return [route.originCountryCode, ...(route.viaCountryCodes ?? []), route.destinationCountryCode]
-    .join(" → ");
-}
 
 /** How a lane's transit time reads in a table cell, e.g. "3–5 business days". */
 export function formatTransitTime(route: Pick<SwiftlineRoute, "transitDaysMin" | "transitDaysMax" | "transitBasis">) {

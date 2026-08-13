@@ -214,10 +214,6 @@ swiftlineRouteSchema.pre("findOneAndUpdate", async function ensureUpdatedRouteIs
   throw error;
 });
 
-/** The lane as a person reads it: "IN → GB → CA". */
-export function formatRoutePath(route: Pick<ISwiftlineRoute, "originCountryCode" | "viaCountryCodes" | "destinationCountryCode">) {
-  return [route.originCountryCode, ...(route.viaCountryCodes ?? []), route.destinationCountryCode].join(" → ");
-}
 
 export const SwiftlineRoute = mongoose.model<ISwiftlineRoute>(
   "SwiftlineRoute",
