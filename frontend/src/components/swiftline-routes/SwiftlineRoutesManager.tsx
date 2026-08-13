@@ -11,6 +11,7 @@ import {
 import { portalCountries } from "@/lib/portalCountries";
 import {
   deleteSwiftlineRoute,
+  formatRoutePath,
   formatTransitTime,
   listSwiftlineRoutes,
   routeTransitBases,
@@ -32,6 +33,8 @@ import {
 
 type FormState = {
   destinationCountryCode: string;
+  /** Ordered transit stops between origin and destination. */
+  viaCountryCodes: string[];
   service: CountryRateService;
   transitDaysMin: string;
   transitDaysMax: string;
@@ -45,6 +48,7 @@ type FormState = {
 function blankForm(): FormState {
   return {
     destinationCountryCode: "",
+    viaCountryCodes: [],
     service: "COURIER",
     transitDaysMin: "",
     transitDaysMax: "",
@@ -59,6 +63,7 @@ function blankForm(): FormState {
 function loadRouteIntoForm(route: SwiftlineRoute): FormState {
   return {
     destinationCountryCode: route.destinationCountryCode,
+    viaCountryCodes: route.viaCountryCodes ?? [],
     service: route.service,
     transitDaysMin: String(route.transitDaysMin),
     transitDaysMax: String(route.transitDaysMax),
@@ -75,6 +80,7 @@ function toRouteInput(form: FormState): SwiftlineRouteInput {
 
   return {
     destinationCountryCode: form.destinationCountryCode,
+    viaCountryCodes: form.viaCountryCodes.filter(Boolean),
     // The name travels with the code so the list reads without a second lookup,
     // and stays correct if the reference list is edited later.
     destinationCountryName: country?.name ?? form.destinationCountryCode,
@@ -142,6 +148,17 @@ export default function SwiftlineRoutesManager() {
   function updateField<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [field]: value }));
     setMessage("");
+  }
+
+  function updateVia(index: number, value: string) {
+    updateField(
+      "viaCountryCodes",
+      form.viaCountryCodes.map((code, position) => (position === index ? value : code))
+    );
+  }
+
+  function removeVia(index: number) {
+    updateField("viaCountryCodes", form.viaCountryCodes.filter((_, position) => position !== index));
   }
 
   function handleTextChange(field: keyof FormState) {
@@ -255,6 +272,69 @@ export default function SwiftlineRoutesManager() {
               service replaces its transit time.
             </span>
           </label>
+
+          {/* Transit stops, in travel order. A direct lane simply has none. */}
+          <div>
+            <span className={labelClass}>Transit countries (optional)</span>
+            <p className="mt-1 text-xs text-slate-400">
+              Add a stop for a lane that travels through another country, such as
+              India&nbsp;→&nbsp;United Kingdom&nbsp;→&nbsp;Canada. Transit time is still entered once,
+              for the whole journey.
+            </p>
+
+            <div className="mt-2 flex flex-col gap-2">
+              {form.viaCountryCodes.map((code, index) => (
+                <div key={`${code}-${index}`} className="flex items-center gap-2">
+                  <span className="w-5 shrink-0 text-center text-xs font-semibold text-slate-400">
+                    {index + 1}
+                  </span>
+                  <div className="relative flex-1">
+                    <select
+                      value={code}
+                      onChange={(event) => updateVia(index, event.target.value)}
+                      className={selectClass}
+                    >
+                      <option value="">Select a country</option>
+                      {portalCountries.map((country) => (
+                        <option key={country.iso2} value={country.iso2}>
+                          {country.name} ({country.iso2})
+                        </option>
+                      ))}
+                    </select>
+                    <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 mt-1 -translate-y-1/2 text-slate-400" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeVia(index)}
+                    aria-label={`Remove transit stop ${index + 1}`}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-red-600 transition hover:border-red-400"
+                  >
+                    <FiTrash2 aria-hidden="true" className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+
+              {form.viaCountryCodes.length < 4 ? (
+                <button
+                  type="button"
+                  onClick={() => updateField("viaCountryCodes", [...form.viaCountryCodes, ""])}
+                  className="inline-flex h-9 w-fit items-center gap-2 rounded-4xl border border-slate-300 px-3 text-xs font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282]"
+                >
+                  <FiPlus aria-hidden="true" className="h-3.5 w-3.5" />
+                  Add transit country
+                </button>
+              ) : null}
+            </div>
+
+            {/* The path as it will read in the list, so a mistake is visible
+                before it is saved rather than after. */}
+            {form.destinationCountryCode ? (
+              <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold tracking-wide text-slate-600">
+                IN {form.viaCountryCodes.filter(Boolean).map((code) => `→ ${code} `).join("")}→{" "}
+                {form.destinationCountryCode}
+              </p>
+            ) : null}
+          </div>
 
           <label className="block">
             <span className={labelClass}>Service</span>
@@ -449,9 +529,12 @@ export default function SwiftlineRoutesManager() {
                         <span aria-hidden="true">{getCountryFlag(route.destinationCountryCode)}</span>{" "}
                         {route.destinationCountryName}
                       </span>
-                      <span className="ml-2 text-xs text-slate-400">
-                        {route.originCountryCode} → {route.destinationCountryCode}
-                      </span>
+                      <span className="ml-2 text-xs text-slate-400">{formatRoutePath(route)}</span>
+                      {route.viaCountryCodes?.length ? (
+                        <span className="ml-2 rounded-full bg-[#0D1282]/8 px-2 py-0.5 text-[10px] font-semibold uppercase text-[#0D1282]">
+                          Via {route.viaCountryCodes.join(", ")}
+                        </span>
+                      ) : null}
                       {route.restrictions ? (
                         <span className="mt-1 block text-xs text-amber-700">{route.restrictions}</span>
                       ) : null}

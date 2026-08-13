@@ -23,6 +23,8 @@ export type SwiftlineRoute = {
   originCountryCode: string;
   destinationCountryCode: string;
   destinationCountryName: string;
+  /** Countries passed through on the way, in travel order. Empty when direct. */
+  viaCountryCodes: string[];
   service: CountryRateService;
   transitDaysMin: number;
   transitDaysMax: number;
@@ -38,6 +40,7 @@ export type SwiftlineRoute = {
 export type SwiftlineRouteInput = {
   destinationCountryCode: string;
   destinationCountryName: string;
+  viaCountryCodes: string[];
   service: CountryRateService;
   transitDaysMin: number;
   transitDaysMax: number;
@@ -85,6 +88,14 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   }
 
   return data as T;
+}
+
+/** The lane as a person reads it: "IN → GB → CA". */
+export function formatRoutePath(
+  route: Pick<SwiftlineRoute, "originCountryCode" | "viaCountryCodes" | "destinationCountryCode">
+) {
+  return [route.originCountryCode, ...(route.viaCountryCodes ?? []), route.destinationCountryCode]
+    .join(" → ");
 }
 
 /** How a lane's transit time reads in a table cell, e.g. "3–5 business days". */

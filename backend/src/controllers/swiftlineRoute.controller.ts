@@ -21,6 +21,13 @@ const routePayloadSchema = z.object({
   originCountryCode: countryCodeSchema.default(defaultOriginCountryCode),
   destinationCountryCode: countryCodeSchema,
   destinationCountryName: z.string().trim().min(2).max(80),
+  // Ordered transit stops. Blanks are dropped rather than rejected so a form
+  // row left empty is simply not a stop.
+  viaCountryCodes: z.array(countryCodeSchema.or(z.literal("")))
+    .max(4, "A route may pass through at most four countries.")
+    .optional()
+    .default([])
+    .transform((values) => values.filter(Boolean)),
   service: z.enum(countryRateServiceValues),
   transitDaysMin: z.coerce.number().int().min(1).max(120),
   transitDaysMax: z.coerce.number().int().min(1).max(120),
@@ -42,7 +49,18 @@ const routePayloadSchema = z.object({
   // list looking like a real destination.
   message: "Origin and destination must be different countries.",
   path: ["destinationCountryCode"]
-});
+}).refine((data) => new Set(data.viaCountryCodes).size === data.viaCountryCodes.length, {
+  message: "Each transit country may only appear once.",
+  path: ["viaCountryCodes"]
+}).refine(
+  (data) => !data.viaCountryCodes.some(
+    (code) => code === data.originCountryCode || code === data.destinationCountryCode
+  ),
+  {
+    message: "A transit country cannot also be the origin or the destination.",
+    path: ["viaCountryCodes"]
+  }
+);
 
 function getAuthenticatedUserId(request: Request): mongoose.Types.ObjectId | null {
   const user = (request as Request & { user?: { _id?: unknown } }).user;
