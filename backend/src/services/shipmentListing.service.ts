@@ -36,7 +36,49 @@ export type ShipmentListingFilter = {
    * see only shipments that completed.
    */
   bookingStatuses?: DpdShipmentStatus[];
+  /** `field:direction`, validated against `shipmentSortFields`. */
+  sort?: string;
 };
+
+/**
+ * Columns this list can genuinely order by.
+ *
+ * The page is selected from `ShipmentDraft` before bookings, events, invoices
+ * and branches are joined on, so only fields the draft itself holds can order
+ * it. AWB, tracking status, weight and invoice are all assembled after the
+ * page is chosen — sorting by them would order the twenty rows that happened to
+ * be fetched and read as a broken sort on every other page.
+ *
+ * Consignee and destination are absent for a subtler reason: both are shown as
+ * a fallback — company name or contact name, country name or country code —
+ * and the database can only order by one stored field at a time. Sorting by
+ * `companyName` while the cell shows a contact name puts every row without a
+ * company at the top in no visible order, which looks like a broken sort
+ * rather than a limitation. Ordering the coalesced value needs an aggregation
+ * pipeline, and that is not worth it for two columns.
+ *
+ * The table therefore offers sort arrows on these columns only. An unsupported
+ * value falls back to the default rather than erroring, so a stale bookmark
+ * still loads.
+ */
+export const shipmentSortFields: Record<string, string> = {
+  booked: "createdAt",
+  updated: "updatedAt",
+  service: "serviceType",
+  pieces: "parcelCount"
+};
+
+function sortSpec(sort?: string): Record<string, 1 | -1> {
+  const [field = "", direction = ""] = (sort ?? "").split(":");
+  const path = shipmentSortFields[field];
+  // Newest booking first by default, matching the "Created" column the table
+  // shows. Sorting by updatedAt instead floated old shipments to the top
+  // whenever a tracking event or amendment touched them, which reads as broken.
+  if (!path) return { createdAt: -1, _id: -1 };
+  // `_id` breaks ties so paging never repeats or skips a row when many
+  // shipments share a value — every consignee named the same, for instance.
+  return { [path]: direction === "asc" ? 1 : -1, _id: -1 };
+}
 
 /** Completed bookings: labels issued, and the only ones a customer may see. */
 export const bookedShipmentStatuses: DpdShipmentStatus[] = ["LABEL_RECEIVED"];
@@ -142,10 +184,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   const totalPages = Math.max(1, Math.ceil(total / filter.limit));
   const page = Math.min(Math.max(1, filter.page), totalPages);
   const drafts = await ShipmentDraft.find(query)
-    // Newest booking first, matching the "Created" column the table shows. Sorting
-    // by updatedAt instead floated old shipments to the top whenever a tracking
-    // event or amendment touched them, which reads as a broken order.
-    .sort({ createdAt: -1, _id: -1 })
+    .sort(sortSpec(filter.sort))
     .skip((page - 1) * filter.limit)
     .limit(filter.limit)
     .lean()

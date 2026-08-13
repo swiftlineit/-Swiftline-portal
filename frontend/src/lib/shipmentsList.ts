@@ -103,15 +103,39 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
   return payload as T;
 }
 
-export async function listShipments(audience: ShipmentAudience, input: {
+/**
+ * The columns the server can order by, and what each is called on screen.
+ *
+ * Consignee and destination are deliberately absent: both are displayed as a
+ * fallback of two stored fields, and the database can only order by one, so a
+ * sort arrow on them would reorder rows in a way that looks broken. See
+ * `shipmentSortFields` on the server for the full reasoning.
+ */
+export const shipmentSortableColumns: Record<string, string> = {
+  booked: "Created",
+  service: "Service",
+  pieces: "Pieces"
+};
+
+export function shipmentListPath(audience: ShipmentAudience) {
+  return audience === "client" ? "/api/v1/client/booked-shipments" : "/api/v1/shipments";
+}
+
+/**
+ * Query string for a shipment list request.
+ *
+ * Shared with the export so a downloaded file carries exactly the filters on
+ * screen — building the two separately is how they drift apart.
+ */
+export function shipmentListParams(input: {
   page?: number;
   limit?: number;
   status?: string;
-  /** Free text over AWB, piece number, consignee and your own reference. */
   search?: string;
   dateRange?: DateRange;
   businessAccountId?: string;
   branchId?: string;
+  sort?: string;
 } = {}) {
   const params = new URLSearchParams();
   params.set("page", String(input.page ?? 1));
@@ -121,7 +145,24 @@ export async function listShipments(audience: ShipmentAudience, input: {
   setDateRangeParams(params, input.dateRange);
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
   if (input.branchId) params.set("branchId", input.branchId);
-  const base = audience === "client" ? "/api/v1/client/booked-shipments" : "/api/v1/shipments";
+  if (input.sort) params.set("sort", input.sort);
+  return params;
+}
+
+export async function listShipments(audience: ShipmentAudience, input: {
+  page?: number;
+  limit?: number;
+  status?: string;
+  /** Free text over AWB, piece number, consignee and your own reference. */
+  search?: string;
+  dateRange?: DateRange;
+  businessAccountId?: string;
+  branchId?: string;
+  /** `field:asc|desc`, limited to the columns the server can order by. */
+  sort?: string;
+} = {}) {
+  const params = shipmentListParams(input);
+  const base = shipmentListPath(audience);
 
   return requestJson<{
     success: true;
