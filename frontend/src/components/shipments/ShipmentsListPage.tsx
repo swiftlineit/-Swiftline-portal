@@ -6,6 +6,7 @@ import { FiArchive, FiChevronDown, FiExternalLink, FiFileText, FiPlus, FiRefresh
 import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
+import { SortableHeader, TableToolbar, type TableColumnOption } from "@/components/ui/TableToolbar";
 import { emptyDateRange } from "@/lib/dateRange";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatCsbType } from "@/lib/csbType";
@@ -14,6 +15,8 @@ import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
 import {
   listShipments,
   shipmentDetailsHref,
+  shipmentListParams,
+  shipmentListPath,
   shipmentStatusOptions,
   type ShipmentAudience,
   type ShipmentListItem,
@@ -55,6 +58,9 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
+  // Newest booking first, the order this table has always opened in.
+  const [sort, setSort] = useState("booked:desc");
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -63,11 +69,35 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
 
   const createShipmentHref = audience === "client" ? "/client/dpd-labels" : "/dashboard/dpd-labels";
 
+  /**
+   * Columns a customer may hide. AWB and Actions are locked: one identifies the
+   * row and the other is how anything gets done with it, so a table without
+   * them is not a shorter table, it is a broken one.
+   */
+  const columnOptions: TableColumnOption[] = [
+    { key: "awb", label: "AWB / Shipment No.", locked: true },
+    { key: "consignee", label: "Consignee" },
+    { key: "route", label: "Route" },
+    { key: "amount", label: "Chargeable Amount" },
+    { key: "status", label: "Status" },
+    { key: "created", label: "Created" },
+    { key: "actions", label: "Actions", locked: true }
+  ];
+  const shows = (key: string) => !hiddenColumns.has(key);
+  const [sortKey = "booked", sortDirection = "desc"] = sort.split(":");
+
+  function applySort(key: string, direction: "asc" | "desc") {
+    setSort(`${key}:${direction}`);
+    // A reordered list has a different first page, so staying on page four
+    // would show rows from the middle of the new order.
+    setPage(1);
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const data = await listShipments(audience, { page, status, search, dateRange });
+      const data = await listShipments(audience, { page, status, search, dateRange, sort });
       setShipments(data.shipments);
       setPagination(data.pagination);
       // Refresh or drop only the selections that belong to this page - a shipment
@@ -88,7 +118,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     } finally {
       setLoading(false);
     }
-  }, [audience, dateRange, page, search, status]);
+  }, [audience, dateRange, page, search, sort, status]);
 
   // Deferred so the fetch's setState lands after the first paint rather than
   // cascading a render, matching the other listing screens.
@@ -320,6 +350,20 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
         </div>
       ) : null}
 
+      {/* Export carries the same filters as the table, built from one helper so
+          a downloaded file can never disagree with what is on screen. */}
+      <div className="mb-3">
+        <TableToolbar
+          exportPath={shipmentListPath(audience)}
+          exportParams={shipmentListParams({ status, search, dateRange, sort })}
+          exportName="shipments"
+          rowCount={pagination.total}
+          columns={columnOptions}
+          hiddenColumns={hiddenColumns}
+          onHiddenColumnsChange={setHiddenColumns}
+        />
+      </div>
+
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm">
@@ -336,11 +380,23 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                   />
                 </th>
                 <th className="px-4 py-3">AWB / Shipment No.</th>
-                <th className="px-4 py-3">Consignee</th>
-                <th className="px-4 py-3">Route</th>
-                <th className="px-4 py-3">Chargeable Amount</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Created</th>
+                {shows("consignee") ? <th className="px-4 py-3">Consignee</th> : null}
+                {shows("route") ? <th className="px-4 py-3">Route</th> : null}
+                {shows("amount") ? <th className="px-4 py-3">Chargeable Amount</th> : null}
+                {shows("status") ? <th className="px-4 py-3">Status</th> : null}
+                {/* The only sortable column on show. Consignee, Route, Amount
+                    and Status cannot be ordered by the server — see
+                    shipmentSortableColumns for why — so they stay plain
+                    headings rather than arrows that reorder one page. */}
+                {shows("created") ? (
+                  <SortableHeader
+                    label="Created"
+                    sortKey="booked"
+                    active={sortKey === "booked"}
+                    direction={sortDirection === "asc" ? "asc" : "desc"}
+                    onSort={applySort}
+                  />
+                ) : null}
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -373,15 +429,22 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                       </span>
                     </p>
                   </td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-slate-800">{shipment.consignee || "Not set"}</p>
-                    <p className="mt-1 text-xs text-slate-500">{shipment.destination || "Not set"}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-slate-800">{shipment.route}</p>
-                    <p className="mt-1 text-xs text-slate-500">{shipment.branch.name || shipment.branch.code}</p>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-950">{formatMoney(shipment)}</td>
+                  {shows("consignee") ? (
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-800">{shipment.consignee || "Not set"}</p>
+                      <p className="mt-1 text-xs text-slate-500">{shipment.destination || "Not set"}</p>
+                    </td>
+                  ) : null}
+                  {shows("route") ? (
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-800">{shipment.route}</p>
+                      <p className="mt-1 text-xs text-slate-500">{shipment.branch.name || shipment.branch.code}</p>
+                    </td>
+                  ) : null}
+                  {shows("amount") ? (
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-950">{formatMoney(shipment)}</td>
+                  ) : null}
+                  {shows("status") ? (
                   <td className="px-4 py-3">
                     <span className="inline-flex py-1 text-xs font-semibold text-slate-700">
                       {shipment.statusLabel}
@@ -399,9 +462,12 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                       </p>
                     ) : null}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                    {formatDashboardDateTime(shipment.createdAt)}
-                  </td>
+                  ) : null}
+                  {shows("created") ? (
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                      {formatDashboardDateTime(shipment.createdAt)}
+                    </td>
+                  ) : null}
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-3">
                       <Link
@@ -424,7 +490,11 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
               ))}
               {!loading && !shipments.length ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-14 text-center text-slate-500">No booked shipments found.</td>
+                  {/* Counted rather than fixed at 8: hiding a column would
+                      otherwise leave the empty message spanning past the table. */}
+                  <td colSpan={3 + columnOptions.filter((column) => !column.locked && shows(column.key)).length} className="px-4 py-14 text-center text-slate-500">
+                    No booked shipments found.
+                  </td>
                 </tr>
               ) : null}
             </tbody>
