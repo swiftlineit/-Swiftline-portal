@@ -128,6 +128,11 @@ export function shipmentKycKey(shipmentDraftId: string, originalName: string) {
   return joinKey(storageModules.shipment, shipmentDraftId, "kyc", generatedFilename(originalName));
 }
 
+/** Documents supplied after booking, kept apart from the KYC pack. */
+export function shipmentSupportingDocumentKey(shipmentDraftId: string, originalName: string) {
+  return joinKey(storageModules.shipment, shipmentDraftId, "supporting", generatedFilename(originalName));
+}
+
 export function shipmentLabelKey(shipmentDraftId: string, originalName = "label.pdf") {
   return joinKey(storageModules.shipment, shipmentDraftId, "labels", generatedFilename(originalName));
 }

@@ -8,6 +8,7 @@ import { LabelDocument } from "../models/labelDocument.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ShipmentDraft, type IShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentImportBatch } from "../models/shipmentImportBatch.model.js";
+import { estimateRouteDelivery } from "../services/swiftlineRoute.service.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
   createShipmentImportBatch,
@@ -943,6 +944,7 @@ function serializeClientShipmentEvent(event: {
   status: string;
   holdReason?: string | null;
   note?: string;
+  location?: string;
   customerVisible: boolean;
   eventAt: Date;
 }) {
@@ -954,6 +956,7 @@ function serializeClientShipmentEvent(event: {
     statusLabel: formatShipmentEventLabel(event.status),
     holdReason: event.holdReason ?? null,
     note: event.note ?? "",
+    location: event.location ?? "",
     customerVisible: event.customerVisible,
     eventAt: event.eventAt
   };
@@ -1139,17 +1142,97 @@ export async function getClientShipmentDetails(request: Request, response: Respo
     ShipmentInvoice.findOne({ shipmentDraftId: draft._id }).select("invoiceNumber revision").lean().exec()
   ]);
 
+  /**
+   * The delivery estimate is computed here rather than stamped at booking.
+   *
+   * Nothing is stored, so a lane whose transit time Operations corrects is
+   * reflected on every shipment still travelling it, and no backfill is needed
+   * for shipments booked before routes existed. A lane with no route configured
+   * yields null, and the tracking page shows no date rather than a guessed one.
+   */
+  const deliveryEstimate = await buildClientDeliveryEstimate({ draft, events });
+
   return response.status(200).json({
     success: true,
-    shipment: serializeClientShipmentDetails({
-      draft,
-      dpdShipment,
-      labels,
-      events,
-      currentInvoiceRevision: currentInvoice?.revision ?? 1,
-      currentInvoiceNumber: currentInvoice?.invoiceNumber ?? ""
-    })
+    shipment: {
+      ...serializeClientShipmentDetails({
+        draft,
+        dpdShipment,
+        labels,
+        events,
+        currentInvoiceRevision: currentInvoice?.revision ?? 1,
+        currentInvoiceNumber: currentInvoice?.invoiceNumber ?? ""
+      }),
+      deliveryEstimate
+    }
   });
+}
+
+/** Delivery schedule state, as the tracking page's status chip reads it. */
+export type ClientDeliveryScheduleState =
+  | "ON_SCHEDULE"
+  | "POTENTIAL_DELAY"
+  | "DELAYED"
+  | "DELIVERED"
+  /**
+   * The shipment is held, so the date is no longer a forecast anyone should
+   * plan on. Deliberately not "action required": this chip sits on the
+   * Estimated Delivery card and has to describe that date, and the hold itself
+   * is already stated by the status chip beside it.
+   */
+  | "ON_HOLD";
+
+/**
+ * When this shipment should arrive, and whether it is going to.
+ *
+ * Measured from despatch rather than from booking: a parcel collected three days
+ * after it was booked has not spent those days in transit, and quoting from the
+ * booking date would report it late before the carrier ever touched it.
+ */
+async function buildClientDeliveryEstimate(input: {
+  draft: IShipmentDraft;
+  events: Array<{ status: string; eventAt: Date }>;
+}) {
+  const destinationCountryCode = input.draft.consigneeEnteredAddress?.countryCode ?? "";
+  if (!destinationCountryCode) return null;
+
+  const ordered = [...input.events].sort(
+    (left, right) => new Date(left.eventAt).getTime() - new Date(right.eventAt).getTime()
+  );
+  const delivered = ordered.find((event) => event.status === "DELIVERED");
+  const collected = ordered.find((event) => event.status === "PARCEL_COLLECTED");
+  const latest = ordered[ordered.length - 1];
+
+  const estimate = await estimateRouteDelivery({
+    destinationCountryCode,
+    service: input.draft.serviceType === "CARGO" ? "CARGO" : "COURIER",
+    dispatchedAt: collected?.eventAt ?? input.draft.createdAt
+  });
+  if (!estimate) return null;
+
+  const now = new Date();
+  const due = estimate.estimatedDeliveryAt;
+
+  let state: ClientDeliveryScheduleState = "ON_SCHEDULE";
+  if (delivered) state = "DELIVERED";
+  else if (latest?.status === "ON_HOLD") state = "ON_HOLD";
+  else if (now > due) state = "DELAYED";
+  // Inside the last day before the date, with the shipment not yet out for
+  // delivery, it is not late but it is no longer comfortable.
+  else if (
+    due.getTime() - now.getTime() < 24 * 60 * 60 * 1000
+    && latest?.status !== "OUT_FOR_DELIVERY"
+  ) state = "POTENTIAL_DELAY";
+
+  return {
+    estimatedDeliveryAt: due.toISOString(),
+    earliestDeliveryAt: estimate.earliestDeliveryAt.toISOString(),
+    transitDaysMin: estimate.transitDaysMin,
+    transitDaysMax: estimate.transitDaysMax,
+    transitBasis: estimate.transitBasis,
+    state,
+    deliveredAt: delivered ? new Date(delivered.eventAt).toISOString() : null
+  };
 }
 
 export async function trackClientShipment(request: Request, response: Response): Promise<Response> {

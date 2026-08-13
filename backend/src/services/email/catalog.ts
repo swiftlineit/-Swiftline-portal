@@ -21,6 +21,8 @@ const catalog: Record<string, CatalogEntry> = {
   SHIPMENT_BOOKED: { category: "TRANSACTIONAL", priority: 85 },
   SHIPMENT_MANIFEST_GENERATED: { category: "OPERATIONAL", priority: 40 },
   SHIPMENT_CHARGE_VERIFIED: { category: "OPERATIONAL", priority: 50 },
+  // Staff-facing: a held shipment cannot move until someone looks at this.
+  SHIPMENT_DOCUMENT_UPLOADED: { category: "TRANSACTIONAL", priority: 70 },
 
   // Amendments
   SHIPMENT_AMENDMENT_REQUESTED: { category: "TRANSACTIONAL", priority: 70 },

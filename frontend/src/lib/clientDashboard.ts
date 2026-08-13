@@ -187,6 +187,8 @@ export type ClientShipmentEvent = {
   statusLabel: string;
   holdReason?: string | null;
   note: string;
+  /** Where the scan happened. Empty when Operations did not record one. */
+  location: string;
   customerVisible: boolean;
   eventAt: string;
 };
@@ -242,6 +244,15 @@ export type ClientShipmentDetails = {
   }>;
   currentEvent: ClientShipmentEvent | null;
   events: ClientShipmentEvent[];
+  deliveryEstimate?: {
+    estimatedDeliveryAt: string;
+    earliestDeliveryAt: string;
+    transitDaysMin: number;
+    transitDaysMax: number;
+    transitBasis: "BUSINESS_DAYS" | "CALENDAR_DAYS";
+    state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ON_HOLD";
+    deliveredAt: string | null;
+  } | null;
 };
 
 export type ClientPrepaidAccount = {

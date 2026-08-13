@@ -35,6 +35,7 @@ const routeFor: Record<ClaimTransition, string> = {
   REQUEST_INFORMATION: "/request-information",
   RECEIVE_INFORMATION: "/receive-information",
   AWAIT_THIRD_PARTY: "/await-third-party",
+  CARRIER_ACKNOWLEDGED: "/carrier-acknowledged",
   THIRD_PARTY_RESPONDED: "/third-party-responded",
   SEND_FOR_APPROVAL: "/send-for-approval",
   DECIDE: "/decisions",
@@ -148,7 +149,7 @@ describe("the workflow has no dead ends", () => {
       ["UNDER_REVIEW", "SEND_FOR_APPROVAL", "STAFF"],
       ["PENDING_APPROVAL", "DECIDE", "STAFF"],
       ["DECIDED", "ACCEPT_SETTLEMENT", "CLIENT"],
-      ["SETTLEMENT_PENDING", "RECORD_PAYMENT", "STAFF"],
+      ["PAYMENT_PROCESSING", "RECORD_PAYMENT", "STAFF"],
       ["SETTLED", "CLOSE", "STAFF"]
     ];
 
@@ -168,7 +169,7 @@ describe("the workflow has no dead ends", () => {
   it("can walk a documents-required claim back into review", () => {
     for (const [status, transition] of [
       ["SUBMITTED", "REQUEST_DOCUMENTS"],
-      ["DOCUMENTS_REQUIRED", "COMPLETE_DOCUMENTS"]
+      ["DOCUMENTS_PENDING", "COMPLETE_DOCUMENTS"]
     ] as Array<[ClaimStatus, ClaimTransition]>) {
       const result = canTransition(transition, {
         status,
@@ -180,7 +181,7 @@ describe("the workflow has no dead ends", () => {
   });
 
   it("can return a stalled claim to review from either waiting state", () => {
-    for (const status of ["NEEDS_INFORMATION", "AWAITING_THIRD_PARTY"] as ClaimStatus[]) {
+    for (const status of ["NEEDS_INFORMATION", "SUBMITTED_TO_CARRIER"] as ClaimStatus[]) {
       const moves = movesFrom(status, "STAFF");
       assert.ok(
         moves.includes("START_REVIEW") ||
@@ -239,7 +240,7 @@ describe("the workflow has no dead ends", () => {
     assert.ok(!spentAppeal.includes("SUBMIT_APPEAL"), "a second appeal was offered");
 
     const unpaid = availableTransitions({
-      status: "SETTLEMENT_PENDING",
+      status: "PAYMENT_PROCESSING",
       actorKind: "STAFF",
       hasConfirmedPayment: false
     });

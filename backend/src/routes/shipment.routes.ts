@@ -1,5 +1,10 @@
 import { Router } from "express";
 import { listAdminBookedShipments } from "../controllers/shipmentListing.controller.js";
+import {
+  downloadStaffShipmentDocument,
+  listStaffShipmentDocuments,
+  searchStaff
+} from "../controllers/clientOverview.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 
 export const shipmentRouter = Router();
@@ -7,4 +12,10 @@ export const shipmentRouter = Router();
 shipmentRouter.use(attachUser);
 // Delivery works the booked-shipment list alongside operations.
 shipmentRouter.use(requireRole("admin", "operations", "delivery"));
+// Staff global search, over every account this user may see.
+shipmentRouter.get("/search", searchStaff);
+// Documents the customer sent after booking, which is where a held shipment
+// gets unblocked.
+shipmentRouter.get("/:draftId/documents", listStaffShipmentDocuments);
+shipmentRouter.get("/:draftId/documents/:documentId", downloadStaffShipmentDocument);
 shipmentRouter.get("/", listAdminBookedShipments);

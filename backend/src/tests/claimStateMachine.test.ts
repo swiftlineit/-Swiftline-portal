@@ -23,12 +23,12 @@ describe("claim state machine", () => {
   it("walks the approved happy path to settlement", () => {
     const steps: Array<[ClaimStatus, ClaimTransition, ClaimStatus]> = [
       ["DRAFT", "SUBMIT", "SUBMITTED"],
-      ["SUBMITTED", "REQUEST_DOCUMENTS", "DOCUMENTS_REQUIRED"],
-      ["DOCUMENTS_REQUIRED", "COMPLETE_DOCUMENTS", "UNDER_REVIEW"],
+      ["SUBMITTED", "REQUEST_DOCUMENTS", "DOCUMENTS_PENDING"],
+      ["DOCUMENTS_PENDING", "COMPLETE_DOCUMENTS", "UNDER_REVIEW"],
       ["UNDER_REVIEW", "SEND_FOR_APPROVAL", "PENDING_APPROVAL"],
       ["PENDING_APPROVAL", "DECIDE", "DECIDED"],
-      ["DECIDED", "ACCEPT_SETTLEMENT", "SETTLEMENT_PENDING"],
-      ["SETTLEMENT_PENDING", "RECORD_PAYMENT", "SETTLED"],
+      ["DECIDED", "ACCEPT_SETTLEMENT", "PAYMENT_PROCESSING"],
+      ["PAYMENT_PROCESSING", "RECORD_PAYMENT", "SETTLED"],
       ["SETTLED", "CLOSE", "CLOSED"]
     ];
 
@@ -45,7 +45,7 @@ describe("claim state machine", () => {
     }
   });
 
-  it("lets a complete preliminary claim skip DOCUMENTS_REQUIRED", () => {
+  it("lets a complete preliminary claim skip DOCUMENTS_PENDING", () => {
     // A client who uploads everything at once should not be routed through a
     // status that exists only to ask for what they already sent.
     const result = canTransition("COMPLETE_DOCUMENTS", { status: "SUBMITTED", ...client });
@@ -55,7 +55,7 @@ describe("claim state machine", () => {
 
   it("refuses to settle without a confirmed payment", () => {
     const result = canTransition("RECORD_PAYMENT", {
-      status: "SETTLEMENT_PENDING",
+      status: "PAYMENT_PROCESSING",
       ...staff,
       hasConfirmedPayment: false
     });
@@ -78,7 +78,7 @@ describe("claim state machine", () => {
   it("does not let a client run staff-only transitions", () => {
     for (const transition of ["DECIDE", "REQUEST_INFORMATION", "RECORD_PAYMENT", "CLOSE"] as const) {
       const result = canTransition(transition, {
-        status: transition === "RECORD_PAYMENT" ? "SETTLEMENT_PENDING" : "UNDER_REVIEW",
+        status: transition === "RECORD_PAYMENT" ? "PAYMENT_PROCESSING" : "UNDER_REVIEW",
         ...client,
         reason,
         decisionOutcome: "FULLY_APPROVED",

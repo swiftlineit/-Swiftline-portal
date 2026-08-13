@@ -6,12 +6,8 @@ import {
   FiPlus,
   FiSearch,
   FiChevronDown,
-  FiClock,
   FiMail,
-  FiMessageCircle,
   FiPhone,
-  FiShield,
-  FiPhoneCall,
 } from "react-icons/fi";
 import { FaWhatsapp } from "react-icons/fa";
 import {
@@ -21,25 +17,42 @@ import TicketTable from "@/components/tickets/TicketTable";
 import {
   listSupportTickets,
   ticketCategories,
+  ticketStatuses,
+  ticketStatusLabels,
   type SupportTicket,
 } from "@/lib/supportTickets";
 import { useClientUser } from "@/lib/useClientUser";
 
-// Swiftline customer care contact points, kept together so they are changed once.
+/**
+ * Swiftline customer care, kept together so it is changed once.
+ *
+ * One number and one address are promoted; the rest sit behind a disclosure.
+ * Three of each presented equally is not more helpful — it is a decision handed
+ * to the customer. The director's address is deliberately absent: it was never
+ * a support channel, and publishing it to every customer guarantees it becomes
+ * one.
+ */
+const PRIMARY_PHONE = "+91 70276 06600";
+const PRIMARY_EMAIL = "info@swiftlinefreight.com";
 const WHATSAPP_NUMBER = "917027606600";
-const WHATSAPP_MESSAGE =
-  "Hello Swiftline, I need help with my shipment. My business account is ";
-const SUPPORT_PHONES = [
-  "+91 70276 06600",
-  "+91 70271 18800",
-  "+91 70155 07349",
+const OTHER_CONTACTS = [
+  { label: "Alternate line", value: "+91 70271 18800", href: "tel:+917027118800" },
+  { label: "Alternate line", value: "+91 70155 07349", href: "tel:+917015507349" },
+  { label: "Operations", value: "operations@swiftlineindia.com", href: "mailto:operations@swiftlineindia.com" },
 ];
-const SUPPORT_EMAILS = [
-  "info@swiftlinefreight.com",
-  "operations@swiftlineindia.com",
-  "director@swiftlineindia.com",
-];
-const whatsappHref = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MESSAGE)}`;
+
+/**
+ * Pre-fills the WhatsApp message with what support would otherwise have to ask
+ * for. Opening an empty chat costs the customer a round trip and the agent a
+ * lookup.
+ */
+function whatsappHref(context: { accountCode?: string; ticketNumber?: string; awb?: string }) {
+  const lines = ["Hello Swiftline Support, I need assistance."];
+  if (context.awb) lines.push(`AWB: ${context.awb}`);
+  if (context.ticketNumber) lines.push(`Ticket Number: ${context.ticketNumber}`);
+  if (context.accountCode) lines.push(`Account: ${context.accountCode}`);
+  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join("\n"))}`;
+}
 
 export default function ClientTicketsPage() {
   const { user, loading } = useClientUser();
@@ -78,6 +91,32 @@ export default function ClientTicketsPage() {
   useEffect(() => {
     if (user) void Promise.resolve().then(load);
   }, [load, user]);
+
+  // Counted over every ticket rather than the current page, so the cards
+  // describe the queue and not whichever ten rows happen to be showing.
+  const [allTickets, setAllTickets] = useState<SupportTicket[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+
+    listSupportTickets("client", { limit: 100 })
+      .then((result) => { if (active) setAllTickets(result.tickets); })
+      .catch(() => undefined);
+
+    return () => { active = false; };
+  }, [user]);
+
+  const statusCards = [
+    { status: "OPEN", label: "Open" },
+    { status: "IN_PROGRESS", label: "Under Investigation" },
+    { status: "WAITING_FOR_CUSTOMER", label: "Awaiting Customer" },
+    { status: "AWAITING_CARRIER", label: "Awaiting Carrier" },
+    { status: "RESOLVED", label: "Resolved" },
+  ].map((card) => ({
+    ...card,
+    count: allTickets.filter((ticket) => ticket.status === card.status).length,
+  }));
+
   if (loading || !user) return <ClientDashboardLoading />;
 
   return (
@@ -98,57 +137,142 @@ export default function ClientTicketsPage() {
           </Link>
         </div>
 
-        {/* What every Swiftline customer gets, with WhatsApp as the fastest route. */}
-        <div className="mb-5 grid gap-4 md:grid-cols-3">
-          <Perk
-            icon={<FiClock className="h-5 w-5" />}
-            title="24/7 Support"
-            description="Our customer care team is available 24/7 to assist with shipment bookings, tracking, billing, and any questions, ensuring you receive prompt and reliable support whenever you need it."
-          />
-          <Perk
-            icon={<FiMessageCircle className="h-5 w-5" />}
-            title="Chat With Us"
-            description="Message us on WhatsApp to connect directly with our support team for quick assistance and shipment-related queries."
-            action={
-              <a
-                href={whatsappHref}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-flex h-9 items-center gap-2 rounded-4xl bg-[#25D366] px-4 text-sm font-semibold text-white transition hover:bg-[#1eb455]"
-              >
-                <FaWhatsapp className="h-4 w-4" />
-                Chat on WhatsApp
-              </a>
-            }
-          />
-          <Perk
-            icon={<FiPhoneCall className="h-5 w-5" />}
-            title="Contact Information"
-            description={
-              <div className="flex flex-row gap-10 space-y-4 text-sm leading-6 text-slate-600">
-                <div>
-                  {/* <p className="font-semibold text-slate-900">Phone</p> */}
-                  <div className="mt-1 space-y-1">
-                    <p>+91 70276 06600</p>
-                    <p>+91 70271 18800</p>
-                    <p>+91 70155 07349</p>
-                  </div>
-                </div>
-
-                <div>
-                  {/* <p className="font-semibold text-slate-900">Email</p> */}
-                  <div className="mt-1 space-y-1 break-all">
-                    <p>info@swiftlinefreight.com</p>
-                    <p>operations@swiftlineindia.com</p>
-                    <p>director@swiftlineindia.com</p>
-                  </div>
-                </div>
-              </div>
-            }
-          />
+        {/* Where each ticket stands, so the queue is legible before it is read. */}
+        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {statusCards.map((card) => (
+            <button
+              key={card.status}
+              type="button"
+              onClick={() => { setStatus(status === card.status ? "" : card.status); setPage(1); }}
+              aria-pressed={status === card.status}
+              className={`rounded-2xl border px-4 py-3 text-left transition ${
+                status === card.status
+                  ? "border-[#0D1282] bg-[#0D1282]/5"
+                  : "border-slate-200 bg-white hover:border-[#0D1282]/40"
+              }`}
+            >
+              <p className="text-xl font-semibold tabular-nums text-slate-900">{card.count}</p>
+              <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {card.label}
+              </p>
+            </button>
+          ))}
         </div>
 
-        {/* Direct lines for customers who would rather not raise a ticket. */}
+        {/* One prominent way to reach Swiftline; the rest are one click away. */}
+       <div className="mb-5 rounded-2xl bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_28px_-22px_rgba(15,23,42,0.18)] sm:px-6">
+  <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+    {/* Left: heading + alternate contacts */}
+    <div className="min-w-0 xl:max-w-[430px]">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
+        Swiftline Customer Support
+      </p>
+
+      <p className="mt-1.5 text-[19px] font-semibold tracking-[-0.02em] text-slate-950">
+        Available 24/7
+      </p>
+
+      <details className="group mt-3">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold text-[#0D1282]">
+          Other contact options
+          <span className="text-slate-400 transition group-open:rotate-180">
+            ↓
+          </span>
+        </summary>
+
+        <div className="mt-3 grid gap-y-2.5">
+          {OTHER_CONTACTS.map((contact) => (
+            <div
+              key={contact.value}
+              className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3"
+            >
+              <span className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                {contact.label}
+              </span>
+
+              <a
+                href={contact.href}
+                className="truncate text-[11.5px] font-medium text-slate-600 transition hover:text-[#0D1282]"
+              >
+                {contact.value}
+              </a>
+            </div>
+          ))}
+        </div>
+      </details>
+    </div>
+
+    {/* Right: primary actions */}
+    <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:max-w-[760px] xl:grid-cols-[1fr_1fr_auto]">
+      <a
+        href={`tel:${PRIMARY_PHONE.replaceAll(" ", "")}`}
+        className="group flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-4 py-3.5 transition hover:bg-[#0D1282]/[0.035]"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#0D1282] ring-1 ring-slate-200/80">
+          <FiPhone aria-hidden="true" className="h-4 w-4" />
+        </span>
+
+        <span className="min-w-0">
+          <span className="block text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Call us
+          </span>
+
+          <span className="mt-0.5 block truncate text-[12.5px] font-semibold text-slate-800 transition group-hover:text-[#0D1282]">
+            {PRIMARY_PHONE}
+          </span>
+        </span>
+      </a>
+
+      <a
+        href={`mailto:${PRIMARY_EMAIL}`}
+        className="group flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-4 py-3.5 transition hover:bg-[#0D1282]/[0.035]"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#0D1282] ring-1 ring-slate-200/80">
+          <FiMail aria-hidden="true" className="h-4 w-4" />
+        </span>
+
+        <span className="min-w-0">
+          <span className="block text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            Email
+          </span>
+
+          <span className="mt-0.5 block truncate text-[12.5px] font-semibold text-slate-800 transition group-hover:text-[#0D1282]">
+            {PRIMARY_EMAIL}
+          </span>
+        </span>
+      </a>
+
+      <a
+        href={whatsappHref({
+          accountCode: tickets[0]?.account?.accountId,
+        })}
+        target="_blank"
+        rel="noreferrer"
+        className="group flex min-h-[64px] items-center justify-between gap-4 rounded-xl bg-[#25D366] px-4 py-3 text-white transition hover:bg-[#1fbd59] sm:col-span-2 xl:col-span-1 xl:min-w-[210px]"
+      >
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15">
+            <FaWhatsapp className="h-4 w-4" />
+          </span>
+
+          <span>
+            <span className="block text-[12px] font-medium text-white/75">
+              Fastest response
+            </span>
+
+            <span className="mt-0.5 block text-[12.5px] font-semibold">
+              Chat on WhatsApp
+            </span>
+          </span>
+        </div>
+
+        <span className="text-lg transition-transform duration-200 group-hover:translate-x-1">
+          →
+        </span>
+      </a>
+    </div>
+  </div>
+</div>
 
         <div className="mb-5 grid gap-3 border border-slate-200 bg-white rounded-2xl p-4 md:grid-cols-[minmax(220px,1fr)_220px_220px_auto]">
           <label className="relative">
@@ -174,15 +298,9 @@ export default function ClientTicketsPage() {
               className="h-10 w-full appearance-none border border-slate-300 bg-white px-3 pr-9 rounded-xl text-sm"
             >
               <option value="">All Status</option>
-              {[
-                "OPEN",
-                "IN_PROGRESS",
-                "WAITING_FOR_CUSTOMER",
-                "RESOLVED",
-                "CLOSED",
-              ].map((value) => (
+              {ticketStatuses.map((value) => (
                 <option key={value} value={value}>
-                  {value.replaceAll("_", " ")}
+                  {ticketStatusLabels[value]}
                 </option>
               ))}
             </select>
@@ -232,40 +350,6 @@ export default function ClientTicketsPage() {
   );
 }
 
-/** One customer-service benefit tile, with an optional call to action. */
-function Perk({
-  icon,
-  title,
-  description,
-  action,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: React.ReactNode;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-xl">
-      <div className="bg-linear-to-r from-blue-400 via-blue-300 to-blue-300 p-5">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-xl text-slate-900 shadow-sm">
-          {icon}
-        </div>
-      </div>
-
-      <div className="p-6">
-        <h3 className="text-lg font-semibold tracking-wide text-slate-900">{title}</h3>
-
-        <div className="mt-2 text-sm leading-6 text-slate-500">
-          {description}
-        </div>
-
-        {action && <div className="mt-6">{action}</div>}
-      </div>
-    </div>
-  );
-}
-
-/** A labelled list of tappable phone numbers or email addresses. */
 
 function Pagination({
   page,

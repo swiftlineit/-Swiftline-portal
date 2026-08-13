@@ -199,7 +199,7 @@ export async function acceptSettlement(input: {
     decisionOutcome: claim.decisionOutcome,
   });
 
-  claim.status = "SETTLEMENT_PENDING";
+  claim.status = "PAYMENT_PROCESSING";
   claim.acceptanceState = "ACCEPTED";
   claim.acceptedAt = now;
   await claim.save();
@@ -208,7 +208,7 @@ export async function acceptSettlement(input: {
     claimId: claim._id,
     type: "SETTLEMENT_ACCEPTED",
     fromStatus: "DECIDED",
-    toStatus: "SETTLEMENT_PENDING",
+    toStatus: "PAYMENT_PROCESSING",
     actorUserId: new mongoose.Types.ObjectId(input.userId),
     actorKind: "CLIENT",
     visibility: "PUBLIC",
@@ -547,7 +547,7 @@ export async function recordSettlement(input: {
 
   const totalAfter = alreadyPaid + input.paidAmountMinor;
   // Only the payment that clears the balance settles the claim. A part payment
-  // leaves it in SETTLEMENT_PENDING so the queue keeps showing what is owed.
+  // leaves it in PAYMENT_PROCESSING so the queue keeps showing what is owed.
   const settlesInFull = totalAfter >= approved;
 
   if (settlesInFull) {
@@ -556,7 +556,7 @@ export async function recordSettlement(input: {
       actorKind: "STAFF",
       hasConfirmedPayment: true,
     });
-  } else if (claim.status !== "SETTLEMENT_PENDING") {
+  } else if (claim.status !== "PAYMENT_PROCESSING") {
     // Part payments do not move the claim, so the transition rules never run —
     // which means the status has to be checked here instead.
     throw new ClaimDecisionError(
@@ -607,10 +607,10 @@ export async function recordSettlement(input: {
           {
             claimId: claim._id,
             type: "PAYMENT_RECORDED",
-            fromStatus: "SETTLEMENT_PENDING",
+            fromStatus: "PAYMENT_PROCESSING",
             // A part payment leaves the claim where it is, and the timeline says
             // so rather than claiming a move that did not happen.
-            toStatus: settlesInFull ? "SETTLED" : "SETTLEMENT_PENDING",
+            toStatus: settlesInFull ? "SETTLED" : "PAYMENT_PROCESSING",
             actorUserId: new mongoose.Types.ObjectId(input.userId),
             actorKind: "STAFF",
             visibility: "PUBLIC",

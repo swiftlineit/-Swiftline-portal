@@ -25,15 +25,36 @@ export const claimCategoryValues = [
  * to compensation.
  */
 export const claimStatusValues = [
+  /**
+   * Being filled in, before the client has submitted it. Never shown as one of
+   * the published statuses because a claim in this state does not exist yet as
+   * far as Swiftline is concerned.
+   */
   "DRAFT",
   "SUBMITTED",
-  "DOCUMENTS_REQUIRED",
+  "DOCUMENTS_PENDING",
   "UNDER_REVIEW",
+  /**
+   * Waiting on an answer from the client. Distinct from DOCUMENTS_PENDING: one
+   * is chasing a file, the other is chasing a question, and the reminders and
+   * SLA pauses differ.
+   */
   "NEEDS_INFORMATION",
-  "AWAITING_THIRD_PARTY",
+  /**
+   * The two halves of "with the carrier". Split because a client chasing a claim
+   * wants to know whether it has actually reached the carrier yet or is merely
+   * queued to be sent — "submitted" and "being looked at" are different answers.
+   */
+  "SUBMITTED_TO_CARRIER",
+  "CARRIER_REVIEWING",
+  /** Swiftline's own internal sign-off before a decision is issued. */
   "PENDING_APPROVAL",
+  /**
+   * A decision exists. Whether it reads as Approved or Rejected comes from the
+   * decision outcome, not from a second status — see `claimStatusLabels`.
+   */
   "DECIDED",
-  "SETTLEMENT_PENDING",
+  "PAYMENT_PROCESSING",
   "SETTLED",
   "CLOSED",
   "WITHDRAWN"
@@ -96,28 +117,72 @@ export type ClaimRecoveryState = (typeof claimRecoveryStateValues)[number];
 export const activeClaimStatusValues = [
   "DRAFT",
   "SUBMITTED",
-  "DOCUMENTS_REQUIRED",
+  "DOCUMENTS_PENDING",
   "UNDER_REVIEW",
   "NEEDS_INFORMATION",
-  "AWAITING_THIRD_PARTY",
+  "SUBMITTED_TO_CARRIER",
+  "CARRIER_REVIEWING",
   "PENDING_APPROVAL",
   "DECIDED",
-  "SETTLEMENT_PENDING"
+  "PAYMENT_PROCESSING"
 ] as const;
 
 /** Statuses a client may still withdraw from. Past a decision it is too late. */
 export const withdrawableClaimStatusValues = [
   "DRAFT",
   "SUBMITTED",
-  "DOCUMENTS_REQUIRED",
+  "DOCUMENTS_PENDING",
   "UNDER_REVIEW",
   "NEEDS_INFORMATION",
-  "AWAITING_THIRD_PARTY",
+  "SUBMITTED_TO_CARRIER",
+  "CARRIER_REVIEWING",
   "PENDING_APPROVAL"
 ] as const;
 
 /** Terminal statuses. Nothing transitions out of these. */
 export const terminalClaimStatusValues = ["CLOSED", "WITHDRAWN"] as const;
+
+/**
+ * What each status is called wherever a person reads it.
+ *
+ * The stored value and the label are kept apart on purpose. `DECIDED` is one
+ * state in the machine but reads as two different words to a client depending on
+ * the decision outcome, and folding that into the enum would mean two statuses
+ * that can never be reached by two different transitions — see `claimStatusLabel`.
+ */
+export const claimStatusLabels: Record<ClaimStatus, string> = {
+  DRAFT: "Draft",
+  SUBMITTED: "Submitted",
+  DOCUMENTS_PENDING: "Documents Pending",
+  UNDER_REVIEW: "Under Review",
+  NEEDS_INFORMATION: "Information Requested",
+  SUBMITTED_TO_CARRIER: "Submitted to Carrier",
+  CARRIER_REVIEWING: "Carrier Reviewing",
+  PENDING_APPROVAL: "Pending Approval",
+  DECIDED: "Decided",
+  PAYMENT_PROCESSING: "Payment Processing",
+  SETTLED: "Settled",
+  CLOSED: "Closed",
+  WITHDRAWN: "Withdrawn"
+};
+
+/**
+ * The status as a person should read it.
+ *
+ * A decided claim reads as "Approved" or "Rejected" rather than "Decided": the
+ * outcome is the part anyone actually wants, and a partial approval is still an
+ * approval as far as the headline goes — the amount tells the rest of the story.
+ */
+export function claimStatusLabel(
+  status: ClaimStatus,
+  decisionOutcome?: ClaimDecisionOutcome | null
+) {
+  if (status === "DECIDED" && decisionOutcome) {
+    return decisionOutcome === "REJECTED" ? "Rejected" : "Approved";
+  }
+
+  return claimStatusLabels[status];
+}
 
 export function isActiveClaimStatus(status: ClaimStatus) {
   return (activeClaimStatusValues as readonly string[]).includes(status);

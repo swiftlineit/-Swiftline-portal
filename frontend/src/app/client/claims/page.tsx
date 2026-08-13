@@ -12,17 +12,17 @@ import { useClientUser } from "@/lib/useClientUser";
 const filterableStatuses: ClaimStatus[] = [
   "DRAFT",
   "SUBMITTED",
-  "DOCUMENTS_REQUIRED",
+  "DOCUMENTS_PENDING",
   "UNDER_REVIEW",
   "NEEDS_INFORMATION",
   "DECIDED",
-  "SETTLEMENT_PENDING",
+  "PAYMENT_PROCESSING",
   "SETTLED",
   "CLOSED"
 ];
 
 /** Statuses where the claim is waiting on the client rather than on Swiftline. */
-const awaitingClient: ClaimStatus[] = ["DRAFT", "DOCUMENTS_REQUIRED", "NEEDS_INFORMATION"];
+const awaitingClient: ClaimStatus[] = ["DRAFT", "DOCUMENTS_PENDING", "NEEDS_INFORMATION"];
 
 export default function ClientClaimsPage() {
   const { user, loading } = useClientUser();

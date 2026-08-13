@@ -7,6 +7,9 @@ import TicketTable from "@/components/tickets/TicketTable";
 import {
   listSupportTickets,
   ticketCategories,
+  ticketPriorities,
+  ticketStatuses,
+  ticketStatusLabels,
   type SupportTicket,
 } from "@/lib/supportTickets";
 import { OPERATIONS_AREA } from "@/lib/roles";
@@ -83,15 +86,9 @@ export default function AdminTicketsPage() {
             className="h-10 border rounded-xl border-slate-300 bg-white px-3 pr-9 text-sm"
           >
             <option value="">All Status</option>
-            {[
-              "OPEN",
-              "IN_PROGRESS",
-              "WAITING_FOR_CUSTOMER",
-              "RESOLVED",
-              "CLOSED",
-            ].map((value) => (
+            {ticketStatuses.map((value) => (
               <option key={value} value={value}>
-                {value.replaceAll("_", " ")}
+                {ticketStatusLabels[value]}
               </option>
             ))}
           </select>
@@ -104,9 +101,9 @@ export default function AdminTicketsPage() {
             className="h-10 border border-slate-300 rounded-xl bg-white px-3 pr-9 text-sm"
           >
             <option value="">All priorities</option>
-            {["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => (
-              <option key={value} value={value}>
-                {value}
+            {ticketPriorities.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>

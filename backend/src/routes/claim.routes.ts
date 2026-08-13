@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   acceptClientSettlement,
   awaitStaffClaimThirdParty,
+  staffClaimCarrierAcknowledged,
   closeStaffClaim,
   completeStaffClaimDocuments,
   disputeClientSettlement,
@@ -104,6 +105,7 @@ staffClaimRouter.post("/:claimId/complete-documents", completeStaffClaimDocument
 staffClaimRouter.post("/:claimId/request-information", requestStaffClaimInformation);
 staffClaimRouter.post("/:claimId/receive-information", receiveStaffClaimInformation);
 staffClaimRouter.post("/:claimId/await-third-party", awaitStaffClaimThirdParty);
+staffClaimRouter.post("/:claimId/carrier-acknowledged", staffClaimCarrierAcknowledged);
 staffClaimRouter.post("/:claimId/third-party-responded", staffThirdPartyResponded);
 staffClaimRouter.post("/:claimId/send-for-approval", sendStaffClaimForApproval);
 staffClaimRouter.post("/:claimId/close", closeStaffClaim);

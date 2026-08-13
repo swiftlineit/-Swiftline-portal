@@ -23,6 +23,11 @@ import {
 } from "@/lib/dpdLabels";
 import { listShipments, type ShipmentListItem } from "@/lib/shipmentsList";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
+import {
+  EstimatedDelivery,
+  ShipmentJourney,
+  type DeliveryEstimate,
+} from "@/components/shipments/ShipmentJourney";
 
 type TrackingMode = "admin" | "client";
 type TrackingRecord = {
@@ -39,6 +44,7 @@ type TrackingRecord = {
   parcelCount: number;
   createdAt?: string | null;
   events: ShipmentEvent[];
+  deliveryEstimate: DeliveryEstimate | null;
 };
 
 type ShipmentTrackingPageProps = {
@@ -93,6 +99,9 @@ function fromAdmin(item: DpdShipmentHistoryItem): TrackingRecord {
       item.dpdShipment.parcelNumbers.length,
     createdAt: item.dpdShipment.createdAt,
     events: item.events,
+    // Admin tracking reads the staff history endpoint, which carries no route
+    // estimate; the client details endpoint is what computes one.
+    deliveryEstimate: null,
   };
 }
 
@@ -134,6 +143,7 @@ function fromClient(shipment: ClientShipmentDetails): TrackingRecord {
     createdAt:
       shipment.dpdShipment?.createdAt || shipment.shipmentDraft.createdAt,
     events: shipment.events,
+    deliveryEstimate: shipment.deliveryEstimate ?? null,
   };
 }
 
@@ -244,6 +254,11 @@ export default function ShipmentTrackingPage({
     (left, right) =>
       new Date(left.eventAt).getTime() - new Date(right.eventAt).getTime(),
   );
+  // The newest event that recorded a place. Events without one leave the
+  // shipment's last known location standing rather than blanking it.
+  const currentLocation = [...(result?.events ?? [])]
+    .sort((left, right) => new Date(right.eventAt).getTime() - new Date(left.eventAt).getTime())
+    .find((event) => event.location)?.location ?? "";
   // A parcel-level search is one whose number belongs to a piece rather than the
   // shipment itself, whether it was picked from the list or typed by hand.
   const trackedParcel =
@@ -433,26 +448,43 @@ export default function ShipmentTrackingPage({
             </div>
           ) : null}
 
-          <section className="border border-slate-100 border-b-0 bg-white rounded-2xl">
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <p className="text-xs font-semibold uppercase text-slate-500">
-                  Current Shipment Status
-                </p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-950">
-                  {result.consignee}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {result.swiftlineTrackingNumber ||
-                    result.carrierShipmentNumber}
-                </p>
+          {/* The journey and the promised date lead, because "where is it and
+              will it arrive on time" is the whole reason anyone opens this. */}
+          <ShipmentJourney events={result.events} />
+
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
+            <section className="border border-slate-100 bg-white rounded-2xl">
+              <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-slate-500">
+                    Current Shipment Status
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                    {result.consignee}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {result.swiftlineTrackingNumber ||
+                      result.carrierShipmentNumber}
+                  </p>
+                  {currentLocation ? (
+                    <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                      <FiMapPin aria-hidden="true" className="h-3.5 w-3.5 text-slate-400" />
+                      {currentLocation}
+                    </p>
+                  ) : null}
+                </div>
+                <span
+                  className={`border px-3 py-1.5 text-xs font-semibold uppercase ${statusTone(result.status)}`}
+                >
+                  {result.statusLabel}
+                </span>
               </div>
-              <span
-                className={`border px-3 py-1.5 text-xs font-semibold uppercase ${statusTone(result.status)}`}
-              >
-                {result.statusLabel}
-              </span>
-            </div>
+            </section>
+
+            <EstimatedDelivery estimate={result.deliveryEstimate} />
+          </div>
+
+          <section className="border border-slate-100 border-b-0 bg-white rounded-2xl">
             <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
               <Info
                 label="AWB / Tracking No."
@@ -500,6 +532,14 @@ export default function ShipmentTrackingPage({
                         <p className="mt-1 text-sm text-slate-500">
                           {formatDashboardDateTime(item.eventAt)}
                         </p>
+                        {/* Only scans Operations recorded a place for carry one;
+                            the rest of the timeline reads normally without it. */}
+                        {item.location ? (
+                          <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                            <FiMapPin aria-hidden="true" className="h-3.5 w-3.5 text-slate-400" />
+                            {item.location}
+                          </p>
+                        ) : null}
                         {item.note ? (
                           <p className="mt-1 text-sm text-slate-600">
                             {item.note}

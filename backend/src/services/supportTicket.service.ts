@@ -6,7 +6,7 @@ import { BusinessAccountMember } from "../models/businessAccountMember.model.js"
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import {
   SupportTicket, openSupportTicketStatusValues, resolvedClientReplyLimit, shipmentIssueCategoryValues,
-  supportTicketCategoryValues, supportTicketPriorityValues, supportTicketStatusValues,
+  supportTicketCategoryValues, supportTicketPriorityValues, supportTicketStatusValues, firstResponseDueFrom,
   type SupportTicketCategory, type SupportTicketPriority, type SupportTicketStatus
 } from "../models/supportTicket.model.js";
 import { SupportTicketCounter } from "../models/supportTicketCounter.model.js";
@@ -105,6 +105,29 @@ async function contextFor(ticket: InstanceType<typeof SupportTicket>) {
   };
 }
 
+/**
+ * The first-response clock, as the queue reads it.
+ *
+ * `breached` is derived here rather than stored: a written flag is wrong for
+ * every minute between the deadline passing and a sweeper noticing it, and this
+ * is read far more often than any job would run. Once Swiftline has replied the
+ * clock stops, whether it was met or missed — the answer is a fact about that
+ * reply, not about the current time.
+ */
+function serializeTicketSla(ticket: InstanceType<typeof SupportTicket>) {
+  const respondedAt = ticket.firstRespondedAt ?? null;
+  const dueAt = ticket.firstResponseDueAt;
+  const settled = Boolean(respondedAt) || ticket.status === "RESOLVED" || ticket.status === "CLOSED";
+
+  return {
+    firstResponseDueAt: dueAt,
+    firstRespondedAt: respondedAt,
+    breached: respondedAt ? respondedAt > dueAt : !settled && new Date() > dueAt,
+    /** Still running, so the UI knows whether to count down or report an outcome. */
+    open: !settled
+  };
+}
+
 export async function serializeSupportTicket(ticket: InstanceType<typeof SupportTicket>, audience: "CLIENT" | "ADMIN", includeMessages = false) {
   const context = await contextFor(ticket);
   const messages = includeMessages
@@ -132,6 +155,7 @@ export async function serializeSupportTicket(ticket: InstanceType<typeof Support
     relatedShipmentDraftId: ticket.relatedShipmentDraftId ? String(ticket.relatedShipmentDraftId) : null,
     assignedTo: ticket.assignedTo ? String(ticket.assignedTo) : null,
     lastMessageAt: ticket.lastMessageAt, resolvedAt: ticket.resolvedAt ?? null, closedAt: ticket.closedAt ?? null,
+    sla: serializeTicketSla(ticket),
     createdAt: ticket.createdAt, updatedAt: ticket.updatedAt, ...context,
     statusHistory: ticket.statusHistory.map((item) => ({
       fromStatus: item.fromStatus ?? null, toStatus: item.toStatus, changedBy: String(item.changedBy),
@@ -229,7 +253,7 @@ export async function createClientSupportTicket(userId: mongoose.Types.ObjectId,
         branchId, createdBy: userId, relatedShipmentDraftId: shipmentId,
         category: input.category, priority: "NORMAL", status: "OPEN", subject: input.subject,
         statusHistory: [{ fromStatus: null, toStatus: "OPEN", changedBy: userId, note: "Ticket raised by customer.", changedAt: now }],
-        lastMessageAt: now
+        lastMessageAt: now, firstResponseDueAt: firstResponseDueFrom("NORMAL", now)
       }], { session });
       const createdTicket = created[0];
       if (!createdTicket) throw new SupportTicketError("The ticket could not be created. Please try again.", 500);
@@ -295,6 +319,11 @@ export async function addSupportTicketReply(input: {
     ticketId: input.ticket._id, authorId: input.userId, authorType: input.audience, message: input.message, internal, createdAt: now
   });
   input.ticket.lastMessageAt = now;
+  // The first non-internal Swiftline reply stops the first-response clock. An
+  // internal note is staff talking to staff, and does not answer the customer.
+  if (input.audience === "ADMIN" && !internal && !input.ticket.firstRespondedAt) {
+    input.ticket.firstRespondedAt = now;
+  }
   await input.ticket.save();
   await AuditLog.create({
     action: "SUPPORT_TICKET_REPLIED", entityType: "SUPPORT_TICKET", entityId: input.ticket._id,
@@ -321,10 +350,24 @@ export async function addSupportTicketReply(input: {
   }
 }
 
+/**
+ * Where a ticket may go from where it is.
+ *
+ * The three waiting states move freely between each other: a ticket held for a
+ * carrier often turns out to need the customer instead, and forcing it back
+ * through IN_PROGRESS to get there would put a step in the history that nobody
+ * actually took. Everything live can be resolved or closed outright, because a
+ * ticket answered in one reply should not need a detour to be finished.
+ */
 const allowedTransitions: Record<SupportTicketStatus, SupportTicketStatus[]> = {
-  OPEN: ["IN_PROGRESS", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"],
-  IN_PROGRESS: ["WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"],
-  WAITING_FOR_CUSTOMER: ["IN_PROGRESS", "RESOLVED", "CLOSED"],
+  OPEN: ["ASSIGNED", "IN_PROGRESS", "AWAITING_CARRIER", "WAITING_FOR_CUSTOMER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  ASSIGNED: ["IN_PROGRESS", "AWAITING_CARRIER", "WAITING_FOR_CUSTOMER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  IN_PROGRESS: ["AWAITING_CARRIER", "WAITING_FOR_CUSTOMER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  AWAITING_CARRIER: ["IN_PROGRESS", "WAITING_FOR_CUSTOMER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  WAITING_FOR_CUSTOMER: ["IN_PROGRESS", "AWAITING_CARRIER", "ACTION_REQUIRED", "RESOLVED", "CLOSED"],
+  ACTION_REQUIRED: ["IN_PROGRESS", "AWAITING_CARRIER", "WAITING_FOR_CUSTOMER", "RESOLVED", "CLOSED"],
+  // A resolved ticket reopens into investigation rather than back to Open, so
+  // the queue never shows a second-time ticket as though nobody had seen it.
   RESOLVED: ["IN_PROGRESS", "CLOSED"],
   CLOSED: ["IN_PROGRESS"]
 };
@@ -347,7 +390,15 @@ export async function updateSupportTicketByAdmin(input: {
     input.ticket.resolvedAt = input.status === "RESOLVED" ? new Date() : input.ticket.resolvedAt;
     input.ticket.closedAt = input.status === "CLOSED" ? new Date() : null;
   }
-  if (input.priority) input.ticket.priority = input.priority;
+  if (input.priority && input.priority !== input.ticket.priority) {
+    input.ticket.priority = input.priority;
+    // Raising priority pulls the deadline in; it is measured from when the
+    // ticket was raised, not from now, so escalating an already-old ticket
+    // reports it overdue rather than granting it a fresh window.
+    if (!input.ticket.firstRespondedAt) {
+      input.ticket.firstResponseDueAt = firstResponseDueFrom(input.priority, input.ticket.createdAt);
+    }
+  }
   if (input.assignedTo !== undefined) {
     if (input.assignedTo) {
       if (!mongoose.Types.ObjectId.isValid(input.assignedTo)) throw new SupportTicketError("Select a valid support assignee.");

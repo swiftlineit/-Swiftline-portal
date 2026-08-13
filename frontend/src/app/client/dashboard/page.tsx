@@ -10,13 +10,18 @@ import {
 import ClientAccessBlocked from "@/components/client/dashboard/ClientAccessBlocked";
 import ClientBookingCapacityNotice from "@/components/client/dashboard/ClientBookingCapacityNotice";
 import ClientDashboardHeader from "@/components/client/dashboard/ClientDashboardHeader";
-import ClientKpiGrid from "@/components/client/dashboard/ClientKpiGrid";
 import ClientQuickAccess from "@/components/client/dashboard/ClientQuickAccess";
 import ClientRateCardNotice from "@/components/client/dashboard/ClientRateCardNotice";
 import ClientRecentShipmentsCard from "@/components/client/dashboard/ClientRecentShipmentsCard";
 import ClientShipmentPipelineCard from "@/components/client/dashboard/ClientShipmentPipelineCard";
 import ClientTasksCard from "@/components/client/dashboard/ClientTasksCard";
 import ClientUnavailableNotice from "@/components/client/dashboard/ClientUnavailableNotice";
+import {
+  ClientSummaryCards,
+  ControlTowerSkeleton,
+  NeedsAttention
+} from "@/components/client/dashboard/ClientControlTower";
+import { getClientOverview, type ClientOverview } from "@/lib/clientOverview";
 import {
   canCreateShipment,
   hasQuoteAccess
@@ -97,6 +102,9 @@ export default function ClientDashboardPage() {
   const [error, setError] = useState("");
   const selectedAccountIdRef = useRef("");
   const selectedBranchIdRef = useRef("");
+  const [overview, setOverview] = useState<ClientOverview | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [overviewError, setOverviewError] = useState("");
 
   const selectedAccount = useMemo(
     () => accounts.find((item) => item.account.id === selectedAccountId) ?? accounts[0] ?? null,
@@ -192,6 +200,29 @@ export default function ClientDashboardPage() {
     return () => { cancelled = true; };
   }, [loadDashboardData]);
 
+  // The control tower loads on its own so a slow aggregation never holds up the
+  // rest of the page, and re-runs whenever the account or branch context moves.
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    let active = true;
+
+    getClientOverview({ businessAccountId: selectedAccountId, branchId: selectedBranchId || undefined })
+      .then((result) => {
+        if (!active) return;
+        setOverview(result);
+        setOverviewError("");
+      })
+      .catch((caught: unknown) => {
+        if (!active) return;
+        setOverviewError(caught instanceof Error ? caught.message : "Summary could not be loaded.");
+      })
+      .finally(() => {
+        if (active) setOverviewLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [selectedAccountId, selectedBranchId]);
+
   async function handleAccountChange(accountId: string) {
     const nextAccount = accounts.find((item) => item.account.id === accountId) ?? null;
     const nextBranchId = nextAccount?.assignedBranches[0]?._id ?? "";
@@ -270,11 +301,32 @@ export default function ClientDashboardPage() {
               wallet={selectedWallet}
             />
 
-            <ClientKpiGrid
-              summary={selectedSummary}
-              wallet={selectedWallet}
-              extras={extras}
-            />
+            {/* The control tower answers "where are my shipments, what is
+                broken, what do you need from me" before anything else on the
+                page. Its figures come counted from /client/overview. */}
+            {overviewError ? (
+              <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+                <FiAlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+                {overviewError}
+              </p>
+            ) : null}
+
+            {overviewLoading && !overview ? (
+              <ControlTowerSkeleton />
+            ) : overview ? (
+              <>
+                <ClientSummaryCards
+                  summary={overview.summary}
+                  canViewFinancials={overview.summary.availableCreditMinor !== null}
+                />
+                <NeedsAttention items={overview.needsAttention} />
+              </>
+            ) : null}
+
+            {/* The old KPI grid is gone: it counted drafts where the control
+                tower counts booked shipments, so the two sat side by side
+                showing different "total shipments" and reading as a
+                contradiction. */}
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
               <ClientShipmentPipelineCard

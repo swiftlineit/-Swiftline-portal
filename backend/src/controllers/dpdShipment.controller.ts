@@ -42,18 +42,25 @@ import { objectExists, streamObjectToResponse } from "../services/storage/storag
 import { buildPricingHash, ShipmentPriceChangedError } from "../services/shipmentCostEstimate.service.js";
 import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
 
+// Where the scan happened. Optional on every action: Operations records it when
+// they know it, and an event without one is still a valid event.
+const eventLocationSchema = z.string().trim().max(120).optional().default("");
+
 const holdShipmentSchema = z.object({
   reason: z.enum(shipmentHoldReasonValues),
-  note: z.string().trim().min(3).max(500)
+  note: z.string().trim().min(3).max(500),
+  location: eventLocationSchema
 });
 
 const releaseShipmentSchema = z.object({
-  note: z.string().trim().min(3).max(500)
+  note: z.string().trim().min(3).max(500),
+  location: eventLocationSchema
 });
 
 const updateShipmentStatusSchema = z.object({
   status: z.enum(shipmentOperationalStatusValues),
-  note: z.string().trim().max(500).optional().default("")
+  note: z.string().trim().max(500).optional().default(""),
+  location: eventLocationSchema
 });
 
 // The price the customer accepted, as returned by the cost estimate endpoint.
@@ -201,6 +208,7 @@ function serializeShipmentEvent(event: {
   status: string;
   holdReason?: string | null;
   note?: string;
+  location?: string;
   customerVisible: boolean;
   eventAt: Date;
   createdBy: unknown;
@@ -213,6 +221,7 @@ function serializeShipmentEvent(event: {
     statusLabel: formatShipmentEventLabel(event.status),
     holdReason: event.holdReason ?? null,
     note: event.note ?? "",
+    location: event.location ?? "",
     customerVisible: event.customerVisible,
     eventAt: event.eventAt,
     createdBy: event.createdBy
@@ -833,6 +842,7 @@ export async function holdDpdShipment(request: Request, response: Response): Pro
     status: "ON_HOLD",
     holdReason: parsed.data.reason,
     note: parsed.data.note,
+    location: parsed.data.location,
     customerVisible: true,
     createdBy: userId,
     eventAt: new Date()
@@ -905,6 +915,7 @@ export async function releaseDpdShipment(request: Request, response: Response): 
     dpdShipmentId: shipment._id,
     status: "RELEASED_FROM_HOLD",
     note: parsed.data.note,
+    location: parsed.data.location,
     customerVisible: true,
     createdBy: userId,
     eventAt: new Date()
@@ -986,6 +997,7 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
     dpdShipmentId: shipment._id,
     status: parsed.data.status,
     note: parsed.data.note || "Live action updated by Swiftline Operations",
+    location: parsed.data.location,
     customerVisible: true,
     createdBy: userId,
     eventAt: new Date()

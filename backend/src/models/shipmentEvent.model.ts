@@ -41,6 +41,10 @@ export const shipmentHoldReasonValues = [
   "address_issue",
   "restricted_item_check",
   "operational_delay",
+  // A shipment that missed its flight or road connection. Recorded as a hold so
+  // the client is told why it stopped moving, rather than left to infer it from
+  // a gap between "flight assigned" and the next scan.
+  "missed_connection",
   "other"
 ] as const;
 
@@ -53,6 +57,16 @@ export interface IShipmentEvent extends mongoose.Document {
   status: ShipmentEventStatus;
   holdReason?: ShipmentHoldReason | null;
   note: string;
+  /**
+   * Where the scan happened, as Operations typed it — "Delhi Hub",
+   * "Heathrow, London", "Dubai Customs".
+   *
+   * Optional on purpose. It is free text keyed in alongside the event, so most
+   * historical events have none and some new ones will not either. Readers show
+   * the newest event that has one as the shipment's current location and treat
+   * an empty string as "not recorded", never as "nowhere".
+   */
+  location: string;
   customerVisible: boolean;
   createdBy: mongoose.Types.ObjectId;
   eventAt: Date;
@@ -86,6 +100,7 @@ const shipmentEventSchema = new mongoose.Schema<IShipmentEvent>(
       default: null
     },
     note: { type: String, trim: true, maxlength: 500, default: "" },
+    location: { type: String, trim: true, maxlength: 120, default: "" },
     customerVisible: { type: Boolean, default: true, index: true },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

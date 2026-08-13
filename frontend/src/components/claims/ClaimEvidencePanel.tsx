@@ -52,6 +52,8 @@ export default function ClaimEvidencePanel({
   onChanged: () => void;
 }) {
   const [busyCategory, setBusyCategory] = useState<string | null>(null);
+  // Which row a dragged file is currently over, so it can show it will accept it.
+  const [dropCategory, setDropCategory] = useState<string | null>(null);
   // One hidden input per category, so the file picker knows what it is filling.
   const inputs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -113,7 +115,25 @@ export default function ClaimEvidencePanel({
           const busy = busyCategory === item.category;
 
           return (
-            <li key={item.category} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+            <li
+              key={item.category}
+              // Each row is its own drop target, so a file lands against the
+              // document it belongs to rather than a single pile the client
+              // then has to categorise. Read-only rows accept nothing.
+              onDragOver={readOnly ? undefined : (event) => {
+                event.preventDefault();
+                setDropCategory(item.category);
+              }}
+              onDragLeave={readOnly ? undefined : () => setDropCategory(null)}
+              onDrop={readOnly ? undefined : (event) => {
+                event.preventDefault();
+                setDropCategory(null);
+                void handleUpload(item.category, event.dataTransfer.files?.[0]);
+              }}
+              className={`flex flex-wrap items-center gap-3 px-5 py-3.5 transition ${
+                dropCategory === item.category ? "bg-[#0D1282]/5 ring-1 ring-inset ring-[#0D1282]/30" : ""
+              }`}
+            >
               <FiFile className="shrink-0 text-slate-400" />
 
               <div className="min-w-0 flex-1">

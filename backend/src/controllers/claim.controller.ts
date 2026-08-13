@@ -46,6 +46,7 @@ import { availableTransitions } from "../services/claims/claimStateMachine.js";
 import { clientCan, staffCan, type ClaimAction } from "../services/claims/claimPermissions.js";
 import {
   awaitClaimThirdParty,
+  claimCarrierAcknowledged,
   closeClaim,
   completeClaimDocuments,
   disputeClaimSettlement,
@@ -1322,8 +1323,14 @@ export const requestStaffClaimInformation = staffTransitionHandler({
 export const awaitStaffClaimThirdParty = staffTransitionHandler({
   action: "INVESTIGATE",
   requiresReason: true,
-  successMessage: "Claim marked as awaiting a third party.",
+  successMessage: "Claim submitted to the carrier.",
   run: (input) => awaitClaimThirdParty({ ...input, reason: input.reason })
+});
+
+export const staffClaimCarrierAcknowledged = staffTransitionHandler({
+  action: "INVESTIGATE",
+  successMessage: "Carrier has begun reviewing the claim.",
+  run: claimCarrierAcknowledged
 });
 
 export const staffThirdPartyResponded = staffTransitionHandler({
