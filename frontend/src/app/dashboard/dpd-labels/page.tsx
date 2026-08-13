@@ -2,26 +2,18 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  ChangeEvent,
-  DragEvent,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FiChevronDown,
   FiDownload,
-  FiEdit3,
   FiExternalLink,
   FiFileText,
   FiPrinter,
-  FiUploadCloud,
 } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
-import ShipmentDraftReadyCard from "@/components/shipments/ShipmentDraftReadyCard";
 import ShipmentDraftsPanel from "@/components/shipments/ShipmentDraftsPanel";
+import ShipmentImportPanel from "@/components/shipments/ShipmentImportPanel";
 import { BusinessAccount, listBusinessAccounts } from "@/lib/businessAccounts";
 import {
   createIndividualShipmentDraft,
@@ -29,22 +21,17 @@ import {
 } from "@/lib/dpdLabels";
 import { Branch, listBranches } from "@/lib/branches";
 import {
-  InvoiceUpload,
-  ShipmentDraft,
   DpdShipmentHistoryItem,
   ShipmentHoldReason,
   ShipmentOperationalStatus,
   createManualShipmentDraft,
-  downloadDpdInvoiceTemplate,
   downloadDpdLabel,
   holdDpdShipment,
   listDpdShipments,
-  processInvoiceUpload,
   releaseDpdShipment,
   shipmentHoldReasonOptions,
   shipmentOperationalStatusOptions,
   updateDpdShipmentOperationalStatus,
-  uploadInvoice,
 } from "@/lib/dpdLabels";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import {
@@ -68,12 +55,6 @@ function FieldLabel({
       {required ? <span className="ml-1 text-red-600">*</span> : null}
     </span>
   );
-}
-
-function formatBytes(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function getAccountLabel(account: BusinessAccount) {
@@ -122,18 +103,10 @@ export default function DpdLabelsPage() {
   const [customer, setCustomer] = useState<IndividualCustomerDetails>({
     contactName: "",
   });
-  const [file, setFile] = useState<File | null>(null);
-  const [invoiceUpload, setInvoiceUpload] = useState<InvoiceUpload | null>(
-    null,
-  );
-  const [shipmentDraft, setShipmentDraft] = useState<ShipmentDraft | null>(
-    null,
-  );
   const [history, setHistory] = useState<DpdShipmentHistoryItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [creatingManual, setCreatingManual] = useState(false);
   const [error, setError] = useState("");
-  const [dragActive, setDragActive] = useState(false);
   const [shipmentAction, setShipmentAction] = useState<{
     mode: "hold" | "release" | "status";
     shipment: DpdShipmentHistoryItem;
@@ -192,24 +165,12 @@ export default function DpdLabelsPage() {
     );
   }, [branches, customerType, selectedAssignedBranch]);
 
-  const canUpload = useMemo(
-    () =>
-      Boolean(
-        businessAccountId && branchId && file && !busy && !creatingManual,
-      ),
-    [branchId, businessAccountId, busy, creatingManual, file],
-  );
   const canCreateManual = Boolean(
     businessAccountId && branchId && !busy && !creatingManual,
   );
   const canCreateIndividual = Boolean(
     branchId && customer.contactName.trim() && !busy && !creatingManual,
   );
-  const draftTotalWeight =
-    shipmentDraft?.parcelList.reduce(
-      (total, parcel) => total + (parcel.weightKg || 0),
-      0,
-    ) ?? 0;
 
   useEffect(() => {
     if (!user) return;
@@ -239,122 +200,22 @@ export default function DpdLabelsPage() {
     void loadOptions();
   }, [user]);
 
-  useEffect(() => {
-    // Walk-ins pick their own branch, so leave the selection alone for them —
-    // otherwise this would clear it on every render, since they have no account.
-    if (customerType === "INDIVIDUAL") return;
+  function handleBusinessAccountChange(nextAccountId: string) {
+    setBusinessAccountId(nextAccountId);
 
-    if (!businessAccountId) {
+    const account = activeAccounts.find((item) => item.accountId === nextAccountId);
+    if (!account?.assignedBranch) {
       setBranchId("");
       return;
     }
 
-    if (selectedAssignedBranch) {
-      setBranchId(selectedAssignedBranch.code);
-    } else {
-      setBranchId("");
-    }
-  }, [businessAccountId, customerType, selectedAssignedBranch]);
-
-  function selectFile(nextFile: File | null) {
-    if (!nextFile) return;
-    setInvoiceUpload(null);
-    setShipmentDraft(null);
-    setError("");
-    setFile(nextFile);
-  }
-
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    selectFile(event.target.files?.[0] ?? null);
-  }
-
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    setDragActive(false);
-    selectFile(event.dataTransfer.files?.[0] ?? null);
-  }
-
-  async function handleTemplateDownload() {
-    setBusy(true);
-    setError("");
-
-    try {
-      const blob = await downloadDpdInvoiceTemplate();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "swiftline-shipment-invoice-template.xlsx";
-      anchor.click();
-      window.URL.revokeObjectURL(url);
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Unable to download invoice template.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleUpload() {
-    if (!file || !businessAccountId || !branchId) return;
-
-    setBusy(true);
-    setError("");
-    setInvoiceUpload(null);
-    setShipmentDraft(null);
-
-    try {
-      const uploadResult = await uploadInvoice({
-        businessAccountId,
-        branchId,
-        file,
-      });
-      setInvoiceUpload(uploadResult.invoiceUpload);
-
-      if (uploadResult.duplicate && uploadResult.shipmentDraft) {
-        if (
-          uploadResult.alreadyBooked ||
-          (uploadResult.bookingState &&
-            uploadResult.bookingState !== "EDITABLE")
-        ) {
-          toast.info(uploadResult.message || "Existing shipment opened.");
-          router.push(`/dashboard/shipments/${uploadResult.shipmentDraft._id}`);
-          return;
-        }
-        setShipmentDraft(uploadResult.shipmentDraft);
-        toast.info("Existing editable draft resumed.");
-        const shipmentData = await listDpdShipments(10);
-        setHistory(shipmentData.shipments);
-        return;
-      }
-
-      const processResult = await processInvoiceUpload(
-        uploadResult.invoiceUpload.id,
-      );
-      if (
-        processResult.shipmentDraft &&
-        (processResult.alreadyBooked || processResult.bookingState === "BOOKED")
-      ) {
-        toast.info(processResult.message || "Existing shipment opened.");
-        router.push(`/dashboard/shipments/${processResult.shipmentDraft._id}`);
-        return;
-      }
-      setInvoiceUpload(processResult.invoiceUpload);
-      setShipmentDraft(processResult.shipmentDraft);
-      toast.success("Invoice processed and shipment draft created.");
-      const shipmentData = await listDpdShipments(10);
-      setHistory(shipmentData.shipments);
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Invoice could not be processed.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    const assigned = account.assignedBranch;
+    const assignedBranch = typeof assigned === "string"
+      ? branches.find((branch) => branch._id === assigned || branch.code === assigned)
+      : branches.find((branch) => (
+          branch._id === assigned._id || branch.code === assigned.code
+        ));
+    setBranchId(assignedBranch?.code ?? "");
   }
 
   async function handleManualDraft() {
@@ -512,19 +373,10 @@ export default function DpdLabelsPage() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Upload an invoice OR create manually by selecting a business account
+            Import shipment data or create manually by selecting a business account
             first.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleTemplateDownload}
-          disabled={busy}
-          className="inline-flex h-10 items-center rounded-4xl justify-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-400"
-        >
-          <FiDownload aria-hidden="true" className="h-4 w-4" />
-          Download Invoice Template
-        </button>
       </div>
 
       {error ? (
@@ -575,9 +427,7 @@ export default function DpdLabelsPage() {
                 <div className="relative mt-2">
                   <select
                     value={businessAccountId}
-                    onChange={(event) =>
-                      setBusinessAccountId(event.target.value)
-                    }
+                    onChange={(event) => handleBusinessAccountChange(event.target.value)}
                     className="h-10 w-full appearance-none border rounded-xl border-slate-300 bg-white px-3 pr-11 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
                   >
                     <option value="">Select account</option>
@@ -639,68 +489,23 @@ export default function DpdLabelsPage() {
         </section>
 
         <aside className="space-y-5">
+          {customerType === "BUSINESS" ? (
+            <ShipmentImportPanel
+              audience="admin"
+              businessAccountId={selectedAccount?._id}
+              branchId={selectedAssignedBranch?._id ?? ""}
+              disabled={!selectedAccount || !selectedAssignedBranch || busy || creatingManual}
+              onDraftsCreated={() => void refreshHistory()}
+            />
+          ) : null}
           <section className="border border-slate-200 bg-white p-5 rounded-2xl">
             <h2 className="text-sm font-semibold uppercase text-slate-500 text-center">
               {customerType === "INDIVIDUAL"
                 ? "Start Shipment"
-                : "Invoice Upload"}
+                : "Manual Shipment"}
             </h2>
-            {/* The invoice template is a business-account artefact, so a walk-in
-                always goes straight to manual entry. */}
             {customerType === "BUSINESS" ? (
-              <>
-                <label
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    setDragActive(true);
-                  }}
-                  onDragLeave={() => setDragActive(false)}
-                  onDrop={handleDrop}
-                  className={`mt-4 flex min-h-36 cursor-pointer rounded-xl flex-col items-center justify-center border border-dashed px-4 py-6 text-center transition ${
-                    dragActive
-                      ? "border-blue-900 bg-blue-50"
-                      : "border-slate-300 bg-slate-50 hover:border-blue-900"
-                  }`}
-                >
-                  <FiUploadCloud
-                    aria-hidden="true"
-                    className="h-8 w-8 text-blue-900"
-                  />
-                  <span className="mt-3 text-sm font-semibold text-slate-900">
-                    {file ? file.name : "Drop .xlsx invoice here"}
-                  </span>
-                  <span className="mt-1 text-xs font-medium text-slate-500">
-                    {file
-                      ? formatBytes(file.size)
-                      : "or click to choose a file"}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".xlsx"
-                    onChange={handleFileChange}
-                    className="sr-only"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={handleUpload}
-                  disabled={!canUpload}
-                  className="mt-4 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                >
-                  <FiFileText aria-hidden="true" className="h-4 w-4" />
-                  {busy ? "Processing..." : "Create Draft"}
-                </button>
-                <div
-                  className="my-4 flex items-center gap-3"
-                  aria-hidden="true"
-                >
-                  <span className="h-px flex-1 bg-slate-200" />
-                  <span className="text-xs font-semibold uppercase text-slate-400">
-                    Or
-                  </span>
-                  <span className="h-px flex-1 bg-slate-200" />
-                </div>
-                <div className="group relative w-full">
+              <div className="group relative mt-4 w-full">
                   <button
                     type="button"
                     onClick={handleManualDraft}
@@ -709,7 +514,7 @@ export default function DpdLabelsPage() {
                   >
                     {creatingManual
                       ? "Starting Draft..."
-                      : "Create Without Invoice"}
+                      : "Create Manually"}
                   </button>
 
                   {!canCreateManual && (
@@ -723,8 +528,7 @@ export default function DpdLabelsPage() {
                       </p>
                     </div>
                   )}
-                </div>
-              </>
+              </div>
             ) : (
               <div className="mt-4">
                 <p className="text-sm text-slate-600">
@@ -751,22 +555,6 @@ export default function DpdLabelsPage() {
             )}
           </section>
 
-          {invoiceUpload?.processingErrors.length ? (
-            <div className="border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-              {invoiceUpload.processingErrors[0]}
-            </div>
-          ) : null}
-
-          {shipmentDraft ? (
-            <ShipmentDraftReadyCard
-              title="Draft ready from admin account"
-              href={`/dashboard/dpd-labels/${shipmentDraft._id}`}
-              consignee={shipmentDraft.consigneeEnteredAddress.contactName}
-              postcode={shipmentDraft.consigneeEnteredAddress.postcode}
-              parcelCount={shipmentDraft.parcelList.length}
-              totalWeightKg={draftTotalWeight}
-            />
-          ) : null}
         </aside>
       </div>
 

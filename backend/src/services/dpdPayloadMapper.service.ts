@@ -1,5 +1,5 @@
-import type { IInvoiceUpload } from "../models/invoiceUpload.model.js";
 import type { IShipmentDraft, ShipmentAddressSnapshot } from "../models/shipmentDraft.model.js";
+import { carrierShipmentSourceIdentity } from "./shipmentSourceIdentity.service.js";
 
 export interface DpdPayloadConfiguration {
   businessUnitCode: string;
@@ -58,14 +58,14 @@ function getConsigneeAddress(draft: IShipmentDraft): ShipmentAddressSnapshot {
 
 export function mapShipmentDraftToDpdPayload(
   draft: IShipmentDraft,
-  invoiceUpload: IInvoiceUpload,
   configuration: DpdPayloadConfiguration
 ): DpdShipmentPayload {
   const address = getConsigneeAddress(draft);
   const firstParcel = draft.parcelList[0];
-  // The customer's reference entered on the shipment form stands in for the DPD
-  // shipment reference when the invoice upload carries none.
+  // The customer's reference entered on the shipment form is forwarded to DPD
+  // when supplied; carrierShipmentSourceIdentity provides a stable fallback.
   const customerReference = firstParcel?.shipmentReference1?.trim() || undefined;
+  const sourceIdentity = carrierShipmentSourceIdentity(draft);
 
   return {
     mode: "printed",
@@ -79,8 +79,8 @@ export function mapShipmentDraftToDpdPayload(
       format: configuration.defaultPrintFormat
     },
     references: {
-      invoiceNumber: invoiceUpload.invoiceNumber,
-      shipmentReference: (invoiceUpload.shipmentReference ?? "").trim() || customerReference || undefined,
+      invoiceNumber: sourceIdentity.invoiceNumber,
+      shipmentReference: sourceIdentity.shipmentReference,
       reference1: customerReference,
       reference2: undefined
     },

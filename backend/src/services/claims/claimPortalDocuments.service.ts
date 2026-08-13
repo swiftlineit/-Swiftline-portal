@@ -2,9 +2,9 @@ import mongoose from "mongoose";
 import { ClaimDocument } from "../../models/claimDocument.model.js";
 import { ClaimEvent } from "../../models/claimEvent.model.js";
 import { DpdShipment } from "../../models/dpdShipment.model.js";
-import { InvoiceUpload } from "../../models/invoiceUpload.model.js";
 import { LabelDocument } from "../../models/labelDocument.model.js";
 import { ShipmentDraft } from "../../models/shipmentDraft.model.js";
+import { ShipmentImportEntry } from "../../models/shipmentImportEntry.model.js";
 import type { IClaim } from "../../models/claim.model.js";
 import { checksumOf, claimDocumentKey, getObjectBuffer, putObject } from "../storage/storage.service.js";
 
@@ -34,25 +34,23 @@ async function collectSources(shipmentDraftId: mongoose.Types.ObjectId) {
   const sources: PortalSource[] = [];
 
   const shipment = await ShipmentDraft.findById(shipmentDraftId)
-    .select("invoiceUploadId")
+    .select("shipmentImportEntryId")
     .lean()
     .exec();
 
-  if (shipment?.invoiceUploadId) {
-    const invoice = await InvoiceUpload.findById(shipment.invoiceUploadId)
+  if (shipment?.shipmentImportEntryId) {
+    const importedWorkbook = await ShipmentImportEntry.findById(shipment.shipmentImportEntryId)
       .select("originalFilename storageKey")
       .lean()
       .exec();
 
-    if (invoice?.storageKey) {
+    if (importedWorkbook?.storageKey) {
       sources.push({
         category: "VALUE_PROOF",
-        label: "commercial invoice from booking",
-        filename: invoice.originalFilename || "invoice.pdf",
-        mimeType: invoice.originalFilename?.toLowerCase().endsWith(".pdf")
-          ? "application/pdf"
-          : "application/octet-stream",
-        storageKey: invoice.storageKey
+        label: "shipment workbook from booking",
+        filename: importedWorkbook.originalFilename || "shipment-import.xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        storageKey: importedWorkbook.storageKey
       });
     }
   }

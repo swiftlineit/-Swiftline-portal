@@ -215,12 +215,6 @@ export async function syncLegacyDraftBookingState(draft: IShipmentDraft) {
   return bookingState;
 }
 
-export async function findEditableDraftByInvoiceUpload(invoiceUploadId: mongoose.Types.ObjectId) {
-  const draft = await ShipmentDraft.findOne({ invoiceUploadId, deletedAt: null }).exec();
-  if (!draft) return null;
-  return await resolveDraftBookingState(draft) === "EDITABLE" ? draft : null;
-}
-
 /**
  * Why a draft cannot be deleted, or null when it can be.
  *

@@ -32,9 +32,10 @@ after(async () => {
   }
 });
 
-async function createDraft(invoiceUploadId = new mongoose.Types.ObjectId()) {
+async function createDraft(shipmentImportEntryId?: mongoose.Types.ObjectId) {
   return ShipmentDraft.create({
-    invoiceUploadId,
+    creationSource: shipmentImportEntryId ? "SHIPMENT_IMPORT" : "MANUAL",
+    shipmentImportEntryId: shipmentImportEntryId ?? null,
     businessAccountId: new mongoose.Types.ObjectId(),
     branchId: new mongoose.Types.ObjectId(),
     consigneeEnteredAddress: {
@@ -132,26 +133,24 @@ describe("shipment draft deletion", () => {
     );
   });
 
-  test("frees the invoice upload for a fresh draft", async () => {
-    const invoiceUploadId = new mongoose.Types.ObjectId();
-    const draft = await createDraft(invoiceUploadId);
+  test("frees the shipment import entry for a fresh draft", async () => {
+    const shipmentImportEntryId = new mongoose.Types.ObjectId();
+    const draft = await createDraft(shipmentImportEntryId);
     await deleteAsAdmin(draft);
 
-    // The whole point of soft deleting rather than blocking: the same invoice
-    // can be uploaded again, which the old plain unique index would have refused.
-    const replacement = await createDraft(invoiceUploadId);
+    const replacement = await createDraft(shipmentImportEntryId);
     assert.notEqual(String(replacement._id), String(draft._id));
 
-    const live = await ShipmentDraft.countDocuments({ invoiceUploadId, deletedAt: null }).exec();
+    const live = await ShipmentDraft.countDocuments({ shipmentImportEntryId, deletedAt: null }).exec();
     assert.equal(live, 1);
   });
 
-  test("allows only one live draft per invoice upload", async () => {
-    const invoiceUploadId = new mongoose.Types.ObjectId();
-    await createDraft(invoiceUploadId);
+  test("allows only one live draft per shipment import entry", async () => {
+    const shipmentImportEntryId = new mongoose.Types.ObjectId();
+    await createDraft(shipmentImportEntryId);
 
     await assert.rejects(
-      createDraft(invoiceUploadId),
+      createDraft(shipmentImportEntryId),
       (error: unknown) => (error as { code?: number }).code === 11000
     );
   });
@@ -174,11 +173,11 @@ describe("shipment draft deletion", () => {
     assert.ok(audit, "restoring must be audited");
   });
 
-  test("refuses to restore once the invoice has a newer draft", async () => {
-    const invoiceUploadId = new mongoose.Types.ObjectId();
-    const draft = await createDraft(invoiceUploadId);
+  test("refuses to restore once the import entry has a newer draft", async () => {
+    const shipmentImportEntryId = new mongoose.Types.ObjectId();
+    const draft = await createDraft(shipmentImportEntryId);
     await deleteAsAdmin(draft);
-    await createDraft(invoiceUploadId);
+    await createDraft(shipmentImportEntryId);
 
     await assert.rejects(
       restoreShipmentDraft({

@@ -5,7 +5,6 @@ import { BusinessAccount, type IBusinessAccount } from "../models/businessAccoun
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { ShipmentChargeVerification } from "../models/shipmentChargeVerification.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent, type ShipmentEventStatus } from "../models/shipmentEvent.model.js";
@@ -141,38 +140,6 @@ async function main() {
   const actorId = await resolveActor(account._id as mongoose.Types.ObjectId, account.createdBy);
   const now = new Date();
 
-  // Keep the seed idempotent so dashboard demo data can be refreshed safely.
-  const invoiceUpload = await InvoiceUpload.findOneAndUpdate(
-    {
-      businessAccountId: account._id,
-      branchId,
-      invoiceNumber: demoInvoiceNumber,
-      shipmentReference: demoShipmentReference
-    },
-    {
-      $set: {
-        templateVersion: "TESTING-SHIPMENT-1.0",
-        originalFilename: "testing-shipment-not-demo.xlsx",
-        storageKey: "invoices/demo-shipment/testing-shipment-not-demo.xlsx",
-        fileChecksum: `demo-${String(account._id)}-${String(branchId)}`,
-        extractedData: {
-          invoiceNumber: demoInvoiceNumber,
-          shipmentReference: demoShipmentReference,
-          shipmentName: demoShipmentName,
-          serviceType: "COURIER",
-          serviceCode: "DPD-INTL-TEST",
-          parcelCount: 2,
-          note: "Testing shipment seeded with complete form data."
-        },
-        status: "PARSED",
-        processingErrors: [],
-        uploadedBy: actorId,
-        uploadedAt: now
-      }
-    },
-    { returnDocument: "after", upsert: true, setDefaultsOnInsert: true }
-  ).exec();
-
   const destinationAddress = {
     companyName: demoShipmentName,
     contactName: "Avery Testing",
@@ -190,9 +157,15 @@ async function main() {
   };
 
   const shipmentDraft = await ShipmentDraft.findOneAndUpdate(
-    { invoiceUploadId: invoiceUpload._id },
+    {
+      businessAccountId: account._id,
+      branchId,
+      creationSource: "MANUAL",
+      "parcelList.shipmentReference1": demoShipmentReference
+    },
     {
       $set: {
+        creationSource: "MANUAL",
         businessAccountId: account._id,
         branchId,
         sender: {
@@ -294,7 +267,7 @@ async function main() {
       $set: {
         idempotencyKey: `demo-dashboard-shipment:${String(shipmentDraft._id)}`,
         dpdShipmentId: `TEST-DPD-${String(shipmentDraft._id).slice(-8).toUpperCase()}`,
-        dpdTransactionId: `TEST-TXN-${String(invoiceUpload._id).slice(-8).toUpperCase()}`,
+        dpdTransactionId: `TEST-TXN-${String(shipmentDraft._id).slice(-8).toUpperCase()}`,
         parcelNumbers: shipmentDraft.parcelList.map((parcel) => `TEST-PARCEL-${String(parcel.sequence).padStart(2, "0")}`),
         serviceCode: shipmentDraft.serviceCode,
         requestSnapshot: {
@@ -388,7 +361,6 @@ async function main() {
 
   const demoSnapshot = buildShipmentBookingSnapshot({
     draft: shipmentDraft,
-    invoiceUpload,
     account,
     branch: branchDocument,
     pricing: demoPricing,
@@ -497,7 +469,6 @@ async function main() {
   console.log(`Name: ${demoShipmentName}`);
   console.log(`Account: ${account.accountId} (${String(account._id)})`);
   console.log(`Branch: ${String(branchId)}`);
-  console.log(`Invoice upload: ${String(invoiceUpload._id)}`);
   console.log(`Shipment draft: ${String(shipmentDraft._id)}`);
   console.log(`DPD shipment: ${String(dpdShipment._id)}`);
   console.log("Billing: BUSINESS_ACCOUNT");

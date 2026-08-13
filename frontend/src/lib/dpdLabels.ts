@@ -4,21 +4,6 @@ import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
 import { toPriceChangedError } from "@/lib/shipmentCostEstimate";
 
-export type InvoiceUpload = {
-  id: string;
-  businessAccountId: string;
-  branchId: string;
-  templateVersion: string;
-  invoiceNumber: string;
-  shipmentReference: string;
-  originalFilename: string;
-  fileChecksum: string;
-  extractedData: Record<string, unknown>;
-  status: "UPLOADED" | "PROCESSING" | "PARSED" | "PARSING_FAILED";
-  processingErrors: string[];
-  uploadedAt: string;
-};
-
 export type ShipmentAddress = {
   companyName?: string;
   contactName?: string;
@@ -123,7 +108,8 @@ export type ShipmentServiceType = "COURIER" | "CARGO";
 
 export type ShipmentDraft = {
   _id: string;
-  invoiceUploadId: string;
+  creationSource: "MANUAL" | "INDIVIDUAL" | "SHIPMENT_IMPORT";
+  shipmentImportEntryId?: string;
   businessAccountId: string;
   /**
    * INDIVIDUAL is a walk-in booked at the counter: paid in full up front, billed
@@ -185,8 +171,8 @@ export type ShipmentDraft = {
   updatedAt?: string;
 };
 
-/** Where an uploaded-invoice draft came from, and what the import could not fill. */
-export type InvoiceImportSummary = {
+/** Workbook provenance and non-blocking warnings for an imported draft. */
+export type ShipmentImportSummary = {
   originalFilename: string;
   warnings: string[];
 };
@@ -416,7 +402,6 @@ export type DpdShipmentHistoryItem = {
   };
   shipmentDraft: {
     id: string;
-    invoiceUploadId: string;
     branchId: string;
     consigneeName: string;
     consigneeTownOrCity: string;
@@ -429,12 +414,6 @@ export type DpdShipmentHistoryItem = {
     name: string;
     code: string;
     city: string;
-  } | null;
-  invoiceUpload: {
-    id: string;
-    invoiceNumber: string;
-    shipmentReference: string;
-    originalFilename: string;
   } | null;
   labels: Array<{
     id: string;
@@ -597,40 +576,6 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-export async function downloadDpdInvoiceTemplate() {
-  const response = await fetchWithAuth(apiUrl("/api/v1/invoice-templates/dpd/download"));
-
-  if (!response.ok) throw new Error("Unable to download invoice format.");
-
-  return response.blob();
-}
-
-export async function uploadInvoice(input: {
-  businessAccountId: string;
-  branchId: string;
-  file: File;
-}) {
-  const formData = new FormData();
-  formData.append("businessAccountId", input.businessAccountId);
-  formData.append("branchId", input.branchId);
-  formData.append("invoiceFile", input.file);
-
-  const response = await fetchWithAuth(apiUrl("/api/v1/invoice-uploads"), {
-    method: "POST",
-    body: formData
-  });
-
-  return parseApiResponse<{
-    success: true;
-    duplicate: boolean;
-    alreadyBooked?: boolean;
-    bookingState?: "EDITABLE" | "BOOKING" | "BOOKED" | "REVIEW_REQUIRED";
-    message?: string;
-    invoiceUpload: InvoiceUpload;
-    shipmentDraft?: ShipmentDraft | null;
-  }>(response);
-}
-
 export async function createManualShipmentDraft(input: {
   businessAccountId: string;
   branchId: string;
@@ -685,29 +630,13 @@ export async function createIndividualShipmentDraft(input: {
   }>(response);
 }
 
-export async function processInvoiceUpload(invoiceUploadId: string) {
-  const response = await fetchWithAuth(apiUrl(`/api/v1/invoice-uploads/${invoiceUploadId}/process`), {
-    method: "POST"
-  });
-
-  return parseApiResponse<{
-    success: true;
-    duplicate?: boolean;
-    alreadyBooked?: boolean;
-    bookingState?: "EDITABLE" | "BOOKING" | "BOOKED" | "REVIEW_REQUIRED";
-    message?: string;
-    invoiceUpload: InvoiceUpload;
-    shipmentDraft: ShipmentDraft | null;
-  }>(response);
-}
-
 export async function getShipmentDraft(shipmentDraftId: string) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}`));
 
   return parseApiResponse<{
     success: true;
     shipmentDraft: ShipmentDraft;
-    invoiceImport?: InvoiceImportSummary | null;
+    shipmentImport?: ShipmentImportSummary | null;
   }>(response);
 }
 

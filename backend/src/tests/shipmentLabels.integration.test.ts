@@ -6,7 +6,6 @@ import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { CountryRateCard } from "../models/countryRateCard.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { LabelDocument } from "../models/labelDocument.model.js";
 import { SwiftlineStationCounter } from "../models/swiftlineStationCounter.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
@@ -99,7 +98,7 @@ describe("Swiftline tracking sequence", () => {
 
   test("allows only one concurrent booking lock for the same draft", async () => {
     const draft = await ShipmentDraft.create({
-      invoiceUploadId: new mongoose.Types.ObjectId(),
+      creationSource: "MANUAL",
       businessAccountId: new mongoose.Types.ObjectId(),
       branchId: new mongoose.Types.ObjectId(),
       sender: {},
@@ -234,22 +233,8 @@ describe("Swiftline tracking sequence", () => {
       createdBy: userId
     });
 
-    const upload = await InvoiceUpload.create({
-      businessAccountId: account._id,
-      branchId: branch._id,
-      templateVersion: "TEST-1.0",
-      invoiceNumber: `DRIFTER-INV-${Date.now()}`,
-      shipmentReference: `DRIFTER-SHIP-${Date.now()}`,
-      originalFilename: "drifter-branch.pdf",
-      storageKey: "invoices/test-drifter-branch/fixture.xlsx",
-      fileChecksum: new mongoose.Types.ObjectId().toHexString().padEnd(64, "0"),
-      extractedData: {},
-      status: "PARSED",
-      uploadedBy: userId
-    });
-
     const draft = await ShipmentDraft.create({
-      invoiceUploadId: upload._id,
+      creationSource: "MANUAL",
       businessAccountId: account._id,
       branchId: branch._id,
       sender: { name: branch.name, code: branch.code },
@@ -371,21 +356,8 @@ describe("Swiftline tracking sequence", () => {
       maxBoxKg: 25,
       createdBy: userId
     });
-    const upload = await InvoiceUpload.create({
-      businessAccountId: account._id,
-      branchId: branch._id,
-      templateVersion: "TEST-1.0",
-      invoiceNumber: `TEST-INV-${Date.now()}`,
-      shipmentReference: `TEST-SHIP-${Date.now()}`,
-      originalFilename: "booking-test.pdf",
-      storageKey: "invoices/test-booking/fixture.xlsx",
-      fileChecksum: new mongoose.Types.ObjectId().toHexString().padEnd(64, "0"),
-      extractedData: {},
-      status: "PARSED",
-      uploadedBy: userId
-    });
     const draft = await ShipmentDraft.create({
-      invoiceUploadId: upload._id,
+      creationSource: "MANUAL",
       businessAccountId: account._id,
       branchId: branch._id,
       sender: { name: branch.name, code: branch.code },
@@ -478,21 +450,8 @@ describe("Swiftline tracking sequence", () => {
     const lockedDraft = await ShipmentDraft.findById(draft._id).orFail().lean().exec();
     assert.equal(lockedDraft.bookingState, "BOOKED");
 
-    const swiftlineUpload = await InvoiceUpload.create({
-      businessAccountId: account._id,
-      branchId: branch._id,
-      templateVersion: "TEST-1.0",
-      invoiceNumber: `SWIFTLINE-INV-${Date.now()}`,
-      shipmentReference: `SWIFTLINE-SHIP-${Date.now()}`,
-      originalFilename: "swiftline-booking-test.pdf",
-      storageKey: "invoices/test-swiftline-booking/fixture.xlsx",
-      fileChecksum: new mongoose.Types.ObjectId().toHexString().padEnd(64, "1"),
-      extractedData: {},
-      status: "PARSED",
-      uploadedBy: userId
-    });
     const swiftlineDraft = await ShipmentDraft.create({
-      invoiceUploadId: swiftlineUpload._id,
+      creationSource: "MANUAL",
       businessAccountId: account._id,
       branchId: branch._id,
       sender: draft.sender,

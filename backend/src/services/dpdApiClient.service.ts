@@ -1,4 +1,3 @@
-import type { IInvoiceUpload } from "../models/invoiceUpload.model.js";
 import type { IShipmentDraft } from "../models/shipmentDraft.model.js";
 import type { LabelFormat } from "../models/labelDocument.model.js";
 import {
@@ -55,6 +54,40 @@ function stringValue(value: unknown) {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return "";
+}
+
+/**
+ * The carrier's own rejection lines, for operator eyes.
+ *
+ * `submitDocket` deliberately replaces ALS's wording with a friendlier message
+ * for the booker, but the original text is what tells Operations which field to
+ * fix — "SHIPMENT INVOICE are mandatory" being the case in point.
+ */
+export function readCarrierErrors(providerResponse: Record<string, unknown>): string[] {
+  const errors = providerResponse.errors;
+  if (Array.isArray(errors)) return errors.map(stringValue).filter(Boolean);
+  if (typeof errors === "string" && errors.trim()) return [errors.trim()];
+  return [];
+}
+
+/**
+ * What the booker is told when ALS refuses a shipment.
+ *
+ * The distinction matters operationally: a carrier account out of credit and a
+ * shipment with a bad field need completely different people to act, and the
+ * generic wording sent Operations hunting through shipment data for a problem
+ * that was really an unpaid carrier account. The carrier's own text still
+ * reaches staff through `providerResponse`.
+ */
+function carrierRejectionMessage(message: string) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("credit limit")) {
+    return "The DPD carrier account has reached its credit limit, so no shipment can be booked. Contact Swiftline Operations.";
+  }
+  if (normalized.includes("freight amount is 0")) {
+    return "ALS could not resolve a freight rate for DPD UK NEXTDAY. Contact Swiftline Operations.";
+  }
+  return "ALS rejected some carrier-required shipment information.";
 }
 
 function errorMessage(payload: Record<string, unknown>) {
@@ -236,7 +269,6 @@ async function submitDocket(params: {
   configuration: DpdProviderConfiguration;
   auth: AlsAuth;
   draft: IShipmentDraft;
-  invoiceUpload: IInvoiceUpload;
   trackingNumber: string;
   bookedAt: Date;
 }) {
@@ -244,7 +276,6 @@ async function submitDocket(params: {
   try {
     requestPayload = buildAlsCreateDocketPayload({
       draft: params.draft,
-      invoiceUpload: params.invoiceUpload,
       configuration: params.configuration,
       customerId: params.auth.customerId,
       trackingNumber: params.trackingNumber,
@@ -285,10 +316,12 @@ async function submitDocket(params: {
   if (message.toUpperCase().includes("AUTH TOKEN EXPIRED")) {
     return { tokenExpired: true as const };
   }
-  const friendlyMessage = message.toLowerCase().includes("freight amount is 0")
-    ? "ALS could not resolve a freight rate for DPD UK NEXTDAY. Contact Swiftline Operations."
-    : "ALS rejected some carrier-required shipment information.";
-  throw new DpdApiError(friendlyMessage, response.ok ? 400 : response.status, {
+  // ALS answers a business refusal with HTTP 500 and a JSON body. That status is
+  // deliberately not passed through: the shipment was understood and declined,
+  // and reporting it as a Swiftline server error sends everyone looking in the
+  // wrong place. Getting a parsed body at all is what makes this a decision
+  // rather than an outage — an unreadable reply is treated as uncertain above.
+  throw new DpdApiError(carrierRejectionMessage(message), 409, {
     status: response.status,
     errors: body.errors ?? record(body.data).errors ?? []
   });
@@ -297,7 +330,6 @@ async function submitDocket(params: {
 export async function createDpdShipment(
   configuration: DpdProviderConfiguration,
   draft: IShipmentDraft,
-  invoiceUpload: IInvoiceUpload,
   trackingNumber: string,
   bookedAt: Date
 ): Promise<DpdCreateShipmentResponse> {
@@ -306,13 +338,13 @@ export async function createDpdShipment(
   }
 
   const auth = await getAlsAuth(configuration);
-  const first = await submitDocket({ configuration, auth, draft, invoiceUpload, trackingNumber, bookedAt });
+  const first = await submitDocket({ configuration, auth, draft, trackingNumber, bookedAt });
   if (!("tokenExpired" in first)) return first;
 
   // An explicit expired-token response means ALS rejected the booking before it
   // was created. Refreshing once is therefore the only safe automatic retry.
   const refreshedAuth = await getAlsAuth(configuration, true);
-  const second = await submitDocket({ configuration, auth: refreshedAuth, draft, invoiceUpload, trackingNumber, bookedAt });
+  const second = await submitDocket({ configuration, auth: refreshedAuth, draft, trackingNumber, bookedAt });
   if ("tokenExpired" in second) {
     throw new DpdApiError("ALS authentication expired again. Contact an administrator.", 503);
   }

@@ -13,7 +13,13 @@ import {
   applyFinalChargeVerificationBilling,
   previewAmendmentFunding
 } from "../services/amendmentBilling.service.js";
-import { convertBookingReservation, releaseBookingReservation, reserveBookingCapacity } from "../services/creditBooking.service.js";
+import {
+  convertBookingReservation,
+  markBookingReservationConsuming,
+  markBookingReservationReviewRequired,
+  releaseBookingReservation,
+  reserveBookingCapacity
+} from "../services/creditBooking.service.js";
 
 const databaseName = `sl_credit_booking_${Date.now()}`;
 
@@ -182,6 +188,116 @@ describe("atomic shipment booking balance lifecycle", () => {
     await assert.rejects(reserveBookingCapacity(input), /INSUFFICIENT_BOOKING_CAPACITY/);
     assert.equal(await BalanceReservation.countDocuments({ shipmentDraftId: input.shipmentDraftId }), 0);
     assert.equal(await ShipmentCharge.countDocuments({ shipmentDraftId: input.shipmentDraftId }), 0);
+  });
+});
+
+describe("booking reservations on the customer ledger", () => {
+  async function ledgerFor(reservationId: mongoose.Types.ObjectId) {
+    return CreditLedgerEntry.find({ reference: `BOOKING-${reservationId.toString()}` })
+      .sort({ createdAt: 1 })
+      .lean()
+      .exec();
+  }
+
+  // A carrier rejection released the hold, and writing both halves of that
+  // round trip filled the statement with pairs for shipments that never existed.
+  test("leaves no ledger trace when a booking is abandoned before it converts", async () => {
+    const account = await BusinessCreditAccount.create({
+      businessAccountId: new mongoose.Types.ObjectId(), status: "ACTIVE",
+      approvedCreditLimitMinor: 100_000, customerAdvanceBalanceMinor: 0
+    });
+    const input = bookingInput(account.businessAccountId, 54_000, "LEDGER-SILENT");
+    const reserved = await reserveBookingCapacity(input);
+    assert.deepEqual(await ledgerFor(reserved.reservation._id as mongoose.Types.ObjectId), []);
+
+    // The hold is still real while it is held, so a concurrent booking cannot
+    // spend the same headroom.
+    const held = await BusinessCreditAccount.findById(account._id).lean().exec();
+    assert.equal(held?.reservedCreditMinor, 54_000);
+
+    await releaseBookingReservation({
+      reservationId: reserved.reservation._id as mongoose.Types.ObjectId,
+      idempotencyKey: "LEDGER-SILENT-RELEASE",
+      createdBy: input.createdBy
+    });
+
+    assert.deepEqual(await ledgerFor(reserved.reservation._id as mongoose.Types.ObjectId), []);
+    const settled = await BusinessCreditAccount.findById(account._id).lean().exec();
+    assert.equal(settled?.reservedCreditMinor, 0);
+  });
+
+  test("records the booking on the ledger once it converts", async () => {
+    const account = await BusinessCreditAccount.create({
+      businessAccountId: new mongoose.Types.ObjectId(), status: "ACTIVE",
+      approvedCreditLimitMinor: 100_000, customerAdvanceBalanceMinor: 0
+    });
+    const input = bookingInput(account.businessAccountId, 54_000, "LEDGER-CONVERT");
+    const reserved = await reserveBookingCapacity(input);
+
+    await convertBookingReservation({
+      reservationId: reserved.reservation._id as mongoose.Types.ObjectId,
+      idempotencyKey: "LEDGER-CONVERT-ENTRY",
+      createdBy: input.createdBy,
+      dpdShipmentId: new mongoose.Types.ObjectId()
+    });
+
+    const entries = await ledgerFor(reserved.reservation._id as mongoose.Types.ObjectId);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]?.type, "BOOKING_CONVERTED");
+    assert.equal(entries[0]?.amountMinor, 54_000);
+  });
+
+  // Funds parked for operations review are announced, so the later release has
+  // to be announced too or the statement would show money held and never freed.
+  test("closes out a hold that was announced for review", async () => {
+    const account = await BusinessCreditAccount.create({
+      businessAccountId: new mongoose.Types.ObjectId(), status: "ACTIVE",
+      approvedCreditLimitMinor: 100_000, customerAdvanceBalanceMinor: 0
+    });
+    const input = bookingInput(account.businessAccountId, 54_000, "LEDGER-REVIEW");
+    const reserved = await reserveBookingCapacity(input);
+    const reservationId = reserved.reservation._id as mongoose.Types.ObjectId;
+
+    await markBookingReservationConsuming(reservationId);
+    await markBookingReservationReviewRequired({
+      reservationId,
+      idempotencyKey: "LEDGER-REVIEW-ENTRY",
+      createdBy: input.createdBy,
+      dpdShipmentId: new mongoose.Types.ObjectId()
+    });
+    assert.deepEqual((await ledgerFor(reservationId)).map((entry) => entry.type), ["BOOKING_REVIEW_REQUIRED"]);
+
+    await releaseBookingReservation({
+      reservationId,
+      idempotencyKey: "LEDGER-REVIEW-RELEASE",
+      createdBy: input.createdBy
+    });
+
+    assert.deepEqual((await ledgerFor(reservationId)).map((entry) => entry.type), [
+      "BOOKING_REVIEW_REQUIRED",
+      "BOOKING_RELEASED"
+    ]);
+  });
+
+  test("treats a repeated release as an idempotent no-op", async () => {
+    const account = await BusinessCreditAccount.create({
+      businessAccountId: new mongoose.Types.ObjectId(), status: "ACTIVE",
+      approvedCreditLimitMinor: 100_000, customerAdvanceBalanceMinor: 0
+    });
+    const input = bookingInput(account.businessAccountId, 54_000, "LEDGER-DOUBLE-RELEASE");
+    const reserved = await reserveBookingCapacity(input);
+    const reservationId = reserved.reservation._id as mongoose.Types.ObjectId;
+
+    await releaseBookingReservation({ reservationId, idempotencyKey: "REL-1", createdBy: input.createdBy });
+    const repeated = await releaseBookingReservation({
+      reservationId,
+      idempotencyKey: "REL-2",
+      createdBy: input.createdBy
+    });
+
+    assert.equal(repeated.released, false);
+    const settled = await BusinessCreditAccount.findById(account._id).lean().exec();
+    assert.equal(settled?.reservedCreditMinor, 0);
   });
 });
 

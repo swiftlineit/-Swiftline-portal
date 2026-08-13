@@ -66,6 +66,23 @@ async function runTransactionWithRetry<T>(operation: (session: mongoose.ClientSe
   throw lastError instanceof Error ? lastError : new Error("Booking balance transaction failed.");
 }
 
+/**
+ * Whether this reservation has ever appeared on the customer's ledger.
+ *
+ * Reserving is silent, so most reservations never do. It is what decides whether
+ * a later release has anything to close out.
+ */
+async function hasBookingLedgerEntry(
+  reservationId: mongoose.Types.ObjectId,
+  session: mongoose.ClientSession
+) {
+  const existing = await CreditLedgerEntry.findOne({ reference: `BOOKING-${reservationId.toString()}` })
+    .select("_id")
+    .session(session)
+    .exec();
+  return Boolean(existing);
+}
+
 async function appendBookingLedgerEntry(input: {
   account: IBusinessCreditAccount;
   type: CreditLedgerEntryType;
@@ -247,20 +264,13 @@ export async function reserveBookingCapacity(input: ReserveBookingCapacityInput)
       }], { session }))[0];
     if (!charge) throw new Error("SHIPMENT_CHARGE_NOT_CREATED");
 
-    const accountAfter = await BusinessCreditAccount.findById(accountBefore._id).session(session).exec();
-    if (!accountAfter) throw new Error("CREDIT_ACCOUNT_NOT_FOUND");
-    await appendBookingLedgerEntry({
-      account: accountAfter,
-      type: "BOOKING_RESERVED",
-      reservationId: reservation._id as mongoose.Types.ObjectId,
-      amountMinor: input.amountMinor,
-      ...allocation,
-      idempotencyKey: `LEDGER:${input.idempotencyKey}`,
-      description: "Shipment booking amount reserved.",
-      createdBy: input.createdBy,
-      session
-    });
-
+    // Deliberately no ledger entry here. A reservation is a hold, not a movement
+    // of money, and most failed bookings never become one: writing it at this
+    // point filled the customer's ledger with reserved/released pairs for
+    // shipments that were rejected by the carrier and never existed. The hold is
+    // still real — it sits on the account's reserved totals and on the
+    // BalanceReservation — so concurrent bookings cannot overdraw the limit.
+    // The ledger records the booking when the reservation converts.
     return { reserved: true as const, reservation, charge };
   });
 }
@@ -343,16 +353,17 @@ export async function convertBookingReservation(input: ReservationTransitionInpu
 }
 
 export async function releaseBookingReservation(input: ReservationTransitionInput) {
-  const existingLedger = await CreditLedgerEntry.findOne({ idempotencyKey: input.idempotencyKey }).exec();
-  if (existingLedger) return { released: false as const, ledgerEntry: existingLedger };
-
   return runTransactionWithRetry(async (session) => {
     const reservation = await findTransitionReservation(input, ["ACTIVE", "CONSUMING", "REVIEW_REQUIRED"], "RELEASED", "releasedAt", session);
     if (!reservation) {
       // A concurrent call may have already released it; treat that as idempotent
-      // success rather than a transition error.
-      const priorLedger = await CreditLedgerEntry.findOne({ idempotencyKey: input.idempotencyKey }).session(session).exec();
-      if (priorLedger) return { released: false as const, ledgerEntry: priorLedger };
+      // success rather than a transition error. The reservation's own status is
+      // the guard, because a release no longer always writes a ledger entry.
+      const settled = await BalanceReservation.findOne({
+        _id: input.reservationId,
+        status: { $in: ["RELEASED", "EXPIRED"] }
+      }).session(session).exec();
+      if (settled) return { released: false as const, reservation: settled };
       throw new Error("BOOKING_RESERVATION_TRANSITION_INVALID");
     }
 
@@ -373,18 +384,24 @@ export async function releaseBookingReservation(input: ReservationTransitionInpu
     ).exec();
     if (!account) throw new Error("BOOKING_RESERVATION_RELEASE_FAILED");
 
-    await appendBookingLedgerEntry({
-      account,
-      type: "BOOKING_RELEASED",
-      reservationId: reservation._id as mongoose.Types.ObjectId,
-      amountMinor: reservation.amountMinor,
-      advanceAmountMinor: reservation.advanceAmountMinor,
-      creditAmountMinor: reservation.creditAmountMinor,
-      idempotencyKey: input.idempotencyKey,
-      description: "Shipment booking amount released.",
-      createdBy: input.createdBy,
-      session
-    });
+    // Only closes out a hold the ledger was already told about — which means a
+    // booking that went to operations review. A reservation released without
+    // ever being announced leaves no trace, because nothing about it ever
+    // reached the customer's statement.
+    if (await hasBookingLedgerEntry(reservation._id as mongoose.Types.ObjectId, session)) {
+      await appendBookingLedgerEntry({
+        account,
+        type: "BOOKING_RELEASED",
+        reservationId: reservation._id as mongoose.Types.ObjectId,
+        amountMinor: reservation.amountMinor,
+        advanceAmountMinor: reservation.advanceAmountMinor,
+        creditAmountMinor: reservation.creditAmountMinor,
+        idempotencyKey: input.idempotencyKey,
+        description: "Shipment booking amount released.",
+        createdBy: input.createdBy,
+        session
+      });
+    }
     await ShipmentCharge.updateOne(
       { balanceReservationId: reservation._id },
       { $set: { customerChargeStatus: "REVERSED", dpdShipmentId: input.dpdShipmentId ?? null } },
@@ -427,18 +444,23 @@ export async function expireStaleReservation(reservationId: mongoose.Types.Objec
     ).exec();
     if (!account) throw new Error("BOOKING_RESERVATION_RELEASE_FAILED");
 
-    await appendBookingLedgerEntry({
-      account,
-      type: "BOOKING_RELEASED",
-      reservationId: reservation._id as mongoose.Types.ObjectId,
-      amountMinor: reservation.amountMinor,
-      advanceAmountMinor: reservation.advanceAmountMinor,
-      creditAmountMinor: reservation.creditAmountMinor,
-      idempotencyKey,
-      description: "Expired shipment booking reservation released.",
-      createdBy: null,
-      session
-    });
+    // As with an explicit release: only a hold the ledger already knows about
+    // needs closing out. The atomic ACTIVE -> EXPIRED flip above is what makes
+    // this run once, so it does not depend on the ledger for idempotency.
+    if (await hasBookingLedgerEntry(reservation._id as mongoose.Types.ObjectId, session)) {
+      await appendBookingLedgerEntry({
+        account,
+        type: "BOOKING_RELEASED",
+        reservationId: reservation._id as mongoose.Types.ObjectId,
+        amountMinor: reservation.amountMinor,
+        advanceAmountMinor: reservation.advanceAmountMinor,
+        creditAmountMinor: reservation.creditAmountMinor,
+        idempotencyKey,
+        description: "Expired shipment booking reservation released.",
+        createdBy: null,
+        session
+      });
+    }
     await ShipmentCharge.updateOne(
       { balanceReservationId: reservation._id, customerChargeStatus: "RESERVED" },
       { $set: { customerChargeStatus: "REVERSED" } },

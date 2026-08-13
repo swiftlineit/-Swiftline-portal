@@ -14,7 +14,7 @@ import {
   ShipmentTextField
 } from "@/components/shipments/ShipmentFormControls";
 import { ParcelItemsEditor } from "@/components/shipments/ParcelItemsEditor";
-import InvoiceImportBanner from "@/components/shipments/InvoiceImportBanner";
+import ShipmentImportBanner from "@/components/shipments/ShipmentImportBanner";
 import { ConsignorKycSection } from "@/components/shipments/ConsignorKycSection";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import {
@@ -80,7 +80,7 @@ import {
   uploadShipmentParcelKycDocument,
   validateAddress,
   validateShipmentDraft,
-  type InvoiceImportSummary
+  type ShipmentImportSummary
 } from "@/lib/dpdLabels";
 import ShipmentCostEstimatePanel from "@/components/shipments/ShipmentCostEstimatePanel";
 import ShipmentPriceChangeDialog from "@/components/shipments/ShipmentPriceChangeDialog";
@@ -415,7 +415,7 @@ export default function DpdLabelDraftPage() {
   const [priceChange, setPriceChange] = useState<ShipmentPriceChangedError | null>(null);
   // Which button opened the price change dialog, so accepting re-books the same way.
   // Present only on drafts created from an uploaded invoice.
-  const [invoiceImport, setInvoiceImport] = useState<InvoiceImportSummary | null>(null);
+  const [shipmentImport, setShipmentImport] = useState<ShipmentImportSummary | null>(null);
   // Printed as the NOTE block on the shipment (customs) invoice.
   const [declarationNote, setDeclarationNote] = useState(defaultDeclarationNote);
   const [addressQuery, setAddressQuery] = useState("");
@@ -661,7 +661,7 @@ export default function DpdLabelDraftPage() {
           return;
         }
         setRates(rateData.rates);
-        setInvoiceImport(data.invoiceImport ?? null);
+        setShipmentImport(data.shipmentImport ?? null);
         setDraft(data.shipmentDraft);
         syncDraftCorrectionForm(data.shipmentDraft);
         syncConsignorForm(data.shipmentDraft);
@@ -1180,7 +1180,7 @@ export default function DpdLabelDraftPage() {
       ) : (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-6">
-            <InvoiceImportBanner summary={invoiceImport} />
+            <ShipmentImportBanner summary={shipmentImport} />
 
               {/* Customs route, first because CSB-V changes what is charged. */}
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1643,14 +1643,5 @@ export default function DpdLabelDraftPage() {
         />
       ) : null}
     </>
-  );
-}
-
-function ResultValue({ label, value, className = "" }: { label: string; value: string; className?: string }) {
-  return (
-    <div className={`min-w-0 bg-white px-4 py-3 ${className}`}>
-      <dt className="text-xs font-semibold uppercase text-emerald-700">{label}</dt>
-      <dd className="mt-1 break-all text-sm font-semibold text-emerald-950">{value}</dd>
-    </div>
   );
 }

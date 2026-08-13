@@ -1,32 +1,26 @@
-import type { IInvoiceUpload } from "../models/invoiceUpload.model.js";
+import type { IShipmentDraft } from "../models/shipmentDraft.model.js";
 
-type ShipmentSourceIdentity = Pick<
-  IInvoiceUpload,
-  "templateVersion" | "extractedData" | "invoiceNumber" | "shipmentReference"
->;
+type ShipmentReferenceDraft = Pick<IShipmentDraft, "_id" | "parcelList">;
 
-/**
- * Manual and walk-in drafts use an InvoiceUpload-shaped record only to keep the
- * existing shipment chain linked. Its generated values are internal source IDs,
- * not customer invoice or shipment references.
- */
-export function isSyntheticShipmentSource(source: ShipmentSourceIdentity | null | undefined) {
-  if (!source) return false;
-  const creationSource = typeof source.extractedData?.creationSource === "string"
-    ? source.extractedData.creationSource.trim().toUpperCase()
-    : "";
-  const templateVersion = source.templateVersion.trim().toUpperCase();
-
-  return creationSource === "MANUAL"
-    || creationSource === "INDIVIDUAL"
-    || templateVersion === "MANUAL-1.0"
-    || templateVersion === "INDIVIDUAL-1.0";
+export function customerShipmentReference(draft: ShipmentReferenceDraft) {
+  return draft.parcelList
+    .map((parcel) => parcel.shipmentReference1?.trim() ?? "")
+    .find(Boolean) ?? "";
 }
 
-export function publicShipmentSourceIdentity(source: ShipmentSourceIdentity | null | undefined) {
-  const synthetic = isSyntheticShipmentSource(source);
-  return {
-    invoiceNumber: synthetic ? "" : source?.invoiceNumber?.trim() ?? "",
-    shipmentReference: synthetic ? "" : source?.shipmentReference?.trim() ?? ""
-  };
+/**
+ * Carrier APIs require both an invoice and shipment reference even though the
+ * Swiftline import template deliberately does not ask customers for an invoice
+ * number. Use the customer's parcel reference where available and a stable
+ * draft reference as the operational fallback.
+ */
+export function carrierShipmentSourceIdentity(draft: ShipmentReferenceDraft) {
+  const reference = customerShipmentReference(draft)
+    || `SLS-${String(draft._id).slice(-12).toUpperCase()}`;
+  return { invoiceNumber: reference, shipmentReference: reference };
+}
+
+/** Customer-facing documents never expose carrier-only fallback identifiers. */
+export function publicShipmentSourceIdentity(draft: ShipmentReferenceDraft) {
+  return { invoiceNumber: "", shipmentReference: customerShipmentReference(draft) };
 }

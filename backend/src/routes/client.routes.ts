@@ -9,12 +9,10 @@ import {
   createClientSwiftlineShipment,
   createClientShipmentLabelAccess,
   createClientManualShipmentDraft,
-  createClientInvoiceUpload,
   deleteClientShipmentDraft,
   deleteClientShipmentKycDocument,
   deleteClientShipmentParcelKycDocument,
   restoreClientShipmentDraft,
-  downloadClientDpdInvoiceTemplate,
   downloadClientShipmentKycDocument,
   downloadClientShipmentParcelKycDocument,
   uploadClientShipmentKycDocument,
@@ -28,7 +26,10 @@ import {
   getClientShipmentDraftRateCardContext,
   getClientShipmentDraftCostEstimate,
   previewClientShipmentAmendment,
-  processClientInvoiceUpload,
+  createClientShipmentImportBatch,
+  createClientShipmentImportDrafts,
+  downloadClientShipmentImportTemplate,
+  getClientShipmentImportBatch,
   updateClientShipmentDraft
 } from "../controllers/client.controller.js";
 import {
@@ -65,7 +66,7 @@ import {
   markClientRateCardShareRead
 } from "../controllers/rateCardShare.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
-import { invoiceUpload } from "../middleware/invoiceUpload.middleware.js";
+import { shipmentImportUpload } from "../middleware/shipmentImportUpload.middleware.js";
 import { shipmentKycUpload } from "../middleware/shipmentKycUpload.middleware.js";
 import {
   acceptClientPaymentTerms, getClientCreditSummary, getClientPaymentTerms, requestClientCredit
@@ -161,9 +162,10 @@ clientRouter.post("/prepaid-topups", createClientPrepaidTopUp);
 clientRouter.post("/prepaid-topups/:id/verify", verifyClientPrepaidTopUp);
 clientRouter.get("/prepaid-topups/:id", getClientPrepaidTopUp);
 clientRouter.get("/prepaid-topups", listClientPrepaidTopUps);
-clientRouter.get("/dpd-labels/template", downloadClientDpdInvoiceTemplate);
-clientRouter.post("/dpd-labels/invoice-uploads", invoiceUpload, createClientInvoiceUpload);
-clientRouter.post("/dpd-labels/invoice-uploads/:id/process", processClientInvoiceUpload);
+clientRouter.get("/shipment-imports/template", downloadClientShipmentImportTemplate);
+clientRouter.post("/shipment-imports/batches", shipmentImportUpload, createClientShipmentImportBatch);
+clientRouter.get("/shipment-imports/batches/:batchId", getClientShipmentImportBatch);
+clientRouter.post("/shipment-imports/batches/:batchId/create-drafts", createClientShipmentImportDrafts);
 clientRouter.post("/dpd-labels/drafts/manual", createClientManualShipmentDraft);
 clientRouter.get("/dpd-labels/drafts/:id", getClientShipmentDraft);
 clientRouter.get("/dpd-labels/drafts/:id/rate-card-context", getClientShipmentDraftRateCardContext);

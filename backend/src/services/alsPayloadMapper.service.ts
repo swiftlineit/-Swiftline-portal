@@ -1,4 +1,3 @@
-import type { IInvoiceUpload } from "../models/invoiceUpload.model.js";
 import type {
   IShipmentDraft,
   ShipmentAddressSnapshot,
@@ -237,13 +236,12 @@ function consigneeFields(consignee: ShipmentAddressSnapshot) {
 
 export function buildAlsCreateDocketPayload(input: {
   draft: IShipmentDraft;
-  invoiceUpload: IInvoiceUpload;
   configuration: DpdProviderConfiguration;
   customerId: number;
   trackingNumber: string;
   bookedAt: Date;
 }): AlsCreateDocketPayload {
-  const { draft, invoiceUpload, configuration, customerId, trackingNumber, bookedAt } = input;
+  const { draft, configuration, customerId, trackingNumber, bookedAt } = input;
   if (!Number.isInteger(customerId) || customerId <= 0) {
     throw new AlsPayloadError("ALS authentication did not return a valid customer ID.");
   }
@@ -264,7 +262,7 @@ export function buildAlsCreateDocketPayload(input: {
   const declaredGoodsValueGbp = Math.max(0.01, declaredGoodsValueInr / inrPerGbp);
   const totalWeight = draft.parcelList.reduce((sum, parcel) => sum + parcel.weightKg, 0);
   const booking = indiaDateParts(bookedAt);
-  const invoiceDate = indiaDateParts(invoiceUpload.uploadedAt ?? bookedAt).date;
+  const invoiceDate = indiaDateParts(bookedAt).date;
   const descriptions = [...new Set(draft.parcelList
     .map((parcel) => parcel.contentsDescription.trim())
     .filter(Boolean))];

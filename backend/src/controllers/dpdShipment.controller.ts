@@ -6,7 +6,6 @@ import { env } from "../config/env.js";
 import { AuditLog, type AuditEntityType } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { LabelDocument } from "../models/labelDocument.model.js";
 import { canAccessBranch } from "../middleware/branchAccess.middleware.js";
 import { labelContentType, labelFileExtension } from "../services/labelStorage.service.js";
@@ -141,7 +140,6 @@ function serializeLabel(label: {
 
 function serializeShipmentDraftSummary(draft: {
   _id: unknown;
-  invoiceUploadId: unknown;
   branchId: unknown;
   consigneeEnteredAddress: {
     companyName?: string;
@@ -158,7 +156,6 @@ function serializeShipmentDraftSummary(draft: {
 
   return {
     id: draft._id,
-    invoiceUploadId: draft.invoiceUploadId,
     branchId: draft.branchId,
     consigneeName: typeof consignee?.companyName === "string"
       ? consignee.companyName
@@ -189,22 +186,6 @@ function serializeBranchSummary(branch: {
     name: branch.name,
     code: branch.code,
     city: branch.address?.city ?? ""
-  };
-}
-
-function serializeInvoiceUploadSummary(upload: {
-  _id: unknown;
-  invoiceNumber: string;
-  shipmentReference: string;
-  originalFilename: string;
-} | null | undefined) {
-  if (!upload) return null;
-
-  return {
-    id: upload._id,
-    invoiceNumber: upload.invoiceNumber,
-    shipmentReference: upload.shipmentReference,
-    originalFilename: upload.originalFilename
   };
 }
 
@@ -556,7 +537,10 @@ async function createShipment(
       return response.status(error.statusCode).json({
         success: false,
         message: error.message,
-        ...error.details
+        ...error.details,
+        // Operations-only: the carrier's own wording names the field to fix.
+        // The client booking route deliberately omits it.
+        ...(error.carrierErrors.length ? { carrierErrors: error.carrierErrors } : {})
       });
     }
 
@@ -661,8 +645,7 @@ export async function listDpdShipmentAudit(request: Request, response: Response)
     : [];
 
   const entityFilters: Array<{ entityType: AuditEntityType; entityId: mongoose.Types.ObjectId }> = [
-    { entityType: "SHIPMENT_DRAFT", entityId: draft._id },
-    { entityType: "INVOICE_UPLOAD", entityId: draft.invoiceUploadId }
+    { entityType: "SHIPMENT_DRAFT", entityId: draft._id }
   ];
 
   if (dpdShipment) {
@@ -716,10 +699,8 @@ export async function listDpdShipments(request: Request, response: Response): Pr
     LabelDocument.find({ dpdShipmentId: { $in: shipmentIds } }).lean().exec(),
     ShipmentDraft.find({ _id: { $in: draftIds } }).lean().exec()
   ]);
-  const invoiceUploadIds = drafts.map((draft) => draft.invoiceUploadId);
   const branchIds = drafts.map((draft) => draft.branchId);
-  const [invoiceUploads, branches, shipmentInvoices] = await Promise.all([
-    InvoiceUpload.find({ _id: { $in: invoiceUploadIds } }).lean().exec(),
+  const [branches, shipmentInvoices] = await Promise.all([
     Branch.find({ _id: { $in: branchIds } }).lean().exec(),
     ShipmentInvoice.find({ shipmentDraftId: { $in: draftIds } })
       .select("shipmentDraftId invoiceNumber currency totalAmountMinor status revision")
@@ -729,7 +710,6 @@ export async function listDpdShipments(request: Request, response: Response): Pr
   const eventsByDraftId = await getShipmentEventsByDraftIds(draftIds as mongoose.Types.ObjectId[]);
   const labelsByShipment = new Map<string, typeof labels>();
   const draftsById = new Map(drafts.map((draft) => [String(draft._id), draft]));
-  const uploadsById = new Map(invoiceUploads.map((upload) => [String(upload._id), upload]));
   const branchesById = new Map(branches.map((branch) => [String(branch._id), branch]));
   const shipmentInvoicesByDraftId = new Map(shipmentInvoices.map((invoice) => [String(invoice.shipmentDraftId), invoice]));
 
@@ -742,7 +722,6 @@ export async function listDpdShipments(request: Request, response: Response): Pr
     success: true,
     shipments: shipments.map((shipment) => {
       const draft = draftsById.get(String(shipment.shipmentDraftId));
-      const upload = draft ? uploadsById.get(String(draft.invoiceUploadId)) : null;
       const branch = draft ? branchesById.get(String(draft.branchId)) : null;
       const events = eventsByDraftId.get(String(shipment.shipmentDraftId)) ?? [];
       const currentEvent = getCurrentShipmentEvent(events);
@@ -758,7 +737,6 @@ export async function listDpdShipments(request: Request, response: Response): Pr
             : null
         ),
         branch: serializeBranchSummary(branch),
-        invoiceUpload: serializeInvoiceUploadSummary(upload),
         shipmentInvoice: shipmentInvoice ? {
           invoiceNumber: shipmentInvoice.invoiceNumber,
           currency: shipmentInvoice.currency,

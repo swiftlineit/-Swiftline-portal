@@ -3,7 +3,6 @@ import { AuditLog } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember, type BusinessAccountMemberRole } from "../models/businessAccountMember.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { ShipmentDraft, type ShipmentContentType, type ShipmentServiceType } from "../models/shipmentDraft.model.js";
 import { ShipmentQuote, type IShipmentQuote, type ShipmentQuoteSource, type ShipmentQuoteStatus } from "../models/shipmentQuote.model.js";
 import { ShipmentQuoteCounter } from "../models/shipmentQuoteCounter.model.js";
@@ -425,9 +424,6 @@ export async function createShipmentDraftFromEstimate(input: {
   }));
   draft.validationIssues = validateShipmentDraftFields(draft);
   await draft.save();
-  await InvoiceUpload.updateOne({ _id: draft.invoiceUploadId }, {
-    $set: { extractedData: { creationSource: "QUOTE_ESTIMATE", estimate } }
-  }).exec();
   return draft;
 }
 
@@ -476,9 +472,6 @@ export async function convertShipmentQuoteToDraft(input: {
     }));
     draft.validationIssues = validateShipmentDraftFields(draft);
     await draft.save();
-    await InvoiceUpload.updateOne({ _id: draft.invoiceUploadId }, {
-      $set: { extractedData: { creationSource: "SHIPMENT_QUOTE", quoteId: input.quote._id, quoteNumber: input.quote.quoteNumber } }
-    }).exec();
     input.quote.status = "CONVERTED";
     input.quote.convertedDraftId = draft._id;
     input.quote.convertedAt = new Date();

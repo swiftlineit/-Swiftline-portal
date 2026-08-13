@@ -2,16 +2,15 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 import { AuditLog } from "../models/auditLog.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { IShipmentDraft, ShipmentDraft, shipmentContentTypeValues, shipmentServiceTypeValues } from "../models/shipmentDraft.model.js";
+import { ShipmentImportEntry } from "../models/shipmentImportEntry.model.js";
 import { mapShipmentDraftToDpdPayload } from "../services/dpdPayloadMapper.service.js";
 import { validateDpdPayload } from "../services/dpdPayloadValidation.service.js";
 import {
   DpdProviderConfigurationError,
   getDpdProviderConfiguration
 } from "../services/dpdProviderConfiguration.service.js";
-import { parseCustomsInvoiceWorkbook } from "../services/customsInvoice/customsInvoiceParser.service.js";
-import { deleteObject, getObjectBuffer } from "../services/storage/storage.service.js";
+import { deleteObject } from "../services/storage/storage.service.js";
 import { maskAadhaarNumber, normalizeAadhaarNumber } from "../services/aadhaarValidation.service.js";
 import { csbTypeValues } from "../services/csbType.service.js";
 import {
@@ -266,36 +265,6 @@ function getDraftPatchValidationIssues(error: z.ZodError) {
   });
 }
 
-function hasText(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-async function backfillDraftPhoneFromInvoice(shipmentDraft: IShipmentDraft) {
-  const address = shipmentDraft.consigneeEnteredAddress;
-  if (hasText(address.mobileCountryCode) && hasText(address.mobileNumber)) return;
-
-  const invoiceUpload = await InvoiceUpload.findById(shipmentDraft.invoiceUploadId).lean().exec();
-  if (!invoiceUpload?.storageKey) return;
-
-  // Best effort: an unreadable or superseded invoice must not break opening a
-  // draft, so a missing object and a parse failure are handled the same way.
-  let parsedInvoice: Awaited<ReturnType<typeof parseCustomsInvoiceWorkbook>>;
-  try {
-    parsedInvoice = await parseCustomsInvoiceWorkbook(await getObjectBuffer(invoiceUpload.storageKey));
-  } catch {
-    return;
-  }
-  if (!parsedInvoice.consignee.mobileCountryCode || !parsedInvoice.consignee.mobileNumber) return;
-
-  shipmentDraft.consigneeEnteredAddress = {
-    ...shipmentDraft.consigneeEnteredAddress,
-    mobileCountryCode: parsedInvoice.consignee.mobileCountryCode,
-    mobileNumber: parsedInvoice.consignee.mobileNumber
-  };
-  shipmentDraft.validationIssues = validateShipmentDraftFields(shipmentDraft);
-  await shipmentDraft.save();
-}
-
 async function syncReviewValidationIssues(shipmentDraft: IShipmentDraft) {
   const reviewIssues = validateShipmentDraftFields(shipmentDraft);
   if (JSON.stringify(shipmentDraft.validationIssues ?? []) === JSON.stringify(reviewIssues)) return;
@@ -314,7 +283,6 @@ export async function getShipmentDraft(request: Request, response: Response): Pr
   try {
     const bookingState = await syncLegacyDraftBookingState(shipmentDraft);
     if (bookingState === "EDITABLE") {
-      await backfillDraftPhoneFromInvoice(shipmentDraft);
       await syncReviewValidationIssues(shipmentDraft);
     }
   } catch {
@@ -324,9 +292,7 @@ export async function getShipmentDraft(request: Request, response: Response): Pr
   return response.status(200).json({
     success: true,
     shipmentDraft,
-    // Lets the review form show the "prefilled from your invoice" banner and any
-    // fields the import could not fill.
-    invoiceImport: await getInvoiceImportSummary(shipmentDraft)
+    shipmentImport: await getShipmentImportSummary(shipmentDraft)
   });
 }
 
@@ -457,19 +423,16 @@ export async function getShipmentDraftRateCardContext(request: Request, response
  * Where the draft came from, and what the import could not fill.
  * Null for manually created drafts, so the banner only shows where it is relevant.
  */
-async function getInvoiceImportSummary(shipmentDraft: IShipmentDraft) {
-  if (!shipmentDraft.invoiceUploadId) return null;
+async function getShipmentImportSummary(shipmentDraft: IShipmentDraft) {
+  if (shipmentDraft.creationSource !== "SHIPMENT_IMPORT" || !shipmentDraft.shipmentImportEntryId) return null;
 
-  const upload = await InvoiceUpload.findById(shipmentDraft.invoiceUploadId)
-    .select("extractedData originalFilename")
+  const entry = await ShipmentImportEntry.findById(shipmentDraft.shipmentImportEntryId)
+    .select("originalFilename warnings")
     .lean()
     .exec();
-  const extracted = upload?.extractedData as Record<string, unknown> | undefined;
-  if (!extracted || extracted.creationSource) return null;
-
   return {
-    originalFilename: upload?.originalFilename ?? "",
-    warnings: Array.isArray(extracted.warnings) ? extracted.warnings as string[] : []
+    originalFilename: entry?.originalFilename ?? "",
+    warnings: entry?.warnings ?? []
   };
 }
 
@@ -793,7 +756,6 @@ export async function validateShipmentDraft(request: Request, response: Response
   }
 
   const issues = validateShipmentDraftFields(shipmentDraft, { requireValidatedAddress: true });
-  const invoiceUpload = await InvoiceUpload.findById(shipmentDraft.invoiceUploadId).exec();
   let configuration;
   try {
     configuration = getDpdProviderConfiguration();
@@ -804,10 +766,8 @@ export async function validateShipmentDraft(request: Request, response: Response
   }
   const dpdConfigured = Boolean(configuration);
 
-  if (!invoiceUpload) {
-    issues.push("Invoice upload is required before DPD validation");
-  } else if (configuration && issues.length === 0) {
-    const payload = mapShipmentDraftToDpdPayload(shipmentDraft, invoiceUpload, configuration);
+  if (configuration && issues.length === 0) {
+    const payload = mapShipmentDraftToDpdPayload(shipmentDraft, configuration);
     issues.push(...validateDpdPayload(payload, configuration));
   }
 
@@ -935,7 +895,7 @@ export async function listEditableShipmentDrafts(request: Request, response: Res
     .lean()
     .exec();
 
-  const [branches, accounts, uploads] = await Promise.all([
+  const [branches, accounts] = await Promise.all([
     Branch.find({ _id: { $in: drafts.map((draft) => draft.branchId) } })
       .select("name code")
       .lean()
@@ -943,31 +903,26 @@ export async function listEditableShipmentDrafts(request: Request, response: Res
     BusinessAccount.find({ _id: { $in: drafts.map((draft) => draft.businessAccountId) } })
       .select("accountId company.companyName")
       .lean()
-      .exec(),
-    InvoiceUpload.find({ _id: { $in: drafts.map((draft) => draft.invoiceUploadId) } })
-      .select("invoiceNumber shipmentReference")
-      .lean()
       .exec()
   ]);
 
   const branchesById = new Map(branches.map((branch) => [String(branch._id), branch]));
   const accountsById = new Map(accounts.map((account) => [String(account._id), account]));
-  const uploadsById = new Map(uploads.map((upload) => [String(upload._id), upload]));
 
   return response.status(200).json({
     success: true,
     drafts: drafts.map((draft) => {
       const branch = branchesById.get(String(draft.branchId));
       const account = accountsById.get(String(draft.businessAccountId));
-      const upload = uploadsById.get(String(draft.invoiceUploadId));
+      const shipmentReference = draft.parcelList?.find((parcel) => parcel.shipmentReference1?.trim())?.shipmentReference1 ?? "";
 
       return {
         id: String(draft._id),
         customerType: draft.customerType ?? "BUSINESS",
         status: draft.status,
         bookingState: draft.bookingState,
-        invoiceNumber: upload?.invoiceNumber ?? "",
-        shipmentReference: upload?.shipmentReference ?? "",
+        invoiceNumber: "",
+        shipmentReference,
         consigneeName: draft.consigneeEnteredAddress?.contactName
           ?? draft.consigneeEnteredAddress?.companyName
           ?? "",

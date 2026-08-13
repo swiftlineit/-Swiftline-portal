@@ -1,12 +1,12 @@
 import type { IBranch } from "../models/branch.model.js";
 import type { IBusinessAccount } from "../models/businessAccount.model.js";
-import type { IInvoiceUpload } from "../models/invoiceUpload.model.js";
 import type { IShipmentDraft } from "../models/shipmentDraft.model.js";
 import type { ShipmentPricingEstimate } from "./shipmentPricing.service.js";
 import type { ShipmentLabelData } from "./shipmentLabelPdf.service.js";
 import { maskAadhaarNumber } from "./aadhaarValidation.service.js";
 import { getParcelItemAmount, normalizeParcelItems } from "./parcelItems.service.js";
 import { formatSwiftlineParcelNumber } from "./swiftlineTracking.service.js";
+import { publicShipmentSourceIdentity } from "./shipmentSourceIdentity.service.js";
 
 export type ShipmentBookingSnapshot = {
   version: 1;
@@ -186,7 +186,6 @@ function buildAccountBlock(draft: IShipmentDraft, account: IBusinessAccount) {
 
 export function buildShipmentBookingSnapshot(input: {
   draft: IShipmentDraft;
-  invoiceUpload: IInvoiceUpload;
   account: IBusinessAccount;
   branch: IBranch;
   pricing: ShipmentPricingEstimate;
@@ -201,12 +200,13 @@ export function buildShipmentBookingSnapshot(input: {
   creditAmountMinor?: number;
 }): ShipmentBookingSnapshot {
   const consignee = input.draft.consigneeValidatedAddress ?? input.draft.consigneeEnteredAddress;
+  const sourceIdentity = publicShipmentSourceIdentity(input.draft);
   return plain({
     version: 1,
     bookedAt: input.bookedAt.toISOString(),
     source: {
-      invoiceNumber: input.invoiceUpload.invoiceNumber,
-      shipmentReference: input.invoiceUpload.shipmentReference
+      invoiceNumber: sourceIdentity.invoiceNumber,
+      shipmentReference: sourceIdentity.shipmentReference
     },
     account: buildAccountBlock(input.draft, input.account),
     sender: {

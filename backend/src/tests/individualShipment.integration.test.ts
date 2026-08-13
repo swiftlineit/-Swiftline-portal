@@ -171,7 +171,7 @@ describe("individual shipment drafts", () => {
     assert.equal(String(draft.businessAccountId), String(sentinel._id));
     assert.equal(draft.consignorAddress.contactName, "Asha Kumari");
     assert.equal(draft.consignorAddress.aadhaarNumber, "123456789012", "Aadhaar is stored as digits only.");
-    assert.ok(draft.invoiceUploadId, "A source record is still required by the shipment chain.");
+    assert.equal(draft.creationSource, "INDIVIDUAL");
   });
 
   test("rejects a branch that is not active", async () => {

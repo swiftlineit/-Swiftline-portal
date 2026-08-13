@@ -18,7 +18,7 @@ import {
   ShipmentTextField
 } from "@/components/shipments/ShipmentFormControls";
 import { ParcelItemsEditor } from "@/components/shipments/ParcelItemsEditor";
-import InvoiceImportBanner from "@/components/shipments/InvoiceImportBanner";
+import ShipmentImportBanner from "@/components/shipments/ShipmentImportBanner";
 import { ConsignorKycSection } from "@/components/shipments/ConsignorKycSection";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
@@ -64,7 +64,7 @@ import {
   ShipmentKycDocuments,
   ShipmentServiceType,
   shipmentContentTypeOptions,
-  type InvoiceImportSummary
+  type ShipmentImportSummary
 } from "@/lib/dpdLabels";
 import {
   ConsignorForm,
@@ -89,7 +89,6 @@ import {
   type ShipmentCostEstimateInput
 } from "@/lib/shipmentCostEstimate";
 import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
-import InfoTooltip from "@/components/ui/InfoTooltip";
 
 /** The booking-panel action currently running; the two booking values are the
  *  provider each button books with. Null when the page is idle. */
@@ -376,7 +375,7 @@ export default function ClientDpdDraftReviewPage() {
   const [priceChange, setPriceChange] = useState<ShipmentPriceChangedError | null>(null);
   // Which button opened the price change dialog, so accepting re-books the same way.
   // Present only on drafts created from an uploaded invoice.
-  const [invoiceImport, setInvoiceImport] = useState<InvoiceImportSummary | null>(null);
+  const [shipmentImport, setShipmentImport] = useState<ShipmentImportSummary | null>(null);
   // Printed as the NOTE block on the shipment (customs) invoice.
   const [declarationNote, setDeclarationNote] = useState(defaultDeclarationNote);
   const [addressQuery, setAddressQuery] = useState("");
@@ -593,7 +592,7 @@ export default function ClientDpdDraftReviewPage() {
 
         setUser(currentUser);
         setRates(rateData.rates);
-        setInvoiceImport(data.invoiceImport ?? null);
+        setShipmentImport(data.shipmentImport ?? null);
         syncDraft(data.shipmentDraft);
       } catch (caughtError) {
         if (!mounted) return;
@@ -1035,7 +1034,7 @@ export default function ClientDpdDraftReviewPage() {
         ) : (
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-5">
-              <InvoiceImportBanner summary={invoiceImport} />
+              <ShipmentImportBanner summary={shipmentImport} />
 
               {/* Customs route, first because CSB-V changes what is charged. */}
               <section className="border border-slate-200 bg-white rounded-2xl">
@@ -1395,18 +1394,6 @@ function SectionHeader({ title }: { title: string }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
       <h2 className="text-sm font-semibold uppercase text-slate-500">{title}</h2>
-    </div>
-  );
-}
-
-function ReadOnlyDetail({ label, value, tooltip }: { label: string; value?: string | number | null; tooltip?: string }) {
-  return (
-    <div>
-      <span className="flex items-center gap-1 text-xs font-semibold uppercase text-slate-500">
-        {label}
-        {tooltip ? <InfoTooltip text={tooltip} /> : null}
-      </span>
-      <p className="mt-1 text-sm font-semibold text-slate-950">{value || "Not available"}</p>
     </div>
   );
 }

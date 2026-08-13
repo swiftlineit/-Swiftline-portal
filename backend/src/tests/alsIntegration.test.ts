@@ -93,10 +93,6 @@ describe("ALS create_docket request mapping", () => {
   test("maps portal parcel goods to the mandatory GBP ALS shipment invoice", () => {
     const payload = buildAlsCreateDocketPayload({
       draft: draft() as never,
-      invoiceUpload: {
-        invoiceNumber: "INV-TEST-1001",
-        uploadedAt: new Date("2026-08-11T06:30:00.000Z")
-      } as never,
       configuration,
       customerId: 18,
       trackingNumber: "SLCDEL110826001",
@@ -171,7 +167,6 @@ describe("ALS create_docket request mapping", () => {
     assert.throws(
       () => buildAlsCreateDocketPayload({
         draft: invalidDraft as never,
-        invoiceUpload: { uploadedAt: new Date("2026-08-11T06:30:00.000Z") } as never,
         configuration,
         customerId: 18,
         trackingNumber: "SLCDEL110826004",
@@ -259,7 +254,6 @@ describe("ALS booking retry safety", () => {
       const response = await createDpdShipment(
         configuration,
         draft() as never,
-        { invoiceNumber: "INV-RETRY", uploadedAt: new Date("2026-08-11T06:30:00.000Z") } as never,
         "SLCDEL110826002",
         new Date("2026-08-11T06:30:00.000Z")
       );
@@ -295,7 +289,6 @@ describe("ALS booking retry safety", () => {
         createDpdShipment(
           configuration,
           draft() as never,
-          { invoiceNumber: "INV-NETWORK", uploadedAt: new Date("2026-08-11T06:30:00.000Z") } as never,
           "SLCDEL110826003",
           new Date("2026-08-11T06:30:00.000Z")
         ),

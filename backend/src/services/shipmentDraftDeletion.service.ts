@@ -10,8 +10,7 @@ import {
 /**
  * How long a deleted draft stays restorable from the UI. The undo action on the
  * delete toast is the only route back, so this only has to outlast the toast —
- * it exists to stop a stale tab resurrecting a draft days later, by which point
- * the invoice has usually been re-uploaded into a new one.
+ * it exists to stop a stale tab resurrecting a draft days later.
  */
 export const shipmentDraftRestoreWindowMs = 15 * 60 * 1000;
 
@@ -29,7 +28,8 @@ async function writeDeletionAudit(
     metadata: {
       businessAccountId: draft.businessAccountId,
       branchId: draft.branchId,
-      invoiceUploadId: draft.invoiceUploadId,
+      creationSource: draft.creationSource,
+      shipmentImportEntryId: draft.shipmentImportEntryId,
       customerType: draft.customerType,
       consigneeName: draft.consigneeEnteredAddress?.contactName ?? "",
       parcelCount: draft.parcelList?.length ?? 0
@@ -40,9 +40,8 @@ async function writeDeletionAudit(
 /**
  * Soft-deletes an unbooked draft.
  *
- * Nothing is destroyed: the KYC files, the linked InvoiceUpload, and the audit
- * trail all stay put. The draft simply stops being live, which frees its
- * invoice to be uploaded again into a fresh draft.
+ * Nothing is destroyed: KYC files, the linked import entry and the audit trail
+ * stay put. The draft simply stops being live.
  */
 export async function deleteShipmentDraft(input: {
   draft: IShipmentDraft;
@@ -74,9 +73,8 @@ export async function deleteShipmentDraft(input: {
 /**
  * Undo for the delete above, backing the toast action.
  *
- * Restoring is refused once the invoice has been uploaded again, because the
- * partial unique index allows only one live draft per invoice upload — and the
- * newer draft is the one the user has been working in.
+ * An imported draft cannot be restored if the same import entry already has a
+ * newer live draft.
  */
 export async function restoreShipmentDraft(input: {
   draftId: mongoose.Types.ObjectId;
@@ -96,18 +94,20 @@ export async function restoreShipmentDraft(input: {
 
   if (Date.now() - draft.deletedAt.getTime() > shipmentDraftRestoreWindowMs) {
     throw new ShipmentDraftPolicyError(
-      "This shipment draft can no longer be restored. Upload the invoice again to start a new one.",
+      "This shipment draft can no longer be restored. Start a new draft instead.",
       409
     );
   }
 
-  const replacement = await ShipmentDraft.countDocuments({
-    invoiceUploadId: draft.invoiceUploadId,
-    deletedAt: null
-  }).exec();
+  const replacement = draft.shipmentImportEntryId
+    ? await ShipmentDraft.countDocuments({
+        shipmentImportEntryId: draft.shipmentImportEntryId,
+        deletedAt: null
+      }).exec()
+    : 0;
   if (replacement) {
     throw new ShipmentDraftPolicyError(
-      "This invoice already has a newer shipment draft, so the deleted one cannot be restored.",
+      "This imported row already has a newer shipment draft, so the deleted one cannot be restored.",
       409
     );
   }

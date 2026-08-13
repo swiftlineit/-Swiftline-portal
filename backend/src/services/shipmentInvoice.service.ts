@@ -3,7 +3,6 @@ import { Branch } from "../models/branch.model.js";
 import { BalanceReservation } from "../models/balanceReservation.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
-import { InvoiceUpload } from "../models/invoiceUpload.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentCharge } from "../models/shipmentCharge.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
@@ -164,19 +163,16 @@ export async function ensureShipmentInvoiceForDraft(input: {
 
   const accountQuery = BusinessAccount.findById(draft.businessAccountId);
   const branchQuery = Branch.findById(draft.branchId);
-  const uploadQuery = InvoiceUpload.findById(draft.invoiceUploadId);
   const chargeQuery = ShipmentCharge.findOne({ shipmentDraftId: draft._id });
   if (input.session) {
     accountQuery.session(input.session);
     branchQuery.session(input.session);
-    uploadQuery.session(input.session);
     chargeQuery.session(input.session);
   }
   const account = await accountQuery.exec();
   const branch = await branchQuery.exec();
-  const upload = await uploadQuery.exec();
   const charge = await chargeQuery.exec();
-  if (!account || !branch || !upload) throw new ShipmentInvoiceServiceError("Invoice master data is incomplete.", 409);
+  if (!account || !branch) throw new ShipmentInvoiceServiceError("Invoice master data is incomplete.", 409);
 
   let pricing: ShipmentPricingEstimate;
   if (input.pricingOverride) {
@@ -311,8 +307,7 @@ export async function ensureShipmentInvoiceForDraft(input: {
     phone: `${asString(snapshotContact.countryCode) || fallbackContact.countryCode} ${asString(snapshotContact.mobileNumber) || fallbackContact.mobileNumber}`.trim()
   };
   const snapshotParcels = bookingSnapshot?.parcels ?? [];
-  // The shipment's public identity is the Swiftline AWB. The source upload
-  // reference remains stored separately for internal/import traceability.
+  // The shipment's public identity is the Swiftline AWB.
   const shipmentReference = bookingSnapshot?.tracking.swiftlineTrackingNumber
     || dpdShipment.swiftlineTrackingNumber
     || "";
@@ -322,7 +317,7 @@ export async function ensureShipmentInvoiceForDraft(input: {
   const customerReference = typeof snapshotCustomerReference === "string"
     ? snapshotCustomerReference
     : draft.parcelList.find((parcel) => parcel.shipmentReference1?.trim())?.shipmentReference1 || "";
-  const sourceInvoiceNumber = bookingSnapshot?.source.invoiceNumber || upload.invoiceNumber;
+  const sourceInvoiceNumber = bookingSnapshot?.source.invoiceNumber || "";
   const serviceType = bookingSnapshot?.service.type || draft.serviceType;
   const serviceCode = bookingSnapshot?.service.code || draft.serviceCode || dpdShipment.serviceCode;
   const shipment = {

@@ -339,6 +339,13 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                     <span className="inline-flex py-1 text-xs font-semibold text-slate-700">
                       {shipment.statusLabel}
                     </span>
+                    {/* A booking that reached the carrier but has not completed is
+                        shown here rather than being hidden from this table. */}
+                    {shipment.bookingStatus !== "LABEL_RECEIVED" ? (
+                      <p className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                        {shipment.bookingStatusLabel}
+                      </p>
+                    ) : null}
                     {shipment.manifest ? (
                       <p className="mt-1 text-xs font-semibold text-[#0D1282]">
                         Manifest {shipment.manifest.manifestNumber}

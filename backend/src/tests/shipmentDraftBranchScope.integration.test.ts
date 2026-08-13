@@ -92,7 +92,7 @@ async function createBusinessAccount(assignedBranch: mongoose.Types.ObjectId) {
 /** A draft sitting in the home branch, which is what every check is made against. */
 async function createDraft(branchId: mongoose.Types.ObjectId) {
   return ShipmentDraft.create({
-    invoiceUploadId: new mongoose.Types.ObjectId(),
+    creationSource: "MANUAL",
     businessAccountId: homeAccountId,
     branchId,
     consigneeEnteredAddress: {
