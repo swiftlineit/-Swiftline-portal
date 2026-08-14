@@ -22,6 +22,7 @@ import {
   FiTag,
   FiTruck,
   FiUser,
+  FiUsers,
 } from "react-icons/fi";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -54,7 +55,7 @@ type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking" | "addres
  * Grouped by the job the customer came to do.
  *
  * Only destinations that exist are listed, so a link is never a 404. Still to
- * arrive: Bulk Upload and Team Members. Shipment Templates is deliberately
+ * arrive: Bulk Upload. Shipment Templates is deliberately
  * absent — it was dropped from scope rather than deferred.
  */
 const clientNavigation: Array<
@@ -130,6 +131,7 @@ const clientNavigation: Array<
     items: [
       { label: "My Profile", href: "/client/profile", icon: FiUser },
       // Owners and admins only; the endpoint enforces it too.
+      { label: "Team Members", href: "/client/team", icon: FiUsers, access: "accountAdmin" },
       { label: "Activity", href: "/client/activity", icon: FiActivity, access: "accountAdmin" },
       { label: "Holiday & Cut-Off Calendar", href: "/client/operations-calendar", icon: FiCalendar },
     ],
