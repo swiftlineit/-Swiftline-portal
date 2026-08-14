@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { FiAlertTriangle, FiChevronDown, FiPlus, FiShield } from "react-icons/fi";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import ClaimTable from "@/components/claims/ClaimTable";
-import { claimLabel, listClaims, type Claim, type ClaimStatus } from "@/lib/claims";
+import { TableToolbar } from "@/components/ui/TableToolbar";
+import { claimLabel, claimListPath, listClaims, type Claim, type ClaimStatus } from "@/lib/claims";
 import { useClientUser } from "@/lib/useClientUser";
 
 /** Statuses worth filtering by. The full set is long and mostly internal. */
@@ -125,6 +126,16 @@ export default function ClientClaimsPage() {
           {error}
         </div>
       ) : null}
+
+      {/* Money columns appear in the file only if this login may see them on
+          screen, so an exported claim list cannot leak amounts. */}
+      <div className="mb-3">
+        <TableToolbar
+          exportPath={claimListPath("client")}
+          exportParams={new URLSearchParams(status ? { status } : {})}
+          exportName="claims"
+        />
+      </div>
 
       <ClaimTable claims={claims} loading={dataLoading} />
     </div>

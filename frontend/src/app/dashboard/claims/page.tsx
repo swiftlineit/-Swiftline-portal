@@ -9,11 +9,13 @@ import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
 import {
   claimLabel,
   formatClaimAmount,
+  claimListPath,
   listStaffClaims,
   claimCategories,
   type ClaimStatus,
   type StaffQueueClaim
 } from "@/lib/claims";
+import { TableToolbar } from "@/components/ui/TableToolbar";
 import { CLAIMS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
@@ -221,6 +223,22 @@ export default function StaffClaimsPage() {
           {error}
         </div>
       ) : null}
+
+      {/* The queue's own filters, so the file matches the reviewer's view. */}
+      <div className="mb-3">
+        <TableToolbar
+          exportPath={claimListPath("staff")}
+          exportParams={new URLSearchParams(Object.entries({
+            status,
+            search: search.trim(),
+            category,
+            decisionOutcome: outcome,
+            assignedTo: mineOnly ? "me" : unassignedOnly ? "unassigned" : "",
+            slaOverdue: overdueOnly ? "1" : ""
+          }).filter(([, value]) => value) as Array<[string, string]>)}
+          exportName="claims"
+        />
+      </div>
 
       {dataLoading ? (
         <div className="border border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500">

@@ -14,6 +14,8 @@ import { Branch } from "../models/branch.model.js";
 import { User } from "../models/user.model.js";
 import { claimCategoryValues, claimRecoveryStateValues, claimStatusValues } from "../models/claimTypes.js";
 import { buildClaimChecklistFor } from "../services/claims/claimChecklist.service.js";
+import { claimExportColumns, claimFinancialExportColumns, staffClaimExportColumns } from "../services/export/exportColumns.js";
+import { EXPORT_ROW_CAP, describeFilters, exportFormat, sendTableExport } from "../services/export/tableExportHttp.js";
 import {
   acceptSettlement,
   ClaimDecisionError,
@@ -307,7 +309,12 @@ export async function listClientClaims(request: Request, response: Response, nex
     const query: Record<string, unknown> = { $or: scopes };
     if (claimStatusValues.includes(status as never)) query.status = status;
 
-    const claims = await Claim.find(query).sort({ createdAt: -1 }).limit(100).exec();
+    const format = exportFormat(request);
+    // The screen shows a capped list; an export is of everything that matched.
+    const claims = await Claim.find(query)
+      .sort({ createdAt: -1 })
+      .limit(format ? EXPORT_ROW_CAP : 100)
+      .exec();
 
     // Financial visibility follows the strongest role the member holds, since a
     // single user can belong to several accounts in different capacities.
@@ -315,10 +322,23 @@ export async function listClientClaims(request: Request, response: Response, nex
       clientCan(membership.role, "VIEW_FINANCIALS")
     );
 
-    return response.json({
-      success: true,
-      claims: claims.map((claim) => serializeClaim(claim, { includeFinancials, audience: "CLIENT" }))
-    });
+    const rows = claims.map((claim) => serializeClaim(claim, { includeFinancials, audience: "CLIENT" }));
+
+    if (format) {
+      return sendTableExport(response, format, {
+        title: "Claims",
+        // The money columns are appended only for a member allowed to see
+        // them, so an exported file cannot carry amounts the same login is
+        // refused on screen.
+        columns: includeFinancials
+          ? [...claimExportColumns, ...claimFinancialExportColumns]
+          : claimExportColumns,
+        rows: rows as never[],
+        appliedFilters: describeFilters({ Status: request.query.status })
+      });
+    }
+
+    return response.json({ success: true, claims: rows });
   } catch (error) {
     return handle(error, response, next);
   }
@@ -961,7 +981,11 @@ export async function listStaffClaims(request: Request, response: Response, next
       query.status = { $nin: ["SETTLED", "CLOSED", "WITHDRAWN"] };
     }
 
-    const claims = await Claim.find(query).sort({ updatedAt: -1 }).limit(200).exec();
+    const staffFormat = exportFormat(request);
+    const claims = await Claim.find(query)
+      .sort({ updatedAt: -1 })
+      .limit(staffFormat ? EXPORT_ROW_CAP : 200)
+      .exec();
 
     // Resolved in three bulk queries rather than per row: a 200-claim queue would
     // otherwise issue 600 lookups to print names the reviewer needs to read.
@@ -991,32 +1015,50 @@ export async function listStaffClaims(request: Request, response: Response, next
     const nameOf = (row?: { firstName?: string; lastName?: string; name?: string; email?: string }) =>
       row ? [row.firstName, row.lastName].filter(Boolean).join(" ") || row.name || row.email || "" : "";
 
-    return response.json({
-      success: true,
-      claims: claims.map((claim) => {
-        const account = accountById.get(String(claim.businessAccountId));
-        const branch = branchById.get(String(claim.branchId));
-        const handler = claim.assignedTo ? handlerById.get(String(claim.assignedTo)) : undefined;
+    const staffIncludesFinancials = staffCan(user.role, "VIEW_FINANCIALS");
+    const staffRows = claims.map((claim) => {
+      const account = accountById.get(String(claim.businessAccountId));
+      const branch = branchById.get(String(claim.branchId));
+      const handler = claim.assignedTo ? handlerById.get(String(claim.assignedTo)) : undefined;
 
-        return {
-          ...serializeClaim(claim, {
-            includeFinancials: staffCan(user.role, "VIEW_FINANCIALS"),
-            audience: "STAFF"
-          }),
-          assignedTo: claim.assignedTo ? String(claim.assignedTo) : null,
-          // Names rather than object ids: a queue showing raw identifiers is one
-          // a reviewer has to decode before they can use it.
-          businessAccountName: account?.company?.companyName ?? "",
-          businessAccountCode: account?.accountId ?? "",
-          branchName: branch?.name ?? "",
-          branchCode: branch?.code ?? "",
-          assignedToName: nameOf(handler),
-          affectedParcelCount: claim.affectedParcelSequences.length,
-          // Surfaced in the queue so a late filing is visible before anyone opens it.
-          filedLate: claim.deadlines?.filedLate ?? false
-        };
-      })
+      return {
+        ...serializeClaim(claim, { includeFinancials: staffIncludesFinancials, audience: "STAFF" }),
+        assignedTo: claim.assignedTo ? String(claim.assignedTo) : null,
+        // Names rather than object ids: a queue showing raw identifiers is one
+        // a reviewer has to decode before they can use it.
+        businessAccountName: account?.company?.companyName ?? "",
+        businessAccountCode: account?.accountId ?? "",
+        branchName: branch?.name ?? "",
+        branchCode: branch?.code ?? "",
+        assignedToName: nameOf(handler),
+        affectedParcelCount: claim.affectedParcelSequences.length,
+        // Surfaced in the queue so a late filing is visible before anyone opens it.
+        filedLate: claim.deadlines?.filedLate ?? false
+      };
     });
+
+    if (staffFormat) {
+      return sendTableExport(response, staffFormat, {
+        title: "Claims",
+        columns: [
+          ...claimExportColumns,
+          ...staffClaimExportColumns,
+          ...(staffIncludesFinancials ? claimFinancialExportColumns : [])
+        ] as never[],
+        rows: staffRows as never[],
+        accountLabel: "Swiftline staff",
+        appliedFilters: describeFilters({
+          Status: request.query.status,
+          Category: request.query.category,
+          Outcome: request.query.decisionOutcome,
+          Search: request.query.search,
+          From: request.query.submittedFrom,
+          To: request.query.submittedTo
+        })
+      });
+    }
+
+    return response.json({ success: true, claims: staffRows });
   } catch (error) {
     return handle(error, response, next);
   }

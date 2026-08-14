@@ -115,3 +115,91 @@ export const ticketExportColumns: Array<ExportColumn<TicketRow>> = [
   { header: "Resolved", value: (row) => asDate(row.resolvedAt), width: 20 },
   { header: "Closed", value: (row) => asDate(row.closedAt), width: 20 }
 ];
+
+/** A row of the claims list, as `serializeClaim` emits one. */
+type ClaimRow = {
+  claimNumber: string | null;
+  status: string;
+  category: string;
+  submissionStage: string;
+  decisionOutcome: string | null;
+  acceptanceState: string;
+  appealState: string;
+  incidentDate: string | Date | null;
+  shipmentSnapshot: {
+    trackingNumber: string;
+    consigneeName: string;
+    destinationCountryCode: string;
+    serviceName: string;
+    bookedAt: string | Date;
+    deliveredAt: string | Date | null;
+  } | null;
+  deadlines: { filingDeadlineAt: string | Date; filedLate: boolean } | null;
+  currency?: string;
+  requestedAmountMinor?: number;
+  approvedAmountMinor?: number | null;
+  paidAmountMinor?: number | null;
+  submittedAt: string | Date | null;
+  decidedAt: string | Date | null;
+  settledAt: string | Date | null;
+  createdAt: string | Date;
+};
+
+/**
+ * Claim columns, minus money.
+ *
+ * The amounts are role-gated: `serializeClaim` omits them entirely for a member
+ * without financial visibility. A spreadsheet is the easiest thing in the world
+ * to forward, so the money columns are a separate list added only when the
+ * caller was allowed to see them — rather than one list that quietly writes
+ * blanks and leaves the headings standing.
+ */
+export const claimExportColumns: Array<ExportColumn<ClaimRow>> = [
+  { header: "Claim", value: (row) => row.claimNumber ?? "Draft", width: 20 },
+  { header: "Status", value: (row) => words(row.status), width: 22 },
+  { header: "Category", value: (row) => words(row.category), width: 24 },
+  { header: "Stage", value: (row) => words(row.submissionStage), width: 18 },
+  { header: "Decision", value: (row) => row.decisionOutcome ? words(row.decisionOutcome) : "", width: 20 },
+  { header: "Acceptance", value: (row) => words(row.acceptanceState), width: 16 },
+  { header: "Appeal", value: (row) => words(row.appealState), width: 16 },
+  { header: "AWB", value: (row) => row.shipmentSnapshot?.trackingNumber ?? "", width: 20 },
+  { header: "Consignee", value: (row) => row.shipmentSnapshot?.consigneeName ?? "", width: 24 },
+  { header: "Destination", value: (row) => row.shipmentSnapshot?.destinationCountryCode ?? "", width: 12 },
+  { header: "Service", value: (row) => row.shipmentSnapshot?.serviceName ?? "", width: 14 },
+  { header: "Shipment booked", value: (row) => asDate(row.shipmentSnapshot?.bookedAt ?? null), width: 20 },
+  { header: "Delivered", value: (row) => asDate(row.shipmentSnapshot?.deliveredAt ?? null), width: 20 },
+  { header: "Incident date", value: (row) => asDate(row.incidentDate), width: 20 },
+  { header: "Filing deadline", value: (row) => asDate(row.deadlines?.filingDeadlineAt ?? null), width: 20 },
+  { header: "Filed late", value: (row) => row.deadlines?.filedLate ? "Yes" : "No", width: 12 },
+  { header: "Raised", value: (row) => asDate(row.createdAt), width: 20 },
+  { header: "Submitted", value: (row) => asDate(row.submittedAt), width: 20 },
+  { header: "Decided", value: (row) => asDate(row.decidedAt), width: 20 },
+  { header: "Settled", value: (row) => asDate(row.settledAt), width: 20 }
+];
+
+/**
+ * Who the claim belongs to and who is working it.
+ *
+ * Staff only, and not because a customer is forbidden the columns — their own
+ * account and branch are the same on every row, so the columns would carry no
+ * information and only make the file wider.
+ */
+export const staffClaimExportColumns: Array<ExportColumn<ClaimRow & {
+  businessAccountName: string;
+  businessAccountCode: string;
+  branchName: string;
+  branchCode: string;
+  assignedToName: string;
+}>> = [
+  { header: "Account", value: (row) => row.businessAccountCode ? `${row.businessAccountName} (${row.businessAccountCode})` : row.businessAccountName, width: 28 },
+  { header: "Branch", value: (row) => row.branchCode ? `${row.branchName} (${row.branchCode})` : row.branchName, width: 22 },
+  { header: "Handler", value: (row) => row.assignedToName || "Unassigned", width: 22 }
+];
+
+/** Appended only for a caller with financial visibility. */
+export const claimFinancialExportColumns: Array<ExportColumn<ClaimRow>> = [
+  { header: "Currency", value: (row) => row.currency ?? "", width: 10 },
+  { header: "Requested", value: (row) => fromMinor(row.requestedAmountMinor), width: 14 },
+  { header: "Approved", value: (row) => fromMinor(row.approvedAmountMinor), width: 14 },
+  { header: "Paid", value: (row) => fromMinor(row.paidAmountMinor), width: 14 }
+];

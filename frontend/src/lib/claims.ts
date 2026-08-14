@@ -368,6 +368,11 @@ function root(audience: ClaimAudience) {
   return audience === "client" ? "/api/v1/client/claims" : "/api/v1/claims";
 }
 
+/** The list endpoint, so an export targets the same one the table reads. */
+export function claimListPath(audience: ClaimAudience) {
+  return root(audience);
+}
+
 function json(method: string, body?: unknown): RequestInit {
   return {
     method,
