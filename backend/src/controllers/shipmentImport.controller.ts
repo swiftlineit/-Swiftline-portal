@@ -97,9 +97,49 @@ function serializeEntry(entry: {
   };
 }
 
+/**
+ * The reasons rows failed, tallied across the batch.
+ *
+ * The per-row messages were already there; what was missing is the answer to
+ * "what is wrong with this file" — which is a count per reason, not a hundred
+ * rows to read. A parcel prefix is stripped so the same fault on three parcels
+ * of one shipment counts as that fault three times rather than as three
+ * different problems.
+ *
+ * Errors are listed before warnings because one stops the shipment being
+ * created and the other does not.
+ */
+function summariseIssues(entries: Array<{ warnings?: string[]; importErrors?: string[] }>) {
+  const tally = new Map<string, { reason: string; count: number; blocking: boolean }>();
+
+  const add = (message: string, blocking: boolean) => {
+    // "Parcel 2: Actual Weight KG is missing or zero." -> the fault itself.
+    const reason = message.replace(/^Parcel\s+\d+:\s*/i, "").trim();
+    if (!reason) return;
+    const existing = tally.get(reason);
+    if (existing) {
+      existing.count += 1;
+      // A reason seen as both stays blocking: the stricter reading is the safe one.
+      existing.blocking = existing.blocking || blocking;
+      return;
+    }
+    tally.set(reason, { reason, count: 1, blocking });
+  };
+
+  for (const entry of entries) {
+    for (const message of entry.importErrors ?? []) add(message, true);
+    for (const message of entry.warnings ?? []) add(message, false);
+  }
+
+  return [...tally.values()].sort((left, right) =>
+    Number(right.blocking) - Number(left.blocking) || right.count - left.count
+  );
+}
+
 async function serializeBatch(batch: InstanceType<typeof ShipmentImportBatch>) {
   const entries = await ShipmentImportEntry.find({ batchId: batch._id }).sort({ position: 1 }).lean().exec();
   return {
+    issueSummary: summariseIssues(entries),
     id: String(batch._id),
     businessAccountId: String(batch.businessAccountId),
     branchId: String(batch.branchId),

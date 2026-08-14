@@ -153,6 +153,35 @@ export default function ShipmentImportPanel({
             <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-800">{batch.needsReviewCount} needs review</span>
             <span className="rounded-full bg-red-50 px-3 py-1 text-red-800">{batch.invalidCount} invalid</span>
           </div>
+
+          {/* What is actually wrong with the file, counted per reason.
+              The per-row detail below answers "which row"; this answers "what
+              do I need to fix", which is the question somebody holding a
+              hundred-row spreadsheet is asking. */}
+          {batch.issueSummary?.length ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                What needs fixing
+              </p>
+              <ul className="mt-2 space-y-1">
+                {batch.issueSummary.map((issue) => (
+                  <li key={issue.reason} className="flex items-start gap-2 text-sm">
+                    <span className={`mt-0.5 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-bold ${
+                      issue.blocking ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-900"
+                    }`}>
+                      {issue.count}
+                    </span>
+                    <span className="min-w-0 text-slate-700">
+                      {issue.reason}
+                      {issue.blocking ? (
+                        <span className="ml-1 text-xs font-semibold text-red-700">— blocks import</span>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
             {batch.entries.map((entry) => {
               const selectable = ["READY", "NEEDS_REVIEW", "CREATE_FAILED"].includes(entry.status);

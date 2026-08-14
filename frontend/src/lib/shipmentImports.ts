@@ -34,6 +34,11 @@ export type ShipmentImportBatch = {
   readyCount: number;
   needsReviewCount: number;
   invalidCount: number;
+  /**
+   * Why rows failed, counted per reason across the batch. The per-entry
+   * messages say which row; this says what to fix.
+   */
+  issueSummary?: Array<{ reason: string; count: number; blocking: boolean }>;
   createdCount: number;
   failedCount: number;
   confirmedAt: string | null;
