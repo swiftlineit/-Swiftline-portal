@@ -128,8 +128,8 @@ export async function approveClientAccessRequest(request: Request, response: Res
     emailSent: granted.emailSent,
     emailError: granted.emailError,
     message: granted.emailSent
-      ? `Invitation sent to ${pending.requestedInvite.email}.`
-      : `Access approved. The invitation email could not be sent to ${pending.requestedInvite.email} — copy the activation link from the account instead.`
+      ? `Invitation sent to ${pending.requestedInvite.email}. They now appear under Users as Invited, and become Active once they set their password.`
+      : `Access approved, but the invitation email could not be sent to ${pending.requestedInvite.email} — copy the activation link from the business account instead. They appear under Users as Invited.`
   });
 }
 
