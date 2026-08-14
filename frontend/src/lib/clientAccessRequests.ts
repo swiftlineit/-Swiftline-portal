@@ -49,21 +49,20 @@ export function listClientAccessRequests() {
   return request<{ success: true; requests: ClientAccessRequest[] }>("/api/v1/users/access-requests");
 }
 
-/** Returns the details needed to create the login on the existing flow. */
-export function beginClientAccessApproval(requestId: string) {
+/**
+ * Approves the request: creates the login, sends the invitation, clears the row.
+ *
+ * One call rather than a redirect to a prefilled form. `emailSent` is false
+ * when the login was created but the invitation could not be delivered — the
+ * approval still stands, so the caller reports it as a warning, not a failure.
+ */
+export function approveClientAccessRequest(requestId: string) {
   return request<{
     success: true;
-    accountId: string;
-    invite: { firstName: string; lastName: string; email: string; phone: string; role: string };
+    message: string;
+    emailSent: boolean;
+    emailError?: string;
   }>(`/api/v1/users/access-requests/${requestId}/approve`, { method: "POST" });
-}
-
-/** Called once the login has actually been created, to clear the request. */
-export function completeClientAccessApproval(requestId: string) {
-  return request<{ success: true; message: string }>(
-    `/api/v1/users/access-requests/${requestId}/complete`,
-    { method: "POST" }
-  );
 }
 
 export function declineClientAccessRequest(requestId: string, reason: string) {

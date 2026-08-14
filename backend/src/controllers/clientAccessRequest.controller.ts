@@ -8,6 +8,7 @@ import {
   businessAccountMemberRoleLabels
 } from "../models/businessAccountMember.model.js";
 import { notifyPortalUsers } from "../services/portalNotification.service.js";
+import { grantClientAccess } from "./businessAccountAccess.controller.js";
 
 /**
  * Client login requests awaiting Swiftline.
@@ -65,12 +66,17 @@ export async function listClientAccessRequests(_request: Request, response: Resp
 }
 
 /**
- * Approves a request by handing it to the existing client-access flow.
+ * Approves a request: creates the login, sends the invitation, clears the row.
  *
- * The account, KYC and duplicate checks that flow already performs are the
- * ones that matter, so approval reuses it rather than creating a user here
- * and quietly skipping them. The pending row is only marked once that
- * succeeded.
+ * Done in one step rather than by handing the operator a prefilled form. The
+ * approval decision has already been made by the time this is called, so an
+ * extra screen only creates a window where the request is approved but no
+ * invitation exists — and it left the request sitting in the queue looking
+ * unhandled.
+ *
+ * `grantClientAccess` is the same function the manual form uses, so the
+ * account and KYC gate, the global duplicate check and the invitation email
+ * behave identically. Nothing about who may sign in is decided here.
  */
 export async function approveClientAccessRequest(request: Request, response: Response): Promise<Response> {
   const userId = actorId(request);
@@ -89,29 +95,86 @@ export async function approveClientAccessRequest(request: Request, response: Res
   const account = await BusinessAccount.findById(pending.businessAccount).select("accountId").lean().exec();
   if (!account) return response.status(404).json({ success: false, message: "Business account was not found." });
 
-  return response.status(200).json({
-    success: true,
-    /**
-     * The staff screen finishes this on the existing endpoint.
-     *
-     * Creating the login means a user record, a password invitation and a
-     * duplicate check across every account — all of which
-     * `createBusinessAccountClientAccess` already does correctly. Duplicating
-     * it here would be a second implementation of the rules that decide who
-     * can log in to Swiftline.
-     */
+  const granted = await grantClientAccess({
     accountId: account.accountId,
-    invite: {
+    data: {
       firstName: pending.requestedInvite.firstName,
       lastName: pending.requestedInvite.lastName,
       email: pending.requestedInvite.email,
       phone: pending.requestedInvite.phone,
-      role: pending.role
-    }
+      role: pending.role,
+      assignedBranches: [],
+      sendInvitationEmail: true
+    },
+    adminId: userId
+  });
+
+  if (!granted.ok) {
+    // The request stays in the queue. A rejected duplicate or an unverified
+    // KYC is something the operator has to resolve, not something to hide by
+    // clearing the row.
+    return response.status(granted.status).json({
+      success: false,
+      message: granted.message,
+      ...(granted.code ? { code: granted.code } : {})
+    });
+  }
+
+  await finaliseApprovedRequest(pending, userId);
+
+  return response.status(200).json({
+    success: true,
+    member: granted.member,
+    emailSent: granted.emailSent,
+    emailError: granted.emailError,
+    message: granted.emailSent
+      ? `Invitation sent to ${pending.requestedInvite.email}.`
+      : `Access approved. The invitation email could not be sent to ${pending.requestedInvite.email} — copy the activation link from the account instead.`
   });
 }
 
-/** Marks the request approved once the login has actually been created. */
+/**
+ * Clears an approved request and tells the customer.
+ *
+ * The pending row is removed rather than marked: the real membership now
+ * exists, created by the access flow, and two rows for one person would
+ * double-count them in the team list and the seat count.
+ */
+async function finaliseApprovedRequest(
+  pending: Awaited<ReturnType<typeof BusinessAccountMember.findOne>> & object,
+  userId: mongoose.Types.ObjectId
+) {
+  await BusinessAccountMember.deleteOne({ _id: pending._id }).exec();
+
+  await AuditLog.create({
+    action: "BUSINESS_ACCOUNT_MEMBER_INVITE_APPROVED",
+    entityType: "BUSINESS_ACCOUNT",
+    entityId: pending.businessAccount,
+    performedBy: userId,
+    performedAt: new Date(),
+    metadata: { email: pending.requestedInvite?.email ?? "", role: pending.role }
+  });
+
+  await notifyPortalUsers([pending.invitedBy], {
+    type: "CLIENT_ACCESS_APPROVED",
+    title: "Portal access approved",
+    message: `${pending.requestedInvite?.email ?? "Your colleague"} can now sign in to the Swiftline portal.`,
+    href: "/client/team",
+    idempotencyKey: `client-access-approved:${String(pending._id)}`,
+    businessAccountId: pending.businessAccount
+  });
+}
+
+/**
+ * Clears a request whose login was created by hand.
+ *
+ * An operator who creates the access directly on the business account screen
+ * leaves the matching request in the queue, where approving it would now fail
+ * on the duplicate-identity check. This settles that row without creating a
+ * second login. No screen calls it yet — Decline covers the same situation
+ * with a reason attached — so it exists for that path rather than for the
+ * approve button, which no longer needs a second step.
+ */
 export async function completeClientAccessRequest(request: Request, response: Response): Promise<Response> {
   const userId = actorId(request);
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });

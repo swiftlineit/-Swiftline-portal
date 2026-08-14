@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { FiChevronRight, FiSearch } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
@@ -13,7 +12,7 @@ import { useAdminUser } from "@/lib/useAdminUser";
 import { listUsers, updateUserStatus, type User, type UserStatus } from "@/lib/users";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import {
-  beginClientAccessApproval,
+  approveClientAccessRequest,
   declineClientAccessRequest,
   listClientAccessRequests,
   type ClientAccessRequest
@@ -73,7 +72,6 @@ function matchesSearch(item: User, needle: string) {
 }
 
 export default function UsersPage() {
-  const router = useRouter();
   const { user, loading } = useAdminUser(STAFF_DIRECTORY_AREA);
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -86,6 +84,9 @@ export default function UsersPage() {
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [decliningId, setDecliningId] = useState("");
   const [declineReason, setDeclineReason] = useState("");
+  // The request currently being approved or declined. Its buttons are disabled
+  // while the call is in flight, so a second click cannot create a second login.
+  const [busyRequestId, setBusyRequestId] = useState("");
 
   // Login status is an admin action. HR reads the directory only, matching the
   // guard on PATCH /users/:id/status.
@@ -128,27 +129,35 @@ export default function UsersPage() {
   }, [user, canReviewRequests, loadRequests]);
 
   /**
-   * Approving hands the details to the existing client-access form.
+   * Approves the request in one step and reports what happened.
    *
-   * Creating a login means a user record, an invitation and a duplicate check
-   * across every account, all of which that flow already does. Sending the
-   * reviewer there with the fields prefilled keeps one implementation of the
-   * rules that decide who may sign in.
+   * The server creates the login, sends the password invitation and clears the
+   * request, so the list is reloaded rather than edited in place — the row is
+   * gone, and the person appears under Users once they set their password.
+   *
+   * `busyRequestId` disables the buttons for the row being worked on, because
+   * a second click here would try to create a second login.
    */
   async function approve(item: ClientAccessRequest) {
+    setBusyRequestId(item.id);
     try {
-      const { accountId, invite } = await beginClientAccessApproval(item.id);
-      const query = new URLSearchParams({ ...invite, requestId: item.id }).toString();
-      // Routed rather than a location assignment, so the app navigates instead
-      // of reloading the whole shell to reach another page it already has.
-      router.push(`/dashboard/business-accounts/${accountId}?tab=access&${query}`);
+      const result = await approveClientAccessRequest(item.id);
+      // A login created without its email is an approval that still stands, so
+      // it is reported as a warning the operator has to act on rather than as
+      // a failure that would suggest retrying.
+      if (result.emailSent) toast.success(result.message);
+      else toast.warning(result.message);
+      await loadRequests();
     } catch (caughtError) {
-      toast.error(caughtError instanceof Error ? caughtError.message : "The request could not be opened.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "The request could not be approved.");
+    } finally {
+      setBusyRequestId("");
     }
   }
 
   async function decline(item: ClientAccessRequest) {
     if (declineReason.trim().length < 3) return;
+    setBusyRequestId(item.id);
     try {
       const result = await declineClientAccessRequest(item.id, declineReason.trim());
       toast.success(result.message);
@@ -157,6 +166,8 @@ export default function UsersPage() {
       await loadRequests();
     } catch (caughtError) {
       toast.error(caughtError instanceof Error ? caughtError.message : "The request could not be declined.");
+    } finally {
+      setBusyRequestId("");
     }
   }
 
@@ -317,11 +328,11 @@ export default function UsersPage() {
                             </button>
                             <button
                               type="button"
-                              disabled={declineReason.trim().length < 3}
+                              disabled={declineReason.trim().length < 3 || busyRequestId === item.id}
                               onClick={() => void decline(item)}
                               className="inline-flex h-9 items-center rounded-4xl bg-red-600 px-3 text-sm font-semibold text-white disabled:bg-slate-300"
                             >
-                              Confirm decline
+                              {busyRequestId === item.id ? "Declining…" : "Confirm decline"}
                             </button>
                           </div>
                         </div>
@@ -329,17 +340,19 @@ export default function UsersPage() {
                         <div className="flex flex-wrap justify-end gap-2">
                           <button
                             type="button"
+                            disabled={busyRequestId === item.id}
                             onClick={() => setDecliningId(item.id)}
-                            className="inline-flex h-9 items-center rounded-4xl border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            className="inline-flex h-9 items-center rounded-4xl border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:border-slate-200 disabled:text-slate-400"
                           >
                             Decline
                           </button>
                           <button
                             type="button"
+                            disabled={busyRequestId === item.id}
                             onClick={() => void approve(item)}
-                            className="inline-flex h-9 items-center rounded-4xl bg-[#0D1282] px-3 text-sm font-semibold text-white hover:bg-[#0a0d63]"
+                            className="inline-flex h-9 items-center rounded-4xl bg-[#0D1282] px-3 text-sm font-semibold text-white hover:bg-[#0a0d63] disabled:bg-slate-300"
                           >
-                            Approve
+                            {busyRequestId === item.id ? "Sending invite…" : "Approve"}
                           </button>
                         </div>
                       )}

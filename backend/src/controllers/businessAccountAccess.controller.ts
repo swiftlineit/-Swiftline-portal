@@ -202,64 +202,86 @@ export async function listBusinessAccountMembers(request: Request, response: Res
   });
 }
 
-export async function createBusinessAccountClientAccess(request: Request, response: Response): Promise<Response> {
-  const parsed = createClientAccessSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return response.status(400).json({ success: false, errors: parsed.error.format() });
+export type GrantClientAccessResult =
+  | {
+    ok: true;
+    member: Awaited<ReturnType<typeof serializeMember>> | null;
+    emailQueued: boolean;
+    emailSent: boolean;
+    emailSkipped: boolean;
+    emailError?: string;
   }
+  | { ok: false; status: number; message: string; code?: string };
 
-  const adminId = getAuthenticatedUserId(request);
-  if (!adminId) return response.status(401).json({ success: false, message: "Unauthorized" });
+/**
+ * Creates a client login, its membership and its password invitation.
+ *
+ * Extracted from the HTTP handler so that approving a customer's access
+ * request runs exactly these rules — the account and KYC gate, the global
+ * identity check, the invitation email — rather than a second implementation
+ * of who is allowed to sign in to Swiftline. Both callers are thin wrappers.
+ *
+ * Returns a result rather than writing a response, because one caller answers
+ * a request for this action and the other answers a request to approve one.
+ */
+export async function grantClientAccess(input: {
+  accountId: string;
+  data: z.infer<typeof createClientAccessSchema>;
+  adminId: mongoose.Types.ObjectId;
+}): Promise<GrantClientAccessResult> {
+  const { data, adminId } = input;
 
-  const account = await BusinessAccount.findOne({ accountId: request.params.accountId }).exec();
-  if (!account) return response.status(404).json({ success: false, message: "Business account not found." });
+  const account = await BusinessAccount.findOne({ accountId: input.accountId }).exec();
+  if (!account) return { ok: false, status: 404, message: "Business account not found." };
 
   if (!isClientAccessAllowed(account)) {
-    return response.status(409).json({
-      success: false,
+    return {
+      ok: false,
+      status: 409,
       message: "Client login can be created only after account approval and KYC verification."
-    });
+    };
   }
 
   let assignedBranches: mongoose.Types.ObjectId[];
   try {
-    assignedBranches = await resolveClientAccessBranch(account, parsed.data.assignedBranches);
+    assignedBranches = await resolveClientAccessBranch(account, data.assignedBranches);
   } catch (error) {
-    return response.status(400).json({ success: false, message: error instanceof Error ? error.message : "Invalid assigned branches." });
+    return { ok: false, status: 400, message: error instanceof Error ? error.message : "Invalid assigned branches." };
   }
 
-  const normalizedPhone = normalizeUserPhone(parsed.data.phone);
+  const normalizedPhone = normalizeUserPhone(data.phone);
   if (!normalizedPhone) {
-    return response.status(400).json({
-      success: false,
+    return {
+      ok: false,
+      status: 400,
       message: "Enter a valid phone number in international format, for example +919876543210."
-    });
+    };
   }
 
   // A login is one global identity. Existing users are restored through their
   // original business account; they are never silently reused for another one.
   const existingUser = await User.findOne({
-    $or: [{ email: parsed.data.email }, { phone: normalizedPhone }]
+    $or: [{ email: data.email }, { phone: normalizedPhone }]
   }).select("email phone").lean().exec();
   if (existingUser) {
-    const emailExists = existingUser.email === parsed.data.email;
-    return response.status(409).json({
-      success: false,
+    const emailExists = existingUser.email === data.email;
+    return {
+      ok: false,
+      status: 409,
       code: emailExists ? "USER_EMAIL_EXISTS" : "USER_PHONE_EXISTS",
       message: emailExists
         ? "A user with this email address already exists. Restore their existing access instead of creating another login."
         : "A user with this phone number already exists. Restore their existing access instead of creating another login."
-    });
+    };
   }
 
   let user: InstanceType<typeof User>;
   try {
     user = await User.create({
-      firstName: parsed.data.firstName,
-      lastName: parsed.data.lastName,
-      name: formatUserName(parsed.data.firstName, parsed.data.lastName),
-      email: parsed.data.email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      name: formatUserName(data.firstName, data.lastName),
+      email: data.email,
       phone: normalizedPhone,
       role: "client",
       userStatus: "invited",
@@ -271,13 +293,14 @@ export async function createBusinessAccountClientAccess(request: Request, respon
     // together. Map that database error to the same friendly contract.
     if (error instanceof mongoose.mongo.MongoServerError && error.code === 11000) {
       const phoneConflict = Boolean(error.keyPattern?.phone);
-      return response.status(409).json({
-        success: false,
+      return {
+        ok: false,
+        status: 409,
         code: phoneConflict ? "USER_PHONE_EXISTS" : "USER_EMAIL_EXISTS",
         message: phoneConflict
           ? "A user with this phone number already exists. Restore their existing access instead of creating another login."
           : "A user with this email address already exists. Restore their existing access instead of creating another login."
-      });
+      };
     }
     throw error;
   }
@@ -285,17 +308,17 @@ export async function createBusinessAccountClientAccess(request: Request, respon
   const member = await BusinessAccountMember.create({
     businessAccount: account._id,
     user: user._id,
-    role: parsed.data.role,
+    role: data.role,
     assignedBranches,
     status: "invited",
     invitedBy: adminId
   });
 
   const { invitation, activationUrl } = await createInvitation(member, adminId);
-  let emailDelivery = { sent: false, skipped: !parsed.data.sendInvitationEmail };
+  let emailDelivery = { sent: false, skipped: !data.sendInvitationEmail };
   let emailError = "";
 
-  if (parsed.data.sendInvitationEmail) {
+  if (data.sendInvitationEmail) {
     try {
       emailDelivery = await deliverInvitationEmail({
         user,
@@ -316,15 +339,49 @@ export async function createBusinessAccountClientAccess(request: Request, respon
     .populate("assignedBranches", "name code")
     .exec();
 
+  return {
+    ok: true,
+    member: populatedMember ? await serializeMember(populatedMember) : null,
+    emailQueued: data.sendInvitationEmail,
+    emailSent: emailDelivery.sent,
+    emailSkipped: emailDelivery.skipped,
+    emailError: emailError || undefined
+  };
+}
+
+export async function createBusinessAccountClientAccess(request: Request, response: Response): Promise<Response> {
+  const parsed = createClientAccessSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return response.status(400).json({ success: false, errors: parsed.error.format() });
+  }
+
+  const adminId = getAuthenticatedUserId(request);
+  if (!adminId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const result = await grantClientAccess({
+    accountId: String(request.params.accountId),
+    data: parsed.data,
+    adminId
+  });
+
+  if (!result.ok) {
+    return response.status(result.status).json({
+      success: false,
+      message: result.message,
+      ...(result.code ? { code: result.code } : {})
+    });
+  }
+
   // The activation URL (which carries the raw token) is intentionally not returned
   // here; it is only exposed through the explicit copy-link endpoint.
   return response.status(201).json({
     success: true,
-    member: populatedMember ? await serializeMember(populatedMember) : null,
-    emailQueued: parsed.data.sendInvitationEmail,
-    emailSent: emailDelivery.sent,
-    emailSkipped: emailDelivery.skipped,
-    emailError: emailError || undefined
+    member: result.member,
+    emailQueued: result.emailQueued,
+    emailSent: result.emailSent,
+    emailSkipped: result.emailSkipped,
+    emailError: result.emailError
   });
 }
 
