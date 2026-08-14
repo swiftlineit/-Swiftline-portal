@@ -59,7 +59,77 @@ async function requestBlob(path: string) {
 export const pickupVehicleTypes = ["Bike", "Scooter", "Car", "Mini van", "Van", "Pickup truck", "Light truck", "Truck"] as const;
 
 export function listEligiblePickupShipments() { return request<{ success: true; shipments: EligiblePickupShipment[] }>("/api/v1/client/pickups/eligible-shipments"); }
-export function listClientPickups() { return request<{ success: true; pickups: PickupSummary[] }>("/api/v1/client/pickups"); }
+/**
+ * The six views item 19 asks for, expressed over the stored statuses.
+ *
+ * "Today" is a date range rather than a status, because a pickup happening
+ * today can be scheduled, assigned or already collected — it is a question
+ * about when, not about what state the request is in.
+ */
+export const pickupViews = [
+  { key: "", label: "All" },
+  { key: "today", label: "Today's Pickups" },
+  { key: "CONFIRMED", label: "Scheduled" },
+  { key: "DRIVER_ASSIGNED", label: "Driver Assigned" },
+  { key: "COLLECTED", label: "Collected" },
+  { key: "MISSED", label: "Missed Pickup" },
+  { key: "CANCELLED", label: "Cancelled" }
+] as const;
+
+/** Mirrors `pickupRequestStatusLabels` on the server. */
+export const pickupStatusLabels: Record<string, string> = {
+  REQUESTED: "Requested",
+  CONFIRMED: "Scheduled",
+  DRIVER_ASSIGNED: "Driver Assigned",
+  IN_PROGRESS: "In Progress",
+  ACTION_REQUIRED: "Action Required",
+  PARTIALLY_COLLECTED: "Partially Collected",
+  COLLECTED: "Collected",
+  MISSED: "Missed Pickup",
+  CANCELLED: "Cancelled",
+  CLOSED_UNSUCCESSFUL: "Closed Unsuccessful"
+};
+
+export const CLIENT_PICKUPS_PATH = "/api/v1/client/pickups";
+
+/** Mirrors `reschedulablePickupStatuses` on the server. */
+export const reschedulableClientPickupStatuses = [
+  "REQUESTED", "CONFIRMED", "DRIVER_ASSIGNED", "ACTION_REQUIRED", "MISSED"
+];
+
+/** Today in IST, as the yyyy-mm-dd the date filter speaks. */
+function istToday() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+}
+
+export function pickupListParams(input: { view?: string; dateFrom?: string; dateTo?: string } = {}) {
+  const params = new URLSearchParams();
+  if (input.view === "today") {
+    const today = istToday();
+    params.set("dateFrom", today);
+    params.set("dateTo", today);
+  } else if (input.view) {
+    params.set("status", input.view);
+  }
+  // An explicit range always wins over the shorthand above.
+  if (input.dateFrom) params.set("dateFrom", input.dateFrom);
+  if (input.dateTo) params.set("dateTo", input.dateTo);
+  return params;
+}
+
+export function listClientPickups(input: { view?: string; dateFrom?: string; dateTo?: string } = {}) {
+  const query = pickupListParams(input).toString();
+  return request<{ success: true; pickups: PickupSummary[] }>(
+    `${CLIENT_PICKUPS_PATH}${query ? `?${query}` : ""}`
+  );
+}
+
+export function rescheduleClientPickup(id: string, window: { startAt: string; endAt: string; timezone?: string }) {
+  return request<{ success: true; message: string; pickup: PickupDetail }>(
+    `${CLIENT_PICKUPS_PATH}/${id}/reschedule`,
+    { method: "POST", body: JSON.stringify({ timezone: "Asia/Kolkata", ...window }) }
+  );
+}
 export function getClientPickup(id: string) { return request<{ success: true; pickup: PickupDetail }>(`/api/v1/client/pickups/${id}`); }
 export function createClientPickup(input: { shipmentDraftIds: string[]; requestedWindow: { startAt: string; endAt: string; timezone: string }; contact: { name: string; email: string; phone: string }; pickupAddress: PickupAddress; instructions?: string }) { return request<{ success: true; message: string; pickup: PickupDetail }>("/api/v1/client/pickups", { method: "POST", body: JSON.stringify(input) }); }
 export function cancelClientPickup(id: string, reason: string) { return request<{ success: true; message: string; pickup: PickupDetail }>(`/api/v1/client/pickups/${id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }); }

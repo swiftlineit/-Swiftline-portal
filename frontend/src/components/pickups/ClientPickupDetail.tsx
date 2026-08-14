@@ -5,7 +5,7 @@ import { FiCalendar, FiMapPin, FiPackage, FiPhone, FiTruck, FiUser, FiX } from "
 import { toast } from "react-toastify";
 import PickupProofGallery from "@/components/pickups/PickupProofGallery";
 import { PickupStatusBadge } from "@/components/pickups/PickupStatusBadge";
-import { cancelClientPickup, getClientPickup, type PickupDetail } from "@/lib/pickups";
+import { cancelClientPickup, getClientPickup, rescheduleClientPickup, reschedulableClientPickupStatuses, type PickupDetail } from "@/lib/pickups";
 
 const format = (value?: string | null) => value ? new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not confirmed";
 const address = (value: Record<string, string>) => [value.addressLine1, value.addressLine2, value.townOrCity, value.county, value.postcode, value.countryName].filter(Boolean).join(", ");
@@ -15,6 +15,9 @@ export default function ClientPickupDetail({ pickupId, onClose, onUpdated }: { p
   const [error, setError] = useState("");
   const [reason, setReason] = useState("");
   const [showCancel, setShowCancel] = useState(false);
+  const [showReschedule, setShowReschedule] = useState(false);
+  const [newStartAt, setNewStartAt] = useState("");
+  const [newEndAt, setNewEndAt] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -25,11 +28,39 @@ export default function ClientPickupDetail({ pickupId, onClose, onUpdated }: { p
 
   const latestAttempt = pickup?.attempts[0] ?? null;
   const driver = latestAttempt?.assignedDriverUserId;
-  const canCancel = pickup && ["REQUESTED", "CONFIRMED", "ACTION_REQUIRED"].includes(pickup.status) && (!latestAttempt || ["SCHEDULED", "ASSIGNED"].includes(latestAttempt.status));
+  // Mirrors the server: a driver being assigned, or a pickup missed, is still
+  // before any collection work, so both remain cancellable.
+  const canCancel = pickup && ["REQUESTED", "CONFIRMED", "DRIVER_ASSIGNED", "ACTION_REQUIRED", "MISSED"].includes(pickup.status) && (!latestAttempt || ["SCHEDULED", "ASSIGNED"].includes(latestAttempt.status));
+  const canReschedule = pickup && reschedulableClientPickupStatuses.includes(pickup.status);
   const cancelledByName = useMemo(() => {
     if (!pickup?.cancelledBy || typeof pickup.cancelledBy === "string") return "";
     return pickup.cancelledBy.name || `${pickup.cancelledBy.firstName ?? ""} ${pickup.cancelledBy.lastName ?? ""}`.trim();
   }, [pickup]);
+
+  /**
+   * Moves the pickup to a new window.
+   *
+   * The server returns it to REQUESTED, so the panel re-renders as a pickup
+   * awaiting confirmation — which is what it now is.
+   */
+  async function reschedule() {
+    if (!pickup || !newStartAt || !newEndAt) return;
+    setBusy(true);
+    try {
+      const result = await rescheduleClientPickup(pickup.id, {
+        startAt: new Date(newStartAt).toISOString(),
+        endAt: new Date(newEndAt).toISOString()
+      });
+      setPickup(result.pickup);
+      onUpdated(result.pickup);
+      setShowReschedule(false);
+      setNewStartAt("");
+      setNewEndAt("");
+      toast.success(result.message);
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Pickup could not be rescheduled.");
+    } finally { setBusy(false); }
+  }
 
   async function cancel() {
     if (!pickup || reason.trim().length < 3) return;
@@ -57,6 +88,20 @@ export default function ClientPickupDetail({ pickupId, onClose, onUpdated }: { p
           <section className="rounded-2xl bg-white p-4 shadow-sm"><h3 className="font-semibold">Assigned driver</h3>{driver ? <div className="mt-3 rounded-xl bg-slate-50 p-3"><p className="font-semibold">{driver.name || `${driver.firstName ?? ""} ${driver.lastName ?? ""}`}</p><p className="mt-1 text-sm text-slate-600">{driver.phone || "Phone not provided"}</p><p className="mt-2 text-xs font-semibold uppercase text-slate-500">{latestAttempt?.assignedDriverProfileId?.engagementType?.replace(/_/g, " ")} · {latestAttempt?.status.replace(/_/g, " ")}</p>{latestAttempt?.vehicle?.type ? <p className="mt-2 flex items-center gap-2 text-sm"><FiTruck className="text-[#0D1282]" />{latestAttempt.vehicle.type} · {latestAttempt.vehicle.registrationNumber}</p> : null}</div> : <p className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No driver assigned yet.</p>}</section>
           <section className="rounded-2xl bg-white p-4 shadow-sm"><h3 className="font-semibold">Shipments and parcels</h3><div className="mt-3 space-y-3">{pickup.shipments.map((shipment) => <div key={shipment._id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between gap-3"><strong className="text-sm">{shipment.trackingNumber}</strong><PickupStatusBadge status={shipment.status} /></div><div className="mt-2 space-y-1">{shipment.parcels.map((parcel) => <p key={parcel.parcelNumber} className="flex items-center justify-between gap-3 text-xs text-slate-600"><span className="flex items-center gap-1"><FiPackage />{parcel.parcelNumber}</span><span>{parcel.status.replace(/_/g, " ")}</span></p>)}</div></div>)}</div></section>
           {["COLLECTED", "PARTIALLY_COLLECTED"].includes(pickup.status) ? <PickupProofGallery pickupId={pickup.id} attempts={pickup.attempts} audience="client" /> : null}
+          {canReschedule ? <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            {showReschedule ? <div>
+              <h3 className="font-semibold text-slate-900">Reschedule pickup</h3>
+              <p className="mt-1 text-sm text-slate-500">Swiftline will confirm the new window before a driver is assigned.</p>
+              <label className="mt-3 block text-xs font-semibold uppercase text-slate-500">From</label>
+              <input type="datetime-local" value={newStartAt} onChange={(event) => setNewStartAt(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm" />
+              <label className="mt-3 block text-xs font-semibold uppercase text-slate-500">To</label>
+              <input type="datetime-local" value={newEndAt} onChange={(event) => setNewEndAt(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm" />
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setShowReschedule(false)} className="h-11 rounded-xl border border-slate-300 text-sm font-semibold">Keep window</button>
+                <button type="button" disabled={busy || !newStartAt || !newEndAt} onClick={() => void reschedule()} className="h-11 rounded-xl bg-blue-950 text-sm font-semibold text-white disabled:bg-slate-300">Confirm new window</button>
+              </div>
+            </div> : <button type="button" onClick={() => setShowReschedule(true)} className="h-11 w-full rounded-xl border border-slate-300 text-sm font-semibold text-slate-700">Reschedule pickup</button>}
+          </section> : null}
           {canCancel ? <section className="rounded-2xl border border-red-200 bg-white p-4">{showCancel ? <div><h3 className="font-semibold text-red-800">Cancel pickup request</h3><textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for cancellation" maxLength={500} className="mt-3 min-h-24 w-full rounded-xl border border-red-300 p-3 text-sm" /><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={() => setShowCancel(false)} className="h-11 rounded-xl border border-slate-300 text-sm font-semibold">Keep pickup</button><button type="button" disabled={busy || reason.trim().length < 3} onClick={() => void cancel()} className="h-11 rounded-xl bg-red-600 text-sm font-semibold text-white disabled:bg-slate-300">Confirm cancellation</button></div></div> : <button type="button" onClick={() => setShowCancel(true)} className="h-11 w-full rounded-xl border border-red-300 text-sm font-semibold text-red-700">Cancel pickup request</button>}</section> : null}
         </> : null}
       </div>

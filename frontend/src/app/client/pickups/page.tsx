@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import { AddressAutocompleteField } from "@/components/business-accounts/AddressAutocompleteField";
 import ClientPickupDetail from "@/components/pickups/ClientPickupDetail";
 import { PickupStatusBadge } from "@/components/pickups/PickupStatusBadge";
+import { TableToolbar } from "@/components/ui/TableToolbar";
 import {
   emailValidationMessage,
   isValidBusinessContactEmail,
@@ -13,6 +14,9 @@ import {
 import {
   createClientPickup,
   listClientPickups,
+  pickupListParams,
+  pickupViews,
+  CLIENT_PICKUPS_PATH,
   listEligiblePickupShipments,
   type EligiblePickupShipment,
   type PickupAddress,
@@ -74,6 +78,10 @@ export default function ClientPickupsPage() {
   const [endAt, setEndAt] = useState("");
   const [instructions, setInstructions] = useState("");
   const [detailId, setDetailId] = useState("");
+  // Server-side view and date filters for the pickup list.
+  const [view, setView] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -88,7 +96,7 @@ export default function ClientPickupsPage() {
   async function reloadPickups() {
     setPickupsLoading(true);
     try {
-      setPickups((await listClientPickups()).pickups);
+      setPickups((await listClientPickups({ view, dateFrom, dateTo })).pickups);
     } finally {
       setPickupsLoading(false);
     }
@@ -111,25 +119,35 @@ export default function ClientPickupsPage() {
       .finally(() => {
         if (active) setEligibleLoading(false);
       });
-    void listClientPickups()
-      .then((result) => {
-        if (active) setPickups(result.pickups);
-      })
-      .catch((caught) => {
-        if (active)
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : "Unable to load pickups.",
-          );
-      })
-      .finally(() => {
-        if (active) setPickupsLoading(false);
-      });
     return () => {
       active = false;
     };
   }, []);
+
+  /**
+   * Pickups reload whenever a view or date changes, and on first paint.
+   *
+   * Kept apart from the eligible-shipments effect above, which has nothing to
+   * do with these filters and would otherwise refetch on every tab click.
+   * Deferred off the effect body so the first state update lands in its own
+   * render rather than cascading, matching the other client list pages.
+   */
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(async () => {
+      try {
+        const result = await listClientPickups({ view, dateFrom, dateTo });
+        if (active) setPickups(result.pickups);
+      } catch (caught) {
+        if (active) setError(caught instanceof Error ? caught.message : "Unable to load pickups.");
+      } finally {
+        if (active) setPickupsLoading(false);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [view, dateFrom, dateTo]);
 
   const selectedRows = useMemo(
     () => eligible.filter((item) => selected.includes(item.shipmentDraftId)),
@@ -465,6 +483,61 @@ export default function ClientPickupsPage() {
           <FiCalendar className="text-[#0D1282]" />
           <h2 className="font-semibold">Your pickup requests</h2>
         </div>
+
+        {/* Filtered on the server, so a view shows every matching pickup and
+            not merely the ones this page happened to have loaded. */}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {pickupViews.map((item) => (
+            <button
+              key={item.key || "all"}
+              type="button"
+              onClick={() => setView(item.key)}
+              className={`h-9 rounded-4xl border px-4 text-sm font-semibold transition ${
+                view === item.key
+                  ? "border-[#0D1282] bg-[#0D1282]/5 text-[#0D1282]"
+                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label className="text-xs font-semibold uppercase text-slate-500">
+            Collection date
+          </label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setDateFrom(event.target.value)}
+            className="h-9 rounded-xl border border-slate-300 px-3 text-sm"
+          />
+          <span className="text-sm text-slate-500">to</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(event) => setDateTo(event.target.value)}
+            className="h-9 rounded-xl border border-slate-300 px-3 text-sm"
+          />
+          {dateFrom || dateTo ? (
+            <button
+              type="button"
+              onClick={() => { setDateFrom(""); setDateTo(""); }}
+              className="text-sm font-semibold text-slate-500 hover:text-slate-800"
+            >
+              Clear
+            </button>
+          ) : null}
+          <div className="ml-auto">
+            <TableToolbar
+              exportPath={CLIENT_PICKUPS_PATH}
+              exportParams={pickupListParams({ view, dateFrom, dateTo })}
+              exportName="pickups"
+            />
+          </div>
+        </div>
+
         {pickupsLoading ? (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {[1, 2, 3].map((item) => (

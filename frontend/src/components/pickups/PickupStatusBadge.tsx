@@ -1,8 +1,12 @@
 "use client";
 
+import { pickupStatusLabels } from "@/lib/pickups";
+
 const statusStyles: Record<string, string> = {
   REQUESTED: "border-amber-200 bg-amber-50 text-amber-800",
   CONFIRMED: "border-blue-200 bg-blue-50 text-blue-800",
+  DRIVER_ASSIGNED: "border-violet-200 bg-violet-50 text-violet-800",
+  MISSED: "border-red-200 bg-red-50 text-red-800",
   SCHEDULED: "border-indigo-200 bg-indigo-50 text-indigo-800",
   ASSIGNED: "border-violet-200 bg-violet-50 text-violet-800",
   ACCEPTED: "border-cyan-200 bg-cyan-50 text-cyan-800",
@@ -20,12 +24,21 @@ const statusStyles: Record<string, string> = {
   CLOSED_UNSUCCESSFUL: "border-red-200 bg-red-50 text-red-800",
 };
 
+/**
+ * Renders a pickup request status, or an attempt status.
+ *
+ * Request statuses read from the shared label map so a badge says the same
+ * word as the filter tab that found it — CONFIRMED is called "Scheduled"
+ * everywhere, and a customer clicking Scheduled must not then see cards marked
+ * CONFIRMED. Attempt statuses (EN_ROUTE, COLLECTING and the rest) are not in
+ * that map and keep the plain formatting.
+ */
 export function PickupStatusBadge({ status }: { status: string }) {
   return (
     <span
       className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${statusStyles[status] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}
     >
-      {status.replace(/_/g, " ")}
+      {pickupStatusLabels[status] ?? status.replace(/_/g, " ")}
     </span>
   );
 }
