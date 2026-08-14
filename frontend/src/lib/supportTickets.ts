@@ -140,6 +140,27 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+/** The list endpoint for an audience, so an export can target the same one. */
+export function ticketListPath(audience: TicketAudience) {
+  return root(audience);
+}
+
+/**
+ * Query string for a ticket list request.
+ *
+ * Shared with the export so a downloaded file carries the filters on screen.
+ * Paging keys are dropped: an export is of the whole filtered set, and sending
+ * `page` would only invite the server to honour it one day.
+ */
+export function ticketListParams(input: TicketListInput = {}) {
+  const params = new URLSearchParams();
+  Object.entries(input).forEach(([key, value]) => {
+    if (key === "page" || key === "limit") return;
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  });
+  return params;
+}
+
 export function listSupportTickets(audience: TicketAudience, input: TicketListInput = {}) {
   const url = new URL(apiUrl(root(audience)));
   Object.entries(input).forEach(([key, value]) => { if (value !== undefined && value !== "") url.searchParams.set(key, String(value)); });

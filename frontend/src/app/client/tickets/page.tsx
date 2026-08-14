@@ -14,8 +14,11 @@ import {
   ClientDashboardLoading,
 } from "@/components/client/ClientDashboardShell";
 import TicketTable from "@/components/tickets/TicketTable";
+import { TableToolbar } from "@/components/ui/TableToolbar";
 import {
   listSupportTickets,
+  ticketListParams,
+  ticketListPath,
   ticketCategories,
   ticketStatuses,
   ticketStatusLabels,
@@ -338,6 +341,14 @@ export default function ClientTicketsPage() {
             {error}
           </div>
         ) : null}
+        {/* Same filters as the list, so the file matches what is on screen. */}
+        <div className="mb-3">
+          <TableToolbar
+            exportPath={ticketListPath("client")}
+            exportParams={ticketListParams({ status, category, search })}
+            exportName="support-tickets"
+          />
+        </div>
         <TicketTable
           tickets={tickets}
           audience="client"

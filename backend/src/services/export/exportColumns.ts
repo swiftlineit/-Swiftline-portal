@@ -69,3 +69,49 @@ export const shipmentExportColumns: Array<ExportColumn<ShipmentRow>> = [
   { header: "Invoice amount", value: (row) => fromMinor(row.shipmentInvoice?.chargeableAmountMinor), width: 16 },
   { header: "Booked", value: (row) => asDate(row.createdAt), width: 20 }
 ];
+
+/** A row of the support ticket list, as `serializeSupportTicket` emits one. */
+type TicketRow = {
+  ticketNumber: string;
+  subject: string;
+  category: string;
+  priority: string;
+  status: string;
+  account: { companyName: string; accountId: string } | null;
+  branch: { name: string; code: string } | null;
+  creator: { name: string; email: string } | null;
+  assignee: { name: string } | null;
+  relatedShipment: { awb: string } | null;
+  sla: { firstResponseDueAt: string | Date; firstRespondedAt: string | Date | null; breached: boolean } | null;
+  lastMessageAt: string | Date;
+  resolvedAt: string | Date | null;
+  closedAt: string | Date | null;
+  createdAt: string | Date;
+};
+
+/** Stored enum values read as SCREAMING_SNAKE; a reader wants words. */
+function words(value: string) {
+  return value.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+export const ticketExportColumns: Array<ExportColumn<TicketRow>> = [
+  { header: "Ticket", value: (row) => row.ticketNumber, width: 20 },
+  { header: "Subject", value: (row) => row.subject, width: 34 },
+  { header: "Category", value: (row) => words(row.category), width: 20 },
+  { header: "Priority", value: (row) => words(row.priority), width: 12 },
+  { header: "Status", value: (row) => words(row.status), width: 20 },
+  { header: "Account", value: (row) => row.account ? `${row.account.companyName} (${row.account.accountId})` : "", width: 28 },
+  { header: "Branch", value: (row) => row.branch ? `${row.branch.name} (${row.branch.code})` : "", width: 22 },
+  { header: "Raised by", value: (row) => row.creator?.name ?? "", width: 22 },
+  { header: "Raised by email", value: (row) => row.creator?.email ?? "", width: 26 },
+  { header: "Assigned to", value: (row) => row.assignee?.name ?? "Unassigned", width: 22 },
+  { header: "AWB", value: (row) => row.relatedShipment?.awb ?? "", width: 20 },
+  { header: "First response due", value: (row) => asDate(row.sla?.firstResponseDueAt ?? null), width: 20 },
+  { header: "First responded", value: (row) => asDate(row.sla?.firstRespondedAt ?? null), width: 20 },
+  // Plain words rather than TRUE/FALSE: this column is read, not computed on.
+  { header: "SLA", value: (row) => row.sla ? (row.sla.breached ? "Exceeded" : "Met") : "", width: 12 },
+  { header: "Raised", value: (row) => asDate(row.createdAt), width: 20 },
+  { header: "Last message", value: (row) => asDate(row.lastMessageAt), width: 20 },
+  { header: "Resolved", value: (row) => asDate(row.resolvedAt), width: 20 },
+  { header: "Closed", value: (row) => asDate(row.closedAt), width: 20 }
+];

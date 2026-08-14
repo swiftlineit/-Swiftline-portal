@@ -10,6 +10,30 @@ import {
   listActiveSupportAdmins, listAdminSupportTickets, listClientSupportTickets,
   serializeSupportTicket, updateSupportTicketByAdmin
 } from "../services/supportTicket.service.js";
+import { ticketExportColumns } from "../services/export/exportColumns.js";
+import {
+  EXPORT_ROW_CAP, describeFilters, exportFormat, sendTableExport, type TableExportFormat
+} from "../services/export/tableExportHttp.js";
+
+/** Shared by both audiences so the two exports carry identical columns. */
+function sendTicketExport(
+  request: Request,
+  response: Response,
+  format: TableExportFormat,
+  tickets: unknown[]
+) {
+  return sendTableExport(response, format, {
+    title: "Support Tickets",
+    columns: ticketExportColumns,
+    rows: tickets as never[],
+    appliedFilters: describeFilters({
+      Status: request.query.status,
+      Priority: request.query.priority,
+      Category: request.query.category,
+      Search: request.query.search
+    })
+  });
+}
 
 const createSchema = z.object({
   businessAccountId: z.string().trim().min(1, "Select a business account."),
@@ -50,9 +74,15 @@ function filters(request: Request) {
     ? request.query.priority as SupportTicketPriority : undefined;
   const category = typeof request.query.category === "string" && supportTicketCategoryValues.includes(request.query.category as SupportTicketCategory)
     ? request.query.category as SupportTicketCategory : undefined;
+  // An export takes every matching ticket, not the page being viewed.
+  const window = exportFormat(request)
+    ? { page: 1, limit: EXPORT_ROW_CAP }
+    : {
+      page: Math.max(1, Number(request.query.page) || 1),
+      limit: Math.min(50, Math.max(1, Number(request.query.limit) || 20))
+    };
   return {
-    page: Math.max(1, Number(request.query.page) || 1),
-    limit: Math.min(50, Math.max(1, Number(request.query.limit) || 20)),
+    ...window,
     status, priority, category,
     search: typeof request.query.search === "string" ? request.query.search.trim().slice(0, 120) : undefined,
     branchId: typeof request.query.branchId === "string" ? request.query.branchId.trim() : undefined
@@ -83,7 +113,10 @@ export async function listClientTickets(request: Request, response: Response) {
   try {
     const actor = userId(request);
     if (!actor) return response.status(401).json({ success: false, message: "Please sign in again." });
-    const result = await listClientSupportTickets(actor, filters(request));
+    const parsed = filters(request);
+    const result = await listClientSupportTickets(actor, parsed);
+    const format = exportFormat(request);
+    if (format) return sendTicketExport(request, response, format, result.tickets);
     return response.json({
       success: true, tickets: result.tickets,
       pagination: { ...filters(request), total: result.total, totalPages: Math.max(1, Math.ceil(result.total / filters(request).limit)) }
@@ -115,6 +148,8 @@ export async function listAdminTickets(request: Request, response: Response) {
   try {
     const parsed = filters(request);
     const result = await listAdminSupportTickets(parsed);
+    const format = exportFormat(request);
+    if (format) return sendTicketExport(request, response, format, result.tickets);
     return response.json({
       success: true, tickets: result.tickets,
       pagination: { page: parsed.page, limit: parsed.limit, total: result.total, totalPages: Math.max(1, Math.ceil(result.total / parsed.limit)) }

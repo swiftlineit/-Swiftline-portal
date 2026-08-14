@@ -4,8 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { FiRefreshCw, FiSearch } from "react-icons/fi";
 import { DashboardLoading } from "@/components/DashboardShell";
 import TicketTable from "@/components/tickets/TicketTable";
+import { TableToolbar } from "@/components/ui/TableToolbar";
 import {
   listSupportTickets,
+  ticketListParams,
+  ticketListPath,
   ticketCategories,
   ticketPriorities,
   ticketStatuses,
@@ -136,6 +139,13 @@ export default function AdminTicketsPage() {
             {error}
           </div>
         ) : null}
+        <div className="mb-3">
+          <TableToolbar
+            exportPath={ticketListPath("admin")}
+            exportParams={ticketListParams({ status, priority, category, search })}
+            exportName="support-tickets"
+          />
+        </div>
         <TicketTable tickets={tickets} audience="admin" loading={dataLoading} />
         {totalPages > 1 ? (
           <div className="mt-4 flex items-center justify-end gap-3">
