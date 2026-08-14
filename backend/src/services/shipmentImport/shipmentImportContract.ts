@@ -8,7 +8,6 @@ export const shipmentImportSheetNames = {
   shipment: "Shipment",
   parcels: "Parcels",
   items: "Items",
-  example: "Completed Example",
   lists: "_Lists"
 } as const;
 

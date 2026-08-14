@@ -67,14 +67,12 @@ async function completedWorkbook(input: { multipleParcels?: boolean; invalidCont
 }
 
 describe("shipment import template", () => {
-  test("contains guidance, protected examples, three input sheets and hidden dropdown values", async () => {
+  test("contains guidance, three input sheets and hidden dropdown values", async () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(await buildShipmentImportTemplateWorkbook() as unknown as ArrayBuffer);
-    assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), ["Read Me", "Shipment", "Parcels", "Items", "Completed Example", "_Lists"]);
+    assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), ["Read Me", "Shipment", "Parcels", "Items", "_Lists"]);
     assert.equal(workbook.getWorksheet("_Lists")?.state, "veryHidden");
-    const completedExample = workbook.getWorksheet("Completed Example") as ExcelJS.Worksheet & { sheetProtection?: { sheet?: boolean } };
     const shipment = workbook.getWorksheet("Shipment") as ExcelJS.Worksheet & { sheetProtection?: { sheet?: boolean } };
-    assert.equal(completedExample.sheetProtection?.sheet, true);
     assert.equal(shipment.sheetProtection?.sheet, true);
     assert.match(String(workbook.getWorksheet("Read Me")?.getCell("B6").value), /Courier or Cargo/i);
     assert.equal(workbook.getWorksheet("Shipment")?.getCell("B4").dataValidation.type, "list");

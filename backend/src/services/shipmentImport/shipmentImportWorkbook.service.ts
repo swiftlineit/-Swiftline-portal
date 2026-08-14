@@ -14,7 +14,6 @@ const colours = {
   navy: "FF0D1282",
   white: "FFFFFFFF",
   paleBlue: "FFEFF6FF",
-  paleAmber: "FFFFF7ED",
   paleGrey: "FFF8FAFC",
   border: "FFCBD5E1",
   text: "FF0F172A",
@@ -97,7 +96,6 @@ async function addInstructions(workbook: ExcelJS.Workbook) {
     ["Add a parcel", "Go to Parcels and insert or type into the next table row. Use sequential parcel numbers: 1, 2, 3... Maximum 10 parcels."],
     ["Add an item", "Go to Items and insert or type into the next table row. Enter the Parcel No. that owns the item. Maximum 20 items per parcel."],
     ["Amounts", "Calculated Amount is Quantity x Unit Rate. The portal recalculates it and never trusts a workbook formula."],
-    ["Examples", "The Completed Example sheet is protected guidance only and is never imported."],
     ["Repeated shipments", "The same completed workbook may be uploaded again to create another editable draft."],
     ["Before booking", "Review the imported draft, validate the delivery address, upload KYC documents and confirm pricing in the portal."]
   ];
@@ -217,31 +215,6 @@ function addItemsSheet(workbook: ExcelJS.Workbook) {
   sheet.addTable({ name: "ShipmentItems", ref: "A2", headerRow: true, style: { theme: "TableStyleMedium2", showRowStripes: true }, columns: headings.map((name) => ({ name })), rows });
 }
 
-async function addExampleSheet(workbook: ExcelJS.Workbook) {
-  const sheet = workbook.addWorksheet(shipmentImportSheetNames.example);
-  sheet.columns = [{ width: 29 }, { width: 33 }, { width: 85 }];
-  title(sheet, "Completed Example - Guidance Only (Not Imported)", 3);
-  header(sheet.addRow(["Section", "Field", "Example Value"]));
-  const rows = [
-    ["Shipment", "Shipment Type", "CSB-IV"],
-    ["Shipment", "Service Type", "Courier"],
-    ["Shipment", "Consignor Contact Name", "Aman Negi"],
-    ["Shipment", "Consignee Mobile", "+44 7123456789"],
-    ["Shipment", "Destination Country", "United Kingdom"],
-    ["Parcel 1", "Weight / Dimensions / Type / Reference", "10 KG | 30 x 20 x 15 CM | Merchandise | REF-001"],
-    ["Parcel 1 - Item 1", "Item", "Cotton trousers | 62034200 | Pcs | Qty 2 | Rate 1500 | Amount 3000"],
-    ["Parcel 1 - Item 2", "Item", "Packaged snacks | 19059090 | Pkt | Qty 5 | Rate 200 | Amount 1000"],
-    ["Parcel 2", "Weight / Dimensions / Type / Reference", "5 KG | 25 x 20 x 15 CM | Gifts | REF-002"],
-    ["Parcel 2 - Item 1", "Item", "Photo frames | 44140000 | Set | Qty 2 | Rate 600 | Amount 1200"]
-  ];
-  rows.forEach((values) => sheet.addRow(values));
-  styleBody(sheet, 3, sheet.rowCount, 3);
-  for (let row = 3; row <= sheet.rowCount; row += 1) {
-    sheet.getCell(row, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: colours.paleAmber } };
-  }
-  await sheet.protect("swiftline-template", { selectLockedCells: true, selectUnlockedCells: true });
-}
-
 export async function buildShipmentImportTemplateWorkbook() {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Swiftline Portal";
@@ -251,7 +224,6 @@ export async function buildShipmentImportTemplateWorkbook() {
   await addShipmentSheet(workbook);
   addParcelsSheet(workbook);
   addItemsSheet(workbook);
-  await addExampleSheet(workbook);
   addLists(workbook);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
