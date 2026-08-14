@@ -118,7 +118,7 @@ import {
   listClientServiceDisruptions
 } from "../controllers/operationsAdvisory.controller.js";
 import { cancelClientPickupRequest, createClientPickupRequest, rescheduleClientPickupRequest, getClientPickupRequest, listClientEligiblePickups, listClientPickupRequests, viewClientPickupProof } from "../controllers/pickup.controller.js";
-import { createPodDispute, getClientPod, viewPodEvidence } from "../controllers/pod.controller.js";
+import { createPodDispute, downloadClientPodPdf, emailClientPod, getClientPod, listClientPodCentre, viewPodEvidence } from "../controllers/pod.controller.js";
 import { addressBookRouter } from "./addressBook.routes.js";
 import { listClientDocuments } from "../controllers/clientDocumentCentre.controller.js";
 
@@ -221,6 +221,9 @@ clientRouter.post("/pickups/:pickupId/reschedule", rescheduleClientPickupRequest
 clientRouter.get("/pickups/:pickupId/proofs/:proofId", viewClientPickupProof);
 clientRouter.get("/shipments/:shipmentId/pod", getClientPod);
 clientRouter.post("/shipments/:shipmentId/pod/disputes", createPodDispute);
+clientRouter.get("/pods", listClientPodCentre);
+clientRouter.get("/pods/download", downloadClientPodPdf);
+clientRouter.post("/pods/email", emailClientPod);
 clientRouter.get("/pod/assignments/:assignmentId/revisions/:revisionId/evidence/:evidenceId", viewPodEvidence);
 clientRouter.get("/tracking/:trackingNumber", trackClientShipment);
 clientRouter.get("/shipments/:draftId/labels/:labelId/access", createClientShipmentLabelAccess);

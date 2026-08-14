@@ -1,3 +1,8 @@
+import { BusinessAccount } from "../models/businessAccount.model.js";
+import { listClientPods, loadClientPodsByIds } from "../services/pod/podCentre.service.js";
+import { buildPodPdf } from "../services/pod/podPdf.service.js";
+import { podExportColumns } from "../services/export/exportColumns.js";
+import { EXPORT_ROW_CAP, describeFilters, exportFormat, sendTableExport } from "../services/export/tableExportHttp.js";
 import type { NextFunction, Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -329,3 +334,130 @@ async function sendEvidence(response: Response, revision: any, evidenceId: strin
   }
 }
 export async function viewPodEvidence(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await DeliveryAssignment.findById(request.params.assignmentId).lean().exec(); if (!assignment) fail(404, "POD evidence was not found."); const profile = user.role === "delivery" ? await profileForUser(user.id) : null; const isAssigned = profile?.deliverySubrole === "DELIVERY_PERSON" && String(assignment.currentDeliveryPersonProfileId) === String(profile._id); const isManager = ["admin", "operations"].includes(user.role) || profile?.deliverySubrole === "SUPERVISOR"; const isClient = user.role === "client" && await canClientAccess(user.id, assignment); if (!isAssigned && !(isManager && await canManage(user, assignment)) && !isClient) fail(404, "POD evidence was not found."); const revision = await PodRevision.findOne({ _id: request.params.revisionId, assignmentId: assignment._id }).exec(); if (!revision || (isClient && revision.status !== "VERIFIED")) fail(404, "POD evidence was not found."); return await sendEvidence(response, revision, String(request.params.evidenceId)); } catch (error) { return handle(error, response, next); } }
+
+/**
+ * POD Centre: every verified proof of delivery for the caller's accounts.
+ *
+ * Scope comes from the caller's active memberships, so an account id cannot be
+ * supplied to widen it.
+ */
+async function clientPodScope(userId: mongoose.Types.ObjectId) {
+  const memberships = await BusinessAccountMember.find({ user: userId, status: "active" })
+    .select("businessAccount")
+    .lean()
+    .exec();
+  return memberships.map((membership) => membership.businessAccount as mongoose.Types.ObjectId);
+}
+
+export async function listClientPodCentre(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request);
+    if (!user) return response.status(401).json({ success: false, message: "Unauthorized" });
+    const businessAccountIds = await clientPodScope(user.id);
+    if (!businessAccountIds.length) return response.json({ success: true, pods: [] });
+
+    const pods = await listClientPods({
+      businessAccountIds,
+      search: typeof request.query.search === "string" ? request.query.search.slice(0, 80) : "",
+      dateFrom: typeof request.query.dateFrom === "string" ? request.query.dateFrom : "",
+      dateTo: typeof request.query.dateTo === "string" ? request.query.dateTo : "",
+      limit: exportFormat(request) ? EXPORT_ROW_CAP : 200
+    });
+
+    const format = exportFormat(request);
+    if (format) {
+      return sendTableExport(response, format, {
+        title: "Proof of Delivery",
+        columns: podExportColumns,
+        rows: pods as never[],
+        appliedFilters: describeFilters({
+          Search: request.query.search,
+          From: request.query.dateFrom,
+          To: request.query.dateTo
+        })
+      });
+    }
+    // The storage keys are internal plumbing and never leave the server.
+    return response.json({
+      success: true,
+      pods: pods.map(({ evidence, ...row }) => ({ ...row, evidenceCount: evidence.length }))
+    });
+  } catch (error) { return handle(error, response, next); }
+}
+
+/**
+ * One merged PDF for the selected PODs, or for everything matching the filters
+ * when nothing is selected — which is what "bulk download" means on a list the
+ * customer has just filtered.
+ */
+export async function downloadClientPodPdf(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request);
+    if (!user) return response.status(401).json({ success: false, message: "Unauthorized" });
+    const businessAccountIds = await clientPodScope(user.id);
+    if (!businessAccountIds.length) fail(404, "No proof of delivery was found.");
+
+    const requested = String(request.query.ids ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+    const pods = requested.length
+      ? await loadClientPodsByIds({ businessAccountIds, assignmentIds: requested })
+      : await listClientPods({
+        businessAccountIds,
+        search: typeof request.query.search === "string" ? request.query.search.slice(0, 80) : "",
+        dateFrom: typeof request.query.dateFrom === "string" ? request.query.dateFrom : "",
+        dateTo: typeof request.query.dateTo === "string" ? request.query.dateTo : "",
+        limit: 100
+      });
+
+    if (!pods.length) fail(404, "No proof of delivery was found for that selection.");
+
+    const account = await BusinessAccount.findById(businessAccountIds[0]).select("accountId company.companyName").lean().exec();
+    const label = account ? `${account.company?.companyName ?? ""} (${account.accountId})` : "Swiftline";
+    const pdf = await buildPodPdf(pods, label);
+
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Disposition", `attachment; filename="swiftline-pod-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    response.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+    return response.status(200).send(pdf);
+  } catch (error) { return handle(error, response, next); }
+}
+
+/**
+ * Emails the selected PODs to the account's own people.
+ *
+ * Deliberately not to a typed address. A POD names a recipient and carries a
+ * signature, and letting anyone mail one anywhere turns this into a way to
+ * leak delivery records; it goes to the account owners, admins and operations
+ * members already entitled to open it in the portal.
+ */
+export async function emailClientPod(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request);
+    if (!user) return response.status(401).json({ success: false, message: "Unauthorized" });
+    const businessAccountIds = await clientPodScope(user.id);
+    const requested = z.object({ assignmentIds: z.array(z.string()).min(1).max(50) }).parse(request.body);
+    const pods = await loadClientPodsByIds({ businessAccountIds, assignmentIds: requested.assignmentIds });
+    if (!pods.length) fail(404, "No proof of delivery was found for that selection.");
+
+    const businessAccountId = businessAccountIds[0] as mongoose.Types.ObjectId;
+    const recipients = await BusinessAccountMember.find({
+      businessAccount: businessAccountId,
+      status: "active",
+      role: { $in: ["account_owner", "account_admin", "operations"] }
+    }).select("user").lean().exec();
+
+    await notifyPortalUsers(recipients.map((member) => member.user as mongoose.Types.ObjectId), {
+      type: "POD_AVAILABLE",
+      title: pods.length === 1 ? `Proof of delivery — ${pods[0]?.awb}` : `Proof of delivery — ${pods.length} shipments`,
+      message: pods.map((pod) => `${pod.awb || pod.carrierReference} received by ${pod.recipientName || "recipient"}`).join("; "),
+      href: "/client/pods",
+      // Keyed on the selection so pressing the button twice does not send twice.
+      idempotencyKey: `pod-email:${pods.map((pod) => pod.assignmentId).sort().join(",")}`,
+      businessAccountId
+    });
+
+    return response.json({
+      success: true,
+      message: `Proof of delivery sent to ${recipients.length} account contact${recipients.length === 1 ? "" : "s"}.`
+    });
+  } catch (error) { return handle(error, response, next); }
+}

@@ -240,6 +240,31 @@ export const pickupExportColumns: Array<ExportColumn<PickupRow>> = [
   { header: "Raised", value: (row) => asDate(row.createdAt), width: 20 }
 ];
 
+/** A row of the POD Centre, as `listClientPods` returns one. */
+type PodRow = {
+  awb: string;
+  carrierReference: string;
+  consignee: string;
+  destination: string;
+  parcelNumbers: string[];
+  recipientName: string;
+  recipientRelationship: string;
+  deliveredAt: Date | null;
+  evidenceCount: number;
+};
+
+export const podExportColumns: Array<ExportColumn<PodRow>> = [
+  { header: "AWB", value: (row) => row.awb, width: 20 },
+  { header: "Carrier reference", value: (row) => row.carrierReference, width: 22 },
+  { header: "Consignee", value: (row) => row.consignee, width: 26 },
+  { header: "Destination", value: (row) => row.destination, width: 26 },
+  { header: "Parcels", value: (row) => row.parcelNumbers.join(", "), width: 26 },
+  { header: "Received by", value: (row) => row.recipientName, width: 22 },
+  { header: "Relationship", value: (row) => row.recipientRelationship, width: 18 },
+  { header: "Delivered at", value: (row) => row.deliveredAt, width: 20 },
+  { header: "Evidence files", value: (row) => row.evidenceCount, width: 14 }
+];
+
 /** Appended only for a caller with financial visibility. */
 export const claimFinancialExportColumns: Array<ExportColumn<ClaimRow>> = [
   { header: "Currency", value: (row) => row.currency ?? "", width: 10 },
