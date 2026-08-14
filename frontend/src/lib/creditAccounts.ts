@@ -23,6 +23,17 @@ export type CreditAccount = {
   availableAdvanceMinor?: number;
   availableBookingCapacityMinor?: number;
   paymentTermsDays: number;
+  /**
+   * Amounts owed and dates due, gathered from statements and payments rather
+   * than the credit account. Absent for a member without balance visibility.
+   */
+  billing?: {
+    overdueAmountMinor: number;
+    overdueStatementCount: number;
+    nextDueAt: string | null;
+    nextDueAmountMinor: number | null;
+    lastPayment: { amountMinor: number; at: string } | null;
+  } | null;
   billingCycle: "WEEKLY" | "MONTHLY";
   validFrom?: string | null;
   validUntil?: string | null;

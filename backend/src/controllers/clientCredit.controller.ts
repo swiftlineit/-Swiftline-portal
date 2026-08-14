@@ -1,6 +1,8 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
+import { CreditBillingStatement } from "../models/creditBillingStatement.model.js";
+import { CreditPayment } from "../models/creditPayment.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { PaymentTermsAcceptance } from "../models/paymentTerms.model.js";
@@ -76,11 +78,70 @@ export async function getClientCreditSummary(request: Request, response: Respons
     depositStatus: business.depositStatus
   };
 
+  /**
+   * The three billing figures that are not on the credit account itself.
+   *
+   * Overdue and next-due live on statements, and the last payment on the
+   * payment ledger, so a billing summary that only read the credit account
+   * could show a limit and a balance but never answer "how much is late" or
+   * "when is the next bill due" — the two questions a finance user opens this
+   * page to ask. Only fetched for a caller allowed to see balances.
+   */
+  const billing = canViewBalances
+    ? await (async () => {
+      const now = new Date();
+      /**
+       * Late is decided by the date, not only by the OVERDUE status.
+       *
+       * `job:credit:mark-overdue` stamps that status hourly, so a statement
+       * that passed its due date minutes ago is still ISSUED. Reading the
+       * status alone would under-report the overdue total for up to an hour;
+       * reading the date catches both.
+       */
+      const unsettled = { $nin: ["PAID", "VOID"] as const };
+      const [overdueStatements, nextStatement, lastPayment] = await Promise.all([
+        CreditBillingStatement.find({
+          businessAccountId: membership.businessAccount,
+          status: unsettled,
+          dueAt: { $lt: now }
+        }).select("outstandingAmountMinor totalAmountMinor dueAt").lean().exec(),
+        CreditBillingStatement.findOne({
+          businessAccountId: membership.businessAccount,
+          status: unsettled,
+          dueAt: { $gte: now }
+        }).sort({ dueAt: 1 }).select("dueAt outstandingAmountMinor").lean().exec(),
+        CreditPayment.findOne({
+          businessAccountId: membership.businessAccount,
+          status: "VERIFIED"
+        }).sort({ verifiedAt: -1, createdAt: -1 }).select("amountMinor verifiedAt createdAt").lean().exec()
+      ]);
+
+      return {
+        // What is actually still owed on late statements, not their original
+        // totals: a statement half paid is half overdue, not fully.
+        overdueAmountMinor: overdueStatements.reduce(
+          (sum, statement) => sum + (statement.outstandingAmountMinor ?? statement.totalAmountMinor ?? 0),
+          0
+        ),
+        overdueStatementCount: overdueStatements.length,
+        nextDueAt: nextStatement?.dueAt ?? null,
+        nextDueAmountMinor: nextStatement?.outstandingAmountMinor ?? null,
+        lastPayment: lastPayment
+          ? {
+            amountMinor: lastPayment.amountMinor,
+            at: lastPayment.verifiedAt ?? lastPayment.createdAt
+          }
+          : null
+      };
+    })()
+    : null;
+
   return response.status(200).json({
     success: true,
     permissions,
     creditAccount: canViewBalances ? {
       ...serialized,
+      billing,
       canUseCredit: serialized.status === "ACTIVE"
         && permissions.includes("useCreditPayment")
         && !["CREDIT_BLOCKED", "ALL_BOOKINGS_BLOCKED"].includes(restriction.level),
