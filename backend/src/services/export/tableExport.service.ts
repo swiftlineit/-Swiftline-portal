@@ -124,11 +124,23 @@ export async function buildTableWorkbook<Row>(input: TableExportInput<Row>): Pro
 /**
  * The same table as a landscape PDF.
  *
- * Columns are laid out proportionally to their spreadsheet widths, so one
- * definition drives both formats. Values that do not fit are clipped rather
- * than wrapped: a row that stays one line keeps the grid readable, and anyone
- * who needs the untruncated value wants the spreadsheet.
+ * Nothing is clipped. Cells wrap and rows grow to fit, and when there are more
+ * columns than a landscape page can hold legibly, the table is split into
+ * bands: the first eight-or-so columns for every row, then the next set, and
+ * so on. Each band after the first repeats the leading column — usually the
+ * AWB or reference — so a reader can line the bands back up.
+ *
+ * The alternative, squeezing twenty-three columns into one page, gives each
+ * about thirty points of width and truncates every value in the file. A wide
+ * export that fits on one page but says nothing is worse than a longer one
+ * that says everything.
  */
+const FONT_SIZE = 8;
+const CELL_PADDING = 4;
+const LINE_HEIGHT = 10;
+/** Below this a column cannot hold a date or a tracking number legibly. */
+const MIN_COLUMN_WIDTH = 68;
+
 export function buildTablePdf<Row>(input: TableExportInput<Row>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     // bufferPages keeps every page open until `end()`, which is what lets the
@@ -141,16 +153,46 @@ export function buildTablePdf<Row>(input: TableExportInput<Row>): Promise<Buffer
 
     const left = document.page.margins.left;
     const usableWidth = document.page.width - left - document.page.margins.right;
-    const totalWeight = input.columns.reduce((sum, column) => sum + (column.width ?? DEFAULT_WIDTH), 0);
-    // Column and its drawn width together, so the two loops below never index
-    // one array with the other's position.
-    const layout = input.columns.map((column) => ({
-      column,
-      width: ((column.width ?? DEFAULT_WIDTH) / totalWeight) * usableWidth
-    }));
+    const pageBottom = document.page.height - document.page.margins.bottom - 14;
 
-    const ROW_HEIGHT = 18;
-    const HEADER_HEIGHT = 20;
+    /**
+     * Splits the columns into groups that fit at a readable width.
+     *
+     * Weights still decide relative width inside a band, so a Destination
+     * column stays wider than a Pieces column; the band only decides which
+     * columns share a page.
+     */
+    const columnsPerBand = Math.max(1, Math.floor(usableWidth / MIN_COLUMN_WIDTH));
+    const [keyColumn, ...restColumns] = input.columns;
+    const bands: Array<Array<ExportColumn<Row>>> = [];
+
+    if (input.columns.length <= columnsPerBand) {
+      bands.push([...input.columns]);
+    } else if (keyColumn) {
+      // Subsequent bands carry the key column plus one fewer new column, since
+      // the repeated key takes a slot.
+      bands.push(input.columns.slice(0, columnsPerBand));
+      let taken = columnsPerBand - 1;
+      while (taken < restColumns.length) {
+        bands.push([keyColumn, ...restColumns.slice(taken, taken + columnsPerBand - 1)]);
+        taken += columnsPerBand - 1;
+      }
+    }
+
+    function widthsFor(columns: Array<ExportColumn<Row>>) {
+      const total = columns.reduce((sum, column) => sum + (column.width ?? DEFAULT_WIDTH), 0);
+      return columns.map((column) => ((column.width ?? DEFAULT_WIDTH) / total) * usableWidth);
+    }
+
+    /** How tall a row must be for every cell to show in full. */
+    function rowHeight(values: string[], widths: number[]) {
+      document.fontSize(FONT_SIZE);
+      const tallest = values.reduce((max, value, index) => Math.max(
+        max,
+        document.heightOfString(value || " ", { width: (widths[index] ?? usableWidth) - CELL_PADDING * 2 })
+      ), 0);
+      return Math.max(LINE_HEIGHT + 8, tallest + 8);
+    }
 
     /**
      * Draws one row of cells and returns the cursor to a known place.
@@ -160,22 +202,29 @@ export function buildTablePdf<Row>(input: TableExportInput<Row>): Promise<Buffer
      * against a captured top instead, and the cursor is set explicitly
      * afterwards — without this a six-column table paginates six times too fast.
      */
-    function drawCells(values: string[], top: number, height: number) {
+    function drawCells(values: string[], widths: number[], top: number, height: number) {
       let x = left;
-      layout.forEach(({ width }, index) => {
-        document.text(values[index] ?? "", x + 4, top + (height - 10) / 2, {
-          width: width - 8, height: 12, ellipsis: true, lineBreak: false
+      widths.forEach((width, index) => {
+        document.text(values[index] ?? "", x + CELL_PADDING, top + 4, {
+          width: width - CELL_PADDING * 2,
+          height: height - 6
         });
         x += width;
       });
       document.y = top + height;
     }
 
-    function drawHeader() {
+    function drawBandHeader(columns: Array<ExportColumn<Row>>, widths: number[]) {
+      const headers = columns.map((column) => column.header.toUpperCase());
+      // Measured in the bold face it is drawn in. Bold is wider, so measuring
+      // in the regular face would under-size the header and clip a two-word
+      // heading to one line.
+      document.font("Helvetica-Bold");
+      const height = rowHeight(headers, widths);
       const top = document.y;
-      document.rect(left, top, usableWidth, HEADER_HEIGHT).fill("#E2E8F0");
-      document.fillColor("#0F172A").fontSize(8).font("Helvetica-Bold");
-      drawCells(layout.map(({ column }) => column.header.toUpperCase()), top, HEADER_HEIGHT);
+      document.rect(left, top, usableWidth, height).fill("#E2E8F0");
+      document.fillColor("#0F172A").fontSize(FONT_SIZE).font("Helvetica-Bold");
+      drawCells(headers, widths, top, height);
       document.font("Helvetica");
     }
 
@@ -193,28 +242,44 @@ export function buildTablePdf<Row>(input: TableExportInput<Row>): Promise<Buffer
     document.text(subtitle, { width: usableWidth });
     document.moveDown(0.6);
 
-    drawHeader();
-
     if (!input.rows.length) {
+      const widths = widthsFor(bands[0] ?? []);
+      if (bands[0]) drawBandHeader(bands[0], widths);
       document.fillColor("#64748B").fontSize(9)
         .text("No rows matched the filters applied to this export.", left, document.y + 10, { width: usableWidth });
     }
 
-    input.rows.forEach((row, rowIndex) => {
-      // A new page needs its header repeated, or the columns below the fold
-      // are unlabelled.
-      if (document.y + ROW_HEIGHT > document.page.height - document.page.margins.bottom - 16) {
+    bands.forEach((columns, bandIndex) => {
+      if (!input.rows.length) return;
+      const widths = widthsFor(columns);
+
+      if (bandIndex > 0) {
         document.addPage();
-        drawHeader();
+        // Named, so a reader knows this is the same table continued rather
+        // than a second one.
+        document.fillColor("#64748B").fontSize(9).font("Helvetica-Bold")
+          .text(`${input.title} — columns continued (${bandIndex + 1} of ${bands.length})`, left, document.y);
+        document.font("Helvetica").moveDown(0.4);
       }
 
-      const top = document.y;
-      if (rowIndex % 2 === 1) {
-        document.rect(left, top, usableWidth, ROW_HEIGHT).fill("#F8FAFC");
-      }
+      drawBandHeader(columns, widths);
 
-      document.fillColor("#0F172A").fontSize(8);
-      drawCells(layout.map(({ column }) => cellText(column.value(row))), top, ROW_HEIGHT);
+      input.rows.forEach((row, rowIndex) => {
+        const values = columns.map((column) => cellText(column.value(row)));
+        const height = rowHeight(values, widths);
+
+        // A new page needs its header repeated, or the columns below the fold
+        // are unlabelled.
+        if (document.y + height > pageBottom) {
+          document.addPage();
+          drawBandHeader(columns, widths);
+        }
+
+        const top = document.y;
+        if (rowIndex % 2 === 1) document.rect(left, top, usableWidth, height).fill("#F8FAFC");
+        document.fillColor("#0F172A").fontSize(FONT_SIZE);
+        drawCells(values, widths, top, height);
+      });
     });
 
     // Page numbers, added after layout so the total is known. The footer sits
