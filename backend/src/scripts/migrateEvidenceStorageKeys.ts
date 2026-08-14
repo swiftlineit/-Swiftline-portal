@@ -11,54 +11,48 @@
  * evidence or pickup proof in the portal fails today.
  *
  * The file itself is left exactly where it is. Only the pointer is rewritten,
- * from an absolute path to the module-relative key the storage service
- * understands, which is why this is safe to run against live data — nothing is
- * copied, moved or deleted.
+ * from an absolute path to the key the storage service understands, which is
+ * why this is safe to run against live data — nothing is copied, moved or
+ * deleted.
  *
  * Dry run (default):
  *   npx tsx src/scripts/migrateEvidenceStorageKeys.ts
  * Apply:
  *   npx tsx src/scripts/migrateEvidenceStorageKeys.ts --apply
  *
- * Safe to run more than once: rows that already carry a key are skipped.
+ * Safe to run more than once, and safe to run over the keys an earlier version
+ * of this script got wrong: a key is left alone only when it resolves to a file
+ * that exists, and repaired otherwise. Nothing is written for a key that would
+ * point at nothing.
  */
 import "dotenv/config";
 import mongoose from "mongoose";
 import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { storageKeyFromLegacyPath } from "../services/storage/legacyKeys.js";
 
 const apply = process.argv.includes("--apply");
 
 /**
- * The storage-relative key for a legacy absolute path.
+ * Whether a key actually lands on a file the storage driver can read.
  *
- * Keys are `<module>/<...>/<file>`, and the legacy paths end
- * `private_uploads/<module-folder>/<file>`. The filename is preserved so the
- * file on disk still answers to its key.
+ * This is the check the first version of this script got wrong: it verified
+ * that the *old* path still had a file rather than that the *new* key resolved
+ * to one, so it reported success while writing keys that pointed at nothing.
  */
-function keyFromLegacyPath(path: string, moduleFolder: string, module: string) {
-  const normalized = path.replace(/\\/g, "/");
-  const marker = `/${moduleFolder}/`;
-  const index = normalized.lastIndexOf(marker);
-  if (index === -1) return null;
-  const remainder = normalized.slice(index + marker.length);
-  // Reject anything that would not survive assertValidStorageKey.
-  if (!remainder || remainder.includes("//") || remainder.split("/").some((part) => part === "." || part === "..")) return null;
-  return `${module}/${remainder}`;
+function resolvesToFile(key: string) {
+  return existsSync(join(process.cwd(), "private_uploads", key));
 }
 
 type Target = {
   collection: string;
-  /** Where the files sit under private_uploads. */
-  moduleFolder: string;
-  /** The storage module prefix the key must carry. */
-  module: string;
   /** Dotted path to the array of evidence rows, or null for a flat document. */
   arrayField: string | null;
 };
 
 const targets: Target[] = [
-  { collection: "podrevisions", moduleFolder: "pod-evidence", module: "pod", arrayField: "evidence" },
-  { collection: "pickupproofs", moduleFolder: "pickup-proofs", module: "pickup", arrayField: null }
+  { collection: "podrevisions", arrayField: "evidence" },
+  { collection: "pickupproofs", arrayField: null }
 ];
 
 async function main() {
@@ -88,22 +82,29 @@ async function main() {
 
       let changed = false;
       const updated = rows.map((row) => {
-        if (row.storageKey) { alreadyKeyed += 1; return row; }
+        const currentKey = typeof row.storageKey === "string" ? row.storageKey : "";
+        // A key that already reads a real file is left alone. One that does
+        // not is repaired, which is what makes this safe to re-run over the
+        // wrong keys the first version of this script wrote.
+        if (currentKey && resolvesToFile(currentKey)) { alreadyKeyed += 1; return row; }
+
         const legacy = typeof row.path === "string" ? row.path : "";
-        const key = legacy ? keyFromLegacyPath(legacy, target.moduleFolder, target.module) : null;
+        const key = legacy ? storageKeyFromLegacyPath(legacy) : null;
         if (!key) {
           unconvertible += 1;
           console.log(`  ${target.collection}: cannot derive a key from ${legacy || "(no path)"}`);
           return row;
         }
-        // Reported, not skipped: the pointer is still worth fixing so the row
-        // stops erroring, and a genuinely absent file is its own problem.
-        if (!existsSync(legacy)) {
+        if (!resolvesToFile(key)) {
+          // Reported and not written: a key pointing at nothing is no better
+          // than the broken pointer it would replace.
           missingFile += 1;
-          console.log(`  ${target.collection}: file absent on disk for ${key}`);
+          console.log(`  ${target.collection}: no file at private_uploads/${key}`);
+          return row;
         }
         converted += 1;
         changed = true;
+        console.log(`  ${target.collection}: ${currentKey ? `repaired ${currentKey} -> ` : ""}${key}`);
         return { ...row, storageKey: key };
       });
 
@@ -116,9 +117,9 @@ async function main() {
     }
   }
 
-  console.log(`\nalready on storage keys : ${alreadyKeyed}`);
+  console.log(`\nalready resolving to a file: ${alreadyKeyed}`);
   console.log(`convertible             : ${converted}${apply ? " (written)" : " (would be written)"}`);
-  console.log(`file absent on disk     : ${missingFile}`);
+  console.log(`no file at derived key    : ${missingFile}`);
   console.log(`could not derive a key  : ${unconvertible}`);
 
   await mongoose.disconnect();

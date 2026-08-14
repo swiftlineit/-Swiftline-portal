@@ -38,7 +38,10 @@ export type PodCentreRow = {
   revisionId: string;
   evidenceCount: number;
   /** Every evidence file on the newest verified revision, for the PDF. */
-  evidence: Array<{ id: string; type: string; storageKey: string; mimeType: string; originalName: string; capturedAt: Date | null }>;
+  // `legacyPath` is the absolute path these rows held before storage keys
+  // existed. Carried through so a reader can fall back to it when the key is
+  // missing or wrong; see storage/legacyKeys.ts.
+  evidence: Array<{ id: string; type: string; storageKey: string; legacyPath: string; mimeType: string; originalName: string; capturedAt: Date | null }>;
 };
 
 function joinPlace(values: Array<string | undefined>) {
@@ -117,6 +120,7 @@ export async function listClientPods(filter: PodCentreFilter): Promise<PodCentre
         id: String(item._id),
         type: String(item.type ?? ""),
         storageKey: String(item.storageKey ?? ""),
+        legacyPath: String(item.path ?? ""),
         mimeType: String(item.mimeType ?? ""),
         originalName: String(item.originalName ?? ""),
         capturedAt: (item.capturedAt as Date | undefined) ?? null

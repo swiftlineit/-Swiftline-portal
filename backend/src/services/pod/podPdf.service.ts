@@ -13,6 +13,7 @@
  */
 import PDFDocument from "pdfkit";
 import { getObjectBuffer, StorageObjectNotFoundError } from "../storage/storage.service.js";
+import { resolveEvidenceKey } from "../storage/legacyKeys.js";
 import type { PodCentreRow } from "./podCentre.service.js";
 
 const BRAND = "#0D1282";
@@ -38,19 +39,29 @@ export async function buildPodPdf(pods: PodCentreRow[], accountLabel: string): P
   // produces its details page, with the gap stated.
   const images = new Map<string, Buffer>();
   await Promise.all(pods.flatMap((pod) => pod.evidence
-    .filter((item) => isEmbeddableImage(item.mimeType) && item.storageKey)
+    .filter((item) => isEmbeddableImage(item.mimeType))
     .map(async (item) => {
       try {
-        images.set(item.id, await getObjectBuffer(item.storageKey));
+        // Resolved rather than read straight from the key: evidence captured
+        // before storage keys existed has no key, and rows touched by an early
+        // version of the backfill have one that points at nothing.
+        const key = await resolveEvidenceKey({ storageKey: item.storageKey, path: item.legacyPath });
+        if (!key) {
+          console.error("POD evidence has no readable file for the PDF.", {
+            evidenceId: item.id,
+            storageKey: item.storageKey || "(none)"
+          });
+          return;
+        }
+        images.set(item.id, await getObjectBuffer(key));
       } catch (error) {
         /**
          * Any failure to read one file is reported on the page, never thrown.
          *
-         * Deliberately broader than StorageObjectNotFoundError. Evidence
-         * captured before storage keys replaced absolute paths has no key at
-         * all, and that rejects with a validation error rather than a
-         * not-found — which aborted the whole document on the first such file,
-         * losing every other POD in the batch along with it.
+         * Deliberately broader than StorageObjectNotFoundError, so that an
+         * unreadable file loses its own image and nothing else — throwing here
+         * aborted the whole document on the first bad file, losing every other
+         * POD in the batch along with it.
          */
         console.error("POD evidence could not be read for the PDF.", {
           evidenceId: item.id,

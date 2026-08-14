@@ -24,6 +24,7 @@ import {
   putObject,
   streamObjectToResponse
 } from "../services/storage/storage.service.js";
+import { resolveEvidenceKey } from "../services/storage/legacyKeys.js";
 import { emailValidationMessage, isValidBusinessContactEmail } from "../services/businessAccountRules.js";
 import { notifyBusinessShipmentMembers, notifyOperationsStaff, notifyPortalUsers } from "../services/portalNotification.service.js";
 
@@ -326,8 +327,14 @@ export async function createPodDispute(request: Request, response: Response, nex
 async function sendEvidence(response: Response, revision: any, evidenceId: string) {
   const evidence = revision.evidence.id(evidenceId);
   if (!evidence) fail(404, "POD evidence was not found.");
+  // Resolved rather than read straight from `storageKey`. Evidence captured
+  // before storage keys existed still holds an absolute path, and rows written
+  // by an early version of the backfill hold a key under the wrong prefix —
+  // both of which surfaced to the customer as a missing file.
+  const key = await resolveEvidenceKey(evidence);
+  if (!key) fail(404, "POD evidence file was not found.");
   try {
-    return await streamObjectToResponse({ response, key: evidence.storageKey, contentType: evidence.mimeType, filename: evidence.originalName, disposition: "inline" });
+    return await streamObjectToResponse({ response, key, contentType: evidence.mimeType, filename: evidence.originalName, disposition: "inline" });
   } catch (error) {
     if (error instanceof StorageObjectNotFoundError) fail(404, "POD evidence file was not found.");
     throw error;

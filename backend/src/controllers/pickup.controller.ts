@@ -16,6 +16,7 @@ import {
   putObject,
   streamObjectToResponse
 } from "../services/storage/storage.service.js";
+import { resolveEvidenceKey } from "../services/storage/legacyKeys.js";
 import {
   PickupServiceError, assignPickupDriver, cancelPickup, completePickupAttempt, confirmPickup,
   createClientPickup, driverPickupAttempts, getDriverPickupAttempt, getPickupDetail, listEligiblePickupShipments,
@@ -330,10 +331,14 @@ async function sendProofFile(proofId: string, pickupId: string, response: Respon
   if (!mongoose.Types.ObjectId.isValid(proofId)) throw new PickupServiceError("Pickup proof was not found.", 404);
   const proof = await PickupProof.findOne({ _id: proofId, pickupRequestId: pickupId }).lean().exec();
   if (!proof) throw new PickupServiceError("Pickup proof was not found.", 404);
+  // Proofs captured before storage keys existed still hold an absolute path;
+  // resolving covers those as well as rows an early backfill keyed wrongly.
+  const key = await resolveEvidenceKey(proof);
+  if (!key) throw new PickupServiceError("Pickup proof file was not found.", 404);
   try {
     return await streamObjectToResponse({
       response,
-      key: proof.storageKey,
+      key,
       contentType: proof.mimeType,
       filename: proof.originalName,
       disposition: "inline"
