@@ -7,8 +7,9 @@ import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
 import { SortableHeader, TableToolbar, type TableColumnOption } from "@/components/ui/TableToolbar";
+import { ScheduleChip } from "@/components/shipments/ShipmentJourney";
 import { emptyDateRange } from "@/lib/dateRange";
-import { formatDashboardDateTime } from "@/lib/dateFormat";
+import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatCsbType } from "@/lib/csbType";
 import { createBulkShipmentManifest, manifestsHref } from "@/lib/shipmentManifests";
 import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
@@ -80,6 +81,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     { key: "route", label: "Route" },
     { key: "amount", label: "Chargeable Amount" },
     { key: "status", label: "Status" },
+    { key: "eta", label: "Estimated Delivery" },
     { key: "created", label: "Created" },
     { key: "actions", label: "Actions", locked: true }
   ];
@@ -388,6 +390,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                     and Status cannot be ordered by the server — see
                     shipmentSortableColumns for why — so they stay plain
                     headings rather than arrows that reorder one page. */}
+                {shows("eta") ? <th className="px-4 py-3">Estimated Delivery</th> : null}
                 {shows("created") ? (
                   <SortableHeader
                     label="Created"
@@ -462,6 +465,27 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                       </p>
                     ) : null}
                   </td>
+                  ) : null}
+                  {shows("eta") ? (
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {shipment.deliveryEstimate ? (
+                        <>
+                          <p className="text-slate-800">
+                            {formatDashboardDate(
+                              shipment.deliveryEstimate.deliveredAt
+                              ?? shipment.deliveryEstimate.estimatedDeliveryAt
+                            )}
+                          </p>
+                          <div className="mt-1">
+                            <ScheduleChip estimate={shipment.deliveryEstimate} />
+                          </div>
+                        </>
+                      ) : (
+                        // No route configured for this lane, so no date is
+                        // claimed rather than one being invented.
+                        <span className="text-slate-400">Not available</span>
+                      )}
+                    </td>
                   ) : null}
                   {shows("created") ? (
                     <td className="whitespace-nowrap px-4 py-3 text-slate-600">

@@ -18,6 +18,7 @@ import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/compon
 import ShipmentSupportingDocuments from "@/components/shipments/ShipmentSupportingDocuments";
 import RaiseClaimButton from "@/components/claims/RaiseClaimButton";
 import ClientPodPanel from "@/components/pods/ClientPodPanel";
+import { ScheduleChip } from "@/components/shipments/ShipmentJourney";
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, logout, refreshAccessToken } from "@/lib/auth";
 import {
@@ -343,7 +344,24 @@ export default function ClientShipmentDetailsPage() {
                   <DetailRow label="AWB / Tracking No." value={shipment.dpdShipment?.swiftlineTrackingNumber || "AWB Pending"} />
                   <DetailRow label="Customer Reference" value={shipment.bookingConfirmation?.customerReference || "Not provided"} />
                   <DetailRow label="Current Status" value={getShipmentStatus(shipment)} />
+                  {/* The promised date, on the page a customer opens to ask
+                      exactly that. Absent when the lane has no route, rather
+                      than showing a date nothing supports. */}
+                  <DetailRow
+                    label="Estimated Delivery"
+                    value={shipment.deliveryEstimate
+                      ? formatDateTime(
+                        shipment.deliveryEstimate.deliveredAt
+                        ?? shipment.deliveryEstimate.estimatedDeliveryAt
+                      )
+                      : "Not available"}
+                  />
                   <DetailRow label="Updated" value={formatDateTime(shipment.shipmentDraft.updatedAt)} />
+                  {shipment.deliveryEstimate ? (
+                    <div className="pt-1">
+                      <ScheduleChip estimate={shipment.deliveryEstimate} />
+                    </div>
+                  ) : null}
                 </DetailPanel>
 
                 <DetailPanel title="Booking" icon={<FiFileText aria-hidden="true" className="h-4 w-4" />}>

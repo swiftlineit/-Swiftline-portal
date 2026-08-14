@@ -40,6 +40,20 @@ export type ShipmentListItem = {
   /** The newest scan. Null until Operations records one. */
   lastScan: { statusLabel: string; location: string; at: string } | null;
   /**
+   * When it should arrive and whether it is going to. Null when the lane has
+   * no route configured, in which case the row shows nothing rather than a
+   * guessed date.
+   */
+  deliveryEstimate: {
+    estimatedDeliveryAt: string;
+    earliestDeliveryAt: string;
+    transitDaysMin: number;
+    transitDaysMax: number;
+    transitBasis: "BUSINESS_DAYS" | "CALENDAR_DAYS";
+    state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ON_HOLD";
+    deliveredAt: string | null;
+  } | null;
+  /**
    * Carrier-side booking state, distinct from the tracking status above. Staff
    * lists include shipments that reached the carrier but have not completed;
    * client lists only ever contain LABEL_RECEIVED.
