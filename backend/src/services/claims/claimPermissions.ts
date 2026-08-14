@@ -85,6 +85,30 @@ const clientMatrix: Record<BusinessAccountMemberRole, readonly ClaimAction[]> = 
   ],
   finance: ["VIEW", "VIEW_FINANCIALS"],
   // Deliberately without VIEW_FINANCIALS: status only, no amounts, no bank data.
+  /**
+   * Booking, not compensation. A booking user can see that a claim exists
+   * against a shipment they created, and nothing more — the same visibility a
+   * tracking login has.
+   */
+  booking_user: ["VIEW"],
+  /**
+   * Runs claims end to end, but does not commit the company to money.
+   *
+   * VIEW_FINANCIALS is included because the amount is the claim: a claims
+   * handler who cannot see what was requested cannot do the job. Accepting a
+   * settlement and setting bank details stay with an owner or admin, for the
+   * same reason they do for operations — those two decide where money goes.
+   */
+  claims_user: [
+    "VIEW",
+    "VIEW_FINANCIALS",
+    "CREATE",
+    "EDIT_DRAFT",
+    "UPLOAD_DOCUMENT",
+    "SEND_MESSAGE",
+    "WITHDRAW",
+    "SUBMIT_APPEAL"
+  ],
   tracking_only: ["VIEW"]
 };
 

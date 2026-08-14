@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { BusinessAccountMember } from "../../models/businessAccountMember.model.js";
+import { BusinessAccountMember, claimHandlingRoles } from "../../models/businessAccountMember.model.js";
 import { User } from "../../models/user.model.js";
 import type { IClaim } from "../../models/claim.model.js";
 import type { ClaimDecisionOutcome } from "../../models/claimTypes.js";
@@ -46,7 +46,7 @@ async function claimAudience(businessAccountId: mongoose.Types.ObjectId) {
   const members = await BusinessAccountMember.find({
     businessAccount: businessAccountId,
     status: "active",
-    role: { $in: ["account_owner", "account_admin", "operations", "finance"] }
+    role: { $in: claimHandlingRoles }
   })
     .select("user")
     .lean()

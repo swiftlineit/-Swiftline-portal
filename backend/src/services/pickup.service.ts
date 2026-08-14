@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { AuditLog } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
-import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
+import { BusinessAccountMember, shipmentBookingRoles } from "../models/businessAccountMember.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { DriverProfile } from "../models/driverProfile.model.js";
 import { PickupAttempt } from "../models/pickupAttempt.model.js";
@@ -59,7 +59,7 @@ async function loadClientPickupAccess(userId: mongoose.Types.ObjectId) {
   const memberships = await BusinessAccountMember.find({
     user: userId,
     status: "active",
-    role: { $in: ["account_owner", "account_admin", "operations"] }
+    role: { $in: shipmentBookingRoles }
   }).select("businessAccount assignedBranches").lean().exec();
   const accounts = await BusinessAccount.find({ _id: { $in: memberships.map((membership) => membership.businessAccount) } })
     .select("assignedBranch")

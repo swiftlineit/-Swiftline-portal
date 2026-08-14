@@ -1,3 +1,4 @@
+import { shipmentBookingRoles } from "../models/businessAccountMember.model.js";
 import mongoose from "mongoose";
 import { BalanceReservation } from "../models/balanceReservation.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
@@ -17,7 +18,7 @@ import {
 // Business-account seats, not portal roles. "operations" appears in both
 // vocabularies and means different things: here it is a client's own staff
 // member, not Swiftline operations.
-const clientShipmentEditorRoles = new Set(["account_owner", "account_admin", "operations"]);
+const clientShipmentEditorRoles = new Set<string>(shipmentBookingRoles);
 export class ShipmentDraftPolicyError extends Error {
   constructor(message: string, readonly statusCode: number) {
     super(message);

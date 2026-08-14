@@ -1,3 +1,4 @@
+import { shipmentBookingRoles } from "../models/businessAccountMember.model.js";
 import mongoose from "mongoose";
 import { AuditLog } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
@@ -15,7 +16,7 @@ import { calculateShipmentPricingEstimate, defaultShipmentGstRate } from "./ship
 import { findRoute } from "./swiftlineRoute.service.js";
 import { validateShipmentDraftFields } from "./shipmentValidation.service.js";
 
-export const quoteRequestRoles: BusinessAccountMemberRole[] = ["account_owner", "account_admin", "operations"];
+export const quoteRequestRoles: BusinessAccountMemberRole[] = shipmentBookingRoles;
 export const quoteViewRoles: BusinessAccountMemberRole[] = [...quoteRequestRoles, "finance"];
 
 export type ShipmentQuoteRequestInput = {

@@ -3,15 +3,77 @@ import mongoose from "mongoose";
 export const businessAccountMemberRoleValues = [
   "account_owner",
   "account_admin",
+  /** Books shipments and requests pickups, but sees no money and no claims. */
+  "booking_user",
   "operations",
   "finance",
+  /** Raises and follows compensation claims, without booking rights. */
+  "claims_user",
   "tracking_only"
 ] as const;
 
-export const businessAccountMemberStatusValues = ["invited", "active", "suspended", "removed"] as const;
+/** What each role is called wherever a person picks one. */
+export const businessAccountMemberRoleLabels: Record<BusinessAccountMemberRole, string> = {
+  account_owner: "Account Administrator",
+  account_admin: "Account Administrator",
+  booking_user: "Booking User",
+  operations: "Operations User",
+  finance: "Finance User",
+  claims_user: "Claims User",
+  tracking_only: "Tracking Only"
+};
+
+/**
+ * Membership lifecycle.
+ *
+ * `pending_approval` sits before `invited` and exists because a business
+ * account administrator can now raise an invitation themselves. Anyone they
+ * name would gain immediate sight of that account's shipments, invoices and
+ * claims, so the request waits for Swiftline to approve it and only then does
+ * an invitation email go out. Without this state the client-side invite would
+ * be a way to create portal logins with nobody at Swiftline in the loop.
+ */
+export const businessAccountMemberStatusValues = [
+  "pending_approval",
+  "invited",
+  "active",
+  "suspended",
+  "removed",
+  /** Swiftline refused the request; kept rather than deleted as a record. */
+  "declined"
+] as const;
 
 export type BusinessAccountMemberRole = (typeof businessAccountMemberRoleValues)[number];
 export type BusinessAccountMemberStatus = (typeof businessAccountMemberStatusValues)[number];
+
+/**
+ * Named role groups, so a new role is added in one place.
+ *
+ * Before these existed the same list — owner, admin, operations — was written
+ * out at eleven call sites. Adding `booking_user` and `claims_user` to the
+ * enum would have compiled cleanly and left both roles unable to do the one
+ * thing each was created for, because no compiler checks a string array.
+ */
+
+/** Anyone who may create a shipment, and therefore quote, price and pick up. */
+export const shipmentBookingRoles: BusinessAccountMemberRole[] = [
+  "account_owner", "account_admin", "operations", "booking_user"
+];
+
+/** Anyone who may raise or work a compensation claim. */
+export const claimHandlingRoles: BusinessAccountMemberRole[] = [
+  "account_owner", "account_admin", "operations", "finance", "claims_user"
+];
+
+/** Anyone who may see money: balances, invoices, statements. */
+export const financialRoles: BusinessAccountMemberRole[] = [
+  "account_owner", "account_admin", "finance"
+];
+
+/** Anyone who may administer the account itself, including its people. */
+export const accountAdminRoles: BusinessAccountMemberRole[] = [
+  "account_owner", "account_admin"
+];
 
 export const creditPermissionValues = [
   "requestCredit", "useCreditPayment", "viewCreditBalance", "viewCreditDetails", "makeCreditPayment"

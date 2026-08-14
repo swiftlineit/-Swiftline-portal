@@ -1,3 +1,4 @@
+import { shipmentBookingRoles } from "../models/businessAccountMember.model.js";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -317,7 +318,7 @@ async function getActiveClientMembership(userId: string, branchId?: string) {
 }
 
 function canCreateClientShipment(role: unknown) {
-  return ["account_owner", "account_admin", "operations"].includes(String(role));
+  return (shipmentBookingRoles as string[]).includes(String(role));
 }
 
 function sendShipmentRoleError(response: Response) {

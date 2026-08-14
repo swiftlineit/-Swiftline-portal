@@ -1,3 +1,4 @@
+import { shipmentBookingRoles } from "../models/businessAccountMember.model.js";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -50,7 +51,7 @@ const reviewSchema = z.object({
 const rejectSchema = z.object({
   reviewNote: z.string().trim().min(5, "Enter a reason for rejection.").max(500)
 });
-const clientCancellationRoles: BusinessAccountMemberRole[] = ["account_owner", "account_admin", "operations"];
+const clientCancellationRoles: BusinessAccountMemberRole[] = shipmentBookingRoles;
 
 function userId(request: Request) {
   const id = (request as Request & { user?: { _id?: unknown } }).user?._id;

@@ -11,6 +11,14 @@ const roleCreditPermissions: Record<BusinessAccountMemberRole, CreditPermission[
   account_admin: ["requestCredit", "useCreditPayment", "viewCreditBalance", "viewCreditDetails", "makeCreditPayment"],
   finance: ["requestCredit", "useCreditPayment", "viewCreditBalance", "viewCreditDetails", "makeCreditPayment"],
   operations: ["useCreditPayment"],
+  /**
+   * Booking spends credit, so a booking user must be able to draw on it and
+   * see whether any is left — the balance is what tells them a booking will go
+   * through. They cannot request a limit or make payments.
+   */
+  booking_user: ["useCreditPayment", "viewCreditBalance"],
+  /** A claim concerns goods, not the credit account. */
+  claims_user: [],
   tracking_only: []
 };
 
