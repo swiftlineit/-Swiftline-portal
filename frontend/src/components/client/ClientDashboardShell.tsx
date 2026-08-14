@@ -2,6 +2,7 @@
 
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import {
+  FiActivity,
   FiAlertTriangle,
   FiArchive,
   FiCalendar,
@@ -47,7 +48,7 @@ export type ClientShellUser = {
  * Client navigation, grouped by what the customer came to do. `access` names the
  * permission a link waits on; the rest are open to every member of an account.
  */
-type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking" | "addressBook";
+type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking" | "addressBook" | "accountAdmin";
 
 /**
  * Grouped by the job the customer came to do.
@@ -128,6 +129,8 @@ const clientNavigation: Array<
     icon: FiUser,
     items: [
       { label: "My Profile", href: "/client/profile", icon: FiUser },
+      // Owners and admins only; the endpoint enforces it too.
+      { label: "Activity", href: "/client/activity", icon: FiActivity, access: "accountAdmin" },
       { label: "Holiday & Cut-Off Calendar", href: "/client/operations-calendar", icon: FiCalendar },
     ],
   },
@@ -163,6 +166,7 @@ export function ClientDashboardShell({
       canRequestQuote: boolean,
       canBook: boolean,
       canManageAddresses: boolean,
+      isAccountAdmin: boolean,
     ) {
       if (!active) return;
 
@@ -172,6 +176,7 @@ export function ClientDashboardShell({
         quoteRequest: canRequestQuote,
         booking: canBook,
         addressBook: canManageAddresses,
+        accountAdmin: isAccountAdmin,
       };
 
       setNavigation(
@@ -235,9 +240,16 @@ export function ClientDashboardShell({
               ["account_owner", "account_admin", "operations"].includes(item.membership.role)
               && item.dashboardAccess.state === "READY",
           ),
+          // Activity names who did what, which is management information —
+          // owners and admins only, matching what the endpoint enforces.
+          dashboard.accounts.some((item) =>
+            ["account_owner", "account_admin"].includes(item.membership.role),
+          ),
         );
       })
-      .catch(() => resolve(false, false, false, false, false));
+      // Nothing is granted when the account cannot be read, so a failed call
+      // hides links rather than showing ones the user may not use.
+      .catch(() => resolve(false, false, false, false, false, false));
 
     return () => {
       active = false;
