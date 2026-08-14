@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import UserAvatar from "@/components/users/UserAvatar";
 import {
   FiArrowLeft,
   FiBriefcase,
@@ -9,7 +10,9 @@ import {
   FiDownload,
   FiEye,
   FiFileText,
+  FiMail,
   FiMapPin,
+  FiPhone,
   FiShield,
   FiUser
 } from "react-icons/fi";
@@ -336,18 +339,54 @@ export default function StaffDetail({
           Back to users
         </Link>
 
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="truncate text-2xl font-semibold text-slate-950">{displayName}</h1>
-            <p className="mt-1 break-all text-sm text-slate-500">{staffUser.email}</p>
+        {/*
+          The same banner-and-avatar header the profile page uses, so opening a
+          colleague's record looks like opening your own rather than a
+          different kind of screen.
+
+          Every level carries min-w-0 and the row stacks below `sm`: a flex item
+          defaults to min-width:auto, so without it the name's `truncate` never
+          engages and a long email pushes the card sideways — which is exactly
+          what the profile header did before it was fixed.
+        */}
+        <section className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="h-20 bg-linear-to-r from-blue-400 via-blue-300 to-blue-300" />
+          <div className="flex flex-col gap-4 px-4 pb-5 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+            <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-end sm:gap-4">
+              <div className="-mt-10 shrink-0 rounded-full border-4 border-white bg-white shadow-sm">
+                <UserAvatar
+                  userId={staffUser._id}
+                  name={displayName}
+                  hasProfileImage={staffUser.hasProfileImage}
+                  size={72}
+                />
+              </div>
+              <div className="min-w-0 flex-1 pb-1">
+                <h1 className="truncate text-xl font-semibold text-slate-950 sm:text-2xl" title={displayName}>
+                  {displayName}
+                </h1>
+                <div className="mt-1 flex min-w-0 flex-col gap-1 text-sm text-slate-500 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <FiMail aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-700" />
+                    <span className="truncate" title={staffUser.email}>{staffUser.email}</span>
+                  </span>
+                  {staffUser.phone ? (
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <FiPhone aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-700" />
+                      <span className="truncate">{staffUser.phone}</span>
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 sm:pb-1">
+              <span className="inline-flex items-center rounded-full bg-[#0D1282]/8 px-2.5 py-1 text-xs font-semibold text-[#0D1282]">
+                {roleLabels[staffUser.role as PortalRole] ?? staffUser.role}
+              </span>
+              <StatusPill status={staffUser.userStatus} />
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center rounded-full bg-[#0D1282]/8 px-2.5 py-1 text-xs font-semibold text-[#0D1282]">
-              {roleLabels[staffUser.role as PortalRole] ?? staffUser.role}
-            </span>
-            <StatusPill status={staffUser.userStatus} />
-          </div>
-        </div>
+        </section>
       </div>
 
       <FormError message={error} />
