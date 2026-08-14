@@ -119,6 +119,7 @@ import {
 } from "../controllers/operationsAdvisory.controller.js";
 import { cancelClientPickupRequest, createClientPickupRequest, rescheduleClientPickupRequest, getClientPickupRequest, listClientEligiblePickups, listClientPickupRequests, viewClientPickupProof } from "../controllers/pickup.controller.js";
 import { checkClientServiceability } from "../controllers/serviceability.controller.js";
+import { getClientCustomsKyc } from "../controllers/customsKyc.controller.js";
 import { createPodDispute, downloadClientPodPdf, emailClientPod, getClientPod, listClientPodCentre, viewPodEvidence } from "../controllers/pod.controller.js";
 import { addressBookRouter } from "./addressBook.routes.js";
 import { listClientDocuments } from "../controllers/clientDocumentCentre.controller.js";
@@ -223,6 +224,7 @@ clientRouter.get("/pickups/:pickupId/proofs/:proofId", viewClientPickupProof);
 clientRouter.get("/shipments/:shipmentId/pod", getClientPod);
 clientRouter.post("/shipments/:shipmentId/pod/disputes", createPodDispute);
 clientRouter.get("/serviceability", checkClientServiceability);
+clientRouter.get("/customs-kyc", getClientCustomsKyc);
 clientRouter.get("/pods", listClientPodCentre);
 clientRouter.get("/pods/download", downloadClientPodPdf);
 clientRouter.post("/pods/email", emailClientPod);

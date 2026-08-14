@@ -52,11 +52,9 @@ type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking" | "addres
 /**
  * Grouped by the job the customer came to do.
  *
- * Only destinations that exist are listed. The requested structure also names
- * Shipment Templates, Bulk Upload, POD Centre,
- * Customs & KYC, Serviceability and Team Members; those arrive with the pages
- * themselves rather than as links that 404 in the meantime. Exceptions and
- * Action Required join Operations when their pages land.
+ * Only destinations that exist are listed, so a link is never a 404. Still to
+ * arrive: Bulk Upload and Team Members. Shipment Templates is deliberately
+ * absent — it was dropped from scope rather than deferred.
  */
 const clientNavigation: Array<
   | { label: string; href: string; icon: IconType }
@@ -88,7 +86,14 @@ const clientNavigation: Array<
       { label: "Action Required", href: "/client/actions", icon: FiCheckSquare },
     ],
   },
-  { label: "Documents & Compliance", href: "/client/documents", icon: FiFileText },
+  {
+    label: "Documents & Compliance",
+    icon: FiFileText,
+    items: [
+      { label: "Documents Centre", href: "/client/documents", icon: FiFileText },
+      { label: "Customs & KYC", href: "/client/customs", icon: FiShield },
+    ],
+  },
   {
     label: "Quotes & Rates",
     icon: FiClipboard,
