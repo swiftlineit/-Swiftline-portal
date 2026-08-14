@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FiChevronRight, FiSearch } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
@@ -72,6 +73,7 @@ function matchesSearch(item: User, needle: string) {
 }
 
 export default function UsersPage() {
+  const router = useRouter();
   const { user, loading } = useAdminUser(STAFF_DIRECTORY_AREA);
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
@@ -137,7 +139,9 @@ export default function UsersPage() {
     try {
       const { accountId, invite } = await beginClientAccessApproval(item.id);
       const query = new URLSearchParams({ ...invite, requestId: item.id }).toString();
-      window.location.href = `/dashboard/business-accounts/${accountId}?tab=access&${query}`;
+      // Routed rather than a location assignment, so the app navigates instead
+      // of reloading the whole shell to reach another page it already has.
+      router.push(`/dashboard/business-accounts/${accountId}?tab=access&${query}`);
     } catch (caughtError) {
       toast.error(caughtError instanceof Error ? caughtError.message : "The request could not be opened.");
     }
