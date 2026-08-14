@@ -117,13 +117,18 @@ import {
   listClientCalendarEntries,
   listClientServiceDisruptions
 } from "../controllers/operationsAdvisory.controller.js";
-import { cancelClientPickupRequest, createClientPickupRequest, getClientPickupRequest, listClientEligiblePickups, listClientPickupRequests, viewClientPickupProof } from "../controllers/pickup.controller.js";
+import { cancelClientPickupRequest, createClientPickupRequest, rescheduleClientPickupRequest, getClientPickupRequest, listClientEligiblePickups, listClientPickupRequests, viewClientPickupProof } from "../controllers/pickup.controller.js";
 import { createPodDispute, getClientPod, viewPodEvidence } from "../controllers/pod.controller.js";
+import { addressBookRouter } from "./addressBook.routes.js";
+import { listClientDocuments } from "../controllers/clientDocumentCentre.controller.js";
 
 export const clientRouter = Router();
 
 clientRouter.use(attachUser);
 clientRouter.use(requireRole("client"));
+
+clientRouter.use("/address-book", addressBookRouter);
+clientRouter.get("/documents", listClientDocuments);
 
 // Operations advisory: the header marquee and the Holiday & Cut-Off Calendar.
 clientRouter.get("/service-disruptions", listClientServiceDisruptions);
@@ -212,6 +217,7 @@ clientRouter.post("/pickups", createClientPickupRequest);
 clientRouter.get("/pickups", listClientPickupRequests);
 clientRouter.get("/pickups/:pickupId", getClientPickupRequest);
 clientRouter.post("/pickups/:pickupId/cancel", cancelClientPickupRequest);
+clientRouter.post("/pickups/:pickupId/reschedule", rescheduleClientPickupRequest);
 clientRouter.get("/pickups/:pickupId/proofs/:proofId", viewClientPickupProof);
 clientRouter.get("/shipments/:shipmentId/pod", getClientPod);
 clientRouter.post("/shipments/:shipmentId/pod/disputes", createPodDispute);

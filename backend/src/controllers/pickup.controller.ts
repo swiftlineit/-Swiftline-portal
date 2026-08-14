@@ -19,11 +19,14 @@ import {
 import {
   PickupServiceError, assignPickupDriver, cancelPickup, completePickupAttempt, confirmPickup,
   createClientPickup, driverPickupAttempts, getDriverPickupAttempt, getPickupDetail, listEligiblePickupShipments,
-  listPickupRequests, recordPickupParcelException, scanPickupParcel, sendPickupOtp,
+  listPickupRequests, markPickupMissed, recordPickupParcelException, reschedulePickup, scanPickupParcel, sendPickupOtp,
   requestPickupOtpException, reviewPickupOtpException, transitionDriverAttempt, verifyPickupOtp
 } from "../services/pickup.service.js";
 import { emailValidationMessage, isValidBusinessContactEmail } from "../services/businessAccountRules.js";
 import { operationsBranchIds } from "../middleware/operationsBranchAccess.middleware.js";
+import { pickupRequestStatusValues } from "../models/pickupRequest.model.js";
+import { pickupExportColumns } from "../services/export/exportColumns.js";
+import { describeFilters, exportFormat, sendTableExport, type TableExportFormat } from "../services/export/tableExportHttp.js";
 
 const windowSchema = z.object({
   startAt: z.coerce.date(), endAt: z.coerce.date(), timezone: z.string().trim().min(1).max(80).default("Asia/Kolkata")
@@ -107,11 +110,108 @@ export async function createClientPickupRequest(request: Request, response: Resp
   } catch (error) { return handle(error, response, next); }
 }
 
+/**
+ * Status and requested-window filters, shared by both audiences.
+ *
+ * The window is matched on `requestedWindow.startAt` rather than createdAt:
+ * someone filtering pickups by date means the day of collection, not the day
+ * the request happened to be typed.
+ */
+function pickupQueryFilters(request: Request) {
+  const filter: Record<string, unknown> = {};
+  const status = typeof request.query.status === "string" ? request.query.status : "";
+  if (pickupRequestStatusValues.includes(status as never)) filter.status = status;
+
+  const from = typeof request.query.dateFrom === "string" ? request.query.dateFrom : "";
+  const to = typeof request.query.dateTo === "string" ? request.query.dateTo : "";
+  if (from || to) {
+    filter["requestedWindow.startAt"] = {
+      ...(from ? { $gte: new Date(from) } : {}),
+      // Inclusive of the whole end day, which is what picking a date means.
+      ...(to ? { $lte: new Date(`${to}T23:59:59.999Z`) } : {})
+    };
+  }
+  return filter;
+}
+
+function sendPickupExport(request: Request, response: Response, format: TableExportFormat, pickups: unknown[]) {
+  return sendTableExport(response, format, {
+    title: "Pickups",
+    columns: pickupExportColumns,
+    rows: pickups as never[],
+    appliedFilters: describeFilters({
+      Status: request.query.status,
+      From: request.query.dateFrom,
+      To: request.query.dateTo
+    })
+  });
+}
+
 export async function listClientPickupRequests(request: Request, response: Response, next: NextFunction) {
   try {
     const user = actor(request); if (!user) return response.status(401).json({ success: false, message: "Unauthorized" });
     const memberships = await BusinessAccountMember.find({ user: user.id, status: "active" }).select("businessAccount").lean().exec();
-    return response.status(200).json({ success: true, pickups: await listPickupRequests({ businessAccountId: { $in: memberships.map((item) => item.businessAccount) } }) });
+    const pickups = await listPickupRequests({
+      businessAccountId: { $in: memberships.map((item) => item.businessAccount) },
+      ...pickupQueryFilters(request)
+    });
+    const format = exportFormat(request);
+    if (format) return sendPickupExport(request, response, format, pickups);
+    return response.status(200).json({ success: true, pickups });
+  } catch (error) { return handle(error, response, next); }
+}
+
+const rescheduleSchema = z.object({
+  startAt: z.coerce.date(),
+  endAt: z.coerce.date(),
+  timezone: z.string().trim().min(1).max(80).default("Asia/Kolkata")
+});
+
+export async function rescheduleClientPickupRequest(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request); if (!user) return response.status(401).json({ success: false, message: "Unauthorized" });
+    const pickupId = String(request.params.pickupId ?? "");
+    const pickup = await PickupRequest.findById(pickupId).select("businessAccountId branchId").lean().exec();
+    if (!pickup || !await clientCanAccessPickup(user.id, pickup)) {
+      return response.status(404).json({ success: false, message: "Pickup request was not found." });
+    }
+    const parsed = rescheduleSchema.safeParse(request.body);
+    if (!parsed.success) return response.status(400).json({ success: false, message: "Choose a valid pickup window." });
+    return response.status(200).json({
+      success: true,
+      message: "Pickup rescheduled.",
+      pickup: await reschedulePickup({ pickupId, actorId: user.id, source: "CLIENT", ...parsed.data })
+    });
+  } catch (error) { return handle(error, response, next); }
+}
+
+export async function reschedulePickupRequest(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request); if (!user) return response.status(401).json({ success: false, message: "Unauthorized" });
+    const parsed = rescheduleSchema.safeParse(request.body);
+    if (!parsed.success) return response.status(400).json({ success: false, message: "Choose a valid pickup window." });
+    return response.status(200).json({
+      success: true,
+      message: "Pickup rescheduled.",
+      pickup: await reschedulePickup({
+        pickupId: String(request.params.pickupId ?? ""), actorId: user.id, source: "ADMIN", ...parsed.data
+      })
+    });
+  } catch (error) { return handle(error, response, next); }
+}
+
+export async function markPickupRequestMissed(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request); if (!user) return response.status(401).json({ success: false, message: "Unauthorized" });
+    const parsed = z.object({ reason: z.string().trim().min(3).max(500) }).safeParse(request.body);
+    if (!parsed.success) return response.status(400).json({ success: false, message: "Enter why the pickup was missed." });
+    return response.status(200).json({
+      success: true,
+      message: "Pickup marked as missed.",
+      pickup: await markPickupMissed({
+        pickupId: String(request.params.pickupId ?? ""), actorId: user.id, reason: parsed.data.reason
+      })
+    });
   } catch (error) { return handle(error, response, next); }
 }
 
@@ -139,10 +239,12 @@ export async function cancelClientPickupRequest(request: Request, response: Resp
 export async function listInternalPickupRequests(request: Request, response: Response, next: NextFunction) {
   try {
     const allowed = operationsBranchIds(request);
-    const filter: Record<string, unknown> = {};
+    const filter: Record<string, unknown> = { ...pickupQueryFilters(request) };
     if (allowed !== null) filter.branchId = { $in: allowed };
-    if (typeof request.query.status === "string" && request.query.status) filter.status = request.query.status;
-    return response.status(200).json({ success: true, pickups: await listPickupRequests(filter) });
+    const pickups = await listPickupRequests(filter);
+    const format = exportFormat(request);
+    if (format) return sendPickupExport(request, response, format, pickups);
+    return response.status(200).json({ success: true, pickups });
   } catch (error) { return handle(error, response, next); }
 }
 

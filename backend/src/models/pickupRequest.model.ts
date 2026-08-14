@@ -1,10 +1,44 @@
 import mongoose from "mongoose";
 
+/**
+ * Where a pickup request sits.
+ *
+ * `DRIVER_ASSIGNED` and `MISSED` were added because a customer asking "is
+ * anyone coming?" and "did they turn up?" could not be answered from this
+ * field. Driver assignment was recorded only on the attempt, so the request
+ * still read CONFIRMED once a driver was on it; and a failed collection had
+ * nowhere to go at all — `CLOSED_UNSUCCESSFUL` existed in this list but was
+ * never set by anything.
+ *
+ * `MISSED` is distinct from `CLOSED_UNSUCCESSFUL`: missed means nobody
+ * collected on the day and the request is still alive to be rescheduled, while
+ * closed-unsuccessful ends it. Collapsing the two would make a reschedulable
+ * pickup look finished.
+ */
 export const pickupRequestStatusValues = [
-  "REQUESTED", "CONFIRMED", "IN_PROGRESS", "ACTION_REQUIRED",
-  "PARTIALLY_COLLECTED", "COLLECTED", "CANCELLED", "CLOSED_UNSUCCESSFUL"
+  "REQUESTED", "CONFIRMED", "DRIVER_ASSIGNED", "IN_PROGRESS", "ACTION_REQUIRED",
+  "PARTIALLY_COLLECTED", "COLLECTED", "MISSED", "CANCELLED", "CLOSED_UNSUCCESSFUL"
 ] as const;
 export type PickupRequestStatus = (typeof pickupRequestStatusValues)[number];
+
+/** What each status is called wherever a person reads it. */
+export const pickupRequestStatusLabels: Record<PickupRequestStatus, string> = {
+  REQUESTED: "Requested",
+  CONFIRMED: "Scheduled",
+  DRIVER_ASSIGNED: "Driver Assigned",
+  IN_PROGRESS: "In Progress",
+  ACTION_REQUIRED: "Action Required",
+  PARTIALLY_COLLECTED: "Partially Collected",
+  COLLECTED: "Collected",
+  MISSED: "Missed Pickup",
+  CANCELLED: "Cancelled",
+  CLOSED_UNSUCCESSFUL: "Closed Unsuccessful"
+};
+
+/** Statuses a pickup can still be rescheduled from. */
+export const reschedulablePickupStatuses: PickupRequestStatus[] = [
+  "REQUESTED", "CONFIRMED", "DRIVER_ASSIGNED", "ACTION_REQUIRED", "MISSED"
+];
 
 export interface IPickupRequest extends mongoose.Document {
   requestNumber: string;

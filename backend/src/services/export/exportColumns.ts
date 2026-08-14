@@ -196,6 +196,50 @@ export const staffClaimExportColumns: Array<ExportColumn<ClaimRow & {
   { header: "Handler", value: (row) => row.assignedToName || "Unassigned", width: 22 }
 ];
 
+/** A row of the pickup list, as `listPickupRequests` serializes one. */
+type PickupRow = {
+  requestNumber: string;
+  status: string;
+  statusLabel?: string;
+  businessAccountName?: string;
+  branchName?: string;
+  pickupContact?: { name: string; phone: string } | null;
+  pickupAddress?: Record<string, unknown> | null;
+  requestedWindow: { startAt: string | Date; endAt: string | Date } | null;
+  confirmedWindow?: { startAt: string | Date; endAt: string | Date } | null;
+  shipmentCount: number;
+  parcelCount: number;
+  totalWeightKg: number;
+  createdAt: string | Date;
+};
+
+/** The address is stored loosely, so it is joined defensively for the file. */
+function addressLine(address?: Record<string, unknown> | null) {
+  if (!address) return "";
+  return ["addressLine1", "addressLine2", "townOrCity", "postcode", "countryCode"]
+    .map((key) => String(address[key] ?? "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+export const pickupExportColumns: Array<ExportColumn<PickupRow>> = [
+  { header: "Pickup reference", value: (row) => row.requestNumber, width: 22 },
+  { header: "Status", value: (row) => row.statusLabel ?? words(row.status), width: 20 },
+  { header: "Account", value: (row) => row.businessAccountName ?? "", width: 26 },
+  { header: "Branch", value: (row) => row.branchName ?? "", width: 22 },
+  { header: "Contact", value: (row) => row.pickupContact?.name ?? "", width: 22 },
+  { header: "Phone", value: (row) => row.pickupContact?.phone ?? "", width: 18 },
+  { header: "Pickup address", value: (row) => addressLine(row.pickupAddress), width: 40 },
+  { header: "Requested from", value: (row) => asDate(row.requestedWindow?.startAt ?? null), width: 20 },
+  { header: "Requested to", value: (row) => asDate(row.requestedWindow?.endAt ?? null), width: 20 },
+  { header: "Confirmed from", value: (row) => asDate(row.confirmedWindow?.startAt ?? null), width: 20 },
+  { header: "Confirmed to", value: (row) => asDate(row.confirmedWindow?.endAt ?? null), width: 20 },
+  { header: "Shipments", value: (row) => row.shipmentCount, width: 12 },
+  { header: "Parcels", value: (row) => row.parcelCount, width: 10 },
+  { header: "Weight (kg)", value: (row) => row.totalWeightKg, width: 12 },
+  { header: "Raised", value: (row) => asDate(row.createdAt), width: 20 }
+];
+
 /** Appended only for a caller with financial visibility. */
 export const claimFinancialExportColumns: Array<ExportColumn<ClaimRow>> = [
   { header: "Currency", value: (row) => row.currency ?? "", width: 10 },

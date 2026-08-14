@@ -9,7 +9,7 @@ import { DriverProfile } from "../models/driverProfile.model.js";
 import { PickupAttempt } from "../models/pickupAttempt.model.js";
 import { PickupCounter } from "../models/pickupCounter.model.js";
 import { PickupProof, PickupScan } from "../models/pickupEvidence.model.js";
-import { PickupRequest } from "../models/pickupRequest.model.js";
+import { PickupRequest, reschedulablePickupStatuses } from "../models/pickupRequest.model.js";
 import { PickupRequestShipment } from "../models/pickupRequestShipment.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent, type ShipmentEventStatus } from "../models/shipmentEvent.model.js";
@@ -310,7 +310,9 @@ export async function cancelPickup(input: {
   const requestId = asObjectId(input.pickupId, "Pickup request");
   const request = await PickupRequest.findById(requestId).exec();
   if (!request) throw new PickupServiceError("Pickup request was not found.", 404);
-  if (!["REQUESTED", "CONFIRMED", "ACTION_REQUIRED"].includes(request.status)) {
+  // A driver being assigned, or a pickup being missed, is still before any
+  // collection work — both remain cancellable.
+  if (!["REQUESTED", "CONFIRMED", "DRIVER_ASSIGNED", "ACTION_REQUIRED", "MISSED"].includes(request.status)) {
     throw new PickupServiceError("This pickup can no longer be cancelled because collection work has started.", 409);
   }
   const attempt = request.currentAttemptId ? await PickupAttempt.findById(request.currentAttemptId).exec() : null;
@@ -375,6 +377,125 @@ export async function cancelPickup(input: {
     businessAccountId: request.businessAccountId,
     metadata: { pickupRequestId: request._id }
   }));
+  return getPickupDetail(input.pickupId);
+}
+
+/**
+ * Records that nobody collected.
+ *
+ * Staff-only and deliberately not terminal: the request stays alive so it can
+ * be rescheduled, which is what a customer wants after a missed collection.
+ * Ending it instead would force them to raise the whole request again.
+ */
+export async function markPickupMissed(input: {
+  pickupId: string;
+  actorId: mongoose.Types.ObjectId;
+  reason: string;
+}) {
+  const request = await PickupRequest.findById(asObjectId(input.pickupId, "Pickup request")).exec();
+  if (!request) throw new PickupServiceError("Pickup request was not found.", 404);
+  if (!["REQUESTED", "CONFIRMED", "DRIVER_ASSIGNED", "IN_PROGRESS", "ACTION_REQUIRED"].includes(request.status)) {
+    throw new PickupServiceError("Only a pickup still awaiting collection can be marked missed.", 409);
+  }
+
+  request.status = "MISSED";
+  request.version += 1;
+  await request.save();
+
+  // The attempt is closed off too, or the driver keeps an assignment for a
+  // collection everyone agrees did not happen.
+  if (request.currentAttemptId) {
+    await PickupAttempt.findByIdAndUpdate(request.currentAttemptId, { $set: { status: "FAILED" } }).exec();
+  }
+
+  await AuditLog.create({
+    action: "PICKUP_REQUEST_UPDATED",
+    entityType: "PICKUP_REQUEST",
+    entityId: request._id,
+    performedBy: input.actorId,
+    performedAt: new Date(),
+    metadata: { status: "MISSED", reason: input.reason.trim() }
+  });
+
+  await notifyPickupSafely(() => notifyPortalUsers([request.requestedBy], {
+    type: "PICKUP_MISSED",
+    title: "Pickup missed",
+    message: `${request.requestNumber} was not collected. ${input.reason.trim()}`,
+    href: "/client/pickups",
+    idempotencyKey: `PICKUP_MISSED:${String(request._id)}:${request.version}`,
+    businessAccountId: request.businessAccountId
+  }));
+
+  return getPickupDetail(input.pickupId);
+}
+
+/**
+ * Moves a pickup to a new window.
+ *
+ * Reschedule replaces the requested window and returns the request to
+ * REQUESTED, because a new window has not been confirmed by anyone yet —
+ * leaving it CONFIRMED would assert an agreement to a time nobody agreed to.
+ * Any existing attempt is cancelled: it was scheduled against the old window.
+ */
+export async function reschedulePickup(input: {
+  pickupId: string;
+  actorId: mongoose.Types.ObjectId;
+  source: "CLIENT" | "ADMIN";
+  startAt: Date;
+  endAt: Date;
+  timezone: string;
+}) {
+  const request = await PickupRequest.findById(asObjectId(input.pickupId, "Pickup request")).exec();
+  if (!request) throw new PickupServiceError("Pickup request was not found.", 404);
+  if (!reschedulablePickupStatuses.includes(request.status)) {
+    throw new PickupServiceError("This pickup can no longer be rescheduled.", 409);
+  }
+  if (input.endAt <= input.startAt) {
+    throw new PickupServiceError("The pickup window must end after it starts.", 400);
+  }
+  if (input.startAt.getTime() < Date.now()) {
+    throw new PickupServiceError("Choose a pickup window in the future.", 400);
+  }
+
+  const previous = { ...request.requestedWindow };
+  request.requestedWindow = { startAt: input.startAt, endAt: input.endAt, timezone: input.timezone };
+  request.confirmedWindow = null;
+  request.status = "REQUESTED";
+  request.version += 1;
+  await request.save();
+
+  if (request.currentAttemptId) {
+    await PickupAttempt.findByIdAndUpdate(
+      request.currentAttemptId,
+      { $set: { status: "CANCELLED" } }
+    ).exec();
+    request.currentAttemptId = null;
+    await request.save();
+  }
+
+  await AuditLog.create({
+    action: "PICKUP_REQUEST_UPDATED",
+    entityType: "PICKUP_REQUEST",
+    entityId: request._id,
+    performedBy: input.actorId,
+    performedAt: new Date(),
+    metadata: {
+      status: "RESCHEDULED",
+      source: input.source,
+      from: { startAt: previous.startAt, endAt: previous.endAt },
+      to: { startAt: input.startAt, endAt: input.endAt }
+    }
+  });
+
+  await notifyPickupSafely(() => notifyOperationsStaff({
+    type: "PICKUP_RESCHEDULED",
+    title: "Pickup rescheduled",
+    message: `${request.requestNumber} moved to a new window.`,
+    href: `/dashboard/pickups`,
+    idempotencyKey: `PICKUP_RESCHEDULED:${String(request._id)}:${request.version}`,
+    businessAccountId: request.businessAccountId
+  }));
+
   return getPickupDetail(input.pickupId);
 }
 
@@ -443,6 +564,18 @@ export async function assignPickupDriver(input: { pickupId: string; attemptId: s
   attempt.vehicle = input.vehicle;
   attempt.status = "ASSIGNED";
   await attempt.save();
+  /**
+   * The request follows the attempt.
+   *
+   * Assignment used to be visible only on the attempt, so a customer watching
+   * the request saw "Scheduled" while a driver was already on the way. Guarded
+   * so a pickup already in progress is not dragged backwards by a reassignment.
+   */
+  if (["REQUESTED", "CONFIRMED", "ACTION_REQUIRED", "MISSED"].includes(request.status)) {
+    request.status = "DRIVER_ASSIGNED";
+    request.version += 1;
+    await request.save();
+  }
   await AuditLog.create({ action: "PICKUP_ATTEMPT_ASSIGNED", entityType: "PICKUP_ATTEMPT", entityId: attempt._id, performedBy: input.actorId, performedAt: new Date(), metadata: { pickupRequestId: request._id, driverProfileId: profile._id, engagementType: profile.engagementType } });
   await notifyPickupSafely(() => notifyPortalUsers([user._id as mongoose.Types.ObjectId], {
     type: "PICKUP_ASSIGNED",

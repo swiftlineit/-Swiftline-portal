@@ -3,7 +3,8 @@ import {
   addMyPickupException, assignPickupRequestDriver, cancelInternalPickupRequest, completeMyPickupAttempt, confirmPickupRequest,
   getInternalPickupRequest, getMyPickupAttempt, listAvailablePickupDrivers, listInternalPickupRequests, listMyPickupAttempts, requestMyPickupOtp,
   requestMyPickupOtpException, requirePickupManager, reviewPickupRequestOtpException, scanMyPickupParcel,
-  updateMyPickupAttemptStatus, uploadMyPickupProof, verifyMyPickupOtp, viewInternalPickupProof, viewMyPickupProof
+  updateMyPickupAttemptStatus, uploadMyPickupProof, verifyMyPickupOtp, viewInternalPickupProof, viewMyPickupProof,
+  markPickupRequestMissed, reschedulePickupRequest
 } from "../controllers/pickup.controller.js";
 import { attachUser, requireAuthenticated, requireRole } from "../middleware/auth.middleware.js";
 import { pickupProofUpload } from "../middleware/pickupProofUpload.middleware.js";
@@ -16,6 +17,8 @@ pickupManagementRouter.get("/:pickupId", getInternalPickupRequest);
 pickupManagementRouter.post("/:pickupId/confirm", confirmPickupRequest);
 pickupManagementRouter.post("/:pickupId/assign", assignPickupRequestDriver);
 pickupManagementRouter.post("/:pickupId/cancel", cancelInternalPickupRequest);
+pickupManagementRouter.post("/:pickupId/reschedule", reschedulePickupRequest);
+pickupManagementRouter.post("/:pickupId/missed", markPickupRequestMissed);
 pickupManagementRouter.get("/:pickupId/proofs/:proofId", viewInternalPickupProof);
 pickupManagementRouter.post("/:pickupId/otp-exception/review", reviewPickupRequestOtpException);
 
