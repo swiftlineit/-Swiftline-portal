@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { ChangeEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { ChangeEvent, type ReactNode, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { FiArrowLeft, FiMapPin, FiSave, FiSearch, FiTruck,FiPackage } from "react-icons/fi";
 import { FaRegWindowClose, FaWeight } from "react-icons/fa";
 import { toast } from "react-toastify";
@@ -89,6 +89,8 @@ import {
   type ShipmentCostEstimateInput
 } from "@/lib/shipmentCostEstimate";
 import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
+import AddressBookPicker from "@/components/address-book/AddressBookPicker";
+import { getAddressBookEntry, type AddressBookEntry, type AddressBookEntryType } from "@/lib/addressBook";
 
 /** The booking-panel action currently running; the two booking values are the
  *  provider each button books with. Null when the page is idle. */
@@ -334,6 +336,9 @@ function findIssue(issues: string[], patterns: string[]) {
 export default function ClientDpdDraftReviewPage() {
   const params = useParams<{ draftId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const addressBookEntryId = searchParams.get("addressBookEntryId") ?? "";
+  const appliedAddressBookEntryRef = useRef("");
   const [user, setUser] = useState<ClientShellUser | null>(null);
   const [draft, setDraft] = useState<ShipmentDraft | null>(null);
   const [rates, setRates] = useState<ClientCountryRateCard[]>([]);
@@ -392,6 +397,58 @@ export default function ClientDpdDraftReviewPage() {
   const [, setReviewIssues] = useState<string[]>([]);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [manualAddressConfirmationRequired, setManualAddressConfirmationRequired] = useState(false);
+  const [addressBookPicker, setAddressBookPicker] = useState<AddressBookEntryType | null>(null);
+
+  const applySavedAddress = useCallback((entry: AddressBookEntry, confirmReplacement: boolean) => {
+    const targetHasValues = entry.type === "SENDER"
+      ? Boolean(consignorForm.contactName || consignorForm.addressLine1 || consignorForm.postcode)
+      : Boolean(contactForm.contactName || addressForm.addressLine1 || addressForm.postcode);
+    if (confirmReplacement && targetHasValues && !window.confirm(`Replace the current ${entry.type === "SENDER" ? "sender" : "recipient"} contact and address fields with “${entry.label}”?`)) {
+      return false;
+    }
+
+    if (entry.type === "SENDER") {
+      setConsignorForm((current) => ({
+        ...current,
+        companyName: entry.companyName,
+        contactName: entry.contactName,
+        email: entry.email,
+        mobileNumber: entry.mobileNumber,
+        addressLine1: entry.addressLine1,
+        addressLine2: entry.addressLine2,
+        townOrCity: entry.townOrCity,
+        county: entry.county,
+        postcode: entry.postcode,
+        pickupInstructions: entry.instructions
+      }));
+    } else {
+      setContactForm((current) => ({
+        ...current,
+        companyName: entry.companyName,
+        contactName: entry.contactName,
+        email: entry.email,
+        mobileCountryCode: entry.mobileCountryCode,
+        mobileNumber: entry.mobileNumber,
+        deliveryInstructions: entry.instructions
+      }));
+      setAddressForm({
+        countryCode: entry.countryCode,
+        countryName: entry.countryName,
+        addressLine1: entry.addressLine1,
+        addressLine2: entry.addressLine2,
+        townOrCity: entry.townOrCity,
+        county: entry.county,
+        postcode: entry.postcode
+      });
+      setAddressQuery(entry.postcode);
+      setPredictions([]);
+      setManualAddressConfirmationRequired(false);
+    }
+    setReviewIssues([]);
+    setAddressBookPicker(null);
+    toast.success(`${entry.label} added to this shipment draft.`);
+    return true;
+  }, [addressForm.addressLine1, addressForm.postcode, consignorForm.addressLine1, consignorForm.contactName, consignorForm.postcode, contactForm.contactName]);
 
   const currentReviewIssues = useMemo(
     () => getReviewIssues(addressForm, contactForm, parcelForms),
@@ -607,6 +664,14 @@ export default function ClientDpdDraftReviewPage() {
       mounted = false;
     };
   }, [params.draftId, router]);
+
+  useEffect(() => {
+    if (!draft || !addressBookEntryId || appliedAddressBookEntryRef.current === addressBookEntryId) return;
+    appliedAddressBookEntryRef.current = addressBookEntryId;
+    void getAddressBookEntry(addressBookEntryId)
+      .then(({ entry }) => applySavedAddress(entry, false))
+      .catch((caught) => toast.error(caught instanceof Error ? caught.message : "The saved address could not be applied."));
+  }, [addressBookEntryId, applySavedAddress, draft]);
 
   function handleContactChange(field: keyof ContactForm) {
     return (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -1079,10 +1144,19 @@ export default function ClientDpdDraftReviewPage() {
                 }}
                 onParcelKycChange={(sequence, documents) => setParcelKyc((current) => ({ ...current, [sequence]: documents }))}
                 api={consignorKycApi}
+                headerAction={(
+                  <button type="button" onClick={() => setAddressBookPicker("SENDER")} className="inline-flex h-9 items-center gap-2 rounded-xl border border-[#0D1282]/25 bg-white px-3 text-xs font-semibold text-[#0D1282] hover:border-[#0D1282]">
+                    <FiMapPin className="h-4 w-4" /> Choose Saved Sender
+                  </button>
+                )}
               />
 
               <section className="border border-slate-200 bg-white rounded-2xl">
-                <SectionHeader title="Consignee Details" />
+                <SectionHeader title="Consignee Details" action={(
+                  <button type="button" onClick={() => setAddressBookPicker("RECIPIENT")} className="inline-flex h-9 items-center gap-2 rounded-xl border border-[#0D1282]/25 bg-white px-3 text-xs font-semibold text-[#0D1282] hover:border-[#0D1282]">
+                    <FiMapPin className="h-4 w-4" /> Choose Saved Recipient
+                  </button>
+                )} />
                 <div className="grid gap-4 p-4 md:grid-cols-2">
                   <ShipmentTextField label="Consignee Company" value={contactForm.companyName} onChange={handleContactChange("companyName")} />
                   <ShipmentTextField label="Consignee Contact Name" required value={contactForm.contactName} onChange={handleContactChange("contactName")} error={findIssue(currentReviewIssues, ["contact name"])} revealError={submitAttempted} />
@@ -1384,16 +1458,25 @@ export default function ClientDpdDraftReviewPage() {
             }}
           />
         ) : null}
+
+        {draft && addressBookPicker ? (
+          <AddressBookPicker
+            open
+            businessAccountId={draft.businessAccountId}
+            type={addressBookPicker}
+            onClose={() => setAddressBookPicker(null)}
+            onSelect={(entry) => { applySavedAddress(entry, true); }}
+          />
+        ) : null}
       </>
   );
 }
 
-// Saving is handled once, by the sticky bar at the foot of the form, so a
-// section header is now just a title.
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader({ title, action }: { title: string; action?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
       <h2 className="text-sm font-semibold uppercase text-slate-500">{title}</h2>
+      {action}
     </div>
   );
 }
