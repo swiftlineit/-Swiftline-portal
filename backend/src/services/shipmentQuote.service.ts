@@ -12,6 +12,7 @@ import { defaultParcelItemUnitType } from "./parcelItems.service.js";
 import { createBlankShipmentDraft } from "./manualShipmentDraft.service.js";
 import { notifyActiveAdmins, notifyBusinessQuoteMembers } from "./portalNotification.service.js";
 import { calculateShipmentPricingEstimate, defaultShipmentGstRate } from "./shipmentPricing.service.js";
+import { findRoute } from "./swiftlineRoute.service.js";
 import { validateShipmentDraftFields } from "./shipmentValidation.service.js";
 
 export const quoteRequestRoles: BusinessAccountMemberRole[] = ["account_owner", "account_admin", "operations"];
@@ -135,7 +136,18 @@ export async function resolveClientQuoteContext(userId: string, accountValue?: s
 }
 
 export async function calculateQuoteEstimate(context: QuoteContext, input: ShipmentQuoteRequestInput) {
-  const pricing = await calculateShipmentPricingEstimate({
+  /**
+   * How long this lane actually takes.
+   *
+   * The quote screen printed a hard-coded "3-5 days" for every destination —
+   * a placeholder from before the route table existed that had quietly become
+   * a false promise, telling a customer shipping to Australia the same as one
+   * shipping to Nepal. Fetched alongside the price rather than on the booking
+   * form's estimate path, which runs on every keystroke of a flow that needs
+   * to stay fast.
+   */
+  const [pricing, route] = await Promise.all([
+    calculateShipmentPricingEstimate({
     businessAccountId: context.businessAccountId,
     rateCardBand: context.rateCardBand,
     countryCode: input.destinationCountryCode,
@@ -148,7 +160,12 @@ export async function calculateQuoteEstimate(context: QuoteContext, input: Shipm
       widthCm: parcel.widthCm,
       heightCm: parcel.heightCm
     }))
-  });
+    }),
+    findRoute({
+      destinationCountryCode: input.destinationCountryCode,
+      service: input.serviceType === "CARGO" ? "CARGO" : "COURIER"
+    })
+  ]);
   const minor = (amount: number) => Math.round(amount * 100);
   return {
     currency: "INR",
@@ -175,7 +192,12 @@ export async function calculateQuoteEstimate(context: QuoteContext, input: Shipm
     gstMinor: minor(pricing.gstAmount),
     totalMinor: minor(pricing.totalAmount),
     missingRate: pricing.missingRate,
-    exceedsMaxBoxKg: pricing.exceedsMaxBoxKg
+    exceedsMaxBoxKg: pricing.exceedsMaxBoxKg,
+    // Null when the lane has no route, so the quote shows no transit line at
+    // all rather than a number nothing supports.
+    transit: route?.serviceable
+      ? { daysMin: route.transitDaysMin, daysMax: route.transitDaysMax, basis: route.transitBasis }
+      : null
   };
 }
 

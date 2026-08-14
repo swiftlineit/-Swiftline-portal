@@ -69,12 +69,20 @@ function isListedContent(value: string) {
   return boxContentOptions.includes(value.trim());
 }
 
-// Placeholder transit-time estimates until real carrier SLAs are wired up.
-// Keyed by service type so the value can vary later without touching the UI.
-const transitTimeEstimates: Record<ShipmentQuoteInput["serviceType"], string> = {
-  COURIER: "3-5 days",
-  CARGO: "3-5 days",
-};
+/**
+ * Transit time for the lane being quoted.
+ *
+ * This was a hard-coded "3-5 days" for every destination, left over from
+ * before the route table existed. It now comes from that table, so a customer
+ * shipping to Australia is no longer quoted the same transit as one shipping
+ * next door, and the line simply does not appear when the lane has no route.
+ */
+function formatTransit(transit: { daysMin: number; daysMax: number; basis: "BUSINESS_DAYS" | "CALENDAR_DAYS" }) {
+  const unit = transit.basis === "BUSINESS_DAYS" ? "business days" : "calendar days";
+  return transit.daysMin === transit.daysMax
+    ? `${transit.daysMax} ${unit}`
+    : `${transit.daysMin}–${transit.daysMax} ${unit}`;
+}
 
 /**
  * A parcel while it is being edited. `contentsIsOther` is presentation only —
@@ -841,10 +849,10 @@ export default function QuoteForm({
             </div>
             {/* Only meaningful once an estimate has been calculated, so it stays
                 hidden until the customer clicks Calculate Estimate. */}
-            {estimate ? (
+            {estimate?.transit ? (
               <Line
                 label="Estimated Transit Time"
-                value={transitTimeEstimates[serviceType]}
+                value={formatTransit(estimate.transit)}
               />
             ) : null}
           </div>

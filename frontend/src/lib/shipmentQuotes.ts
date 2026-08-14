@@ -75,6 +75,12 @@ export type QuoteEstimate = {
   totalMinor: number;
   missingRate: boolean;
   exceedsMaxBoxKg: boolean;
+  /**
+   * Transit time for this lane, from the route table. Null when the lane has
+   * no route, and the quote then shows no transit line rather than a made-up
+   * one. Optional because a quote estimated before routes existed has none.
+   */
+  transit?: { daysMin: number; daysMax: number; basis: "BUSINESS_DAYS" | "CALENDAR_DAYS" } | null;
 };
 export type FinalQuotePricing = {
   currency: "INR";
