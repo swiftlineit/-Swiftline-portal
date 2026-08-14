@@ -2,12 +2,28 @@
 
 import { ReactNode } from "react";
 import Link from "next/link";
-import { FiCalendar, FiClipboard, FiCreditCard, FiPlus } from "react-icons/fi";
+import {
+  FiCalendar,
+  FiClipboard,
+  FiCreditCard,
+  FiHelpCircle,
+  FiPlus,
+  FiSearch,
+  FiShield,
+  FiTruck,
+} from "react-icons/fi";
 import type { ClientShellUser } from "@/components/client/ClientDashboardShell";
 import { panelSurface } from "@/components/dashboard/DashboardWidgets";
 import type { ClientDashboardAccount } from "@/lib/clientDashboard";
 import { formatDashboardDate } from "@/lib/dateFormat";
-import { canCreateShipment, canMakePayment, canRequestQuote, getBranchLabel } from "@/components/client/dashboard/clientDashboardPermissions";
+import {
+  canCreateShipment,
+  canMakePayment,
+  canRaiseClaim,
+  canRequestPickup,
+  canRequestQuote,
+  getBranchLabel,
+} from "@/components/client/dashboard/clientDashboardPermissions";
 
 function getDisplayName(user: ClientShellUser) {
   const name = user.name?.trim();
@@ -45,6 +61,8 @@ export default function ClientDashboardHeader({
   const canCreate = selectedAccount ? canCreateShipment(selectedAccount) : false;
   const canQuote = selectedAccount ? canRequestQuote(selectedAccount) : false;
   const canPay = selectedAccount ? canMakePayment(selectedAccount) : false;
+  const canPickup = selectedAccount ? canRequestPickup(selectedAccount) : false;
+  const canClaim = selectedAccount ? canRaiseClaim(selectedAccount) : false;
 
   return (
     <section id="business-accounts" className={`p-6 ${panelSurface}`}>
@@ -86,6 +104,22 @@ export default function ClientDashboardHeader({
               <FiCreditCard aria-hidden="true" className="h-4 w-4" />Make Payment
             </Link>
           ) : null}
+          {canPickup ? (
+            <Link href="/client/pickups" className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
+              <FiTruck aria-hidden="true" className="h-4 w-4" />Request Pickup
+            </Link>
+          ) : null}
+          <Link href="/client/tracking" className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
+            <FiSearch aria-hidden="true" className="h-4 w-4" />Track Shipment
+          </Link>
+          {canClaim ? (
+            <Link href="/client/claims/new" className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
+              <FiShield aria-hidden="true" className="h-4 w-4" />Raise Claim
+            </Link>
+          ) : null}
+          <Link href="/client/tickets/new" className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/40 focus-visible:ring-offset-2">
+            <FiHelpCircle aria-hidden="true" className="h-4 w-4" />Raise Support Ticket
+          </Link>
         </div>
       </div>
 

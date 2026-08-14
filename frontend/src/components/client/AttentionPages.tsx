@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FiAlertTriangle, FiArrowRight, FiCheckCircle, FiSearch } from "react-icons/fi";
+import { FiAlertTriangle, FiArrowRight, FiCheckCircle, FiSearch,FiChevronDown } from "react-icons/fi";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import { getClientDashboard } from "@/lib/clientDashboard";
 import {
@@ -143,18 +143,30 @@ export function ClientExceptionsPage() {
             className="h-10 w-full rounded-xl border border-slate-300 pl-10 pr-3 text-sm outline-none focus:border-blue-900"
           />
         </label>
-        <select
-          value={typeFilter}
-          onChange={(event) => setTypeFilter(event.target.value)}
-          className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
-        >
-          <option value="">All exception types</option>
-          {Object.entries(counts).map(([type, count]) => (
-            <option key={type} value={type}>
-              {type.replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())} ({count})
-            </option>
-          ))}
-        </select>
+     <div className="relative">
+  <select
+    value={typeFilter}
+    onChange={(event) => setTypeFilter(event.target.value)}
+    className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm"
+  >
+    <option value="">All exception types</option>
+
+    {Object.entries(counts).map(([type, count]) => (
+      <option key={type} value={type}>
+        {type
+          .replaceAll("_", " ")
+          .toLowerCase()
+          .replace(/\b\w/g, (c) => c.toUpperCase())}{" "}
+        ({count})
+      </option>
+    ))}
+  </select>
+
+  <FiChevronDown
+    aria-hidden="true"
+    className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+  />
+</div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">

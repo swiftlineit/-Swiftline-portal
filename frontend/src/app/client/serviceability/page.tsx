@@ -105,7 +105,7 @@ export default function ServiceabilityPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-6xl">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-slate-950">Serviceability Checker</h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -114,13 +114,14 @@ export default function ServiceabilityPage() {
       </div>
 
       <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,.8fr)_minmax(0,.65fr)_auto] xl:items-end">
           <CountryAutocomplete
             label="Destination country"
             value={country}
             onChange={setCountry}
             placeholder="Country or code"
           />
+
           <label className="block">
             <span className="text-xs font-semibold uppercase text-slate-600">Destination postcode</span>
             <input
@@ -131,6 +132,7 @@ export default function ServiceabilityPage() {
               className="mt-2 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-blue-900"
             />
           </label>
+
           <label className="block">
             <span className="text-xs font-semibold uppercase text-slate-600">Weight (kg)</span>
             <input
@@ -141,91 +143,125 @@ export default function ServiceabilityPage() {
               className="mt-2 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm outline-none focus:border-blue-900"
             />
           </label>
+
+          <button
+            disabled={busy}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-950 px-5 text-sm font-semibold text-white transition hover:bg-blue-900 disabled:bg-slate-400 sm:col-span-2 xl:col-span-1"
+          >
+            <FiSearch aria-hidden="true" className="h-4 w-4" />
+            {busy ? "Checking…" : "Check serviceability"}
+          </button>
         </div>
-        <button
-          disabled={busy}
-          className="mt-4 inline-flex h-11 items-center gap-2 rounded-4xl bg-blue-950 px-5 text-sm font-semibold text-white hover:bg-blue-900 disabled:bg-slate-400"
-        >
-          <FiSearch aria-hidden="true" className="h-4 w-4" />
-          {busy ? "Checking…" : "Check serviceability"}
-        </button>
+
         {error ? <p className="mt-3 text-sm font-semibold text-red-700">{error}</p> : null}
       </form>
 
       {result ? (
-        <div className="mt-6 space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Remote area</p>
-            <p className="mt-1 text-sm text-slate-800">
-              {/* Three outcomes, not two: not knowing is different from knowing
-                  it is not remote, and saying "No" to an unchecked postcode
-                  would be a promise nothing supports. */}
-              {!result.remoteArea.checked
-                ? "Not checked — enter a destination postcode, or no remote-area list is configured for this country."
-                : result.remoteArea.isRemote
-                  ? "This postcode is a remote area. A remote area surcharge applies."
-                  : "This postcode is not a remote area."}
-            </p>
+        <div className="mt-6">
+          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Remote area</p>
+              <p className="mt-1 text-sm text-slate-700">
+                {/* Three outcomes, not two: not knowing is different from knowing
+                    it is not remote, and saying "No" to an unchecked postcode
+                    would be a promise nothing supports. */}
+                {!result.remoteArea.checked
+                  ? "Not checked — enter a destination postcode, or no remote-area list is configured for this country."
+                  : result.remoteArea.isRemote
+                    ? "This postcode is a remote area. A remote area surcharge applies."
+                    : "This postcode is not a remote area."}
+              </p>
+            </div>
+
+            {result.remoteArea.checked ? (
+              <span
+                className={`inline-flex w-fit shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${
+                  result.remoteArea.isRemote
+                    ? "border-amber-200 bg-amber-50 text-amber-700"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                }`}
+              >
+                {result.remoteArea.isRemote ? "Remote area" : "Not remote"}
+              </span>
+            ) : null}
           </div>
 
-          {result.options.map((option) => (
-            <div
-              key={option.service}
-              className={`rounded-2xl border p-5 ${option.serviceable ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-white"}`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-slate-950">
-                  {option.service === "COURIER" ? "Courier" : "Cargo"}
-                </h2>
-                <span className={`inline-flex items-center gap-1.5 rounded-4xl border px-3 py-1 text-xs font-semibold uppercase ${
-                  option.serviceable
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-slate-300 bg-slate-100 text-slate-600"
-                }`}>
-                  {option.serviceable ? <FiCheckCircle aria-hidden="true" className="h-3.5 w-3.5" /> : <FiXCircle aria-hidden="true" className="h-3.5 w-3.5" />}
-                  {option.serviceable ? "Available" : "Not available"}
-                </span>
-              </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            {result.options.map((option) => (
+              <section
+                key={option.service}
+                className="rounded-2xl border border-slate-200 bg-white p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-950">
+                      {option.service === "COURIER" ? "Courier" : "Cargo"}
+                    </h2>
+                    {option.unavailableReason ? (
+                      <p className="mt-1 text-sm text-slate-500">{option.unavailableReason}</p>
+                    ) : null}
+                  </div>
 
-              {option.unavailableReason ? (
-                <p className="mt-2 text-sm text-slate-600">{option.unavailableReason}</p>
-              ) : null}
-
-              <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
-                <div>
-                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Estimated transit</dt>
-                  <dd className="text-sm text-slate-800">{transitLabel(option)}</dd>
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                      option.serviceable
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    {option.serviceable ? (
+                      <FiCheckCircle aria-hidden="true" className="h-3.5 w-3.5" />
+                    ) : (
+                      <FiXCircle aria-hidden="true" className="h-3.5 w-3.5" />
+                    )}
+                    {option.serviceable ? "Available" : "Not available"}
+                  </span>
                 </div>
-                <div>
-                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Maximum weight</dt>
-                  <dd className="text-sm text-slate-800">
-                    {option.maxWeightKg === null ? "Not published" : `${option.maxWeightKg} kg`}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Maximum per box</dt>
-                  <dd className="text-sm text-slate-800">
-                    {option.maxBoxKg === null ? "Not published" : `${option.maxBoxKg} kg`}
-                  </dd>
-                </div>
-              </dl>
 
-              {option.viaCountryCodes.length ? (
-                <p className="mt-3 text-sm text-slate-600">
-                  Routed via {option.viaCountryCodes.join(" → ")}.
-                </p>
-              ) : null}
+                <dl className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-100 pt-4">
+                  <div className="min-w-0">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Transit
+                    </dt>
+                    <dd className="mt-1 text-sm font-medium text-slate-800">{transitLabel(option)}</dd>
+                  </div>
 
-              {option.restrictions ? (
-                <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                  <FiAlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-                  <p className="text-sm text-amber-900">{option.restrictions}</p>
-                </div>
-              ) : null}
+                  <div className="min-w-0">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Max weight
+                    </dt>
+                    <dd className="mt-1 text-sm font-medium text-slate-800">
+                      {option.maxWeightKg === null ? "Not published" : `${option.maxWeightKg} kg`}
+                    </dd>
+                  </div>
 
-              {option.notes ? <p className="mt-3 text-sm text-slate-500">{option.notes}</p> : null}
-            </div>
-          ))}
+                  <div className="min-w-0">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Per box
+                    </dt>
+                    <dd className="mt-1 text-sm font-medium text-slate-800">
+                      {option.maxBoxKg === null ? "Not published" : `${option.maxBoxKg} kg`}
+                    </dd>
+                  </div>
+                </dl>
+
+                {option.viaCountryCodes.length ? (
+                  <p className="mt-3 text-sm text-slate-600">
+                    Routed via {option.viaCountryCodes.join(" → ")}.
+                  </p>
+                ) : null}
+
+                {option.restrictions ? (
+                  <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                    <FiAlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                    <p className="text-sm text-amber-900">{option.restrictions}</p>
+                  </div>
+                ) : null}
+
+                {option.notes ? <p className="mt-3 text-sm text-slate-500">{option.notes}</p> : null}
+              </section>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>

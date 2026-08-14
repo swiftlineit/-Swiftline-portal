@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { FiChevronRight, FiSearch } from "react-icons/fi";
+import { FiChevronDown, FiChevronRight, FiSearch } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
 import { StatusPill } from "@/components/users/StaffFields";
@@ -215,49 +215,62 @@ export default function UsersPage() {
 
   return (
     <>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-950">Users</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Add internal staff and open a record to review or change their details.
-          </p>
-        </div>
-        <Link
-          href="/dashboard/users/new"
-          className="inline-flex h-10 items-center rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63]"
-        >
-          + Add Staff
-        </Link>
-      </div>
+      <div className="mb-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-950">Users</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Add internal staff and open a record to review or change their details.
+            </p>
+          </div>
 
-      {canReviewRequests ? (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {([
-            { key: "directory" as const, label: "Staff directory" },
-            { key: "requests" as const, label: "Client login requests" }
-          ]).map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setTab(item.key)}
-              className={`inline-flex h-10 items-center gap-2 rounded-4xl border px-4 text-sm font-semibold transition ${
-                tab === item.key
-                  ? "border-[#0D1282] bg-[#0D1282]/5 text-[#0D1282]"
-                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {item.label}
-              {/* Only shown when there is something waiting: a permanent "0"
-                  trains people to stop looking at the number. */}
-              {item.key === "requests" && requests.length ? (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-bold text-white">
-                  {requests.length}
-                </span>
-              ) : null}
-            </button>
-          ))}
+          <Link
+            href="/dashboard/users/new"
+            className="inline-flex h-10 w-fit items-center justify-center rounded-xl bg-[#0D1282] px-4 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/15 transition hover:bg-[#0a0d63]"
+          >
+            + Add Staff
+          </Link>
         </div>
-      ) : null}
+
+        {canReviewRequests ? (
+          <div className="mt-5 border-b border-slate-200">
+            <div className="flex min-w-0 items-center gap-6 overflow-x-auto">
+              {([
+                { key: "directory" as const, label: "Staff directory" },
+                { key: "requests" as const, label: "Client login requests" }
+              ]).map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setTab(item.key)}
+                  className={`relative inline-flex shrink-0 items-center gap-2 pb-3 text-sm font-semibold transition-colors ${
+                    tab === item.key
+                      ? "text-[#0D1282]"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {item.label}
+
+                  {/* Only shown when there is something waiting: a permanent "0"
+                      trains people to stop looking at the number. */}
+                  {item.key === "requests" && requests.length ? (
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-bold text-white">
+                      {requests.length}
+                    </span>
+                  ) : null}
+
+                  {tab === item.key ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[#0D1282]"
+                    />
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       {tab === "requests" ? (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -367,48 +380,81 @@ export default function UsersPage() {
       <>
       {/* Filtered in the browser rather than the server: this directory is
           staff only and loads in full, so every row is already here. */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative">
-          <FiSearch aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search name, email, phone or branch"
-            className="h-10 w-72 rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm outline-none focus:border-[#0D1282]"
-          />
+      <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="relative min-w-0 flex-1">
+            <FiSearch
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search name, email, phone or branch"
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:shrink-0">
+            <div className="relative min-w-0 sm:min-w-52 lg:w-56">
+              <select
+                value={branchFilter}
+                onChange={(event) => setBranchFilter(event.target.value)}
+                className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+              >
+                <option value="">All branches</option>
+                {branchOptions.map((branch) => (
+                  <option key={branch.id} value={branch.id}>{branch.label}</option>
+                ))}
+              </select>
+              <FiChevronDown
+                aria-hidden="true"
+                className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+              />
+            </div>
+
+            <div className="relative min-w-0 sm:min-w-44 lg:w-44">
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-700 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+              >
+                <option value="">All statuses</option>
+                {["active", "invited", "suspended", "disabled"].map((status) => (
+                  <option key={status} value={status}>
+                    {status[0]?.toUpperCase()}{status.slice(1)}
+                  </option>
+                ))}
+              </select>
+              <FiChevronDown
+                aria-hidden="true"
+                className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 lg:ml-1 lg:shrink-0">
+            {search || branchFilter || statusFilter ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setBranchFilter("");
+                  setStatusFilter("");
+                }}
+                className="text-sm font-semibold text-slate-500 transition hover:text-slate-800"
+              >
+                Clear
+              </button>
+            ) : (
+              <span />
+            )}
+
+            <span className="whitespace-nowrap text-sm text-slate-500">
+              <span className="font-semibold text-slate-800">{visibleUsers.length}</span> of {users.length}
+            </span>
+          </div>
         </div>
-        <select
-          value={branchFilter}
-          onChange={(event) => setBranchFilter(event.target.value)}
-          className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700"
-        >
-          <option value="">All branches</option>
-          {branchOptions.map((branch) => (
-            <option key={branch.id} value={branch.id}>{branch.label}</option>
-          ))}
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-          className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700"
-        >
-          <option value="">All statuses</option>
-          {["active", "invited", "suspended", "disabled"].map((status) => (
-            <option key={status} value={status}>{status[0]?.toUpperCase()}{status.slice(1)}</option>
-          ))}
-        </select>
-        {search || branchFilter || statusFilter ? (
-          <button
-            type="button"
-            onClick={() => { setSearch(""); setBranchFilter(""); setStatusFilter(""); }}
-            className="text-sm font-semibold text-slate-500 hover:text-slate-800"
-          >
-            Clear
-          </button>
-        ) : null}
-        <span className="ml-auto text-sm text-slate-500">
-          {visibleUsers.length} of {users.length}
-        </span>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">

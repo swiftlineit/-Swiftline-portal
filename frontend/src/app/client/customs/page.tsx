@@ -137,57 +137,117 @@ export default function CustomsKycPage() {
             </div>
           )}
 
-          <section className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="flex items-center gap-2 font-semibold text-slate-950">
-                <FiShield aria-hidden="true" className="h-4 w-4 text-slate-400" />
-                Account verification
-              </h2>
-              {account ? (
-                <span className={`inline-flex rounded-4xl border px-3 py-1 text-xs font-semibold uppercase ${checkTone[account.kycStatus] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}>
-                  {account.kycStatusLabel}
+         <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+  <div className="flex flex-col gap-4">
+    {/* Header */}
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-2.5">
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+          <FiShield aria-hidden="true" className="h-4 w-4" />
+        </span>
+
+        <div>
+          <h2 className="font-semibold text-slate-950">
+            Account verification
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Business and verification details
+          </p>
+        </div>
+      </div>
+
+      {account ? (
+        <span
+          className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-semibold uppercase ${
+            checkTone[account.kycStatus] ??
+            "border-slate-200 bg-slate-50 text-slate-700"
+          }`}
+        >
+          {account.kycStatusLabel}
+        </span>
+      ) : null}
+    </div>
+
+    {account ? (
+      <div className="grid gap-4 border-t border-slate-100 pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+        {/* Account information */}
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
+          <div className="min-w-0">
+            <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Account
+            </dt>
+            <dd className="mt-1 break-words text-sm font-medium text-slate-800">
+              {account.companyName}
+              <span className="ml-1 font-normal text-slate-500">
+                ({account.accountId})
+              </span>
+            </dd>
+          </div>
+
+          <div className="min-w-0">
+            <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              GSTIN
+            </dt>
+            <dd className="mt-1 text-sm font-medium text-slate-800">
+              {account.gstin || "Not provided"}
+            </dd>
+          </div>
+
+          <div className="min-w-0">
+            <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              GST status
+            </dt>
+            <dd className="mt-1 text-sm font-medium text-slate-800">
+              {account.gstExempt ? "Exempt" : "Registered"}
+            </dd>
+          </div>
+        </dl>
+
+        {/* Verification checks */}
+        <div className="lg:border-l lg:border-slate-100 lg:pl-5">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Verification checks
+            </p>
+
+            {account.checks.length ? (
+              <span className="text-xs text-slate-400">
+                {account.checks.length}
+              </span>
+            ) : null}
+          </div>
+
+          {account.checks.length ? (
+            <div className="flex flex-wrap gap-2">
+              {account.checks.map((check) => (
+                <span
+                  key={check.key}
+                  className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${
+                    checkTone[check.status] ??
+                    "border-slate-200 bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  {check.label}
                 </span>
-              ) : null}
+              ))}
             </div>
-
-            {account ? (
-              <>
-                <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Account</dt>
-                    <dd className="text-sm text-slate-800">{account.companyName} ({account.accountId})</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">GSTIN</dt>
-                    <dd className="text-sm text-slate-800">{account.gstin || "Not provided"}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">GST status</dt>
-                    <dd className="text-sm text-slate-800">{account.gstExempt ? "Exempt" : "Registered"}</dd>
-                  </div>
-                </dl>
-
-                {account.checks.length ? (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {account.checks.map((check) => (
-                      <span
-                        key={check.key}
-                        className={`inline-flex rounded-4xl border px-3 py-1 text-xs font-medium ${checkTone[check.status] ?? "border-slate-200 bg-slate-50 text-slate-700"}`}
-                      >
-                        {check.label}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-4 text-sm text-slate-500">
-                    No verification documents have been submitted yet. Swiftline will request what is needed.
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="mt-3 text-sm text-slate-500">No business account is linked to your login.</p>
-            )}
-          </section>
+          ) : (
+            <p className="text-sm leading-5 text-slate-500">
+              No verification documents have been submitted yet. Swiftline will
+              request what is needed.
+            </p>
+          )}
+        </div>
+      </div>
+    ) : (
+      <div className="border-t border-slate-100 pt-4">
+        <p className="text-sm text-slate-500">
+          No business account is linked to your login.
+        </p>
+      </div>
+    )}
+  </div>
+</section>
 
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <div className="border-b border-slate-200 px-5 py-4">

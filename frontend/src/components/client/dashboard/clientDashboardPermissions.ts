@@ -21,6 +21,17 @@ export function canMakePayment(account: ClientDashboardAccount) {
   return ["account_owner", "account_admin", "finance"].includes(account.membership.role);
 }
 
+export function canRequestPickup(account: ClientDashboardAccount) {
+  return ["account_owner", "account_admin", "operations"].includes(account.membership.role)
+    && account.assignedBranches.length > 0
+    && account.dashboardAccess.state === "READY";
+}
+
+export function canRaiseClaim(account: ClientDashboardAccount) {
+  return ["account_owner", "account_admin", "operations"].includes(account.membership.role)
+    && account.dashboardAccess.state === "READY";
+}
+
 export function getBranchLabel(branch?: { name?: string; code?: string } | null) {
   if (!branch) return "Account-level access";
   return `${branch.name || "Branch"}${branch.code ? ` (${branch.code})` : ""}`;

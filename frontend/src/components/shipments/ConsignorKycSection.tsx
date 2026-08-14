@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useRef, useState } from "react";
+import { ChangeEvent, type ReactNode, useRef, useState } from "react";
 import { FiCheck, FiFileText, FiMapPin, FiSearch, FiTrash2, FiUploadCloud } from "react-icons/fi";
 import { toast } from "react-toastify";
 import {
@@ -66,7 +66,8 @@ export function ConsignorKycSection({
   savedParcelCount,
   onParcelAadhaarChange,
   onParcelKycChange,
-  api
+  api,
+  headerAction
 }: {
   shipmentDraftId: string;
   csbType: CsbType;
@@ -84,6 +85,7 @@ export function ConsignorKycSection({
   onParcelAadhaarChange: (sequence: number, value: string) => void;
   onParcelKycChange: (sequence: number, documents: ShipmentKycDocuments) => void;
   api: ConsignorKycApi;
+  headerAction?: ReactNode;
 }) {
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
@@ -161,6 +163,7 @@ export function ConsignorKycSection({
             <h2 className="text-sm font-semibold uppercase text-slate-500">Consignor Details</h2>
             <p className="mt-1 text-xs text-slate-500">The Indian sender. Country and code are fixed to India.</p>
           </div>
+          {headerAction}
         </div>
         <div className="grid gap-4 p-4 md:grid-cols-2">
           <ShipmentTextField label="Consignor Company" value={form.companyName} onChange={setField("companyName")} readOnly={readOnly} />

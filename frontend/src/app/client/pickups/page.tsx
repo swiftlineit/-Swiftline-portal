@@ -78,10 +78,8 @@ export default function ClientPickupsPage() {
   const [endAt, setEndAt] = useState("");
   const [instructions, setInstructions] = useState("");
   const [detailId, setDetailId] = useState("");
-  // Server-side view and date filters for the pickup list.
+  // Server-side view filter for the pickup list.
   const [view, setView] = useState<string>("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -96,7 +94,7 @@ export default function ClientPickupsPage() {
   async function reloadPickups() {
     setPickupsLoading(true);
     try {
-      setPickups((await listClientPickups({ view, dateFrom, dateTo })).pickups);
+      setPickups((await listClientPickups({ view })).pickups);
     } finally {
       setPickupsLoading(false);
     }
@@ -125,7 +123,7 @@ export default function ClientPickupsPage() {
   }, []);
 
   /**
-   * Pickups reload whenever a view or date changes, and on first paint.
+   * Pickups reload whenever the view changes, and on first paint.
    *
    * Kept apart from the eligible-shipments effect above, which has nothing to
    * do with these filters and would otherwise refetch on every tab click.
@@ -136,7 +134,7 @@ export default function ClientPickupsPage() {
     let active = true;
     void Promise.resolve().then(async () => {
       try {
-        const result = await listClientPickups({ view, dateFrom, dateTo });
+        const result = await listClientPickups({ view });
         if (active) setPickups(result.pickups);
       } catch (caught) {
         if (active) setError(caught instanceof Error ? caught.message : "Unable to load pickups.");
@@ -147,7 +145,7 @@ export default function ClientPickupsPage() {
     return () => {
       active = false;
     };
-  }, [view, dateFrom, dateTo]);
+  }, [view]);
 
   const selectedRows = useMemo(
     () => eligible.filter((item) => selected.includes(item.shipmentDraftId)),
@@ -486,53 +484,34 @@ export default function ClientPickupsPage() {
 
         {/* Filtered on the server, so a view shows every matching pickup and
             not merely the ones this page happened to have loaded. */}
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          {pickupViews.map((item) => (
-            <button
-              key={item.key || "all"}
-              type="button"
-              onClick={() => setView(item.key)}
-              className={`h-9 rounded-4xl border px-4 text-sm font-semibold transition ${
-                view === item.key
-                  ? "border-[#0D1282] bg-[#0D1282]/5 text-[#0D1282]"
-                  : "border-slate-300 text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        <div className="mt-4 flex flex-col gap-3 border-b border-slate-200 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex min-w-0 items-center gap-5 overflow-x-auto">
+            {pickupViews.map((item) => (
+              <button
+                key={item.key || "all"}
+                type="button"
+                onClick={() => setView(item.key)}
+                className={`relative shrink-0 pb-3 text-sm font-semibold transition-colors ${
+                  view === item.key
+                    ? "text-[#0D1282]"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                {item.label}
+                {view === item.key ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[#0D1282]"
+                  />
+                ) : null}
+              </button>
+            ))}
+          </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <label className="text-xs font-semibold uppercase text-slate-500">
-            Collection date
-          </label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(event) => setDateFrom(event.target.value)}
-            className="h-9 rounded-xl border border-slate-300 px-3 text-sm"
-          />
-          <span className="text-sm text-slate-500">to</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-            className="h-9 rounded-xl border border-slate-300 px-3 text-sm"
-          />
-          {dateFrom || dateTo ? (
-            <button
-              type="button"
-              onClick={() => { setDateFrom(""); setDateTo(""); }}
-              className="text-sm font-semibold text-slate-500 hover:text-slate-800"
-            >
-              Clear
-            </button>
-          ) : null}
-          <div className="ml-auto">
+          <div className="shrink-0 pb-3">
             <TableToolbar
               exportPath={CLIENT_PICKUPS_PATH}
-              exportParams={pickupListParams({ view, dateFrom, dateTo })}
+              exportParams={pickupListParams({ view })}
               exportName="pickups"
             />
           </div>

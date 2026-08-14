@@ -86,59 +86,66 @@ export default function ClientPodCentrePage() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-slate-950">POD Centre</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Every verified proof of delivery for your account. Search, download, or send them on.
-        </p>
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="relative">
-          <FiSearch aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            maxLength={80}
-            placeholder="Search AWB, parcel, recipient or consignee"
-            className="h-10 w-72 rounded-xl border border-slate-300 bg-white pl-10 pr-9 text-sm outline-none focus:border-blue-900"
-          />
-          {searchInput ? (
-            <button
-              type="button"
-              onClick={() => setSearchInput("")}
-              aria-label="Clear search"
-              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"
-            >
-              <FiX aria-hidden="true" className="h-4 w-4" />
-            </button>
-          ) : null}
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-950">POD Centre</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Every verified proof of delivery for your account. Search, download, or send them on.
+          </p>
         </div>
 
-        <label className="text-xs font-semibold uppercase text-slate-500">Delivered</label>
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(event) => setDateFrom(event.target.value)}
-          className="h-10 rounded-xl border border-slate-300 px-3 text-sm"
-        />
-        <span className="text-sm text-slate-500">to</span>
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(event) => setDateTo(event.target.value)}
-          className="h-10 rounded-xl border border-slate-300 px-3 text-sm"
-        />
+        <div className="shrink-0">
+          <TableToolbar
+            exportPath={POD_CENTRE_PATH}
+            exportParams={podCentreParams({ search, dateFrom, dateTo })}
+            exportName="proof-of-delivery"
+          />
+        </div>
       </div>
 
-      <div className="mb-3">
-        <TableToolbar
-          exportPath={POD_CENTRE_PATH}
-          exportParams={podCentreParams({ search, dateFrom, dateTo })}
-          exportName="proof-of-delivery"
-        >
-          {/* Bulk actions sit beside the export controls because they operate
-              on the same selection the table above holds. */}
+      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center">
+        <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(180px,0.45fr)_auto_minmax(180px,0.45fr)] lg:items-center">
+          <div className="relative min-w-0">
+            <FiSearch aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              maxLength={80}
+              placeholder="Search AWB, parcel, recipient or consignee"
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-9 text-sm outline-none focus:border-blue-900"
+            />
+            {searchInput ? (
+              <button
+                type="button"
+                onClick={() => setSearchInput("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100"
+              >
+                <FiX aria-hidden="true" className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setDateFrom(event.target.value)}
+            aria-label="Delivered from"
+            className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-900"
+          />
+
+          <span className="hidden text-sm text-slate-500 lg:block">to</span>
+
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(event) => setDateTo(event.target.value)}
+            aria-label="Delivered to"
+            className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-900"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 xl:ml-3 xl:shrink-0">
           <button
             type="button"
             disabled={busy || !pods.length}
@@ -160,7 +167,7 @@ export default function ClientPodCentrePage() {
             <FiMail aria-hidden="true" className="h-4 w-4" />
             Email POD
           </button>
-        </TableToolbar>
+        </div>
       </div>
 
       {error ? (
