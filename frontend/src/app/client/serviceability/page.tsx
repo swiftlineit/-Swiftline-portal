@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { FiAlertTriangle, FiCheckCircle, FiSearch, FiXCircle } from "react-icons/fi";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
+import CountryAutocomplete from "@/components/ui/CountryAutocomplete";
 import { apiUrl } from "@/lib/api";
+import { toCountryCode } from "@/lib/countryLookup";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import { useClientUser } from "@/lib/useClientUser";
 
@@ -62,7 +64,9 @@ function transitLabel(option: ServiceabilityOption) {
  */
 export default function ServiceabilityPage() {
   const { user, loading } = useClientUser();
-  const [countryCode, setCountryCode] = useState("");
+  // The typed text, not the code. The code is derived from it on submit, so the
+  // box and the search can never disagree about which country was meant.
+  const [country, setCountry] = useState("");
   const [postcode, setPostcode] = useState("");
   const [weight, setWeight] = useState("");
   const [result, setResult] = useState<ServiceabilityResult | null>(null);
@@ -73,14 +77,22 @@ export default function ServiceabilityPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (countryCode.trim().length !== 2) {
-      setError("Enter the two-letter destination country code, for example GB.");
+    // A recognised country resolves to its code whatever was typed; anything
+    // else is passed through as-is, so a country the portal does not list can
+    // still be checked by its code against the rate cards and routes.
+    const code = toCountryCode(country);
+    if (code.length !== 2) {
+      setError(
+        country.trim()
+          ? `“${country.trim()}” was not recognised. Pick a country from the list, or enter its two-letter code, for example GB.`
+          : "Enter the destination country, or its two-letter code, for example GB."
+      );
       return;
     }
     setBusy(true);
     setError("");
     try {
-      const params = new URLSearchParams({ destinationCountryCode: countryCode.trim().toUpperCase() });
+      const params = new URLSearchParams({ destinationCountryCode: code });
       if (postcode.trim()) params.set("destinationPostcode", postcode.trim());
       if (weight.trim()) params.set("weightKg", weight.trim());
       setResult(await check(params));
@@ -103,16 +115,12 @@ export default function ServiceabilityPage() {
 
       <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-5">
         <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block">
-            <span className="text-xs font-semibold uppercase text-slate-600">Destination country</span>
-            <input
-              value={countryCode}
-              onChange={(event) => setCountryCode(event.target.value.toUpperCase())}
-              maxLength={2}
-              placeholder="GB"
-              className="mt-2 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm uppercase outline-none focus:border-blue-900"
-            />
-          </label>
+          <CountryAutocomplete
+            label="Destination country"
+            value={country}
+            onChange={setCountry}
+            placeholder="Country or code"
+          />
           <label className="block">
             <span className="text-xs font-semibold uppercase text-slate-600">Destination postcode</span>
             <input
