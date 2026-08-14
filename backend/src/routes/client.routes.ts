@@ -121,6 +121,7 @@ import { cancelClientPickupRequest, createClientPickupRequest, rescheduleClientP
 import { checkClientServiceability } from "../controllers/serviceability.controller.js";
 import { getClientCustomsKyc } from "../controllers/customsKyc.controller.js";
 import { getClientActivity } from "../controllers/clientActivity.controller.js";
+import { listClientTeam, requestClientTeamInvite, updateClientTeamMemberRole } from "../controllers/clientTeam.controller.js";
 import { createPodDispute, downloadClientPodPdf, emailClientPod, getClientPod, listClientPodCentre, viewPodEvidence } from "../controllers/pod.controller.js";
 import { addressBookRouter } from "./addressBook.routes.js";
 import { listClientDocuments } from "../controllers/clientDocumentCentre.controller.js";
@@ -227,6 +228,9 @@ clientRouter.post("/shipments/:shipmentId/pod/disputes", createPodDispute);
 clientRouter.get("/serviceability", checkClientServiceability);
 clientRouter.get("/customs-kyc", getClientCustomsKyc);
 clientRouter.get("/activity", getClientActivity);
+clientRouter.get("/team", listClientTeam);
+clientRouter.post("/team/invites", requestClientTeamInvite);
+clientRouter.patch("/team/:memberId/role", updateClientTeamMemberRole);
 clientRouter.get("/pods", listClientPodCentre);
 clientRouter.get("/pods/download", downloadClientPodPdf);
 clientRouter.post("/pods/email", emailClientPod);

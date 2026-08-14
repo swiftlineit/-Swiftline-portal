@@ -4,6 +4,12 @@ import { createStaffUser, getStaffUser, updateStaffUser, viewStaffDocument, view
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { staffDocumentUpload } from "../middleware/staffDocumentUpload.middleware.js";
 import { listUserSessions, terminateUserSessions } from "../controllers/userSession.controller.js";
+import {
+  approveClientAccessRequest,
+  completeClientAccessRequest,
+  declineClientAccessRequest,
+  listClientAccessRequests
+} from "../controllers/clientAccessRequest.controller.js";
 
 export const userRouter = Router();
 
@@ -18,6 +24,12 @@ const requireAdmin = requireRole("admin");
 userRouter.get("/", listUsers);
 // Two static segments, so this cannot be captured by the "/:id" route below.
 userRouter.get("/branches/options", listUserBranchOptions);
+// Client login requests raised by a business account administrator. Approval
+// creates a real login, so these stay admin-only rather than HR-visible.
+userRouter.get("/access-requests", requireAdmin, listClientAccessRequests);
+userRouter.post("/access-requests/:requestId/approve", requireAdmin, approveClientAccessRequest);
+userRouter.post("/access-requests/:requestId/complete", requireAdmin, completeClientAccessRequest);
+userRouter.post("/access-requests/:requestId/decline", requireAdmin, declineClientAccessRequest);
 userRouter.post("/staff", staffDocumentUpload, createStaffUser);
 userRouter.get("/:id/profile-image", viewStaffProfileImage);
 userRouter.get("/:id/documents/:documentType", viewStaffDocument);

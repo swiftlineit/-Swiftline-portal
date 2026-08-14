@@ -78,6 +78,8 @@ const catalog: Record<string, CatalogEntry> = {
   SUPPORT_TICKET_STATUS_UPDATED: { category: "OPERATIONAL", priority: 60 },
   // Staff-facing and time-critical: a breach only matters if it is read soon.
   // Sent when a customer shares proof of delivery with their own team.
+  CLIENT_ACCESS_REQUESTED: { category: "OPERATIONAL", priority: 80 },
+  CLIENT_ACCESS_APPROVED: { category: "TRANSACTIONAL", priority: 85 },
   POD_AVAILABLE: { category: "TRANSACTIONAL", priority: 70 },
   SUPPORT_TICKET_SLA_BREACHED: { category: "OPERATIONAL", priority: 90 },
 

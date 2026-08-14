@@ -89,6 +89,20 @@ export interface IBusinessAccountMember extends mongoose.Document {
   creditPermissions: CreditPermission[];
   invitedBy: mongoose.Types.ObjectId;
   joinedAt?: Date | null;
+  /**
+   * Who the account asked Swiftline to give access to.
+   *
+   * Only set while `status` is `pending_approval`. No user record exists yet —
+   * the login is created on approval — so the requested person is described
+   * here rather than by a `user` reference, and a declined request therefore
+   * leaves no orphan account and reserves no email address.
+   */
+  requestedInvite?: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -102,7 +116,16 @@ const businessAccountMemberSchema = new mongoose.Schema<IBusinessAccountMember>(
     status: { type: String, enum: businessAccountMemberStatusValues, default: "invited", index: true },
     creditPermissions: [{ type: String, enum: creditPermissionValues }],
     invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    joinedAt: { type: Date, default: null }
+    joinedAt: { type: Date, default: null },
+    requestedInvite: {
+      type: new mongoose.Schema({
+        firstName: { type: String, trim: true, maxlength: 80, required: true },
+        lastName: { type: String, trim: true, maxlength: 80, required: true },
+        email: { type: String, trim: true, lowercase: true, maxlength: 160, required: true },
+        phone: { type: String, trim: true, maxlength: 30, required: true }
+      }, { _id: false }),
+      default: null
+    }
   },
   { timestamps: true }
 );

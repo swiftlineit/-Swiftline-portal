@@ -56,6 +56,8 @@ export const portalNotificationTypeValues = [
   ,"POD_ACTION_REQUIRED"
   ,"POD_DISPUTED"
   ,"POD_AVAILABLE"
+  ,"CLIENT_ACCESS_REQUESTED"
+  ,"CLIENT_ACCESS_APPROVED"
   ,"SHIPMENT_DOCUMENT_UPLOADED"
   // Claims. Client-facing events first, then the ones only staff ever see.
   ,"CLAIM_SUBMITTED"
