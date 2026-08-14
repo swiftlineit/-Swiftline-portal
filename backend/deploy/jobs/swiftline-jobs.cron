@@ -25,6 +25,15 @@ MAILTO=""
 # in-process; this is what walks the 1m/5m/30m/2h/12h backoff ladder behind them.
 */5 * * * *   ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:email:drain
 
+# Alert admin and operations when a support ticket misses its first-response
+# deadline. Nothing else can raise this: every other ticket notification hangs
+# off somebody acting, and a breach happens precisely because nobody did — so
+# without a scheduled pass the one event that most needs attention is the only
+# one that goes unannounced. Escalation is stamped on the ticket, so a breach is
+# announced once however often this runs, and a ticket answered late is never
+# alerted on at all.
+*/20 * * * *  ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:tickets:sla-escalation
+
 # Mark due-passed statements overdue, expire credit facilities past their
 # validity window, and send utilisation warnings.
 # Note: overdue *blocking* is computed live at booking time and does not depend
