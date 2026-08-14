@@ -46,13 +46,13 @@ export type ClientShellUser = {
  * Client navigation, grouped by what the customer came to do. `access` names the
  * permission a link waits on; the rest are open to every member of an account.
  */
-type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking";
+type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking" | "addressBook";
 
 /**
  * Grouped by the job the customer came to do.
  *
  * Only destinations that exist are listed. The requested structure also names
- * Address Book, Shipment Templates, Bulk Upload, POD Centre, Documents Centre,
+ * Shipment Templates, Bulk Upload, POD Centre,
  * Customs & KYC, Serviceability and Team Members; those arrive with the pages
  * themselves rather than as links that 404 in the meantime. Exceptions and
  * Action Required join Operations when their pages land.
@@ -71,6 +71,7 @@ const clientNavigation: Array<
     icon: FiPackage,
     items: [
       { label: "Create Shipment", href: "/client/dpd-labels", icon: FiPlusSquare, access: "booking" },
+      { label: "Address Book", href: "/client/address-book", icon: FiMapPin, access: "addressBook" },
       { label: "My Shipments", href: "/client/shipments", icon: FiPackage },
       { label: "Tracking", href: "/client/tracking", icon: FiMapPin },
     ],
@@ -81,10 +82,12 @@ const clientNavigation: Array<
     items: [
       { label: "Pickup Management", href: "/client/pickups", icon: FiTruck },
       { label: "Manifests", href: "/client/manifests", icon: FiArchive },
+      { label: "POD Centre", href: "/client/pods", icon: FiCheckSquare },
       { label: "Exceptions", href: "/client/exceptions", icon: FiAlertTriangle },
       { label: "Action Required", href: "/client/actions", icon: FiCheckSquare },
     ],
   },
+  { label: "Documents & Compliance", href: "/client/documents", icon: FiFileText },
   {
     label: "Quotes & Rates",
     icon: FiClipboard,
@@ -152,6 +155,7 @@ export function ClientDashboardShell({
       hasQuoteAccess: boolean,
       canRequestQuote: boolean,
       canBook: boolean,
+      canManageAddresses: boolean,
     ) {
       if (!active) return;
 
@@ -160,6 +164,7 @@ export function ClientDashboardShell({
         quote: hasQuoteAccess,
         quoteRequest: canRequestQuote,
         booking: canBook,
+        addressBook: canManageAddresses,
       };
 
       setNavigation(
@@ -218,9 +223,14 @@ export function ClientDashboardShell({
               item.bookingAccess.state === "READY" &&
               item.dashboardAccess.state === "READY",
           ),
+          dashboard.accounts.some(
+            (item) =>
+              ["account_owner", "account_admin", "operations"].includes(item.membership.role)
+              && item.dashboardAccess.state === "READY",
+          ),
         );
       })
-      .catch(() => resolve(false, false, false, false));
+      .catch(() => resolve(false, false, false, false, false));
 
     return () => {
       active = false;
