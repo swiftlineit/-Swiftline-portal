@@ -17,6 +17,7 @@ import {
   FiLogOut,
   FiPackage,
   FiPlusSquare,
+  FiSearch,
   FiTag,
   FiTruck,
   FiUser,
@@ -95,6 +96,7 @@ const clientNavigation: Array<
       { label: "Get Live Quote", href: "/client/get-quote", icon: FiClipboard, access: "quoteRequest" },
       { label: "My Quotes", href: "/client/quotes", icon: FiFileText, access: "quote" },
       { label: "Your Rate Card", href: "/client/rate-card", icon: FiTag },
+      { label: "Serviceability Checker", href: "/client/serviceability", icon: FiSearch },
     ],
   },
   {
