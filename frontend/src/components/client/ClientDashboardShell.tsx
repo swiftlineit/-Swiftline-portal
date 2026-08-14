@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import type { IconType } from "react-icons";
 import Sidebar, { filterNavigation, type SidebarNavEntry } from "@/components/Sidebar";
 import { logout } from "@/lib/auth";
+import SessionTimeoutGuard from "@/components/SessionTimeoutGuard";
 import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
 import UnsavedChangesDialog from "@/components/UnsavedChangesDialog";
@@ -265,6 +266,8 @@ export function ClientDashboardShell({
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#EEEDED]/60">
+      {/* Mounted inside the shell so it only ever runs for a signed-in user. */}
+      <SessionTimeoutGuard />
       <div className="h-1 shrink-0 bg-[#0D1282]" />
       <div className="flex min-h-0 flex-1">
         <Sidebar

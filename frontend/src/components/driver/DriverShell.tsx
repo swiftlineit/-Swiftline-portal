@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { FiClipboard, FiLogOut, FiUser } from "react-icons/fi";
 import { logout } from "@/lib/auth";
+import SessionTimeoutGuard from "@/components/SessionTimeoutGuard";
 import { loadProfileImageUrl } from "@/lib/profile";
 
 export default function DriverShell({ name, subrole, children }: { name: string; subrole: string; children: ReactNode }) {
@@ -30,6 +31,8 @@ export default function DriverShell({ name, subrole, children }: { name: string;
   const nav = [...workNav, { href: "/driver/profile", label: "Profile", icon: FiUser }];
 
   return <div className="min-h-dvh bg-slate-100 pb-20 text-slate-950 md:pb-0">
+    {/* Mounted inside the shell so it only ever runs for a signed-in user. */}
+    <SessionTimeoutGuard />
     <header className="sticky top-0 z-30 border-b border-blue-900/30 bg-[#0D1282] text-white shadow-lg">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
         <Image src="/Slogo.png" alt="Swiftline" width={40} height={40} className="h-10 w-10 rounded-xl bg-white object-contain p-1" />

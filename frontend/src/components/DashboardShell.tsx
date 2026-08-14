@@ -9,6 +9,7 @@ import Sidebar from "@/components/Sidebar";
 import UnsavedChangesDialog from "@/components/UnsavedChangesDialog";
 import { AuthenticatedUser } from "@/lib/useAdminUser";
 import { logout } from "@/lib/auth";
+import SessionTimeoutGuard from "@/components/SessionTimeoutGuard";
 import DeepLinkTarget from "@/components/DeepLinkTarget";
 import NotificationBell from "@/components/NotificationBell";
 import GlobalSearch from "@/components/client/GlobalSearch";
@@ -78,6 +79,8 @@ export default function DashboardShell({
 
   return (
     <div className="fixed inset-0 flex h-dvh max-h-dvh flex-col overflow-hidden overscroll-none bg-[#EEEDED]/60">
+      {/* Mounted inside the shell so it only ever runs for a signed-in user. */}
+      <SessionTimeoutGuard />
       <div className="h-1 shrink-0 bg-[#0D1282]" />
       <div className="flex min-h-0 flex-1">
         <Sidebar
