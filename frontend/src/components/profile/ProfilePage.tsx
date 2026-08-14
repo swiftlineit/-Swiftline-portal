@@ -510,8 +510,15 @@ export default function ProfilePage() {
     <div className="mx-auto max-w-5xl space-y-5">
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 <div className="h-20 bg-linear-to-r from-blue-400 via-blue-300 to-blue-300" />
-        <div className="flex flex-wrap items-end justify-between gap-4 px-6 pb-5">
-          <div className="flex items-end gap-4">
+        {/*
+          Stacks below `sm`, where a 320px screen cannot hold an avatar beside
+          a full name and email. Every level of this row carries `min-w-0`:
+          a flex item defaults to min-width:auto, so without it the name's
+          `truncate` never engages and a long email pushes the card sideways —
+          which is exactly what it did.
+        */}
+        <div className="flex flex-col gap-4 px-4 pb-5 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+          <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-end sm:gap-4">
             <div className="-mt-10 shrink-0">
               <span className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-4 border-white bg-[#F0DE36] text-2xl font-bold text-[#0D1282] shadow-sm">
                 {profileImageUrl ? (
@@ -531,18 +538,24 @@ export default function ProfilePage() {
                 ) : null}
               </div>
             </div>
-            <div className="min-w-0 pb-1">
-              <h1 className="truncate text-2xl font-semibold text-slate-950">{displayName}</h1>
-              <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
-                <span className="inline-flex items-center gap-1.5 tracking-wide">
-                  <FiMail aria-hidden="true" className="h-3.5 w-3.5 text-slate-700 font-semibold" />{user.email}
+            <div className="min-w-0 flex-1 pb-1">
+              {/* Titled as well as truncated, so a clipped name is still
+                  readable on hover rather than simply lost. */}
+              <h1 className="truncate text-xl font-semibold text-slate-950 sm:text-2xl" title={displayName}>
+                {displayName}
+              </h1>
+              <div className="mt-1 flex min-w-0 flex-col gap-1 text-sm text-slate-500 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4">
+                <span className="flex min-w-0 items-center gap-1.5 tracking-wide">
+                  <FiMail aria-hidden="true" className="h-3.5 w-3.5 shrink-0 font-semibold text-slate-700" />
+                  <span className="truncate" title={user.email}>{user.email}</span>
                 </span>
                 {user.phone ? (
-                  <span className="inline-flex items-center gap-1.5 tracking-wide ">
-                    <FiPhone aria-hidden="true" className="h-3.5 w-3.5 text-slate-700 font-semibold " />{user.phone}
+                  <span className="flex min-w-0 items-center gap-1.5 tracking-wide">
+                    <FiPhone aria-hidden="true" className="h-3.5 w-3.5 shrink-0 font-semibold text-slate-700" />
+                    <span className="truncate">{user.phone}</span>
                   </span>
                 ) : null}
-              </p>
+              </div>
             </div>
           </div>
         
