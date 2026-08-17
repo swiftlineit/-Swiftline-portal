@@ -382,7 +382,7 @@ export default function Home() {
       <main className="mx-auto grid w-full max-w-350 min-w-0 flex-1 grid-cols-1 items-start gap-5 px-4 py-5 sm:gap-8 sm:px-6 sm:py-8 md:px-8 lg:min-h-0 lg:grid-cols-[1fr_minmax(400px,440px)] lg:items-center lg:gap-12 lg:py-8 xl:gap-16">
         <LoginBrandPanel  />
 
-<section className="no-scrollbar order-1 mx-auto w-full min-w-0 max-w-[520px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-12px_rgba(13,18,130,0.18)] sm:p-6 lg:order-2 lg:max-h-full lg:max-w-none lg:overflow-y-auto lg:p-4.5">
+<section className="no-scrollbar order-1 mx-auto w-full min-w-0 max-w-130 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-12px_rgba(13,18,130,0.18)] sm:p-6 lg:order-2 lg:max-h-full lg:max-w-none lg:overflow-y-auto lg:p-4.5">
           <h2 className="text-center text-[19px] font-bold tracking-tight text-slate-900 sm:text-[22px]">Welcome Back!</h2>
           <p className="mt-0.5 text-center text-[13px] text-slate-500">Sign in to your SLC Portal</p>
 

@@ -420,7 +420,7 @@ export default function Sidebar({
 
               {/* The rail down the left ties the children to their heading. */}
               {expanded && isOpen ? (
-                <div className="mt-0.5 ml-[26px] space-y-0.5 border-l border-slate-200 pl-3">
+                <div className="mt-0.5 ml-6.5 space-y-0.5 border-l border-slate-200 pl-3">
                   {entry.items.map((item) => {
                     const isActive = matchesRoute(pathname, item.href);
 

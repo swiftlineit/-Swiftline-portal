@@ -221,7 +221,7 @@ export function ConsignorKycSection({
           ) : null}
 
           {predictions.length ? (
-            <div className="max-h-[340px] overflow-y-auto rounded-xl border border-slate-200">
+            <div className="max-h-85 overflow-y-auto rounded-xl border border-slate-200">
               {predictions.map((prediction) => (
                 <button
                   key={prediction.placeId}
