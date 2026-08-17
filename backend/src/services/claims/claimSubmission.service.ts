@@ -3,10 +3,13 @@ import { Claim } from "../../models/claim.model.js";
 import type { ClaimAffectedItem, IClaim } from "../../models/claim.model.js";
 import { ClaimEvent } from "../../models/claimEvent.model.js";
 import type { ClaimEventType } from "../../models/claimEvent.model.js";
+import { ClaimDocument } from "../../models/claimDocument.model.js";
+import { ClaimMessage } from "../../models/claimMessage.model.js";
 import { BusinessAccountMember } from "../../models/businessAccountMember.model.js";
 import { claimCategoryValues } from "../../models/claimTypes.js";
 import type { ClaimCategory } from "../../models/claimTypes.js";
 import { AuditLog } from "../../models/auditLog.model.js";
+import { deleteObject } from "../storage/storage.service.js";
 import { allocateClaimNumber } from "./claimNumber.service.js";
 import { computeClaimDeadlines, selectPolicyRule } from "./claimPolicy.service.js";
 import { captureShipmentSnapshot, resolveSnapshotItem } from "./claimSnapshot.service.js";
@@ -169,6 +172,50 @@ export async function updateClaimDraft(input: UpdateClaimDraftInput) {
   }
 
   await claim.save();
+  return claim;
+}
+
+/**
+ * Permanently removes a draft claim and everything it accumulated.
+ *
+ * Only a draft can be deleted. Once filed, a claim is a record — a number has
+ * been allocated, staff may already be reviewing it — so it must be withdrawn
+ * or closed, never erased. A draft is private working space, so nothing on it
+ * is worth keeping: uploaded evidence files, timeline events, and any messages
+ * go with it.
+ */
+export async function deleteClaimDraft(input: { claimId: string; userId: string }) {
+  const claim = await loadOwnedClaim(input.claimId, input.userId);
+
+  if (claim.status !== "DRAFT") {
+    throw new ClaimSubmissionError(
+      "Only draft claims can be deleted. A filed claim must be withdrawn instead.",
+      409
+    );
+  }
+
+  const documents = await ClaimDocument.find({ claimId: claim._id }).select("storageKey").exec();
+  await Promise.all(documents.map((document) => deleteObject(document.storageKey).catch(() => undefined)));
+
+  await ClaimDocument.deleteMany({ claimId: claim._id }).exec();
+  await ClaimEvent.deleteMany({ claimId: claim._id }).exec();
+  await ClaimMessage.deleteMany({ claimId: claim._id }).exec();
+
+  await claim.deleteOne();
+
+  await AuditLog.create({
+    action: "CLAIM_DRAFT_DELETED",
+    entityType: "CLAIM",
+    entityId: claim._id,
+    performedBy: new mongoose.Types.ObjectId(input.userId),
+    performedAt: new Date(),
+    metadata: {
+      shipmentDraftId: claim.shipmentDraftId,
+      category: claim.category,
+      branchId: claim.branchId
+    }
+  });
+
   return claim;
 }
 

@@ -41,6 +41,7 @@ import {
 import {
   ClaimSubmissionError,
   createClaimDraft,
+  deleteClaimDraft,
   submitClaim,
   updateClaimDraft
 } from "../services/claims/claimSubmission.service.js";
@@ -474,6 +475,28 @@ export async function updateClientClaimDraft(request: Request, response: Respons
       message: "Claim saved.",
       claim: serializeClaim(claim, { includeFinancials: true, audience: "CLIENT" })
     });
+  } catch (error) {
+    return handle(error, response, next);
+  }
+}
+
+export async function deleteClientClaimDraft(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request);
+    if (!user) return response.status(401).json({ success: false, message: "Sign in to continue." });
+
+    const access = await clientAccess(String(request.params.claimId), user.id);
+    if (!access) return response.status(404).json({ success: false, message: "Claim not found." });
+    if (!clientCan(access.membership.role, "EDIT_DRAFT")) {
+      return response.status(403).json({ success: false, message: "Your role cannot delete claims." });
+    }
+
+    await deleteClaimDraft({
+      claimId: String(request.params.claimId),
+      userId: user.id
+    });
+
+    return response.json({ success: true, message: "Claim draft deleted." });
   } catch (error) {
     return handle(error, response, next);
   }

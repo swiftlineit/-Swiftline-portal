@@ -6,6 +6,7 @@ import { ChangeEvent, type ReactNode, useCallback, useDeferredValue, useEffect, 
 import { FiArrowLeft, FiMapPin, FiSave, FiSearch, FiTruck,FiPackage } from "react-icons/fi";
 import { FaRegWindowClose, FaWeight } from "react-icons/fa";
 import { toast } from "react-toastify";
+import { maxParcelDimensionsCm } from "@/lib/shipmentPricing";
 import {
   ClientDashboardLoading,
   ClientShellUser
@@ -85,6 +86,7 @@ import ShipmentCostEstimatePanel from "@/components/shipments/ShipmentCostEstima
 import ShipmentPriceChangeDialog from "@/components/shipments/ShipmentPriceChangeDialog";
 import {
   ShipmentPriceChangedError,
+  maxBoxWeightIssue,
   type ShipmentCostEstimateInput
 } from "@/lib/shipmentCostEstimate";
 import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
@@ -280,11 +282,17 @@ function getReviewIssueDetail(
     } else if (!Number.isFinite(weight) || weight <= 0) {
       invalid.push(`${label}: weight must be greater than zero`);
     }
-    for (const [field, value] of [["length", parcel.lengthCm], ["width", parcel.widthCm], ["height", parcel.heightCm]]) {
+    for (const [field, value, maximum] of [
+      ["length", parcel.lengthCm, maxParcelDimensionsCm.lengthCm],
+      ["width", parcel.widthCm, maxParcelDimensionsCm.widthCm],
+      ["height", parcel.heightCm, maxParcelDimensionsCm.heightCm]
+    ] as const) {
       if (!value.trim()) {
         missing.push(`${label}: ${field} is required`);
       } else if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
         invalid.push(`${label}: ${field} must be greater than zero`);
+      } else if (Number(value) > maximum) {
+        invalid.push(`${label}: ${field} cannot exceed ${maximum} cm`);
       }
     }
     if (!parcel.shipmentContentType) missing.push(`${label}: shipment content type is required`);
@@ -973,6 +981,18 @@ export default function ClientDpdDraftReviewPage() {
       setError("Correct the highlighted details before creating a label.");
       return;
     }
+    // The server refuses these outright; catching it here names the box and
+    // avoids a round trip that would only fail.
+    const overweight = (costEstimate?.pricing.parcels ?? [])
+      .map(maxBoxWeightIssue)
+      .filter((issue) => issue !== null);
+    if (overweight.length) {
+      const boxes = overweight.map((issue) => issue.sequence).join(", ");
+      const message = `Box ${boxes}: ${overweight[0]?.text}`;
+      setError(message);
+      toast.error(message);
+      return;
+    }
     if (costEstimate?.pricing.missingRate) {
       const message = `Rates are not available for ${addressForm.countryName || addressForm.countryCode} with ${contactForm.serviceType === "CARGO" ? "Cargo" : "Courier"} service. Please contact your assigned branch to arrange this shipment.`;
       setError(message);
@@ -1342,10 +1362,10 @@ export default function ClientDpdDraftReviewPage() {
                         </button>
                       </div>
                       <div className="grid gap-4 p-3 md:grid-cols-4">
-                        <ShipmentTextField label="Actual Weight KG" required type="number" inputMode="decimal" value={parcel.weightKg} onChange={handleParcelChange(index, "weightKg")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "weight"])} revealError={submitAttempted} />
-                        <ShipmentTextField label="Length CM" required type="number" inputMode="decimal" value={parcel.lengthCm} onChange={handleParcelChange(index, "lengthCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "length"])} revealError={submitAttempted} />
-                        <ShipmentTextField label="Width CM" required type="number" inputMode="decimal" value={parcel.widthCm} onChange={handleParcelChange(index, "widthCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "width"])} revealError={submitAttempted} />
-                        <ShipmentTextField label="Height CM" required type="number" inputMode="decimal" value={parcel.heightCm} onChange={handleParcelChange(index, "heightCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "height"])} revealError={submitAttempted} />
+                        <ShipmentTextField label="Actual Weight KG" required type="number" inputMode="decimal" max={costEstimate?.pricing.routeMaxBoxKg ?? undefined} value={parcel.weightKg} onChange={handleParcelChange(index, "weightKg")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "weight"])} revealError={submitAttempted} />
+                        <ShipmentTextField label="Length CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.lengthCm} value={parcel.lengthCm} onChange={handleParcelChange(index, "lengthCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "length"])} revealError={submitAttempted} />
+                        <ShipmentTextField label="Width CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.widthCm} value={parcel.widthCm} onChange={handleParcelChange(index, "widthCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "width"])} revealError={submitAttempted} />
+                        <ShipmentTextField label="Height CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.heightCm} value={parcel.heightCm} onChange={handleParcelChange(index, "heightCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "height"])} revealError={submitAttempted} />
                         <ShipmentSelectField label="Content Type" required value={parcel.shipmentContentType} onChange={handleParcelChange(index, "shipmentContentType")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "content type"])} revealError={submitAttempted}>
                             {shipmentContentTypeOptions.map((option) => (
                               <option key={option.value} value={option.value}>
@@ -1413,11 +1433,9 @@ export default function ClientDpdDraftReviewPage() {
                   serviceType={contactForm.serviceType}
                   countryCode={addressForm.countryCode}
                   countryName={addressForm.countryName}
-                  insuranceOptIn={insuranceOptIn}
-                  onInsuranceOptInChange={setInsuranceOptIn}
                   forceGst={forceGst}
                   onForceGstChange={setForceGst}
-                  insuranceDisabled={busy}
+                  busy={busy}
                 />
                 <div className="mt-4 border border-red-400 bg-amber-50 p-3 rounded-2xl">
  <h3 className="text-sm font-semibold text-amber-900 ">Prohibited Items Reminder</h3>

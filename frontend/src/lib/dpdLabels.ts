@@ -79,8 +79,19 @@ export const csbVKycDocumentTypes = [
   "hsnCode"
 ] as const;
 
-export function requiredShipmentKycDocumentTypes(csbType: CsbType): readonly ShipmentKycDocumentType[] {
+/**
+ * The upload slots a route offers.
+ *
+ * Separate from what it *requires*: CSB-IV still offers PAN and Aadhaar so they
+ * can be kept on file, they are simply never mandatory.
+ */
+export function shipmentKycDocumentSlots(csbType: CsbType): readonly ShipmentKycDocumentType[] {
   return csbType === "CSB_V" ? csbVKycDocumentTypes : csbIvKycDocumentTypes;
+}
+
+/** The subset that must be present before booking. CSB-IV mandates none. */
+export function requiredShipmentKycDocumentTypes(csbType: CsbType): readonly ShipmentKycDocumentType[] {
+  return csbType === "CSB_V" ? csbVKycDocumentTypes : [];
 }
 
 export type ShipmentKycDocument = {

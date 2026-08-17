@@ -19,6 +19,7 @@ import {
   type QuoteDocumentCode
 } from "@/lib/quoteDocuments";
 import { getVolumetricFormula } from "@/lib/shipmentPricing";
+import { maxBoxWeightIssue } from "@/lib/shipmentCostEstimate";
 import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import {
@@ -797,9 +798,9 @@ export default function QuoteForm({
                   ? "| No rate"
                   : `| ${formatQuoteMoney(parcel.chargesPerKg * 100)} / kg`}
               </p>
-              {parcel.exceedsMaxBoxKg ? (
+              {maxBoxWeightIssue(parcel) ? (
                 <p className="mt-2 text-xs font-semibold text-amber-700">
-                  Exceeds the {parcel.maxBoxKg} kg maximum box weight.
+                  {maxBoxWeightIssue(parcel)?.text}
                 </p>
               ) : null}
             </div>

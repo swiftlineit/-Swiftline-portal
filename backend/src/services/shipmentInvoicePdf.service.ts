@@ -101,7 +101,9 @@ function drawPartyBox(
   cursor = doc.y + 6;
   doc.font("Helvetica").fontSize(8).text(address, x + 10, cursor, { width: innerWidth, lineGap: 2 });
   cursor = doc.y + 7;
-  doc.font("Helvetica-Bold").text(`GSTIN: ${textValue(party, "gstin")}`, x + 10, cursor, { width: innerWidth });
+  // Left blank rather than "Not provided": an unregistered recipient has no
+  // GSTIN, and printing a placeholder reads as missing paperwork.
+  doc.font("Helvetica-Bold").text(`GSTIN: ${optionalTextValue(party, "gstin")}`, x + 10, cursor, { width: innerWidth });
   cursor = doc.y + 5;
   if (contact) doc.font("Helvetica").fillColor("#64748b").text(contact, x + 10, cursor, { width: innerWidth, lineGap: 2 });
 }

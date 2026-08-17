@@ -158,6 +158,17 @@ export type ShipmentPricingEstimate = {
   totalAmount: number;
   missingRate: boolean;
   exceedsMaxBoxKg: boolean;
+  /**
+   * The heaviest a single box may be on this route — the largest maxBoxKg across
+   * the destination's rate bands. Null when the route has no rate card at all.
+   *
+   * Route-level rather than per-parcel: the parcel figure belongs to whichever
+   * slab that box matched, which is no use as a ceiling for a box not yet typed.
+   *
+   * Optional because pricing snapshots stored before it existed do not carry it,
+   * and they are read back as this type.
+   */
+  routeMaxBoxKg?: number | null;
   gstRate: number;
   /** Frozen commercial treatment used for this estimate and any resulting booking. */
   taxTreatment?: ShipmentTaxTreatment;
@@ -196,6 +207,18 @@ export function getVolumetricDivisor(serviceType: ShipmentServiceType) {
 
 export function roundShipmentMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Freight is charged in whole kilograms, rounded up: a 10.1 kg parcel bills as 11 kg.
+ *
+ * Settled to three decimals before rounding up, because a volumetric weight is a
+ * division and lands on values like 10.000000001 — billing that as 11 kg would
+ * overcharge a parcel that is exactly 10 kg.
+ */
+export function billableWeightKg(weightKg: number) {
+  if (!(weightKg > 0)) return 0;
+  return Math.ceil(Number(weightKg.toFixed(3)));
 }
 
 function toMinor(amount: number) {
@@ -406,7 +429,9 @@ export async function calculateShipmentPricingEstimate(
   const parcels = input.parcels.map((parcel, index) => {
     const actualWeightKg = numeric(parcel.weightKg);
     const volumetricWeightKg = calculateParcelVolumetricWeight(parcel, input.serviceType);
-    const chargeableWeightKg = Math.max(actualWeightKg, volumetricWeightKg);
+    // Rounded up here rather than at the amount, so the slab lookup, the max-box
+    // check and the figure shown as "chargeable" are all the weight actually billed.
+    const chargeableWeightKg = billableWeightKg(Math.max(actualWeightKg, volumetricWeightKg));
     const exactRate = rates.find((candidate) =>
       chargeableWeightKg >= candidate.fromKg
       && chargeableWeightKg <= candidate.toKg
@@ -455,6 +480,7 @@ export async function calculateShipmentPricingEstimate(
     ...breakdown,
     missingRate,
     exceedsMaxBoxKg: parcels.some((parcel) => parcel.exceedsMaxBoxKg),
+    routeMaxBoxKg: rates.length ? Math.max(...rates.map((rate) => rate.maxBoxKg)) : null,
     gstRate,
     taxTreatment,
     noGstEligible: accountContext.noGstEligible,

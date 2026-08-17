@@ -101,11 +101,23 @@ describe("consignor draft validation", () => {
     assert.ok(issues.includes("Enter a valid 12 digit Aadhaar number"));
   });
 
-  test("requires PAN and Aadhaar for CSB-IV", () => {
-    const issues = validateShipmentDraftFields(draftWith({ kyc: {} }));
-    assert.ok(issues.includes("Upload Aadhaar Card"));
-    assert.ok(issues.includes("Upload PAN Card"));
-    assert.equal(issues.some((issue) => issue.includes("IEC")), false);
+  test("requires no KYC document or Aadhaar number for CSB-IV", () => {
+    // CSB-IV is the simplified low-value route: nothing is mandatory, including
+    // the Aadhaar number that CSB-V still demands.
+    const issues = validateShipmentDraftFields(draftWith({ kyc: {}, consignor: { aadhaarNumber: "" } }));
+    assert.equal(issues.some((issue) => issue.startsWith("Upload ")), false, issues.join(" | "));
+    assert.equal(issues.some((issue) => issue.toLowerCase().includes("aadhaar")), false, issues.join(" | "));
+  });
+
+  test("still rejects a malformed Aadhaar number on CSB-IV when one is supplied", () => {
+    // Optional does not mean unchecked: a value that has been typed must be real.
+    const issues = validateShipmentDraftFields(draftWith({ consignor: { aadhaarNumber: "234567890123" } }));
+    assert.ok(issues.includes("Enter a valid 12 digit Aadhaar number"));
+  });
+
+  test("requires the Aadhaar number for CSB-V", () => {
+    const issues = validateShipmentDraftFields(draftWith({ csbType: "CSB_V", consignor: { aadhaarNumber: "" } }));
+    assert.ok(issues.includes("Aadhaar number is required"), issues.join(" | "));
   });
 
   test("requires the complete customs document set for CSB-V", () => {
@@ -125,8 +137,9 @@ describe("consignor draft validation", () => {
     }
   });
 
-  test("requires per-parcel Aadhaar + card when KYC is not shared", () => {
+  test("requires per-parcel Aadhaar + card when KYC is not shared on CSB-V", () => {
     const issues = validateShipmentDraftFields(draftWith({
+      csbType: "CSB_V",
       useForAll: false,
       parcels: [
         { sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "A" },
@@ -136,12 +149,22 @@ describe("consignor draft validation", () => {
     assert.ok(issues.includes("Parcel 1: Aadhaar number is required"));
     assert.ok(issues.includes("Parcel 1: upload Aadhaar Card"));
     assert.ok(issues.includes("Parcel 1: upload PAN Card"));
-    // Parcel 2 is KYC-complete. It still raises the HSN issue every legacy parcel
-    // does (its contents predate per-item capture), so only KYC issues are excluded.
+    // Parcel 2 supplied its Aadhaar and cards, so it raises no Aadhaar issue.
     assert.equal(
       issues.some((issue) => issue.startsWith("Parcel 2") && issue.toLowerCase().includes("aadhaar")),
       false
     );
+  });
+
+  test("asks nothing of a per-parcel CSB-IV shipment with no KYC at all", () => {
+    const issues = validateShipmentDraftFields(draftWith({
+      useForAll: false,
+      parcels: [
+        { sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "A" }
+      ]
+    }));
+    assert.equal(issues.some((issue) => issue.toLowerCase().includes("aadhaar")), false, issues.join(" | "));
+    assert.equal(issues.some((issue) => issue.includes("upload ")), false, issues.join(" | "));
   });
 
   test("rejects matching consignor and consignee identity", () => {

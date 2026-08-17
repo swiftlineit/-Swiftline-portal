@@ -90,6 +90,7 @@ export type AuditAction =
   // folded into a generic "claim updated".
   | "CLAIM_CREATED"
   | "CLAIM_SUBMITTED"
+  | "CLAIM_DRAFT_DELETED"
   | "CLAIM_WITHDRAWN"
   | "CLAIM_ASSIGNED"
   | "CLAIM_DOCUMENT_UPLOADED"

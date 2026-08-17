@@ -208,9 +208,10 @@ export function ParcelItemsEditor({
                           // Keeps focus on the input so blur does not close the
                           // list before the click lands.
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() =>
-                            updateItem(index, "hsnCode", suggestion.code)
-                          }
+                          onClick={() => {
+                            updateItem(index, "hsnCode", suggestion.code);
+                            setSuggestions({ query: "", results: [] });
+                          }}
                           className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs transition hover:bg-blue-50"
                         >
                           <span className="font-semibold text-blue-900">

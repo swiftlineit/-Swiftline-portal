@@ -37,6 +37,12 @@ function value(record: Record<string, unknown>, key: string) {
     : "Not provided";
 }
 
+/** Blank rather than "Not provided", for fields a party may legitimately lack. */
+function optionalValue(record: Record<string, unknown>, key: string) {
+  const current = record[key];
+  return typeof current === "string" && current.trim() ? current : "";
+}
+
 export default function ShipmentInvoicePage({
   draftId,
   audience,
@@ -193,7 +199,7 @@ export default function ShipmentInvoicePage({
             title="Supplier / Shipper Branch"
             name={value(invoice.supplier, "legalName")}
             address={value(invoice.supplier, "address")}
-            gstin={value(invoice.supplier, "gstin")}
+            gstin={optionalValue(invoice.supplier, "gstin")}
             email={value(invoice.supplier, "email")}
             phone={value(invoice.supplier, "phone")}
           />
@@ -201,7 +207,7 @@ export default function ShipmentInvoicePage({
             title="Bill To / Customer"
             name={value(invoice.customer, "companyName")}
             address={value(invoice.customer, "billingAddress")}
-            gstin={value(invoice.customer, "gstin")}
+            gstin={optionalValue(invoice.customer, "gstin")}
             email={value(invoice.customer, "email")}
             phone={value(invoice.customer, "phone")}
           />

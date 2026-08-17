@@ -470,6 +470,13 @@ export async function saveClaimDraft(claimId: string, input: ClaimDraftInput) {
   return result.claim;
 }
 
+export async function deleteClaimDraft(claimId: string) {
+  return request<{ message: string }>(
+    `/api/v1/client/claims/${claimId}`,
+    { method: "DELETE" }
+  );
+}
+
 export async function submitClaim(claimId: string) {
   return request<{ claim: Claim; filedLate: boolean; message: string }>(
     `/api/v1/client/claims/${claimId}/submit`,

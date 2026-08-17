@@ -6,6 +6,7 @@ import { formatCountryRateService, getCountryFlag } from "@/lib/countryRateCards
 import type { ShipmentServiceType } from "@/lib/dpdLabels";
 import {
   formatEstimateMoney,
+  maxBoxWeightIssue,
   type ShipmentChargeLine,
   type ShipmentCostEstimate
 } from "@/lib/shipmentCostEstimate";
@@ -26,11 +27,9 @@ export default function ShipmentCostEstimatePanel({
   serviceType,
   countryCode,
   countryName,
-  insuranceOptIn,
-  onInsuranceOptInChange,
   forceGst,
   onForceGstChange,
-  insuranceDisabled = false
+  busy = false
 }: {
   estimate: ShipmentCostEstimate | null;
   loading: boolean;
@@ -38,12 +37,10 @@ export default function ShipmentCostEstimatePanel({
   serviceType: ShipmentServiceType;
   countryCode: string;
   countryName: string;
-  insuranceOptIn: boolean;
-  onInsuranceOptInChange: (next: boolean) => void;
   forceGst: boolean;
   onForceGstChange: (next: boolean) => void;
-  /** Set while a save or booking is in flight, so cover cannot be toggled mid-request. */
-  insuranceDisabled?: boolean;
+  /** Set while a save or booking is in flight, so GST cannot be toggled mid-request. */
+  busy?: boolean;
 }) {
   const pricing = estimate?.pricing ?? null;
   const funding = estimate?.funding ?? null;
@@ -89,9 +86,9 @@ export default function ShipmentCostEstimatePanel({
                     ? "No matching rate slab"
                     : `${formatEstimateMoney(Math.round(parcel.chargesPerKg * 100))} / kg`}
                 </p>
-                {parcel.exceedsMaxBoxKg && parcel.maxBoxKg !== null ? (
-                  <p className="mt-1 font-semibold text-amber-700">
-                    Max box weight limit is {parcel.maxBoxKg} kg. Charges are still calculated.
+                {maxBoxWeightIssue(parcel) ? (
+                  <p className="mt-1 font-semibold text-red-700">
+                    {maxBoxWeightIssue(parcel)?.text}
                   </p>
                 ) : null}
               </div>
@@ -124,28 +121,19 @@ export default function ShipmentCostEstimatePanel({
         </div>
       )}
 
-      <InsuranceToggle
-        checked={insuranceOptIn}
-        disabled={insuranceDisabled}
-        onChange={onInsuranceOptInChange}
-        premiumMinor={pricing?.insuranceApplied ? Math.round(pricing.insuranceAmount * 100) : null}
-        declaredGoodsValue={pricing?.declaredGoodsValue ?? 0}
-      />
+      {/* Transit cover is hidden until the insurance feature is complete. The
+          draft still carries insuranceOptIn, so nothing downstream changes. */}
       <div className="mt-3 flex items-start justify-between gap-4 border-t border-slate-200 pt-3">
         <div>
-          <p className="text-sm font-semibold text-slate-900">Apply GST</p>
-          <p className="mt-0.5 text-xs leading-5 text-slate-500">
-            {pricing?.noGstEligible
-              ? "This account is approved for no-GST billing. Turn this on to charge GST for this shipment."
-              : "GST is mandatory unless the account has an approved no-GST permission."}
-          </p>
+          <p className="text-sm font-semibold text-slate-900">GST</p>
+         
         </div>
         <label className={`relative mt-1 inline-flex shrink-0 items-center ${pricing?.noGstEligible ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}>
           <input
             type="checkbox"
             className="peer sr-only"
             checked={pricing?.noGstEligible ? forceGst : true}
-            disabled={insuranceDisabled || !pricing?.noGstEligible}
+            disabled={busy || !pricing?.noGstEligible}
             onChange={(event) => onForceGstChange(event.target.checked)}
           />
           <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-[#0D1282] peer-focus-visible:ring-2 peer-focus-visible:ring-[#F0DE36] peer-disabled:cursor-not-allowed after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5" />
@@ -241,50 +229,6 @@ function PriceLockNote({ expiresAt }: { expiresAt: string }) {
   );
 }
 
-/**
- * Optional transit cover.
- *
- * Always rendered, including when the route has no insurance configured, because
- * a customer needs to see that cover was offered and declined — not merely that
- * no premium appeared. The premium itself only shows once cover is taken.
- */
-function InsuranceToggle({
-  checked,
-  disabled,
-  onChange,
-  premiumMinor,
-  declaredGoodsValue
-}: {
-  checked: boolean;
-  disabled: boolean;
-  onChange: (next: boolean) => void;
-  premiumMinor: number | null;
-  declaredGoodsValue: number;
-}) {
-  return (
-    <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-0.5 h-4 w-4 shrink-0 accent-blue-900 p-2 disabled:cursor-not-allowed"
-      />
-      <span className="min-w-0">
-        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-900">
-          Add transit insurance
-        </span>
-        <span className="mt-0.5 block text-xs leading-4 text-slate-500">
-          {checked && premiumMinor !== null
-            ? `${formatEstimateMoney(premiumMinor)} to cover the declared goods value.`
-            : checked
-              ? "No premium is configured for this route, so no charge applies."
-              : `Covers the declared goods value of ${formatEstimateMoney(Math.round(declaredGoodsValue * 100))}.`}
-        </span>
-      </span>
-    </label>
-  );
-}
 
 function DetailRow({
   label,

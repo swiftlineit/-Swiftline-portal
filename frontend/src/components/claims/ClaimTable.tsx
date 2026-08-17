@@ -6,11 +6,13 @@ import { ClaimStatusBadge } from "./ClaimStatusBadge";
 export default function ClaimTable({
   claims,
   loading,
-  basePath = "/client/claims"
+  basePath = "/client/claims",
+  onDelete
 }: {
   claims: Claim[];
   loading: boolean;
   basePath?: string;
+  onDelete?: (claim: Claim) => void;
 }) {
   if (loading)
     return (
@@ -71,12 +73,23 @@ export default function ClaimTable({
                 {/* A draft has nothing to view — its answers are only half
                     entered. It reopens in the wizard instead. */}
                 {claim.status === "DRAFT" && basePath === "/client/claims" ? (
-                  <Link
-                    href={`/client/claims/new?claimId=${claim.id}`}
-                    className="font-semibold text-blue-900 hover:underline"
-                  >
-                    Continue
-                  </Link>
+                  <div className="flex items-center justify-end gap-3">
+                    <Link
+                      href={`/client/claims/new?claimId=${claim.id}`}
+                      className="font-semibold text-blue-900 hover:underline"
+                    >
+                      Continue
+                    </Link>
+                    {onDelete ? (
+                      <button
+                        type="button"
+                        onClick={() => onDelete(claim)}
+                        className="font-semibold text-red-700 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
                 ) : (
                   <Link
                     href={`${basePath}/${claim.id}`}

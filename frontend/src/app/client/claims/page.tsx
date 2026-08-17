@@ -2,11 +2,20 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "react-toastify";
 import { FiAlertTriangle, FiChevronDown, FiPlus, FiShield } from "react-icons/fi";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import ClaimTable from "@/components/claims/ClaimTable";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { TableToolbar } from "@/components/ui/TableToolbar";
-import { claimLabel, claimListPath, listClaims, type Claim, type ClaimStatus } from "@/lib/claims";
+import {
+  claimLabel,
+  claimListPath,
+  deleteClaimDraft,
+  listClaims,
+  type Claim,
+  type ClaimStatus
+} from "@/lib/claims";
 import { useClientUser } from "@/lib/useClientUser";
 
 /** Statuses worth filtering by. The full set is long and mostly internal. */
@@ -31,6 +40,8 @@ export default function ClientClaimsPage() {
   const [status, setStatus] = useState("");
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<Claim | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setDataLoading(true);
@@ -49,6 +60,22 @@ export default function ClientClaimsPage() {
     // render rather than cascading, matching the other client list pages.
     if (user) void Promise.resolve().then(load);
   }, [user, load]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await deleteClaimDraft(pendingDelete.id);
+      setPendingDelete(null);
+      toast.success("Claim draft deleted.");
+      await load();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Unable to delete this claim draft.");
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  }, [load, pendingDelete]);
 
   if (loading || !user) return <ClientDashboardLoading />;
 
@@ -137,7 +164,30 @@ export default function ClientClaimsPage() {
         />
       </div>
 
-      <ClaimTable claims={claims} loading={dataLoading} />
+      <ClaimTable
+        claims={claims}
+        loading={dataLoading}
+        onDelete={(claim) => setPendingDelete(claim)}
+      />
+
+      {pendingDelete ? (
+        <ConfirmDialog
+          title="Delete claim draft?"
+          description={(
+            <>
+              <span className="font-semibold text-slate-900">
+                {pendingDelete.claimNumber ?? "This draft"}
+              </span>{" "}
+              has not been submitted and will be permanently removed. This cannot be undone.
+            </>
+          )}
+          confirmLabel="Delete Draft"
+          busyLabel="Deleting..."
+          busy={deleting}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      ) : null}
     </div>
   );
 }

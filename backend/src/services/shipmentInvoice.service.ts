@@ -8,6 +8,7 @@ import { ShipmentCharge } from "../models/shipmentCharge.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentInvoiceCounter } from "../models/shipmentInvoiceCounter.model.js";
 import { formatCsbType } from "./csbType.service.js";
+import { resolveGstStateCode } from "./gstin.js";
 import {
   buildPricingInputFromDraft,
   calculateShipmentPricingEstimate,
@@ -239,20 +240,18 @@ export async function ensureShipmentInvoiceForDraft(input: {
   const customerGstin = asString(snapshotCompany.gstin) || account.company.gstin || "";
   const taxableValueMinor = toMinor(pricing.baseAmount);
   const totalTaxAmountMinor = toMinor(pricing.gstAmount);
-  const supplierJurisdiction = supplierGstin.slice(0, 2) || supplierState;
-  const customerJurisdiction = customerGstin.slice(0, 2) || customerState;
+  // Resolved to GST state codes so both sides of the place-of-supply test speak
+  // the same language — see resolveGstStateCode.
+  const supplierJurisdiction = resolveGstStateCode(supplierGstin, supplierState);
+  const customerJurisdiction = resolveGstStateCode(customerGstin, customerState);
   const taxAmounts = getTaxAmounts(taxableValueMinor, totalTaxAmountMinor, supplierJurisdiction, customerJurisdiction);
-  const validationWarnings = [
-    !supplierGstin ? "Branch GSTIN is not configured." : "",
-    // A missing GSTIN on a business account means it was onboarded incompletely,
-    // so the invoice is held as a draft until someone fixes it. An individual is
-    // an unregistered B2C customer who will never hold one, so requiring it would
-    // leave every walk-in invoice permanently unissued.
-    !customerGstin && draft.customerType !== "INDIVIDUAL" ? "Customer GSTIN is not configured." : ""
-  ].filter(Boolean);
-  // A shipment with no GST is still a valid completed invoice. Keep the GST
-  // cells empty in the document instead of marking the entire invoice as draft;
-  // only a GST-bearing invoice with incomplete party tax details is held back.
+  // Only Swiftline's own GSTIN can hold an invoice back: a tax invoice without
+  // the supplier's registration number is not a tax invoice. A missing customer
+  // GSTIN is ordinary — an unregistered recipient never has one — so the field
+  // is left blank on the document and the invoice issues normally.
+  const validationWarnings = supplierGstin ? [] : ["Branch GSTIN is not configured."];
+  // A shipment with no GST is still a valid completed invoice, so the GST cells
+  // are simply left empty rather than marking the whole invoice as a draft.
   const status = validationWarnings.length && totalTaxAmountMinor > 0 ? "DRAFT" : "ISSUED";
   const supplier = {
     legalName: "Swiftline Cargo and Express Logistics Pvt. Ltd.",

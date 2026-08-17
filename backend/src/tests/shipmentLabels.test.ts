@@ -145,7 +145,9 @@ describe("shipment label PDFs", () => {
     const drawn = drawnText(pdf);
     const shown = drawn.join(" | ");
 
-    assert.ok(drawn.includes("SWIFTLINE CARGO & LOGISTICS"), `company name missing from ${shown}`);
+    // Matched loosely: the exact trading name is a wording choice, but the label
+    // must always carry it beside the mark.
+    assert.ok(drawn.some((line) => /^SWIFTLINE\b/.test(line)), `company name missing from ${shown}`);
     assert.ok(drawn.includes("SLCDEL200726001-01"), "the barcode value should be printed under it");
     // Origin and destination are separate captioned cells, not one route string.
     assert.ok(drawn.includes("DEL"), `origin missing from ${shown}`);

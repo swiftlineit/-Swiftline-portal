@@ -60,6 +60,54 @@ export const indianStateCodes: Record<string, string> = {
   "99": "Centre Jurisdiction"
 };
 
+function stateKey(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Names people actually type, mapped to the spelling the code table uses. Both
+// halves of a state pair have to resolve to the same code or an intra-state
+// supply is billed as inter-state.
+const stateNameAliases: Record<string, string> = {
+  newdelhi: "07",
+  nctofdelhi: "07",
+  delhinct: "07",
+  orissa: "21",
+  uttaranchal: "05",
+  pondicherry: "34",
+  jammukashmir: "01",
+  andaman: "35",
+  dadraandnagarhaveli: "26",
+  damananddiu: "26"
+};
+
+const stateCodeByName: Record<string, string> = {
+  ...Object.entries(indianStateCodes).reduce<Record<string, string>>((map, [code, name]) => {
+    // 28 and 37 are both Andhra Pradesh; the first entry wins so a name always
+    // resolves to one code rather than whichever happened to be iterated last.
+    if (!map[stateKey(name)]) map[stateKey(name)] = code;
+    return map;
+  }, {}),
+  ...stateNameAliases
+};
+
+/**
+ * The GST state code for a party, from its GSTIN when it has one and from its
+ * recorded state name otherwise.
+ *
+ * Both sides of the place-of-supply test must be expressed the same way. Reading
+ * one side off a GSTIN ("07") and the other off a state name ("Delhi") never
+ * matches, which silently bills every intra-state supply as inter-state.
+ *
+ * Returns "" when neither is known, which is treated as inter-state — the
+ * conservative default for a place of supply nobody has recorded.
+ */
+export function resolveGstStateCode(gstin?: string | null, stateName?: string | null) {
+  const fromGstin = (gstin ?? "").trim().slice(0, 2);
+  if (indianStateCodes[fromGstin]) return fromGstin;
+
+  return stateCodeByName[stateKey(stateName ?? "")] ?? "";
+}
+
 const panPattern = /^[A-Z]{5}\d{4}[A-Z]$/;
 const gstinPattern = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 

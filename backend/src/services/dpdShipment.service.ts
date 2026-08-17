@@ -348,6 +348,32 @@ export async function createLabelForShipmentDraft(
     );
   }
 
+  // The per-box weight ceiling comes from the matched rate card, so it varies by
+  // destination and service. Over-limit boxes used to price with a warning; they
+  // are now refused, because the network cannot carry them.
+  const overweightParcels = pricing.parcels.filter((parcel) => parcel.exceedsMaxBoxKg);
+  if (overweightParcels.length) {
+    await transitionShipmentDraftBooking({
+      shipmentDraftId: lockedDraft._id as mongoose.Types.ObjectId,
+      bookingAttemptId,
+      bookingState: "EDITABLE"
+    });
+    throw new DpdShipmentServiceError(
+      "Some boxes are over the maximum weight for this destination.",
+      409,
+      {
+        // Names the weight that actually breached the limit. A large light box is
+        // refused on its volumetric weight, and blaming "box weight" there sends
+        // someone to re-weigh a parcel that was never the problem.
+        validationIssues: overweightParcels.map((parcel) => (
+          parcel.volumetricWeightKg > parcel.actualWeightKg
+            ? `Box ${parcel.sequence}: volumetric weight ${parcel.volumetricWeightKg.toFixed(2)} kg is over the ${parcel.maxBoxKg} kg maximum box weight. Reduce the dimensions.`
+            : `Box ${parcel.sequence}: actual weight ${parcel.actualWeightKg.toFixed(2)} kg is over the ${parcel.maxBoxKg} kg maximum box weight.`
+        ))
+      }
+    );
+  }
+
   // Checked before anything is reserved or sent to the carrier, so a shipment
   // whose price moved is stopped while it is still cleanly abandonable. The draft
   // is returned to EDITABLE and the booker is shown what changed.

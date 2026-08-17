@@ -17,7 +17,8 @@ import type {
 } from "@/lib/dpdLabels";
 import {
   requiredShipmentKycDocumentTypes,
-  shipmentKycDocumentLabels
+  shipmentKycDocumentLabels,
+  shipmentKycDocumentSlots
 } from "@/lib/dpdLabels";
 import type { CsbType } from "@/lib/csbType";
 import type { ConsignorForm, ParcelKycState } from "@/lib/shipmentConsignor";
@@ -91,11 +92,13 @@ export function ConsignorKycSection({
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   const [addressBusy, setAddressBusy] = useState(false);
 
+  // Every slot the route offers is rendered; only CSB-V marks them required.
+  const requiredTypes = requiredShipmentKycDocumentTypes(csbType);
   const kycSlots: SlotConfig[] = [
-    ...requiredShipmentKycDocumentTypes(csbType).map((type) => ({
+    ...shipmentKycDocumentSlots(csbType).map((type) => ({
       type,
       title: shipmentKycDocumentLabels[type],
-      required: true,
+      required: requiredTypes.includes(type),
       needsLabel: false
     })),
     // Always last and optional for both routes. Its typed label identifies what
@@ -151,9 +154,15 @@ export function ConsignorKycSection({
     }
   }
 
-  const sharedAadhaarError = submitAttempted && kycUseForAll && !isValidAadhaarNumber(form.aadhaarNumber)
-    ? (form.aadhaarNumber.trim() ? "Enter a valid 12 digit Aadhaar number" : "Aadhaar number is required")
-    : undefined;
+  // Required on CSB-V only. On CSB-IV a blank is accepted, but a number that has
+  // been typed still has to be a real one.
+  const aadhaarRequired = csbType === "CSB_V";
+  const aadhaarError = (value: string) => {
+    if (!submitAttempted) return undefined;
+    if (!value.trim()) return aadhaarRequired ? "Aadhaar number is required" : undefined;
+    return isValidAadhaarNumber(value) ? undefined : "Enter a valid 12 digit Aadhaar number";
+  };
+  const sharedAadhaarError = kycUseForAll ? aadhaarError(form.aadhaarNumber) : undefined;
 
   return (
     <>
@@ -258,11 +267,11 @@ export function ConsignorKycSection({
             <p className="mt-1 text-xs text-slate-500">
               {csbType === "CSB_V"
                 ? "Complete all customs documents for CSB-V."
-                : "PAN and Aadhaar are required for CSB-IV."} PDF, JPG or PNG up to 5 MB.
+                : "PAN and Aadhaar are optional for CSB-IV. Attach them to keep them on file."} PDF, JPG or PNG up to 5 MB.
             </p>
           </div>
           <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-900">
-            {csbType === "CSB_V" ? "CSB-V · 9 REQUIRED" : "CSB-IV · 2 REQUIRED"}
+            {csbType === "CSB_V" ? "CSB-V · 9 REQUIRED" : "CSB-IV · ALL OPTIONAL"}
           </span>
         </div>
 
@@ -290,7 +299,7 @@ export function ConsignorKycSection({
               <div className="max-w-sm rounded-xl border border-slate-200 bg-slate-50/60 p-3">
                 <ShipmentTextField
                   label="Aadhaar Number"
-                  required
+                  required={aadhaarRequired}
                   inputMode="numeric"
                   value={formatAadhaarNumber(form.aadhaarNumber)}
                   onChange={(event) => onFormChange({ ...form, aadhaarNumber: normalizeAadhaarNumber(event.target.value) })}
@@ -330,13 +339,11 @@ export function ConsignorKycSection({
                       <div className="max-w-sm">
                       <ShipmentTextField
                         label="Aadhaar Number"
-                        required
+                        required={aadhaarRequired}
                         inputMode="numeric"
                         value={formatAadhaarNumber(parcel.aadhaarNumber)}
                         onChange={(event) => onParcelAadhaarChange(parcel.sequence, normalizeAadhaarNumber(event.target.value))}
-                        error={submitAttempted && !isValidAadhaarNumber(parcel.aadhaarNumber)
-                          ? (parcel.aadhaarNumber.trim() ? "Enter a valid 12 digit Aadhaar number" : "Aadhaar number is required")
-                          : undefined}
+                        error={aadhaarError(parcel.aadhaarNumber)}
                         revealError={submitAttempted}
                         readOnly={readOnly}
                         placeholder="1234 5678 9012"

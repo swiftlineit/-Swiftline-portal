@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FiInfo, FiUserPlus, FiUsers } from "react-icons/fi";
+import Link from "next/link";
+import { FiInfo, FiUserPlus, FiUsers, FiChevronDown } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
@@ -34,6 +35,7 @@ export default function ClientTeamPage() {
   const [dataLoading, setDataLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const load = useCallback(async () => {
     setDataLoading(true);
@@ -62,6 +64,7 @@ export default function ClientTeamPage() {
       const result = await requestTeamInvite(invite);
       toast.success(result.message);
       setInvite(emptyInvite);
+      setTermsAccepted(false);
       setShowInvite(false);
       await load();
     } catch (caught) {
@@ -99,7 +102,7 @@ export default function ClientTeamPage() {
           className="inline-flex h-10 items-center gap-2 rounded-4xl bg-blue-950 px-4 text-sm font-semibold text-white hover:bg-blue-900"
         >
           <FiUserPlus aria-hidden="true" className="h-4 w-4" />
-          Invite a colleague
+          Invite Team Member
         </button>
       </div>
 
@@ -121,7 +124,7 @@ export default function ClientTeamPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="text-xs font-semibold uppercase text-slate-600">First name</span>
+              <span className="text-xs font-semibold uppercase text-slate-600">First name <span className="text-red-500">*</span></span>
               <input
                 value={invite.firstName}
                 onChange={(event) => setInvite((current) => ({ ...current, firstName: event.target.value }))}
@@ -131,7 +134,7 @@ export default function ClientTeamPage() {
               />
             </label>
             <label className="block">
-              <span className="text-xs font-semibold uppercase text-slate-600">Last name</span>
+              <span className="text-xs font-semibold uppercase text-slate-600">Last name <span className="text-red-500">*</span></span>
               <input
                 value={invite.lastName}
                 onChange={(event) => setInvite((current) => ({ ...current, lastName: event.target.value }))}
@@ -141,7 +144,7 @@ export default function ClientTeamPage() {
               />
             </label>
             <label className="block">
-              <span className="text-xs font-semibold uppercase text-slate-600">Email</span>
+              <span className="text-xs font-semibold uppercase text-slate-600">Email <span className="text-red-500">*</span></span>
               <input
                 type="email"
                 value={invite.email}
@@ -151,7 +154,7 @@ export default function ClientTeamPage() {
               />
             </label>
             <label className="block">
-              <span className="text-xs font-semibold uppercase text-slate-600">Phone</span>
+              <span className="text-xs font-semibold uppercase text-slate-600">Phone <span className="text-red-500">*</span></span>
               <input
                 value={invite.phone}
                 onChange={(event) => setInvite((current) => ({ ...current, phone: event.target.value }))}
@@ -162,28 +165,64 @@ export default function ClientTeamPage() {
             </label>
             <label className="block sm:col-span-2">
               <span className="text-xs font-semibold uppercase text-slate-600">Role</span>
-              <select
-                value={invite.role}
-                onChange={(event) => setInvite((current) => ({ ...current, role: event.target.value }))}
-                className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-900"
-              >
-                {roles.map((role) => (
-                  <option key={role.value} value={role.value}>{role.label}</option>
-                ))}
-              </select>
+              <div className="relative">
+  <select
+    value={invite.role}
+    onChange={(event) =>
+      setInvite((current) => ({
+        ...current,
+        role: event.target.value,
+      }))
+    }
+    className="mt-2 h-11 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm outline-none focus:border-blue-900"
+  >
+    {roles.map((role) => (
+      <option key={role.value} value={role.value}>
+        {role.label}
+      </option>
+    ))}
+  </select>
+
+  <FiChevronDown
+    aria-hidden="true"
+    className="pointer-events-none absolute right-4 top-[calc(50%+4px)] h-4 w-4 -translate-y-1/2 text-slate-500"
+  />
+</div>
             </label>
           </div>
+
+          <label className="mt-4 flex items-start gap-3 text-sm leading-5 text-slate-700">
+            <input
+              type="checkbox"
+              checked={termsAccepted}
+              required
+              onChange={(event) => setTermsAccepted(event.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0"
+            />
+            <span>
+              I have read and accept Swiftline&apos;s terms and the{" "}
+              <Link
+                href="/privacy-policy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-blue-900 underline underline-offset-2"
+              >
+                Privacy Policy
+              </Link>
+              .
+            </span>
+          </label>
 
           <div className="mt-4 flex flex-wrap justify-end gap-2">
             <button
               type="button"
-              onClick={() => { setShowInvite(false); setInvite(emptyInvite); }}
+              onClick={() => { setShowInvite(false); setInvite(emptyInvite); setTermsAccepted(false); }}
               className="inline-flex h-10 items-center rounded-4xl border border-slate-300 px-4 text-sm font-semibold text-slate-700"
             >
               Cancel
             </button>
             <button
-              disabled={busy}
+              disabled={busy || !termsAccepted}
               className="inline-flex h-10 items-center rounded-4xl bg-blue-950 px-5 text-sm font-semibold text-white disabled:bg-slate-400"
             >
               {busy ? "Sending…" : "Send request to Swiftline"}

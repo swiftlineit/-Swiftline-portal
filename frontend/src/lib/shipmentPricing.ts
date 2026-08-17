@@ -15,6 +15,25 @@ export function getVolumetricDivisor(serviceType: ShipmentServiceType) {
 }
 
 /**
+ * The largest parcel Swiftline carries, per side — 100 x 60 x 70 cm, the 230 cm
+ * girth the network is built around.
+ *
+ * Maximum weight is deliberately absent: it comes from the matched rate card's
+ * maxBoxKg, so it varies by destination and service and is only known once the
+ * server has priced the shipment.
+ *
+ * KEEP IN SYNC with the server, which is the authority (separate package, cannot
+ * share a module): portal/backend/src/services/shipmentValidation.service.ts
+ */
+export const maxParcelDimensionsCm = {
+  lengthCm: 100,
+  widthCm: 60,
+  heightCm: 70
+} as const;
+
+export type ParcelDimensionField = keyof typeof maxParcelDimensionsCm;
+
+/**
  * How volumetric weight is worked out, for the hint shown wherever it appears.
  * Pass the service type when it is known; without one, both divisors are listed
  * because the divisor is what differs between Cargo and Courier.

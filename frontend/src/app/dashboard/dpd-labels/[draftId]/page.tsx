@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiChevronDown, FiExternalLink, FiMapPin, FiPackage, FiSave, FiSearch, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
+import { maxParcelDimensionsCm } from "@/lib/shipmentPricing";
 import { DashboardLoading } from "@/components/DashboardShell";
 import {
   ShipmentCsbTypeField,
@@ -85,6 +86,7 @@ import ShipmentCostEstimatePanel from "@/components/shipments/ShipmentCostEstima
 import ShipmentPriceChangeDialog from "@/components/shipments/ShipmentPriceChangeDialog";
 import {
   ShipmentPriceChangedError,
+  maxBoxWeightIssue,
   type ShipmentCostEstimateInput
 } from "@/lib/shipmentCostEstimate";
 import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
@@ -247,11 +249,17 @@ function getReviewFormIssueDetail(
     } else if (!Number.isFinite(weightKg) || weightKg <= 0) {
       invalid.push(`${label}: weight must be greater than zero`);
     }
-    for (const [field, value] of [["length", parcel.lengthCm], ["width", parcel.widthCm], ["height", parcel.heightCm]]) {
+    for (const [field, value, maximum] of [
+      ["length", parcel.lengthCm, maxParcelDimensionsCm.lengthCm],
+      ["width", parcel.widthCm, maxParcelDimensionsCm.widthCm],
+      ["height", parcel.heightCm, maxParcelDimensionsCm.heightCm]
+    ] as const) {
       if (!value.trim()) {
         missing.push(`${label}: ${field} is required`);
       } else if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
         invalid.push(`${label}: ${field} must be greater than zero`);
+      } else if (Number(value) > maximum) {
+        invalid.push(`${label}: ${field} cannot exceed ${maximum} cm`);
       }
     }
     if (!parcel.shipmentContentType) missing.push(`${label}: shipment content type is required`);
@@ -994,6 +1002,18 @@ export default function DpdLabelDraftPage() {
       return;
     }
 
+    // The server refuses these outright; catching it here names the box and
+    // avoids a round trip that would only fail.
+    const overweight = (costEstimate?.pricing.parcels ?? [])
+      .map(maxBoxWeightIssue)
+      .filter((issue) => issue !== null);
+    if (overweight.length) {
+      const boxes = overweight.map((issue) => issue.sequence).join(", ");
+      const message = `Box ${boxes}: ${overweight[0]?.text}`;
+      setError(message);
+      toast.error(message);
+      return;
+    }
     if (costEstimate?.pricing.missingRate) {
       const message = `Rates are not available for ${
         addressForm.countryName || addressForm.countryCode
@@ -1428,10 +1448,10 @@ export default function DpdLabelDraftPage() {
                       </button>
                     </div>
                     <div className="grid gap-4 p-3 md:grid-cols-4">
-                      <ShipmentTextField label="Actual Weight KG" required type="number" inputMode="decimal" value={parcel.weightKg} onChange={handleParcelFieldChange(index, "weightKg")} error={getParcelFieldIssue(index, ["weight"])} revealError={submitAttempted} />
-                      <ShipmentTextField label="Length CM" required type="number" inputMode="decimal" value={parcel.lengthCm} onChange={handleParcelFieldChange(index, "lengthCm")} error={getParcelFieldIssue(index, ["length"])} revealError={submitAttempted} />
-                      <ShipmentTextField label="Width CM" required type="number" inputMode="decimal" value={parcel.widthCm} onChange={handleParcelFieldChange(index, "widthCm")} error={getParcelFieldIssue(index, ["width"])} revealError={submitAttempted} />
-                      <ShipmentTextField label="Height CM" required type="number" inputMode="decimal" value={parcel.heightCm} onChange={handleParcelFieldChange(index, "heightCm")} error={getParcelFieldIssue(index, ["height"])} revealError={submitAttempted} />
+                      <ShipmentTextField label="Actual Weight KG" required type="number" inputMode="decimal" max={costEstimate?.pricing.routeMaxBoxKg ?? undefined} value={parcel.weightKg} onChange={handleParcelFieldChange(index, "weightKg")} error={getParcelFieldIssue(index, ["weight"])} revealError={submitAttempted} />
+                      <ShipmentTextField label="Length CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.lengthCm} value={parcel.lengthCm} onChange={handleParcelFieldChange(index, "lengthCm")} error={getParcelFieldIssue(index, ["length"])} revealError={submitAttempted} />
+                      <ShipmentTextField label="Width CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.widthCm} value={parcel.widthCm} onChange={handleParcelFieldChange(index, "widthCm")} error={getParcelFieldIssue(index, ["width"])} revealError={submitAttempted} />
+                      <ShipmentTextField label="Height CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.heightCm} value={parcel.heightCm} onChange={handleParcelFieldChange(index, "heightCm")} error={getParcelFieldIssue(index, ["height"])} revealError={submitAttempted} />
                       <ShipmentSelectField label="Content Type" required value={parcel.shipmentContentType} onChange={handleParcelFieldChange(index, "shipmentContentType")} error={getParcelFieldIssue(index, ["content type"])} revealError={submitAttempted}>
                           {shipmentContentTypeOptions.map((option) => (
                             <option key={option.value} value={option.value}>
@@ -1530,11 +1550,9 @@ export default function DpdLabelDraftPage() {
                 serviceType={draftCorrectionForm.serviceType}
                 countryCode={addressForm.countryCode}
                 countryName={addressForm.countryName}
-                insuranceOptIn={insuranceOptIn}
-                onInsuranceOptInChange={setInsuranceOptIn}
                 forceGst={forceGst}
                 onForceGstChange={setForceGst}
-                insuranceDisabled={busy}
+                busy={busy}
               />
               <div className="mt-4 rounded-xl border border-red-400 bg-amber-50 p-3">
                 <h3 className="text-sm font-semibold text-amber-900">Prohibited Items Reminder</h3>

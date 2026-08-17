@@ -23,6 +23,7 @@ import {
   createClientClaim,
   decideStaffClaim,
   deleteClientClaimDocument,
+  deleteClientClaimDraft,
   downloadClientClaimDocument,
   downloadClientDecisionLetter,
   downloadStaffClaimDocument,
@@ -72,6 +73,7 @@ clientClaimRouter.get("/eligibility/:shipmentId", getClientClaimEligibility);
 clientClaimRouter.post("/", createClientClaim);
 clientClaimRouter.get("/:claimId", getClientClaim);
 clientClaimRouter.patch("/:claimId/draft", updateClientClaimDraft);
+clientClaimRouter.delete("/:claimId", deleteClientClaimDraft);
 clientClaimRouter.post("/:claimId/submit", submitClientClaim);
 clientClaimRouter.post("/:claimId/documents", claimDocumentUpload, uploadClientClaimDocument);
 clientClaimRouter.get("/:claimId/documents/:documentId", downloadClientClaimDocument);

@@ -49,6 +49,7 @@ export function ShipmentTextField({
   inputMode,
   readOnly = false,
   maxLength,
+  max,
   hint,
   tooltip,
   onBlur
@@ -64,6 +65,12 @@ export function ShipmentTextField({
   inputMode?: "decimal" | "email" | "numeric" | "search" | "tel" | "text" | "url";
   readOnly?: boolean;
   maxLength?: number;
+  /**
+   * Numeric ceiling. The value is refused outright rather than flagged after the
+   * fact — `max` alone only drives the spinner and native validity, and still
+   * lets an over-limit number be typed.
+   */
+  max?: number;
   hint?: string;
   tooltip?: string;
   // Fires after the field's own touched-tracking, e.g. to surface a restricted-goods toast.
@@ -72,6 +79,16 @@ export function ShipmentTextField({
   const [touched, setTouched] = useState(false);
   const showError = touched || revealError;
 
+  function handleChange(event: ChangeEvent<HTMLInputElement>) {
+    // A blank stays editable so the field can be cleared and retyped.
+    const next = event.target.value;
+    if (max !== undefined && next.trim() !== "") {
+      const parsed = Number(next);
+      if (Number.isFinite(parsed) && parsed > max) return;
+    }
+    onChange(event);
+  }
+
   return (
     <label className="block min-w-0">
       <ShipmentFieldLabel required={required} tooltip={tooltip}>{label}</ShipmentFieldLabel>
@@ -79,11 +96,12 @@ export function ShipmentTextField({
         type={type}
         inputMode={inputMode}
         value={value}
-        onChange={onChange}
+        onChange={handleChange}
         onBlur={() => { setTouched(true); toastFieldError(error, value); onBlur?.(); }}
         placeholder={placeholder}
         readOnly={readOnly}
         maxLength={maxLength}
+        max={max}
         aria-invalid={Boolean(error && showError)}
         className={`mt-2 h-11 w-full min-w-0 rounded-xl border px-3.5 text-sm outline-none transition focus:ring-2 ${
           readOnly

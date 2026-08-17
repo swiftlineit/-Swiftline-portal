@@ -10,6 +10,22 @@ import { isValidAadhaarNumber } from "./aadhaarValidation.service.js";
 import { isValidHsnCode, normalizeParcelItems } from "./parcelItems.service.js";
 import { findRestrictedCategories } from "./restrictedGoods.service.js";
 
+/**
+ * The largest parcel Swiftline carries, per side — 100 x 60 x 70 cm, which is
+ * the 230 cm girth the network is built around.
+ *
+ * Maximum weight is deliberately absent: it comes from the matched rate card's
+ * maxBoxKg, so it varies by destination and service rather than being fixed here.
+ *
+ * KEEP IN SYNC with the frontend copy (separate package, cannot share a module):
+ *   portal/frontend/src/lib/shipmentPricing.ts
+ */
+export const maxParcelDimensionsCm = {
+  lengthCm: 100,
+  widthCm: 60,
+  heightCm: 70
+} as const;
+
 const ukPostcodePattern = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/;
 const indianPostcodePattern = /^[1-9]\d{5}$/;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -91,7 +107,9 @@ function validateConsignorConsigneeAreDistinct(draft: IShipmentDraft): string[] 
   return issues;
 }
 
-const csbIvKycDocuments: readonly ShipmentKycDocumentType[] = ["pan", "aadhaar"];
+// CSB-IV is the simplified low-value route and carries no mandatory KYC upload.
+// PAN and Aadhaar may still be attached, and are validated if they are.
+const csbIvKycDocuments: readonly ShipmentKycDocumentType[] = [];
 const csbVKycDocuments: readonly ShipmentKycDocumentType[] = [
   "iec",
   "gst",
@@ -116,11 +134,23 @@ const kycDocumentNames: Record<ShipmentKycDocumentType, string> = {
   other: "Other Document"
 };
 
-// CSB-IV needs PAN and Aadhaar; CSB-V needs the complete customs checklist.
-// When kycUseForAllParcels is false, every parcel must carry its own set.
+// CSB-V needs the complete customs checklist; CSB-IV requires nothing but still
+// validates whatever is supplied. When kycUseForAllParcels is false, every parcel
+// must carry its own set.
 function validateKycDocuments(draft: IShipmentDraft): string[] {
   const issues: string[] = [];
-  const requiredDocuments = draft.csbType === "CSB_V" ? csbVKycDocuments : csbIvKycDocuments;
+  const isCsbV = draft.csbType === "CSB_V";
+  const requiredDocuments = isCsbV ? csbVKycDocuments : csbIvKycDocuments;
+  // An Aadhaar number is part of the CSB-V checklist. On CSB-IV it is optional,
+  // but a value that has been entered must still be a real Aadhaar number.
+  const aadhaarNumberIssue = (value: string | undefined, label?: string) => {
+    const scope = label ? `${label}: ` : "";
+
+    if (!hasText(value)) return isCsbV ? `${scope}Aadhaar number is required` : "";
+    return isValidAadhaarNumber(value)
+      ? ""
+      : `${scope}${label ? "enter" : "Enter"} a valid 12 digit Aadhaar number`;
+  };
 
   function appendMissingDocuments(
     documents: IShipmentDraft["kycDocuments"] | undefined,
@@ -135,11 +165,8 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
 
   if (draft.kycUseForAllParcels !== false) {
     const documents = draft.kycDocuments ?? {};
-    if (!hasText(draft.consignorAddress?.aadhaarNumber)) {
-      issues.push("Aadhaar number is required");
-    } else if (!isValidAadhaarNumber(draft.consignorAddress.aadhaarNumber)) {
-      issues.push("Enter a valid 12 digit Aadhaar number");
-    }
+    const aadhaarIssue = aadhaarNumberIssue(draft.consignorAddress?.aadhaarNumber);
+    if (aadhaarIssue) issues.push(aadhaarIssue);
     appendMissingDocuments(documents);
     if (documents.other?.storageKey && !hasText(documents.other.documentLabel)) {
       issues.push("Name the other KYC document before booking");
@@ -150,11 +177,8 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
   draft.parcelList.forEach((parcel, index) => {
     const label = `Parcel ${index + 1}`;
     const documents = parcel.kycDocuments ?? {};
-    if (!hasText(parcel.aadhaarNumber)) {
-      issues.push(`${label}: Aadhaar number is required`);
-    } else if (!isValidAadhaarNumber(parcel.aadhaarNumber)) {
-      issues.push(`${label}: enter a valid 12 digit Aadhaar number`);
-    }
+    const aadhaarIssue = aadhaarNumberIssue(parcel.aadhaarNumber, label);
+    if (aadhaarIssue) issues.push(aadhaarIssue);
     appendMissingDocuments(documents, label);
     if (documents.other?.storageKey && !hasText(documents.other.documentLabel)) {
       issues.push(`${label}: name the other KYC document before booking`);
@@ -176,13 +200,15 @@ function validateParcel(parcel: ShipmentParcel, index: number, requireItemHsnCod
     issues.push(`${label}: weight must be greater than zero`);
   }
 
-  for (const [fieldName, value] of [
-    ["length", parcel.lengthCm],
-    ["width", parcel.widthCm],
-    ["height", parcel.heightCm]
+  for (const [fieldName, value, maximum] of [
+    ["length", parcel.lengthCm, maxParcelDimensionsCm.lengthCm],
+    ["width", parcel.widthCm, maxParcelDimensionsCm.widthCm],
+    ["height", parcel.heightCm, maxParcelDimensionsCm.heightCm]
   ] as const) {
     if (value === undefined || value === null || !Number.isFinite(value) || value <= 0) {
       issues.push(`${label}: ${fieldName} must be greater than zero`);
+    } else if (value > maximum) {
+      issues.push(`${label}: ${fieldName} cannot exceed ${maximum} cm`);
     }
   }
 

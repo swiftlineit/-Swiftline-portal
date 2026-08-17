@@ -48,6 +48,38 @@ export type ShipmentEstimateParcel = {
   exceedsMaxBoxKg: boolean;
 };
 
+/**
+ * Why a box is over the maximum box weight, in terms the person can act on.
+ *
+ * The limit is checked against chargeable weight, which for a large light box is
+ * its volumetric weight — a 100 x 60 x 70 cm carton is 84 kg chargeable however
+ * little it weighs. Saying "box weight" there sends someone to re-weigh a 5 kg
+ * parcel that was never the problem, so the message names the weight that
+ * actually breached the limit and what to change.
+ */
+export function maxBoxWeightIssue(parcel: {
+  // Structural, not `ShipmentEstimateParcel`: the quote estimate carries the same
+  // weights under a slightly different shape and needs the identical wording.
+  sequence: number;
+  actualWeightKg: number;
+  volumetricWeightKg: number;
+  maxBoxKg: number | null;
+  exceedsMaxBoxKg: boolean;
+}) {
+  if (!parcel.exceedsMaxBoxKg || parcel.maxBoxKg === null) return null;
+
+  const fromVolumetric = parcel.volumetricWeightKg > parcel.actualWeightKg;
+
+  return {
+    sequence: parcel.sequence,
+    fromVolumetric,
+    maxBoxKg: parcel.maxBoxKg,
+    text: fromVolumetric
+      ? `Volumetric weight ${parcel.volumetricWeightKg.toFixed(2)} kg is over the ${parcel.maxBoxKg} kg maximum box weight. Reduce the dimensions.`
+      : `Actual weight ${parcel.actualWeightKg.toFixed(2)} kg is over the ${parcel.maxBoxKg} kg maximum box weight.`
+  };
+}
+
 export type ShipmentPricing = {
   parcels: ShipmentEstimateParcel[];
   freightAmount: number;
@@ -66,6 +98,12 @@ export type ShipmentPricing = {
   totalAmount: number;
   missingRate: boolean;
   exceedsMaxBoxKg: boolean;
+  /**
+   * The heaviest a single box may be on this route, from the rate card. Absent
+   * or null until a destination with a rate card is chosen, and the weight field
+   * is uncapped until then because there is no ceiling to enforce yet.
+   */
+  routeMaxBoxKg?: number | null;
   gstRate: number;
   taxTreatment?: "GST_APPLICABLE" | "NO_GST";
   noGstEligible?: boolean;

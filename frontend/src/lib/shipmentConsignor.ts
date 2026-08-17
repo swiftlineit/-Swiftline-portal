@@ -163,7 +163,8 @@ export type ParcelKycState = {
   kycDocuments: ShipmentKycDocuments | undefined;
 };
 
-// CSB-IV needs PAN and Aadhaar. CSB-V uses the complete customs checklist.
+// CSB-V uses the complete customs checklist. CSB-IV is the simplified low-value
+// route and requires nothing, though anything supplied is still validated.
 // When KYC is shared, one set covers every parcel; otherwise each parcel supplies it.
 export function getKycIssues(input: {
   csbType: CsbType;
@@ -173,6 +174,7 @@ export function getKycIssues(input: {
   parcels: ParcelKycState[];
 }) {
   const issues: string[] = [];
+  const isCsbV = input.csbType === "CSB_V";
   const requiredDocuments = requiredShipmentKycDocumentTypes(input.csbType);
 
   function appendMissingDocuments(documents: ShipmentKycDocuments | undefined, scope?: string) {
@@ -183,23 +185,29 @@ export function getKycIssues(input: {
     });
   }
 
-  if (input.useForAll) {
-    if (!input.sharedAadhaar.trim()) {
-      issues.push("Aadhaar number is required");
-    } else if (!isValidAadhaarNumber(input.sharedAadhaar)) {
-      issues.push("Enter a valid 12 digit Aadhaar number");
+  // Mirrors the server rule: required on CSB-V, optional on CSB-IV, but a value
+  // that has been entered must be a real Aadhaar number either way.
+  function appendAadhaarIssue(value: string, label?: string) {
+    const scope = label ? `${label}: ` : "";
+
+    if (!value.trim()) {
+      if (isCsbV) issues.push(`${scope}Aadhaar number is required`);
+      return;
     }
+    if (!isValidAadhaarNumber(value)) {
+      issues.push(`${scope}${label ? "enter" : "Enter"} a valid 12 digit Aadhaar number`);
+    }
+  }
+
+  if (input.useForAll) {
+    appendAadhaarIssue(input.sharedAadhaar);
     appendMissingDocuments(input.sharedDocuments);
     return issues;
   }
 
   input.parcels.forEach((parcel, index) => {
     const label = `Parcel ${index + 1}`;
-    if (!parcel.aadhaarNumber.trim()) {
-      issues.push(`${label}: Aadhaar number is required`);
-    } else if (!isValidAadhaarNumber(parcel.aadhaarNumber)) {
-      issues.push(`${label}: enter a valid 12 digit Aadhaar number`);
-    }
+    appendAadhaarIssue(parcel.aadhaarNumber, label);
     appendMissingDocuments(parcel.kycDocuments, label);
   });
 
