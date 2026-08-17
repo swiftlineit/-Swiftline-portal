@@ -5,14 +5,16 @@ export const labelSizeValues = ["A4", "A6"] as const;
 
 export type LabelFormat = (typeof labelFormatValues)[number];
 export type LabelSize = (typeof labelSizeValues)[number];
-export const labelTypeValues = ["DPD", "SWIFTLINE"] as const;
+// Swiftline prints the only label. Rows written before that carry a legacy
+// "DPD" value; every query filters on SWIFTLINE so they never surface, and
+// nothing rewrites them.
+export const labelTypeValues = ["SWIFTLINE"] as const;
 export type LabelType = (typeof labelTypeValues)[number];
 
 export interface ILabelDocument extends mongoose.Document {
   dpdShipmentId: mongoose.Types.ObjectId;
   parcelNumber: string;
   labelType: LabelType;
-  providerMode: "SIMULATED" | "LIVE";
   format: LabelFormat;
   labelSize: LabelSize;
   /** Storage service key, resolved through storage.service.ts. Never a path. */
@@ -40,8 +42,7 @@ const labelDocumentSchema = new mongoose.Schema<ILabelDocument>(
       index: true
     },
     parcelNumber: { type: String, required: true, trim: true, maxlength: 80, index: true },
-    labelType: { type: String, enum: labelTypeValues, default: "DPD", required: true, index: true },
-    providerMode: { type: String, enum: ["SIMULATED", "LIVE"], default: "LIVE", required: true, index: true },
+    labelType: { type: String, enum: labelTypeValues, default: "SWIFTLINE", required: true, index: true },
     format: { type: String, enum: labelFormatValues, required: true },
     labelSize: { type: String, enum: labelSizeValues, required: true },
     storageKey: { type: String, required: true, trim: true, maxlength: 1024 },

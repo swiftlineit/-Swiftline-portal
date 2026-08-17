@@ -34,7 +34,7 @@ import {
   applyApprovedAmendmentBilling,
   previewAmendmentFunding
 } from "../services/amendmentBilling.service.js";
-import { regenerateSimulatedShipmentLabels } from "../services/dpdShipment.service.js";
+import { regenerateShipmentLabels } from "../services/dpdShipment.service.js";
 import { notifyActiveAdmins, notifyBusinessShipmentMembers } from "../services/portalNotification.service.js";
 import { dateRangeCondition, dateRangeParams } from "../utils/dateRangeFilter.js";
 import {
@@ -850,12 +850,6 @@ export async function approveShipmentAmendment(request: Request, response: Respo
           "Parcel count cannot be changed after booking. Create a new shipment for additional parcels."
         );
       }
-      if (amendmentGate.dpdShipment.providerMode !== "SIMULATED") {
-        throw new AmendmentReviewError(
-          409,
-          "This live DPD shipment cannot be amended until Swiftline Operations confirms the change with the carrier."
-        );
-      }
       const pricingChanges = affectsPricing(changePreview);
       const currentPricing = await getCurrentInvoicePricing(
         shipmentDraft._id as mongoose.Types.ObjectId,
@@ -1030,7 +1024,7 @@ export async function approveShipmentAmendment(request: Request, response: Respo
   };
   let documentWarning = "";
   try {
-    await regenerateSimulatedShipmentLabels(approvalResult.dpdShipmentId, userId);
+    await regenerateShipmentLabels(approvalResult.dpdShipmentId, userId);
   } catch (error) {
     console.error("Approved amendment requires document reconciliation.", error);
     documentWarning = "The amendment was approved, but its revised labels require Swiftline Operations review.";

@@ -1,28 +1,62 @@
+import fs from "fs";
+import path from "path";
 import PDFDocument from "pdfkit";
 import bwipjs from "bwip-js";
 
+// A6 (105 x 148 mm) — standard courier label stock.
 const A6_WIDTH = 283.46;
 const A6_HEIGHT = 425.2;
-const PAGE_MARGIN = 10;
+const PAGE_MARGIN = 8;
+const CONTENT_LEFT = PAGE_MARGIN;
+const CONTENT_RIGHT = A6_WIDTH - PAGE_MARGIN;
+const CONTENT_WIDTH = CONTENT_RIGHT - CONTENT_LEFT;
+// Every caption and value hangs off this inset, so the whole label reads as one
+// left-aligned column rather than a stack of independently centred blocks.
+const CELL_PADDING = 8;
+const TEXT_LEFT = CONTENT_LEFT + CELL_PADDING;
+const TEXT_WIDTH = CONTENT_WIDTH - CELL_PADDING * 2;
 
-// The internal label is a barcode and the parcel number, nothing else. It goes
-// on small label stock, so the page is sized to its content — roughly 70 x 30 mm
-// — rather than being an A6 sheet that is mostly blank.
-const INTERNAL_LABEL_WIDTH = 200;
-const INTERNAL_LABEL_HEIGHT = 84;
-const INTERNAL_LABEL_MARGIN = 8;
-const INTERNAL_BARCODE_HEIGHT = 46;
+// The horizontal rules that divide the label into its squared sections.
+const ROW_HEADER = PAGE_MARGIN;
+const ROW_BARCODE = 62;
+const ROW_GRID = 196;
+const ROW_GRID_MID = 252;
+const ROW_CONSIGNEE = 308;
+const LABEL_BOTTOM = A6_HEIGHT - PAGE_MARGIN;
 
+// The routing grid is three columns wide. Origin and piece stack in the first,
+// destination and weight in the second; the third is one merged cell holding the
+// service, which is why the middle rule stops short of it.
+const GRID_COL_1 = CONTENT_LEFT + CONTENT_WIDTH * 0.30;
+const GRID_COL_2 = CONTENT_LEFT + CONTENT_WIDTH * 0.70;
+
+const INK = "#000000";
+
+/** Printed on every label regardless of the booked service. */
+const SERVICE_NAME = "EXPRESS WORLDWIDE";
+const COMPANY_NAME = "SWIFTLINE CARGO ";
 export interface ShipmentLabelData {
-  swiftlineTrackingNumber: string;
   parcelNumber: string;
   parcelIndex: number;
   parcelCount: number;
   weightKg: number;
-  serviceCode: string;
-  shipmentReference: string;
-  customerReference?: string;
   generatedAt: Date;
+  /** The lodging station the shipment starts from. */
+  origin: {
+    stationCode: string;
+    city: string;
+  };
+  /**
+   * Where the shipment is going, as the route line prints it.
+   *
+   * Carried separately rather than read off the end of `consignee.addressLines`,
+   * which is a street on a single-line address.
+   */
+  destination: {
+    city: string;
+    countryCode: string;
+    countryName: string;
+  };
   consignee: {
     name: string;
     contactName?: string;
@@ -30,12 +64,7 @@ export interface ShipmentLabelData {
     postcode: string;
     countryCode: string;
     countryName: string;
-  };
-  sender: {
-    name: string;
-    branchCode: string;
-    addressLines: string[];
-    phone?: string;
+    email?: string;
   };
 }
 
@@ -58,6 +87,11 @@ function collectPdf(
   });
 }
 
+/** Pixel dimensions from a PNG's IHDR, so a fitted image's drawn height is known. */
+function pngSize(buffer: Buffer) {
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
 async function barcode(value: string, options: { scale?: number; height?: number } = {}) {
   return bwipjs.toBuffer({
     bcid: "code128",
@@ -76,196 +110,265 @@ async function barcode(value: string, options: { scale?: number; height?: number
 }
 
 function text(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim() : "Not provided";
+  return typeof value === "string" && value.trim() ? value.trim() : "";
 }
-
-function fittedFontSize(value: string, large: number, medium: number, small: number) {
-  if (value.length > 54) return small;
-  if (value.length > 32) return medium;
-  return large;
-}
-
-function dateTime(date: Date) {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kolkata",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(date).replace(",", "");
-}
-
-// export async function renderSwiftlineLabelPdf(data: ShipmentLabelData) {
-//   const barcodeImage = await barcode(data.parcelNumber);
-//   return collectPdf((document) => {
-//     const width = A6_WIDTH - PAGE_MARGIN * 2;
-//     document.rect(PAGE_MARGIN, PAGE_MARGIN, width, A6_HEIGHT - PAGE_MARGIN * 2).lineWidth(1.5).stroke("#0b1f46");
-//     const swiftlineHeader = "SWIFTLINE CARGO AND EXPRESS";
-//     document.fillColor("#0b1f46").font("Helvetica-Bold")
-//       .fontSize(fittedFontSize(swiftlineHeader, 16, 14, 12))
-//       .text(swiftlineHeader, 16, 25, { width: width - 12, align: "center", lineBreak: false });
-//     document.moveTo(PAGE_MARGIN, 58).lineTo(A6_WIDTH - PAGE_MARGIN, 58).lineWidth(2).stroke("#0b1f46");
-
-//     document.fillColor("#44546f").font("Helvetica-Bold").fontSize(7).text("TRACKING NUMBER", 16, 66);
-//     document.fillColor("#000000").font("Helvetica-Bold").fontSize(15).text(data.parcelNumber, 16, 77, { width: width - 12 });
-//     document.image(barcodeImage, 18, 101, { fit: [width - 16, 62], align: "center" });
-//     document.font("Helvetica-Bold").fontSize(8).text(data.parcelNumber, 16, 165, { width: width - 12, align: "center" });
-
-//     document.moveTo(PAGE_MARGIN, 180).lineTo(A6_WIDTH - PAGE_MARGIN, 180).lineWidth(1).stroke("#0b1f46");
-//     document.fillColor("#44546f").font("Helvetica-Bold").fontSize(7).text("SERVICE", 16, 189);
-//     document.fillColor("#000000").font("Helvetica-Bold").fontSize(12).text("SWIFTLINE", 16, 200);
-//     document.fillColor("#44546f").font("Helvetica-Bold").fontSize(7).text("ORIGIN", 155, 189);
-//     document.fillColor("#000000").font("Helvetica-Bold").fontSize(12).text(text(data.sender.branchCode), 155, 200);
-
-//     document.moveTo(PAGE_MARGIN, 222).lineTo(A6_WIDTH - PAGE_MARGIN, 222).stroke("#0b1f46");
-//     const consigneeName = text(data.consignee.name);
-//     document.fillColor("#44546f").font("Helvetica-Bold").fontSize(7).text("SHIP TO", 16, 231);
-//     document.fillColor("#000000").font("Helvetica-Bold")
-//       .fontSize(fittedFontSize(consigneeName, 12, 10, 8.5))
-//       .text(consigneeName, 16, 242, { width: width - 12, height: 21, ellipsis: true, lineGap: 1 });
-//     const consigneeContact = data.consignee.contactName?.trim();
-//     if (consigneeContact) {
-//       document.font("Helvetica-Bold").fontSize(8.5).text(`Contact: ${consigneeContact}`, 16, 266, {
-//         width: width - 12,
-//         height: 11,
-//         ellipsis: true
-//       });
-//     }
-//     document.font("Helvetica").fontSize(9).text(
-//       [...data.consignee.addressLines, data.consignee.postcode, data.consignee.countryName].filter(Boolean).join(", "),
-//       16,
-//       consigneeContact ? 281 : 267,
-//       { width: width - 12, height: consigneeContact ? 23 : 37, ellipsis: true, lineGap: 1 }
-//     );
-
-//     document.moveTo(PAGE_MARGIN, 310).lineTo(A6_WIDTH - PAGE_MARGIN, 310).stroke("#0b1f46");
-//     const columnWidth = width / 3;
-//     for (let index = 1; index < 3; index += 1) {
-//       document.moveTo(PAGE_MARGIN + columnWidth * index, 310).lineTo(PAGE_MARGIN + columnWidth * index, 374).stroke("#0b1f46");
-//     }
-//     const cells = [
-//       ["PARCEL", `${data.parcelIndex + 1} OF ${data.parcelCount}`],
-//       ["WEIGHT", `${data.weightKg.toFixed(2)} KG`],
-//       ["REFERENCE", text(data.customerReference || data.shipmentReference)]
-//     ];
-//     cells.forEach(([label, value], index) => {
-//       const x = PAGE_MARGIN + columnWidth * index;
-//       document.fillColor("#44546f").font("Helvetica-Bold").fontSize(7).text(label ?? "", x + 5, 320, { width: columnWidth - 10, align: "center" });
-//       document.fillColor("#000000").font("Helvetica-Bold").fontSize(index === 2 ? 8 : 11).text(value ?? "", x + 5, 342, { width: columnWidth - 10, align: "center" });
-//     });
-//     document.moveTo(PAGE_MARGIN, 374).lineTo(A6_WIDTH - PAGE_MARGIN, 374).stroke("#0b1f46");
-//     document.fillColor("#44546f").font("Helvetica").fontSize(7).text(
-//       `Internal label | ${dateTime(data.generatedAt)} | Generated by Swiftline Portal`,
-//       16,
-//       389,
-//       { width: width - 12, align: "center" }
-//     );
-//   });
-// }
 
 /**
- * The internal warehouse label: barcode, parcel number, nothing else.
+ * The SLC mark, pre-cropped and downsampled for label stock.
  *
- * No border, no heading and no footer — this is scanned off a small label, and
- * every extra element either shrinks the barcode or wastes stock. The page is
- * sized to the content so there is no blank area to trim.
+ * Resolved once: the original brand asset carries ~56% transparent padding and
+ * is measured in megabytes, which would be embedded into every parcel's PDF and
+ * every booking email.
+ */
+const logoPath = path.resolve(process.cwd(), "assets", "swiftline-label-logo.png");
+
+/** Largest size at or below `start` that fits `value` on one line. */
+function fitOneLine(
+  document: PDFKit.PDFDocument,
+  value: string,
+  width: number,
+  start: number,
+  minimum: number
+) {
+  let size = start;
+  while (size > minimum && document.fontSize(size).widthOfString(value) > width) {
+    size -= 0.5;
+  }
+  return size;
+}
+
+function caption(document: PDFKit.PDFDocument, value: string, x: number, y: number, width: number) {
+  document
+    .fillColor(INK)
+    .font("Helvetica-Bold")
+    .fontSize(6)
+    .text(value, x, y, { width, characterSpacing: 0.8, lineBreak: false });
+}
+
+function rule(document: PDFKit.PDFDocument, y: number, lineWidth = 1, right = CONTENT_RIGHT) {
+  document.moveTo(CONTENT_LEFT, y).lineTo(right, y).lineWidth(lineWidth).stroke(INK);
+}
+
+/**
+ * Largest size at or below `start` whose wrapped block fits `maxHeight`.
+ *
+ * Used where the value may legitimately need more than one line, so it is
+ * measured as the block it becomes rather than as a single line — sizing on one
+ * line would shrink a two-line value far smaller than it needs to be.
+ */
+function fitBlock(
+  document: PDFKit.PDFDocument,
+  value: string,
+  width: number,
+  maxHeight: number,
+  start: number,
+  minimum: number
+) {
+  let size = start;
+  while (size > minimum && document.fontSize(size).heightOfString(value, { width }) > maxHeight) {
+    size -= 0.5;
+  }
+  return size;
+}
+
+/** How much vertical room a wrapping grid value has before the next rule. */
+const CELL_VALUE_HEIGHT = 30;
+
+/**
+ * A captioned value inside one grid cell, left-aligned to the cell's inset.
+ *
+ * `wrap` is for values that may legitimately need a second or third line — the
+ * destination, whose town name is the one field with no length ceiling. The
+ * codes and measurements never need it and stay on one line.
+ */
+function cell(
+  document: PDFKit.PDFDocument,
+  input: { label: string; value: string; left: number; width: number; top: number; wrap?: boolean }
+) {
+  caption(document, input.label, input.left, input.top, input.width);
+  document.fillColor(INK).font("Helvetica-Bold");
+  const size = input.wrap
+    ? fitBlock(document, input.value, input.width, CELL_VALUE_HEIGHT, 15, 6)
+    : fitOneLine(document, input.value, input.width, 15, 7);
+  document
+    .fontSize(size)
+    .text(input.value, input.left, input.top + 13, {
+      width: input.width,
+      lineBreak: Boolean(input.wrap),
+      ...(input.wrap ? { height: CELL_VALUE_HEIGHT, ellipsis: true } : {})
+    });
+}
+
+/**
+ * The Swiftline shipment label.
+ *
+ * Every parcel carries one. The barcode encodes the parcel number — the value
+ * the warehouse scanners read — and the rest of the label is what a handler
+ * needs to route the piece without looking it up: where it came from, where it
+ * is going, how many pieces the shipment has, and who receives it.
  */
 export async function renderSwiftlineLabelPdf(data: ShipmentLabelData) {
-  // Rendered well above its printed size: this label is small, and an
-  // under-sampled barcode is what scanners fail on.
-  const barcodeImage = await barcode(data.parcelNumber, { scale: 8, height: 14 });
+  // Rendered well above its printed size: an under-sampled barcode is what
+  // scanners fail on. The 24mm height is chosen so a typical parcel number fills
+  // the band rather than leaving dead space above the route rule.
+  const barcodeImage = await barcode(data.parcelNumber, { scale: 8, height: 24 });
 
   return collectPdf((document) => {
-    const contentWidth = INTERNAL_LABEL_WIDTH - INTERNAL_LABEL_MARGIN * 2;
+    document.rect(CONTENT_LEFT, PAGE_MARGIN, CONTENT_WIDTH, LABEL_BOTTOM - PAGE_MARGIN)
+      .lineWidth(1.5)
+      .stroke(INK);
 
-    document.image(barcodeImage, INTERNAL_LABEL_MARGIN, INTERNAL_LABEL_MARGIN, {
-      fit: [contentWidth, INTERNAL_BARCODE_HEIGHT],
+    // --- Header: SLC mark and the company it ships under -------------------
+    if (fs.existsSync(logoPath)) {
+      document.image(logoPath, TEXT_LEFT, ROW_HEADER + 11, { fit: [54, 22] });
+    }
+    const companyLeft = TEXT_LEFT + 62;
+    const companyWidth = CONTENT_RIGHT - CELL_PADDING - companyLeft;
+    document
+      .fillColor(INK)
+      .font("Helvetica-Bold")
+      .fontSize(fitOneLine(document, COMPANY_NAME, companyWidth, 13, 7))
+      .text(COMPANY_NAME, companyLeft, ROW_HEADER + 17, { width: companyWidth, lineBreak: false });
+    rule(document, ROW_BARCODE, 1.5);
+
+    // --- Barcode and the tracking number it encodes ------------------------
+    // `fit` preserves the barcode's aspect ratio, so its drawn height depends on
+    // how long the parcel number is. Measuring it keeps the number tight under
+    // the bars instead of floating below a variable gap.
+    const barcodeTop = ROW_BARCODE + 9;
+    const barcodeBox = ROW_GRID - barcodeTop - 32;
+    const source = pngSize(barcodeImage);
+    const barcodeHeight = Math.min(barcodeBox, (TEXT_WIDTH * source.height) / source.width);
+    document.image(barcodeImage, TEXT_LEFT, barcodeTop, {
+      fit: [TEXT_WIDTH, barcodeBox],
       align: "center"
     });
-
-    // Shrink to fit rather than wrap or clip: parcel numbers vary in length and
-    // a wrapped or truncated one is unreadable next to the barcode it labels.
     document.font("Helvetica-Bold");
-    let fontSize = 14;
-    while (fontSize > 6 && document.fontSize(fontSize).widthOfString(data.parcelNumber) > contentWidth) {
-      fontSize -= 0.5;
-    }
-
     document
-      .fillColor("#000000")
-      .fontSize(fontSize)
-      .text(data.parcelNumber, INTERNAL_LABEL_MARGIN, INTERNAL_LABEL_MARGIN + INTERNAL_BARCODE_HEIGHT + 6, {
-        width: contentWidth,
+      .fillColor(INK)
+      .fontSize(fitOneLine(document, data.parcelNumber, TEXT_WIDTH, 20, 7))
+      .text(data.parcelNumber, TEXT_LEFT, barcodeTop + barcodeHeight + 7, {
+        width: TEXT_WIDTH,
         align: "center",
         lineBreak: false
       });
-  }, [INTERNAL_LABEL_WIDTH, INTERNAL_LABEL_HEIGHT]);
-}
+    rule(document, ROW_GRID, 1.5);
 
-export async function renderSimulatedDpdLabelPdf(data: ShipmentLabelData) {
-  const barcodeImage = await barcode(data.parcelNumber);
-  return collectPdf((document) => {
-    const width = A6_WIDTH - PAGE_MARGIN * 2;
-    document.rect(PAGE_MARGIN, PAGE_MARGIN, width, A6_HEIGHT - PAGE_MARGIN * 2).lineWidth(1.5).stroke("#000000");
-    document.rect(PAGE_MARGIN, PAGE_MARGIN, width, 24).fill("#d71920");
-    document.fillColor("#ffffff").font("Helvetica-Bold").fontSize(13).text("DPD TEST LABEL", 16, 16, { width: width - 12, align: "center" });
+    // --- Routing grid: origin | destination | service ----------------------
+    // The middle rule stops at the third column because the service cell is
+    // merged across both rows.
+    rule(document, ROW_GRID_MID, 1, GRID_COL_2);
+    for (const x of [GRID_COL_1, GRID_COL_2]) {
+      document.moveTo(x, ROW_GRID).lineTo(x, ROW_CONSIGNEE).lineWidth(1).stroke(INK);
+    }
 
-    const consigneeName = text(data.consignee.name).toUpperCase();
-    const consigneeContact = data.consignee.contactName?.trim().toUpperCase();
-    document.fillColor("#000000").font("Helvetica-Bold")
-      .fontSize(fittedFontSize(consigneeName, 10.5, 9, 7.5))
-      .text(consigneeName, 16, 43, { width: 163, height: 20, ellipsis: true, lineGap: 1 });
-    if (consigneeContact) {
-      document.font("Helvetica-Bold").fontSize(7.5).text(`CONTACT  ${consigneeContact}`, 16, 67, {
-        width: 163,
-        height: 10,
+    const col1Width = GRID_COL_1 - CONTENT_LEFT - CELL_PADDING * 2;
+    const col2Left = GRID_COL_1 + CELL_PADDING;
+    const col2Width = GRID_COL_2 - GRID_COL_1 - CELL_PADDING * 2;
+
+    // Uppercased here rather than trusted from the snapshot: these are the lines
+    // a handler routes the piece on, and they must not change case with the source.
+    const destination = [
+      text(data.destination.city) || text(data.destination.countryName),
+      text(data.destination.countryCode)
+    ].filter(Boolean).join(", ").toUpperCase();
+    const origin = (text(data.origin.stationCode) || text(data.origin.city) || "-").toUpperCase();
+
+    cell(document, { label: "ORIGIN", value: origin, left: TEXT_LEFT, width: col1Width, top: ROW_GRID + 10 });
+    cell(document, {
+      label: "DESTINATION",
+      value: destination || "-",
+      left: col2Left,
+      width: col2Width,
+      top: ROW_GRID + 10,
+      wrap: true
+    });
+    cell(document, {
+      label: "PIECE",
+      value: `${data.parcelIndex + 1} OF ${data.parcelCount}`,
+      left: TEXT_LEFT,
+      width: col1Width,
+      top: ROW_GRID_MID + 10
+    });
+    cell(document, {
+      label: "WEIGHT",
+      value: `${data.weightKg.toFixed(2)} KG`,
+      left: col2Left,
+      width: col2Width,
+      top: ROW_GRID_MID + 10
+    });
+
+    // Service fills the merged third column, so its caption and value are
+    // centred against the whole cell rather than either row.
+    const serviceLeft = GRID_COL_2 + CELL_PADDING;
+    const serviceWidth = CONTENT_RIGHT - CELL_PADDING - serviceLeft;
+    const serviceWords = SERVICE_NAME.split(" ");
+    const serviceSize = Math.min(
+      ...serviceWords.map((word) => fitOneLine(document.font("Helvetica-Bold"), word, serviceWidth, 13, 6))
+    );
+    const serviceTop = (ROW_GRID + ROW_CONSIGNEE) / 2 - (8 + serviceWords.length * (serviceSize + 1.5)) / 2;
+    caption(document, "SERVICE", serviceLeft, serviceTop, serviceWidth);
+    serviceWords.forEach((word, index) => {
+      document
+        .fillColor(INK)
+        .font("Helvetica-Bold")
+        .fontSize(serviceSize)
+        .text(word, serviceLeft, serviceTop + 12 + index * (serviceSize + 1.5), {
+          width: serviceWidth,
+          lineBreak: false
+        });
+    });
+    rule(document, ROW_CONSIGNEE, 1.5);
+
+    // --- Consignee ---------------------------------------------------------
+    caption(document, "CONSIGNEE", TEXT_LEFT, ROW_CONSIGNEE + 7, TEXT_WIDTH);
+    // Wrapped over two lines rather than shrunk onto one: a trading name long
+    // enough to overflow is also long enough that the truncated half stops
+    // identifying the receiver.
+    const name = text(data.consignee.name) || text(data.consignee.contactName);
+    document
+      .fillColor(INK)
+      .font("Helvetica-Bold")
+      .fontSize(11)
+      .text(name, TEXT_LEFT, ROW_CONSIGNEE + 17, {
+        // Two 11pt lines measure 26.18pt; anything less silently clips to one,
+        // and anything past 39pt would let a third line run into the address.
+        width: TEXT_WIDTH,
+        height: 27,
         ellipsis: true
       });
+
+    // One component per line, the way a delivery address is normally written.
+    // Duplicates are dropped because the town often repeats across the street,
+    // town and county fields on an imported address.
+    const addressLines = [...new Set(data.consignee.addressLines.map(text).filter(Boolean))];
+    document
+      .font("Helvetica")
+      .fontSize(8.5)
+      .text(addressLines.join("\n"), TEXT_LEFT, ROW_CONSIGNEE + 44, {
+        // Three 8.5pt lines measure 33.3pt — enough for street, town and county
+        // without letting a fourth reach the postcode below.
+        width: TEXT_WIDTH,
+        height: 34,
+        ellipsis: true,
+        lineGap: 1
+      });
+
+    // Bold and on its own line: the postcode is what the delivery depot sorts on.
+    const postcode = [text(data.consignee.postcode), text(data.consignee.countryCode)]
+      .filter(Boolean)
+      .join("  ");
+    document
+      .font("Helvetica-Bold")
+      .fontSize(fitOneLine(document, postcode, TEXT_WIDTH, 14, 9))
+      .text(postcode, TEXT_LEFT, ROW_CONSIGNEE + 80, { width: TEXT_WIDTH, lineBreak: false });
+
+    const email = text(data.consignee.email);
+    if (email) {
+      document
+        .font("Helvetica")
+        .fontSize(fitOneLine(document, email, TEXT_WIDTH, 8.5, 6))
+        .text(email, TEXT_LEFT, ROW_CONSIGNEE + 97, { width: TEXT_WIDTH, lineBreak: false });
     }
-    document.font("Helvetica").fontSize(8.5).text(
-      [...data.consignee.addressLines, data.consignee.postcode, data.consignee.countryName].filter(Boolean).join("\n").toUpperCase(),
-      16,
-      consigneeContact ? 81 : 69,
-      { width: 163, height: consigneeContact ? 41 : 53, ellipsis: true, lineGap: 1 }
-    );
-    document.moveTo(187, 34).lineTo(187, 128).stroke("#000000");
-    document.font("Helvetica-Bold").fontSize(7).text("PACKAGES", 195, 47);
-    document.fontSize(13).text(`${data.parcelIndex + 1} of ${data.parcelCount}`, 195, 58);
-    document.fontSize(7).text("TOTAL WEIGHT", 195, 82);
-    document.fontSize(13).text(`${data.weightKg.toFixed(2)} kg`, 195, 93);
-
-    document.moveTo(PAGE_MARGIN, 128).lineTo(A6_WIDTH - PAGE_MARGIN, 128).stroke("#000000");
-    document.font("Helvetica-Bold").fontSize(7).text("CONSIGNMENT", 16, 137);
-    document.fontSize(fittedFontSize(data.parcelNumber, 8.5, 7.5, 6.5))
-      .text(data.parcelNumber, 16, 148, { width: 120, height: 24, ellipsis: true, lineGap: 1 });
-    document.fontSize(7).text("REFERENCE", 16, 177);
-    document.fontSize(8.5).text(text(data.customerReference || data.shipmentReference), 16, 188, { width: 120, height: 17, ellipsis: true });
-    document.moveTo(145, 128).lineTo(145, 213).stroke("#000000");
-    document.fontSize(7).text("SENDER", 153, 136);
-    document.font("Helvetica").fontSize(7.5).text(
-      [data.sender.name, ...data.sender.addressLines, data.sender.phone].filter(Boolean).join("\n").toUpperCase(),
-      153,
-      147,
-      { width: 112, height: 59, ellipsis: true, lineGap: 1 }
-    );
-
-    document.moveTo(PAGE_MARGIN, 213).lineTo(A6_WIDTH - PAGE_MARGIN, 213).lineWidth(2).stroke("#000000");
-    document.font("Helvetica").fontSize(10).text(data.parcelNumber.slice(-14), 16, 220);
-    document.font("Helvetica-Bold").fontSize(11).text(text(data.serviceCode).toUpperCase(), 168, 220, { width: 98, align: "right" });
-    const countryCode = data.consignee.countryCode.toUpperCase();
-    document.font("Helvetica-Bold").fontSize(27).text(
-      `${countryCode}-${data.consignee.postcode.toUpperCase()}`,
-      16,
-      245,
-      { width: width - 12, align: "center" }
-    );
-    document.font("Helvetica").fontSize(9).text(`812-${countryCode} - ${data.consignee.postcode.toUpperCase()}`, 16, 279, { width: width - 12, align: "center" });
-    document.fontSize(7).text(`${dateTime(data.generatedAt)} SIMULATED`, 16, 294, { width: width - 12, align: "center" });
-    document.image(barcodeImage, 20, 310, { fit: [width - 20, 65], align: "center" });
-    document.font("Helvetica-Bold").fontSize(7.5).text(data.parcelNumber, 16, 379, { width: width - 12, align: "center" });
-    document.rect(PAGE_MARGIN, 397, width, 18).fill("#d71920");
-    document.fillColor("#ffffff").font("Helvetica-Bold").fontSize(10).text("TEST - NOT FOR CARRIAGE", 16, 402, { width: width - 12, align: "center" });
   });
 }

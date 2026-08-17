@@ -393,8 +393,6 @@ export type DpdShipmentHistoryItem = {
     forwardingNumber?: string;
     entryNumber?: string;
     swiftlineTrackingNumber: string;
-    bookingProvider: "DPD" | "SWIFTLINE";
-    providerMode: "SIMULATED" | "LIVE";
     parcelNumbers: string[];
     serviceCode: string;
     status: string;
@@ -420,8 +418,7 @@ export type DpdShipmentHistoryItem = {
     id: string;
     dpdShipmentId: string;
     parcelNumber: string;
-    labelType: "DPD" | "SWIFTLINE";
-    providerMode: "SIMULATED" | "LIVE";
+    labelType: "SWIFTLINE";
     format: string;
     labelSize: string;
     fileChecksum: string;
@@ -457,7 +454,6 @@ export type DpdShipmentHistoryItem = {
 export type ShipmentBookingConfirmation = {
   swiftlineTrackingNumber: string;
   carrierShipmentId: string;
-  providerMode: "SIMULATED" | "LIVE";
   shipmentReference: string;
   customerReference: string;
   serviceType: "COURIER" | "CARGO";
@@ -763,14 +759,13 @@ export type CounterPaymentInput = {
   note?: string;
 };
 
-async function createShipmentBooking(
+export async function createShipment(
   shipmentDraftId: string,
-  action: "create-dpd-label" | "create-swiftline-shipment",
   counterPayment?: CounterPaymentInput,
   acceptedPricingHash?: string
 ) {
   const body = { ...(counterPayment ?? {}), ...(acceptedPricingHash ? { acceptedPricingHash } : {}) };
-  const response = await fetchWithAuth(apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/${action}`), {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/create-shipment`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -795,8 +790,6 @@ async function createShipmentBooking(
       forwardingNumber?: string;
       entryNumber?: string;
       swiftlineTrackingNumber: string;
-      bookingProvider: "DPD" | "SWIFTLINE";
-      providerMode: "SIMULATED" | "LIVE";
       parcelNumbers: string[];
       serviceCode: string;
       status: string;
@@ -805,8 +798,7 @@ async function createShipmentBooking(
     labels: Array<{
       id: string;
       parcelNumber: string;
-      labelType: "DPD" | "SWIFTLINE";
-      providerMode: "SIMULATED" | "LIVE";
+      labelType: "SWIFTLINE";
       format: string;
       labelSize: string;
       generatedAt: string;
@@ -821,22 +813,6 @@ async function createShipmentBooking(
       status: "DRAFT" | "ISSUED";
     } | null;
   }>(response);
-}
-
-export function createDpdLabel(
-  shipmentDraftId: string,
-  counterPayment?: CounterPaymentInput,
-  acceptedPricingHash?: string
-) {
-  return createShipmentBooking(shipmentDraftId, "create-dpd-label", counterPayment, acceptedPricingHash);
-}
-
-export function createSwiftlineShipment(
-  shipmentDraftId: string,
-  counterPayment?: CounterPaymentInput,
-  acceptedPricingHash?: string
-) {
-  return createShipmentBooking(shipmentDraftId, "create-swiftline-shipment", counterPayment, acceptedPricingHash);
 }
 
 export async function reconcileDpdShipmentDocuments(dpdShipmentId: string) {
@@ -876,8 +852,7 @@ export async function getDpdLabelAccessUrl(
     label: {
       id: string;
       parcelNumber: string;
-      labelType: "DPD" | "SWIFTLINE";
-      providerMode: "SIMULATED" | "LIVE";
+      labelType: "SWIFTLINE";
       format: string;
       labelSize: string;
       generatedAt: string;

@@ -22,7 +22,6 @@ import {
   publicRateCardRouter,
   rateCardShareRouter,
 } from "./routes/rateCardShare.routes.js";
-import { dpdConfigurationRouter } from "./routes/dpdConfiguration.routes.js";
 import { dpdShipmentRouter } from "./routes/dpdShipment.routes.js";
 import { shipmentImportRouter } from "./routes/shipmentImport.routes.js";
 import { shipmentDraftRouter } from "./routes/shipmentDraft.routes.js";
@@ -129,7 +128,6 @@ app.use("/api/v1/swiftline-routes", swiftlineRouteRouter);
 app.use("/api/v1/rate-card-shares", rateCardShareRouter);
 // Session-free by design: the link token in the query string is the credential.
 app.use("/api/v1/public/rate-cards", publicRateCardRouter);
-app.use("/api/v1/dpd-configurations", dpdConfigurationRouter);
 app.use("/api/v1/dpd-shipments", dpdShipmentRouter);
 app.use("/api/v1/shipment-imports", shipmentImportRouter);
 app.use("/api/v1/shipment-drafts", shipmentDraftRouter);

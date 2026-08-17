@@ -21,8 +21,8 @@ import { buildShipmentBookingSnapshot } from "../services/shipmentBookingSnapsho
 import { calculateShipmentPricingEstimate } from "../services/shipmentPricing.service.js";
 import { ensureShipmentInvoiceForDraft } from "../services/shipmentInvoice.service.js";
 import { storeGeneratedLabel } from "../services/dpdShipment.service.js";
+import { SWIFTLINE_SERVICE_CODE } from "../services/shipmentPayload.service.js";
 import {
-  renderSimulatedDpdLabelPdf,
   renderSwiftlineLabelPdf,
   type ShipmentLabelData
 } from "../services/shipmentLabelPdf.service.js";
@@ -237,7 +237,7 @@ async function main() {
           }
         ],
         serviceType: "COURIER",
-        serviceCode: "DPD-INTL-TEST",
+        serviceCode: SWIFTLINE_SERVICE_CODE,
         validationIssues: [],
         status: "READY_FOR_DPD",
         createdBy: actorId
@@ -285,7 +285,6 @@ async function main() {
           labelCount: shipmentDraft.parcelList.length
         },
         paymentSource: "BUSINESS_ACCOUNT",
-        shippingEnvironment: "MOCK",
         status: "LABEL_RECEIVED"
       }
     },
@@ -300,45 +299,35 @@ async function main() {
   for (const [index, parcel] of shipmentDraft.parcelList.entries()) {
     const parcelSuffix = String(index + 1).padStart(2, "0");
     const labelData: ShipmentLabelData = {
-      swiftlineTrackingNumber,
       parcelNumber: `${swiftlineTrackingNumber}-${parcelSuffix}`,
       parcelIndex: index,
       parcelCount: shipmentDraft.parcelList.length,
       weightKg: parcel.weightKg ?? 1,
-      serviceCode: shipmentDraft.serviceCode ?? "SLC",
-      shipmentReference: demoShipmentReference,
-      customerReference: demoInvoiceNumber,
       generatedAt: new Date(),
+      origin: {
+        stationCode: swiftlineTrackingNumber.slice(3, 6),
+        city: "New Delhi"
+      },
+      destination: {
+        city: destinationAddress.townOrCity,
+        countryCode: destinationAddress.countryCode,
+        countryName: destinationAddress.countryName
+      },
       consignee: {
         name: destinationAddress.companyName,
         contactName: destinationAddress.contactName,
         addressLines: [destinationAddress.addressLine1, destinationAddress.addressLine2, destinationAddress.townOrCity],
         postcode: destinationAddress.postcode,
         countryCode: destinationAddress.countryCode,
-        countryName: destinationAddress.countryName
-      },
-      sender: {
-        name: account.company.companyName || account.accountId,
-        branchCode: "DEMO",
-        addressLines: ["12 Connaught Place", "New Delhi"],
-        phone: "+919876543210"
+        countryName: destinationAddress.countryName,
+        email: destinationAddress.email
       }
     };
 
     await storeGeneratedLabel({
       dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
       parcelNumber: labelData.parcelNumber,
-      labelType: "SWIFTLINE",
-      providerMode: "SIMULATED",
       buffer: await renderSwiftlineLabelPdf(labelData)
-    });
-
-    await storeGeneratedLabel({
-      dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
-      parcelNumber: `DPDTEST${String(shipmentDraft._id).slice(-8).toUpperCase()}${parcelSuffix}`,
-      labelType: "DPD",
-      providerMode: "SIMULATED",
-      buffer: await renderSimulatedDpdLabelPdf(labelData)
     });
   }
 
@@ -369,9 +358,7 @@ async function main() {
     swiftlineTrackingNumber,
     carrierShipmentId: dpdShipment.dpdShipmentId ?? "",
     carrierTransactionId: dpdShipment.dpdTransactionId ?? "",
-    carrierParcelNumbers: shipmentDraft.parcelList.map((_, index) =>
-      `DPDTEST${String(shipmentDraft._id).slice(-8).toUpperCase()}${String(index + 1).padStart(2, "0")}`),
-    providerMode: "SIMULATED",
+    carrierParcelNumbers: [],
     advanceAmountMinor: reservationResult.reservation?.advanceAmountMinor ?? 0,
     creditAmountMinor: reservationResult.reservation?.creditAmountMinor
       ?? Math.round(demoPricing.totalAmount * 100)

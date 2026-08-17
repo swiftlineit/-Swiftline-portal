@@ -492,8 +492,8 @@ export async function scanOperationsParcel(input: {
   // Otherwise the selected bag simply fills up and packing rolls onto a fresh bag.
   const overflowsSelectedBag = !isOperationsBagWeightAllowed(roundWeight(bag.totalWeightKg + incomingWeightKg));
 
-  const [dpdLabelCount, previousValueMinor] = await Promise.all([
-    LabelDocument.countDocuments({ dpdShipmentId: shipment._id, labelType: "DPD", voidedAt: null }).exec(),
+  const [labelCount, previousValueMinor] = await Promise.all([
+    LabelDocument.countDocuments({ dpdShipmentId: shipment._id, labelType: "SWIFTLINE", voidedAt: null }).exec(),
     previousDeclaredValue(shipment.shipmentDraftId)
   ]);
   const declaredValueFromSnapshot = snapshotDeclaredGoodsValueMinor(snapshot);
@@ -536,7 +536,7 @@ export async function scanOperationsParcel(input: {
           declaredValueMinor,
           currency: "INR",
           serviceInfo: line.serviceInfo,
-          dpdLabelGenerated: dpdLabelCount >= (shipment.providerMode === "LIVE" ? 1 : snapshot.parcels.length)
+          dpdLabelGenerated: labelCount >= snapshot.parcels.length
         }], { session });
         consignment = created[0] ?? null;
       }
@@ -566,7 +566,7 @@ export async function scanOperationsParcel(input: {
         scanSessionId: scanMetadata.scanSessionId || null,
         message: [
           overflowsSelectedBag ? `${bag.bagNumber} was full, so ${packedBag.bagNumber} was opened for this parcel.` : "Parcel added to the manifest.",
-          consignment.dpdLabelGenerated ? "" : "DPD label has not been generated; this shipment uses Swiftline internal labels only."
+          consignment.dpdLabelGenerated ? "" : "Swiftline labels have not been generated for every parcel on this shipment."
         ].filter(Boolean).join(" "),
         scannedBy: input.userId,
         scannedAt: new Date()
@@ -1016,7 +1016,7 @@ export async function getOperationsManifestDetail(manifestIdValue: string, optio
         // Goods value is entered per parcel; the consignment value is their sum.
         parcelValues: scannedParcelValues(item),
         goodsValueRequired: scannedParcelValues(item).some((parcel) => !parcel.valueMinor),
-        dpdWarning: item.dpdLabelGenerated ? "" : "DPD label has not been generated. This shipment uses Swiftline internal labels only."
+        dpdWarning: item.dpdLabelGenerated ? "" : "Swiftline labels have not been generated for every parcel on this shipment."
       };
     }),
     scans: scans.map((scan) => ({ ...scan, id: String(scan._id), manifestId: String(scan.manifestId), bagId: scan.bagId ? String(scan.bagId) : null })),

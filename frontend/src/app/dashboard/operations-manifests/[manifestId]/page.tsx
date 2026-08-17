@@ -241,7 +241,7 @@ export default function OperationsManifestWorkspace() {
       // A full bag rolls the parcel into a fresh one, so follow where it landed.
       if (latest?.bagId && latest.bagId !== activeBagId)
         setActiveBagId(latest.bagId);
-      if (latest?.message.includes("DPD label")) toast.info(latest.message);
+      if (latest?.message.includes("label")) toast.info(latest.message);
       else toast.success(latest?.message || "Parcel added.");
     } catch (error) {
       toast.error(
@@ -886,7 +886,7 @@ function ConsignmentTable({
                 </p>
                 {item.dpdWarning ? (
                   <p className="mt-1 text-[11px] text-amber-700">
-                    No DPD label
+                    No label
                   </p>
                 ) : null}
               </td>

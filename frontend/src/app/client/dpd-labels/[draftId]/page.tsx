@@ -26,8 +26,7 @@ import {
   autocompleteClientAddress,
   autocompleteClientConsignorAddress,
   confirmClientAddress,
-  createClientDpdLabel,
-  createClientSwiftlineShipment,
+  createClientShipment,
   deleteClientShipmentKycDocument,
   deleteClientShipmentParcelKycDocument,
   getClientConsignorPlaceAddress,
@@ -94,7 +93,7 @@ import { getAddressBookEntry, type AddressBookEntry, type AddressBookEntryType }
 
 /** The booking-panel action currently running; the two booking values are the
  *  provider each button books with. Null when the page is idle. */
-type PendingAction = "DPD" | "SWIFTLINE" | "DRAFT" | "ADDRESS" | null;
+type PendingAction = "BOOKING" | "DRAFT" | "ADDRESS" | null;
 const parcelRenderStyle = { contentVisibility: "auto", containIntrinsicSize: "auto 360px" } as const;
 type AddressForm = {
   countryCode: string;
@@ -952,7 +951,6 @@ export default function ClientDpdDraftReviewPage() {
   }
 
   async function handleCreateLabel(
-    bookingProvider: "DPD" | "SWIFTLINE" = "DPD",
     // Supplied when re-booking after the customer accepted a changed price.
     acceptedPricingHash = costEstimate?.pricingHash
   ) {
@@ -993,7 +991,7 @@ export default function ClientDpdDraftReviewPage() {
       return;
     }
 
-    setPendingAction(bookingProvider);
+    setPendingAction("BOOKING");
     setError("");
     setNotice("");
     setReviewIssues([]);
@@ -1015,9 +1013,7 @@ export default function ClientDpdDraftReviewPage() {
         }
       }
 
-      const result = bookingProvider === "DPD"
-        ? await createClientDpdLabel(currentDraft._id, acceptedPricingHash)
-        : await createClientSwiftlineShipment(currentDraft._id, acceptedPricingHash);
+      const result = await createClientShipment(currentDraft._id, acceptedPricingHash);
       setPriceChange(null);
       setNotice(result.reused ? "Existing shipment label found for this draft." : "Shipment request created.");
       toast.success(result.reused ? "Existing booked shipment opened." : "Shipment booked successfully.");
@@ -1388,25 +1384,16 @@ export default function ClientDpdDraftReviewPage() {
               <section className="border border-slate-200 bg-white p-4 rounded-2xl">
                 <button
                   type="button"
-                  onClick={() => void handleCreateLabel("DPD")}
+                  onClick={() => void handleCreateLabel()}
                   disabled={busy}
                   className="inline-flex h-10 w-full rounded-xl items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
-                  {pendingAction === "DPD" ? "Processing..." : "Create Shipment"}
+                  {pendingAction === "BOOKING" ? "Processing..." : "Create Shipment"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void handleCreateLabel("SWIFTLINE")}
-                  disabled={busy}
-                  className="mt-2 inline-flex rounded-xl h-10 w-full items-center justify-center gap-2 border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-                >
-                  <FiTruck aria-hidden="true" className="h-4 w-4" />
-                  {pendingAction === "SWIFTLINE" ? "Processing..." : "Create Without DPD Label"}
-                </button>
-                {/* Sits with the booking actions rather than in its own bar: this
+                {/* Sits with the booking action rather than in its own bar: this
                     is where the customer already looks to finish the shipment, and
-                    saving for later is the third choice alongside the two. */}
+                    saving for later is the alternative to booking it now. */}
                 <button
                   type="button"
                   onClick={() => void handleSaveDraft()}

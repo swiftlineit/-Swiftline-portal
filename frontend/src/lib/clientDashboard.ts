@@ -219,8 +219,6 @@ export type ClientShipmentDetails = {
     dpdShipmentId: string;
     dpdTransactionId: string;
     swiftlineTrackingNumber: string;
-    bookingProvider: "DPD" | "SWIFTLINE";
-    providerMode: "SIMULATED" | "LIVE";
     parcelNumbers: string[];
     serviceCode: string;
     paymentSource: string;
@@ -234,8 +232,7 @@ export type ClientShipmentDetails = {
     id: string;
     dpdShipmentId: string;
     parcelNumber: string;
-    labelType: "DPD" | "SWIFTLINE";
-    providerMode: "SIMULATED" | "LIVE";
+    labelType: "SWIFTLINE";
     format: string;
     labelSize: string;
     fileChecksum: string;
@@ -522,12 +519,11 @@ export async function updateClientShipmentDraft(shipmentDraftId: string, patch: 
   }>(response);
 }
 
-async function createClientShipmentBooking(
+export async function createClientShipment(
   shipmentDraftId: string,
-  action: "create-dpd-label" | "create-swiftline-shipment",
   acceptedPricingHash?: string
 ) {
-  const response = await fetchWithAuth(apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/${action}`), {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/create-shipment`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(acceptedPricingHash ? { acceptedPricingHash } : {})
@@ -550,15 +546,12 @@ async function createClientShipmentBooking(
       status: string;
       paymentSource: string;
       swiftlineTrackingNumber: string;
-      bookingProvider: "DPD" | "SWIFTLINE";
-      providerMode: "SIMULATED" | "LIVE";
       parcelNumbers: string[];
     };
     labels: Array<{
       id: string;
       parcelNumber: string;
-      labelType: "DPD" | "SWIFTLINE";
-      providerMode: "SIMULATED" | "LIVE";
+      labelType: "SWIFTLINE";
       format: string;
       labelSize: string;
     }>;
@@ -572,14 +565,6 @@ async function createClientShipmentBooking(
       status: "DRAFT" | "ISSUED";
     } | null;
   }>(response);
-}
-
-export function createClientDpdLabel(shipmentDraftId: string, acceptedPricingHash?: string) {
-  return createClientShipmentBooking(shipmentDraftId, "create-dpd-label", acceptedPricingHash);
-}
-
-export function createClientSwiftlineShipment(shipmentDraftId: string, acceptedPricingHash?: string) {
-  return createClientShipmentBooking(shipmentDraftId, "create-swiftline-shipment", acceptedPricingHash);
 }
 
 export async function getClientShipmentLabelAccessUrl(

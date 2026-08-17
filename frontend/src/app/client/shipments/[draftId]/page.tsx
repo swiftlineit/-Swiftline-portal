@@ -366,8 +366,6 @@ export default function ClientShipmentDetailsPage() {
 
                 <DetailPanel title="Booking" icon={<FiFileText aria-hidden="true" className="h-4 w-4" />}>
                   <DetailRow label="Swiftline Tax Invoice No." value={shipment.taxInvoiceNumber || "Tax Invoice Pending"} />
-                  {shipment.dpdShipment?.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Shipment ID" value={shipment.dpdShipment?.dpdShipmentId || "Pending"} /> : null}
-                  {shipment.dpdShipment?.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Parcels" value={shipment.dpdShipment?.parcelNumbers.join(", ") || "Pending"} /> : null}
                   <DetailRow label="Booked At" value={formatDateTime(shipment.dpdShipment?.createdAt)} />
                 </DetailPanel>
 

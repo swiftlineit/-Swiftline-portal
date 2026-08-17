@@ -54,28 +54,19 @@ export function shipmentBookedClientTemplate(context: EmailTemplateContext): Ema
       { kind: "paragraph", text: `Hello ${firstNameOf(recipientName)},` },
       {
         kind: "paragraph",
-        text: `Your shipment has been booked successfully with ${asText(payload.bookingProvider, "the carrier")}. The details are below and your ${invoiceLabel} is attached to this email.`
+        text: `Your shipment has been booked successfully. The details are below and your ${invoiceLabel} is attached to this email.`
       },
       { kind: "facts", rows: shipmentFacts(payload) },
       { kind: "callout", tone: "success", text: `${invoiceLabel === "invoice" ? "Invoice" : "Tax invoice"} ${asText(payload.invoiceNumber)} for ${formatMoneyMinor(asNumber(payload.invoiceTotalMinor), asText(payload.currency, "INR"))} is attached as a PDF.` },
       ...(labelsAttached
         ? [{
           kind: "paragraph" as const,
-          text: "Shipping labels are attached — the carrier label and the Swiftline internal label. Print one of each per parcel and affix them before handover."
+          text: "Your Swiftline shipping labels are attached. Print one label per parcel and affix it before handover."
         }]
         : [{
           kind: "paragraph" as const,
-          text: "Your shipping labels are ready to download from the portal. Print one label per parcel and affix it before handover."
+          text: "Your Swiftline shipping labels are ready to download from the portal. Print one label per parcel and affix it before handover."
         }]),
-      // Mirrors the "Test - Not for carriage" marking the portal puts on
-      // simulated labels: an attachment carries no such warning on its own.
-      ...(labelsAttached && Boolean(payload.dpdLabelIsTest)
-        ? [{
-          kind: "callout" as const,
-          tone: "warning" as const,
-          text: "The attached carrier label is a test label and is not valid for carriage. Do not hand the parcel over against it — a live label will follow."
-        }]
-        : []),
       { kind: "button", label: "View shipment", url: toAbsoluteUrl(appUrl, asText(payload.href, "/client/shipments")) },
       { kind: "note", text: "Keep the tracking number handy when contacting support about this shipment." }
     ]

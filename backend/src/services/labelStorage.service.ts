@@ -42,7 +42,7 @@ export async function saveLabelBuffer(params: {
   labelType?: LabelType;
 }): Promise<StoredLabel> {
   const extension = labelFileExtension(params.format);
-  const labelType = params.labelType ?? "DPD";
+  const labelType = params.labelType ?? "SWIFTLINE";
 
   // Grouped under the draft rather than the booking so a shipment's label sits
   // beside its KYC documents under one prefix. The parcel number and label type

@@ -5,8 +5,8 @@ import {
   downloadClientCustomsInvoiceWorkbook,
   downloadClientShipmentInvoicePdf,
   getClientCustomsInvoice,
-  createClientDpdLabel,
-  createClientSwiftlineShipment,
+  createClientShipment,
+
   createClientShipmentLabelAccess,
   createClientManualShipmentDraft,
   deleteClientShipmentDraft,
@@ -212,8 +212,7 @@ clientRouter.get("/dpd-labels/drafts/:id/kyc-documents/:type", downloadClientShi
 clientRouter.post("/dpd-labels/drafts/:id/parcels/:sequence/kyc-documents/:type", shipmentKycUpload, uploadClientShipmentParcelKycDocument);
 clientRouter.delete("/dpd-labels/drafts/:id/parcels/:sequence/kyc-documents/:type", deleteClientShipmentParcelKycDocument);
 clientRouter.get("/dpd-labels/drafts/:id/parcels/:sequence/kyc-documents/:type", downloadClientShipmentParcelKycDocument);
-clientRouter.post("/dpd-labels/drafts/:id/create-dpd-label", createClientDpdLabel);
-clientRouter.post("/dpd-labels/drafts/:id/create-swiftline-shipment", createClientSwiftlineShipment);
+clientRouter.post("/dpd-labels/drafts/:id/create-shipment", createClientShipment);
 clientRouter.get("/shipments", listClientShipments);
 clientRouter.get("/booked-shipments", listClientBookedShipments);
 clientRouter.get("/pickups/eligible-shipments", listClientEligiblePickups);

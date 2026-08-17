@@ -12,7 +12,7 @@ import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
   createLabelForShipmentDraft,
-  regenerateSimulatedShipmentLabels
+  regenerateShipmentLabels
 } from "../services/dpdShipment.service.js";
 import {
   buildRevisedShipmentSnapshot,
@@ -291,9 +291,10 @@ describe("Swiftline tracking sequence", () => {
     });
 
     result.labels.forEach((label) => generatedKeys.add(label.storageKey));
-    assert.equal(result.labels.filter((label) => label.labelType === "DPD").length, 1);
-    assert.equal(result.labels.filter((label) => label.labelType === "SWIFTLINE").length, 1);
-    assert.ok(result.labels.some((label) => label.labelType === "SWIFTLINE"));
+    // One Swiftline label per parcel and nothing else: no carrier label is
+    // requested, generated or stored.
+    assert.equal(result.labels.length, 1);
+    assert.ok(result.labels.every((label) => label.labelType === "SWIFTLINE"));
     assert.ok(result.dpdShipment._id);
     assert.ok(result.labels.some((label) => label.parcelNumber.startsWith("SLC")));
   });
@@ -409,9 +410,8 @@ describe("Swiftline tracking sequence", () => {
     });
     first.labels.forEach((label) => generatedKeys.add(label.storageKey));
     assert.equal(first.reused, false);
-    assert.equal(first.labels.length, 4);
-    assert.equal(first.labels.filter((label) => label.labelType === "DPD").length, 2);
-    assert.equal(first.labels.filter((label) => label.labelType === "SWIFTLINE").length, 2);
+    assert.equal(first.labels.length, 2);
+    assert.ok(first.labels.every((label) => label.labelType === "SWIFTLINE"));
     assert.equal(first.shipmentInvoice.totalAmountMinor, 424800);
     const invoicePricing = first.shipmentInvoice.pricingSnapshot as { parcels: unknown[] };
     assert.equal(invoicePricing.parcels.length, 2);
@@ -469,11 +469,10 @@ describe("Swiftline tracking sequence", () => {
     });
     const swiftlineOnly = await createLabelForShipmentDraft(String(swiftlineDraft._id), userId, {
       actor: "admin",
-      paymentSource: "TEST",
-      bookingProvider: "SWIFTLINE"
+      paymentSource: "TEST"
     });
     swiftlineOnly.labels.forEach((label) => generatedKeys.add(label.storageKey));
-    assert.equal(swiftlineOnly.dpdShipment.bookingProvider, "SWIFTLINE");
+    // No carrier is called, so the booking carries no carrier identifiers.
     assert.equal(swiftlineOnly.dpdShipment.dpdShipmentId, "");
     assert.deepEqual(swiftlineOnly.dpdShipment.parcelNumbers, []);
     assert.equal(swiftlineOnly.labels.length, 2);
@@ -482,8 +481,7 @@ describe("Swiftline tracking sequence", () => {
 
     const swiftlineReuse = await createLabelForShipmentDraft(String(swiftlineDraft._id), userId, {
       actor: "admin",
-      paymentSource: "TEST",
-      bookingProvider: "DPD"
+      paymentSource: "TEST"
     });
     assert.equal(swiftlineReuse.reused, true);
     assert.equal(swiftlineReuse.labels.length, 2);
@@ -518,14 +516,14 @@ describe("Swiftline tracking sequence", () => {
     amendedShipment.status = "DPD_CREATED";
     await amendedShipment.save();
 
-    const revisedLabels = await regenerateSimulatedShipmentLabels(
+    const revisedLabels = await regenerateShipmentLabels(
       amendedShipment._id as mongoose.Types.ObjectId,
       userId
     );
     revisedLabels.forEach((label) => generatedKeys.add(label.storageKey));
-    assert.equal(revisedLabels.length, 4);
+    assert.equal(revisedLabels.length, 2);
     assert.ok(revisedLabels.every((label) => label.labelVersion === 2));
-    assert.equal(await LabelDocument.countDocuments({ dpdShipmentId: amendedShipment._id }), 4);
+    assert.equal(await LabelDocument.countDocuments({ dpdShipmentId: amendedShipment._id }), 2);
     assert.deepEqual(
       (readShipmentBookingSnapshot(amendedShipment.bookingSnapshot)?.parcels ?? [])
         .map((parcel) => parcel.actualWeightKg),

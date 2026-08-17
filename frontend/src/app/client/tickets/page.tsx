@@ -166,8 +166,8 @@ export default function ClientTicketsPage() {
        <div className="mb-5 rounded-2xl bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_28px_-22px_rgba(15,23,42,0.18)] sm:px-6">
   <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
     {/* Left: heading + alternate contacts */}
-    <div className="min-w-0 xl:max-w-[430px]">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
+    <div className="min-w-0 xl:max-w-107.5">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
         Swiftline Customer Support
       </p>
 
@@ -206,7 +206,7 @@ export default function ClientTicketsPage() {
     </div>
 
     {/* Right: primary actions */}
-    <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:max-w-[760px] xl:grid-cols-[1fr_1fr_auto]">
+    <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:max-w-190 xl:grid-cols-[1fr_1fr_auto]">
       <a
         href={`tel:${PRIMARY_PHONE.replaceAll(" ", "")}`}
         className="group flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-4 py-3.5 transition hover:bg-[#0D1282]/[0.035]"
@@ -251,7 +251,7 @@ export default function ClientTicketsPage() {
         })}
         target="_blank"
         rel="noreferrer"
-        className="group flex min-h-[64px] items-center justify-between gap-4 rounded-xl bg-[#25D366] px-4 py-3 text-white transition hover:bg-[#1fbd59] sm:col-span-2 xl:col-span-1 xl:min-w-[210px]"
+        className="group flex min-h-16 items-center justify-between gap-4 rounded-xl bg-[#25D366] px-4 py-3 text-white transition hover:bg-[#1fbd59] sm:col-span-2 xl:col-span-1 xl:min-w-52.5"
       >
         <div className="flex items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15">

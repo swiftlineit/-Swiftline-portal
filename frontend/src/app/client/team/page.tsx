@@ -194,7 +194,7 @@ export default function ClientTeamPage() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-180 text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-3">Name</th>
@@ -230,7 +230,7 @@ export default function ClientTeamPage() {
                         <p className="mt-1 text-xs text-slate-500">{member.branches.join(", ")}</p>
                       ) : null}
                     </td>
-                    <td className="max-w-[220px] px-4 py-3">
+                    <td className="max-w-55 px-4 py-3">
                       <span className="block truncate text-slate-700" title={member.email}>{member.email}</span>
                     </td>
                     <td className="px-4 py-3">

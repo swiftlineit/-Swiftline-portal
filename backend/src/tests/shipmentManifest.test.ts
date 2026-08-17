@@ -62,8 +62,7 @@ function bookingSnapshot(): ShipmentBookingSnapshot {
     tracking: {
       swiftlineTrackingNumber: "SLDL21072026000001",
       carrierShipmentId: "TEST-1",
-      carrierTransactionId: "TX-1",
-      providerMode: "SIMULATED"
+      carrierTransactionId: "TX-1"
     },
     parcels: [
       { sequence: 1, actualWeightKg: 4.5, shipmentContentType: "PARCEL", contentsDescription: "Clothing", carrierParcelNumber: "P1", swiftlineParcelNumber: "S1" },

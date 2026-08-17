@@ -312,7 +312,6 @@ describe("atomic amendment billing lifecycle", () => {
       idempotencyKey: `TEST-AMENDMENT-${shipmentDraftId.toString()}`,
       serviceCode: "TEST",
       paymentSource: "TEST",
-      shippingEnvironment: "MOCK",
       status: "LABEL_RECEIVED"
     });
     await ShipmentInvoice.create({

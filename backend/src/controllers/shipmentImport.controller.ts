@@ -18,6 +18,7 @@ import {
   shipmentImportLimits
 } from "../services/shipmentImport/shipmentImportContract.js";
 import { buildShipmentImportTemplateWorkbook } from "../services/shipmentImport/shipmentImportWorkbook.service.js";
+import { SWIFTLINE_SERVICE_CODE } from "../services/shipmentPayload.service.js";
 import {
   checksumOf,
   deleteObject,
@@ -356,7 +357,7 @@ async function createDraftForEntry(input: {
         forceGst: false,
         declarationNote: input.parsed.declarationNote,
         serviceType: input.parsed.serviceType,
-        serviceCode: env.DPD_DEFAULT_SERVICE_CODE,
+        serviceCode: SWIFTLINE_SERVICE_CODE,
         validationIssues: input.parsed.warnings,
         status: "NEEDS_REVIEW",
         bookingState: "EDITABLE",

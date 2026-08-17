@@ -12,8 +12,8 @@ import { buildShipmentBookingSnapshot } from "../services/shipmentBookingSnapsho
 import { calculateShipmentPricingEstimate } from "../services/shipmentPricing.service.js";
 import { ensureShipmentInvoiceForDraft } from "../services/shipmentInvoice.service.js";
 import { storeGeneratedLabel } from "../services/dpdShipment.service.js";
+import { SWIFTLINE_SERVICE_CODE } from "../services/shipmentPayload.service.js";
 import {
-  renderSimulatedDpdLabelPdf,
   renderSwiftlineLabelPdf,
   type ShipmentLabelData
 } from "../services/shipmentLabelPdf.service.js";
@@ -104,7 +104,7 @@ async function main() {
   }] as never;
   draft.parcelCount = 1;
   draft.serviceType = "COURIER";
-  draft.serviceCode = "DPD-INTL-TEST";
+  draft.serviceCode = SWIFTLINE_SERVICE_CODE;
   draft.status = "READY_FOR_DPD";
   draft.validationIssues = [];
   await draft.save();
@@ -142,7 +142,6 @@ async function main() {
         responseSnapshot: { seededIndividualShipment: true, status: "LABEL_RECEIVED", labelCount: 1 },
         // What marks this as a counter sale everywhere downstream.
         paymentSource: "ADMIN_DIRECT",
-        shippingEnvironment: "MOCK",
         status: "LABEL_RECEIVED"
       }
     },
@@ -163,8 +162,7 @@ async function main() {
     swiftlineTrackingNumber,
     carrierShipmentId: dpdShipment.dpdShipmentId ?? "",
     carrierTransactionId: dpdShipment.dpdTransactionId ?? "",
-    carrierParcelNumbers: [`DPDIND${String(draft._id).slice(-8).toUpperCase()}01`],
-    providerMode: "SIMULATED",
+    carrierParcelNumbers: [],
     // Settled in full at the counter, which is what makes the invoice PAID.
     advanceAmountMinor: totalMinor,
     creditAmountMinor: 0
@@ -181,44 +179,35 @@ async function main() {
 
   // 5. Real labels, so the parcel can be scanned into an operations manifest.
   const labelData: ShipmentLabelData = {
-    swiftlineTrackingNumber,
     parcelNumber: `${swiftlineTrackingNumber}-01`,
     parcelIndex: 0,
     parcelCount: 1,
     weightKg: 6,
-    serviceCode: draft.serviceCode || "SLC",
-    shipmentReference: "IND-DEMO-01",
-    customerReference: "IND-DEMO-01",
     generatedAt: new Date(),
+    origin: {
+      stationCode: swiftlineTrackingNumber.slice(3, 6),
+      city: "New Delhi"
+    },
+    destination: {
+      city: destinationAddress.townOrCity,
+      countryCode: destinationAddress.countryCode,
+      countryName: destinationAddress.countryName
+    },
     consignee: {
       name: destinationAddress.contactName,
       contactName: destinationAddress.contactName,
       addressLines: [destinationAddress.addressLine1, destinationAddress.townOrCity],
       postcode: destinationAddress.postcode,
       countryCode: destinationAddress.countryCode,
-      countryName: destinationAddress.countryName
-    },
-    sender: {
-      name: customerName,
-      branchCode: branchDocument.code,
-      addressLines: ["12 Connaught Place", "New Delhi"],
-      phone: `+91${customerMobile}`
+      countryName: destinationAddress.countryName,
+      email: destinationAddress.email
     }
   };
 
   await storeGeneratedLabel({
     dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
     parcelNumber: labelData.parcelNumber,
-    labelType: "SWIFTLINE",
-    providerMode: "SIMULATED",
     buffer: await renderSwiftlineLabelPdf(labelData)
-  });
-  await storeGeneratedLabel({
-    dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
-    parcelNumber: `DPDIND${String(draft._id).slice(-8).toUpperCase()}01`,
-    labelType: "DPD",
-    providerMode: "SIMULATED",
-    buffer: await renderSimulatedDpdLabelPdf(labelData)
   });
 
   // 6. The money the branch actually took, for the counter sales report.

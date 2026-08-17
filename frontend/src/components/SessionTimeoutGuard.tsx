@@ -221,7 +221,7 @@ function IdleWarningDialog({
   const remainingFraction = Math.max(0, Math.min(1, secondsLeft / (COUNTDOWN_MS / 1000)));
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0D1282]/30 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-100 flex items-center justify-center bg-[#0D1282]/30 px-4 backdrop-blur-sm">
       <div
         ref={dialogRef}
         role="alertdialog"

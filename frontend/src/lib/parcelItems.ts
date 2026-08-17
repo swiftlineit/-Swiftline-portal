@@ -3,7 +3,7 @@
 //
 // A parcel holds one or more distinct goods, each needing an HSN code for customs.
 // `contentsDescription` remains the derived single-line summary that the EDI
-// export, operations manifest, DPD payload and labels all read, so none of those
+// export, operations manifest, booking payload and labels all read, so none of those
 // formats change.
 
 // HS codes are declared at 4, 6, 8 or 10 digit precision.

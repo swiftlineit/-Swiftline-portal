@@ -32,7 +32,6 @@ export type ShipmentBookingSnapshot = {
     swiftlineTrackingNumber: string;
     carrierShipmentId: string;
     carrierTransactionId: string;
-    providerMode: string;
   };
   parcels: Array<Record<string, unknown> & {
     sequence: number;
@@ -78,7 +77,6 @@ export function serializeShipmentBookingConfirmation(value: unknown) {
   return {
     swiftlineTrackingNumber: snapshot.tracking.swiftlineTrackingNumber,
     carrierShipmentId: snapshot.tracking.carrierShipmentId,
-    providerMode: snapshot.tracking.providerMode,
     shipmentReference: snapshot.source.shipmentReference,
     customerReference: typeof customerReference === "string" ? customerReference : "",
     serviceType: snapshot.service.type,
@@ -144,7 +142,7 @@ function redactConsignorAadhaar(consignor: IShipmentDraft["consignorAddress"] | 
  * still the sentinel's: manifests group by it, and they are internal documents.
  *
  * Derived from the draft rather than passed in by callers, so a new booking path
- * cannot forget it and silently bill a customer as "Individual Customers".
+ * cannot forget it and silently bill a customer as "Individual Customers". the bug would be invinsible if the draft's nbuisiness id was the sentiniel, but the snapshot would be wrong and the invoice would be raised to the sentinekl 
  */
 function buildAccountBlock(draft: IShipmentDraft, account: IBusinessAccount) {
   if (draft.customerType !== "INDIVIDUAL") {
@@ -195,7 +193,6 @@ export function buildShipmentBookingSnapshot(input: {
   carrierShipmentId: string;
   carrierTransactionId: string;
   carrierParcelNumbers: string[];
-  providerMode: string;
   advanceAmountMinor?: number;
   creditAmountMinor?: number;
 }): ShipmentBookingSnapshot {
@@ -228,8 +225,7 @@ export function buildShipmentBookingSnapshot(input: {
     tracking: {
       swiftlineTrackingNumber: input.swiftlineTrackingNumber,
       carrierShipmentId: input.carrierShipmentId,
-      carrierTransactionId: input.carrierTransactionId,
-      providerMode: input.providerMode
+      carrierTransactionId: input.carrierTransactionId
     },
     parcels: input.draft.parcelList.map((parcel, index) => {
       const items = normalizeParcelItems(parcel);
@@ -310,8 +306,7 @@ function compactAddressLines(values: unknown[]) {
 
 export function bookingSnapshotToLabelData(
   snapshot: ShipmentBookingSnapshot,
-  parcelIndex: number,
-  labelType: "DPD" | "SWIFTLINE"
+  parcelIndex: number
 ): ShipmentLabelData {
   const parcel = snapshot.parcels[parcelIndex];
   const sender = snapshot.sender as {
@@ -324,17 +319,23 @@ export function bookingSnapshotToLabelData(
   const senderAddress = sender.address ?? {};
 
   return {
-    swiftlineTrackingNumber: snapshot.tracking.swiftlineTrackingNumber,
-    parcelNumber: labelType === "DPD"
-      ? parcel?.carrierParcelNumber ?? ""
-      : parcel?.swiftlineParcelNumber ?? "",
+    parcelNumber: parcel?.swiftlineParcelNumber ?? "",
     parcelIndex,
     parcelCount: snapshot.parcels.length,
     weightKg: parcel?.actualWeightKg ?? 0,
-    serviceCode: snapshot.service.code,
-    shipmentReference: snapshot.source.shipmentReference,
-    customerReference: typeof parcel?.reference === "string" ? parcel.reference : "",
     generatedAt: new Date(snapshot.bookedAt),
+    origin: {
+      // The AWB carries the three-letter station it was allocated against, which
+      // is the routing code a handler reads. The branch city is the fallback for
+      // bookings made before station codes were recorded on the tracking number.
+      stationCode: snapshot.tracking.swiftlineTrackingNumber.slice(3, 6),
+      city: String(senderAddress.city || sender.code || "")
+    },
+    destination: {
+      city: String(consignee.townOrCity || ""),
+      countryCode: String(consignee.countryCode || ""),
+      countryName: String(consignee.countryName || consignee.countryCode || "")
+    },
     consignee: {
       name: String(consignee.companyName || consignee.contactName || "Consignee"),
       contactName: String(consignee.contactName || ""),
@@ -346,19 +347,8 @@ export function bookingSnapshotToLabelData(
       ]),
       postcode: String(consignee.postcode || ""),
       countryCode: String(consignee.countryCode || ""),
-      countryName: String(consignee.countryName || consignee.countryCode || "")
-    },
-    sender: {
-      name: sender.name || "Swiftline Cargo and Express Logistics Pvt. Ltd.",
-      branchCode: sender.code || "",
-      addressLines: compactAddressLines([
-        senderAddress.address,
-        senderAddress.city,
-        senderAddress.stateOrProvince,
-        senderAddress.postalCode,
-        senderAddress.countryName
-      ]),
-      phone: typeof sender.contact?.phone === "string" ? sender.contact.phone : undefined
+      countryName: String(consignee.countryName || consignee.countryCode || ""),
+      email: String(consignee.email || "")
     }
   };
 }

@@ -11,7 +11,7 @@ import {
   updateShipmentDraft,
   validateShipmentDraft
 } from "../controllers/shipmentDraft.controller.js";
-import { createDpdLabel, createSwiftlineShipment } from "../controllers/dpdShipment.controller.js";
+import { createShipment } from "../controllers/dpdShipment.controller.js";
 import {
   createAdminShipmentAmendment,
   previewShipmentAmendment
@@ -63,5 +63,4 @@ shipmentDraftRouter.post("/:id/parcels/:sequence/kyc-documents/:type", requireOp
 shipmentDraftRouter.delete("/:id/parcels/:sequence/kyc-documents/:type", requireOperations, deleteShipmentParcelKycDocument);
 shipmentDraftRouter.get("/:id/parcels/:sequence/kyc-documents/:type", requireOperations, downloadShipmentParcelKycDocument);
 shipmentDraftRouter.post("/:id/validate", requireOperations, validateShipmentDraft);
-shipmentDraftRouter.post("/:id/create-dpd-label", requireOperations, createDpdLabel);
-shipmentDraftRouter.post("/:id/create-swiftline-shipment", requireOperations, createSwiftlineShipment);
+shipmentDraftRouter.post("/:id/create-shipment", requireOperations, createShipment);

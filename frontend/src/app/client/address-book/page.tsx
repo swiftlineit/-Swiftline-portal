@@ -449,7 +449,7 @@ export default function ClientAddressBookPage() {
                           type="button"
                           onClick={() => void run(entry, "validate")}
                           disabled={Boolean(busyId)}
-                          className="inline-flex h-9 items-center justify-center rounded-lg border border-[#0D1282]/30 bg-white px-3 text-xs font-semibold text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/[0.03] disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                          className="inline-flex h-9 items-center justify-center rounded-lg border border-[#0D1282]/30 bg-white px-3 text-xs font-semibold text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/3 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                         >
                           {entry.validationStatus === "NOT_VALIDATED"
                             ? "Validate"
@@ -690,7 +690,7 @@ function AddressFormDialog({
             <FiX />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5 [scrollbar-width:thin] sm:p-6">
+        <div className="flex-1 overflow-y-auto p-5 scrollbar-thin sm:p-6">
           {error ? (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
               {error}
@@ -960,7 +960,7 @@ function AddressImportDialog({
             <FiX />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5 [scrollbar-width:thin] sm:p-6">
+        <div className="flex-1 overflow-y-auto p-5 scrollbar-thin sm:p-6">
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -981,7 +981,7 @@ function AddressImportDialog({
               <FiFileText /> CSV Template
             </button>
           </div>
-          <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#0D1282]/25 bg-[#0D1282]/[0.03] px-5 py-8 text-center hover:border-[#0D1282]/50">
+          <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#0D1282]/25 bg-[#0D1282]/3] px-5 py-8 text-center hover:border-[#0D1282]/50">
             <FiUpload className="h-7 w-7 text-[#0D1282]" />
             <span className="mt-3 text-sm font-semibold text-slate-800">
               {file?.name || "Choose a .csv or .xlsx file"}
@@ -1027,7 +1027,7 @@ function AddressImportDialog({
                   invalid
                 </p>
               </div>
-              <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 [scrollbar-width:thin]">
+              <div className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-slate-200 scrollbar-thin">
                 <table className="min-w-full text-left text-sm">
                   <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
                     <tr>

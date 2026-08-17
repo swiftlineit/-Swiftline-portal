@@ -176,7 +176,7 @@ export default function CustomsKycPage() {
             <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               Account
             </dt>
-            <dd className="mt-1 break-words text-sm font-medium text-slate-800">
+            <dd className="mt-1 flex-wrap-reversebreak-words text-sm font-medium text-slate-800">
               {account.companyName}
               <span className="ml-1 font-normal text-slate-500">
                 ({account.accountId})
@@ -270,7 +270,7 @@ export default function CustomsKycPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] text-left text-sm">
+                <table className="w-full min-w-205 text-left text-sm">
                   <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
                     <tr>
                       <th className="px-4 py-3">AWB</th>

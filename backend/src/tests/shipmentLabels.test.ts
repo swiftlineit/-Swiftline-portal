@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import zlib from "node:zlib";
 import { describe, test } from "node:test";
 import {
   formatSwiftlineParcelNumber,
@@ -6,7 +7,6 @@ import {
   resolveStationCode
 } from "../services/swiftlineTracking.service.js";
 import {
-  renderSimulatedDpdLabelPdf,
   renderSwiftlineLabelPdf,
   type ShipmentLabelData
 } from "../services/shipmentLabelPdf.service.js";
@@ -20,27 +20,21 @@ import {
 
 function labelData(parcelNumber: string): ShipmentLabelData {
   return {
-    swiftlineTrackingNumber: "SLCDEL200726001",
     parcelNumber,
     parcelIndex: 0,
     parcelCount: 1,
     weightKg: 12.5,
-    serviceCode: "DPD_CLASSIC",
-    shipmentReference: "SHIP-TEST-0001",
     generatedAt: new Date("2026-07-20T06:30:00.000Z"),
+    origin: { stationCode: "DEL", city: "New Delhi" },
+    destination: { city: "London", countryCode: "GB", countryName: "United Kingdom" },
     consignee: {
       name: "Prime Minister & First Lord Of The Treasury",
       contactName: "Aman Negi J",
       addressLines: ["10 Downing Street", "London", "Greater London"],
       postcode: "SW1A 2AA",
       countryCode: "GB",
-      countryName: "United Kingdom"
-    },
-    sender: {
-      name: "Swiftline Cargo and Express Logistics Pvt. Ltd.",
-      branchCode: "DEL-001",
-      addressLines: ["New Delhi", "India"],
-      phone: "+91 9999999999"
+      countryName: "United Kingdom",
+      email: "consignee@example.co.uk"
     }
   };
 }
@@ -79,42 +73,120 @@ function readPageSize(pdf: Buffer): number[] {
   return mediaBox[1].trim().split(/\s+/).map(Number);
 }
 
+/**
+ * Every string pdfkit actually drew, one entry per text run.
+ *
+ * Asserting on the rendered output rather than the inputs is what catches a
+ * label that silently clips or drops a field: the value can be present in the
+ * label data and still never reach the page.
+ */
+function drawnRuns(pdf: Buffer): Array<{ text: string; font: string }> {
+  const runs: Array<{ text: string; font: string }> = [];
+
+  for (let index = 0; (index = pdf.indexOf("stream", index)) !== -1; ) {
+    let start = index + 6;
+    if (pdf[start] === 0x0d) start += 1;
+    if (pdf[start] === 0x0a) start += 1;
+    const end = pdf.indexOf("endstream", start);
+    if (end === -1) break;
+
+    try {
+      const content = zlib.inflateSync(pdf.subarray(start, end)).toString("latin1");
+      let font = "";
+      for (const line of content.split(/\r?\n/)) {
+        const selected = /^\/(F\d+) [\d.]+ Tf$/.exec(line);
+        if (selected) font = selected[1] ?? "";
+        if (!/TJ$/.test(line)) continue;
+        // pdfkit emits each run as a TJ array of hex-encoded strings interleaved
+        // with kerning offsets; the offsets are dropped and the pieces rejoined.
+        const text = [...line.matchAll(/<([0-9a-fA-F]+)>/g)]
+          .map((part) => Buffer.from(part[1] ?? "", "hex").toString("latin1"))
+          .join("");
+        if (text.trim()) runs.push({ text: text.trim(), font });
+      }
+    } catch {
+      // Image streams are not deflate-encoded text; skip them.
+    }
+
+    index = end + 9;
+  }
+
+  return runs;
+}
+
+function drawnText(pdf: Buffer): string[] {
+  return drawnRuns(pdf).map((run) => run.text);
+}
+
 describe("shipment label PDFs", () => {
-  test("renders the internal label on label stock, not an A6 sheet", async () => {
+  test("renders the Swiftline label on A6 courier label stock", async () => {
     const pdf = await renderSwiftlineLabelPdf(labelData("SLCDEL200726001-01"));
     assert.equal(pdf.subarray(0, 4).toString(), "%PDF");
     assert.ok(pdf.length > 2_000);
 
-    // The page is sized to its content: a barcode and the parcel number. The
-    // old A6 page (283 x 425 pt) was mostly blank, which wasted label stock and
-    // left the barcode small on the roll.
-    const mediaBox = /MediaBox\s*\[([^\]]+)\]/.exec(pdf.toString("latin1"));
-    assert.ok(mediaBox, "label PDF should declare a page size");
-
     const [, , pageWidth, pageHeight] = readPageSize(pdf);
-    assert.equal(pageWidth, 200);
-    assert.equal(pageHeight, 84);
+    assert.equal(Math.round(pageWidth ?? 0), 283);
+    assert.equal(Math.round(pageHeight ?? 0), 425);
   });
 
-  test("shrinks the parcel number rather than wrapping or clipping it", async () => {
-    // Parcel numbers vary in length; a wrapped or truncated one is unreadable
-    // next to the barcode it labels, so the whole thing must stay on one line.
+  test("keeps the footprint fixed however long the parcel number is", async () => {
     const long = await renderSwiftlineLabelPdf(labelData("SLCGURGAON01082600199-1234"));
     const short = await renderSwiftlineLabelPdf(labelData("SLC-01"));
 
     for (const pdf of [long, short]) {
       const [, , pageWidth, pageHeight] = readPageSize(pdf);
-
-      // Length must not change the label's footprint.
-      assert.equal(pageWidth, 200);
-      assert.equal(pageHeight, 84);
+      assert.equal(Math.round(pageWidth ?? 0), 283);
+      assert.equal(Math.round(pageHeight ?? 0), 425);
     }
   });
 
-  test("renders a non-empty simulated DPD PDF", async () => {
-    const pdf = await renderSimulatedDpdLabelPdf(labelData("DPDTESTDL2007202600000101"));
-    assert.equal(pdf.subarray(0, 4).toString(), "%PDF");
-    assert.ok(pdf.length > 2_000);
+  test("prints the routing grid, the hardcoded service and the consignee block", async () => {
+    const pdf = await renderSwiftlineLabelPdf(labelData("SLCDEL200726001-01"));
+    const drawn = drawnText(pdf);
+    const shown = drawn.join(" | ");
+
+    assert.ok(drawn.includes("SWIFTLINE CARGO & LOGISTICS"), `company name missing from ${shown}`);
+    assert.ok(drawn.includes("SLCDEL200726001-01"), "the barcode value should be printed under it");
+    // Origin and destination are separate captioned cells, not one route string.
+    assert.ok(drawn.includes("DEL"), `origin missing from ${shown}`);
+    assert.ok(drawn.includes("LONDON, GB"), `destination missing from ${shown}`);
+    assert.ok(drawn.includes("EXPRESS"), "service should be hardcoded on every label");
+    assert.ok(drawn.includes("WORLDWIDE"), "service should be hardcoded on every label");
+    assert.ok(drawn.includes("1 OF 1"), "piece count missing");
+    assert.ok(drawn.includes("12.50 KG"), "weight missing");
+    assert.ok(drawn.includes("SW1A 2AA  GB"), "postcode missing");
+    assert.ok(drawn.includes("consignee@example.co.uk"), "consignee email missing");
+    // The label carries no carrier identity of its own.
+    assert.ok(!drawn.some((line) => /DPD/i.test(line)), `carrier wording leaked: ${shown}`);
+  });
+
+  test("writes the address as plain lines and sets the postcode in bold", async () => {
+    const runs = drawnRuns(await renderSwiftlineLabelPdf(labelData("SLCDEL200726001-01")));
+    const find = (value: string) => runs.find((run) => run.text === value);
+
+    // One component per line — never slash- or comma-joined into a single run.
+    for (const line of ["10 Downing Street", "London", "Greater London"]) {
+      assert.ok(find(line), `address line "${line}" should be drawn on its own`);
+    }
+    assert.ok(!runs.some((run) => run.text.includes("/")), "the address must not use slash separators");
+
+    // The postcode is what the delivery depot sorts on, so it shares the bold
+    // face used by the consignee name rather than the address's regular one.
+    const postcode = find("SW1A 2AA  GB");
+    const name = find("Prime Minister & First Lord Of The Treasury");
+    const street = find("10 Downing Street");
+    assert.ok(postcode && name && street);
+    assert.equal(postcode.font, name.font, "postcode should use the bold face");
+    assert.notEqual(postcode.font, street.font, "postcode should not use the address face");
+  });
+
+  test("omits the email row entirely when the consignee has no address", async () => {
+    const data = labelData("SLCDEL200726001-01");
+    data.consignee.email = "";
+    const drawn = drawnText(await renderSwiftlineLabelPdf(data));
+
+    assert.ok(drawn.includes("SW1A 2AA  GB"));
+    assert.ok(!drawn.some((line) => line.includes("@")));
   });
 });
 
@@ -180,8 +252,7 @@ describe("immutable multi-parcel booking snapshot", () => {
        swiftlineTrackingNumber: "SLCDEL200726001",
        carrierShipmentId: "TEST-SLCDEL200726001",
        carrierTransactionId: "SIM-SLCDEL200726001",
-      carrierParcelNumbers: ["DPD-BOX-1", "DPD-BOX-2"],
-      providerMode: "SIMULATED",
+      carrierParcelNumbers: [],
       advanceAmountMinor: 100000,
       creditAmountMinor: 298840
     });
@@ -198,20 +269,20 @@ describe("immutable multi-parcel booking snapshot", () => {
     assert.deepEqual(snapshot.parcels.map((parcel) => parcel.declaredGoodsValueMinor), [30_000, 60_000]);
     assert.equal(snapshotDeclaredGoodsValueMinor(snapshot), 90_000);
 
-    const firstDpdLabel = bookingSnapshotToLabelData(snapshot, 0, "DPD");
-    const secondSwiftlineLabel = bookingSnapshotToLabelData(snapshot, 1, "SWIFTLINE");
-    assert.equal(firstDpdLabel.parcelNumber, "DPD-BOX-1");
-    assert.equal(firstDpdLabel.consignee.contactName, "Asha Patel");
-    assert.equal(firstDpdLabel.customerReference, "BOX-A");
-    assert.equal(firstDpdLabel.weightKg, 7);
-    assert.equal(secondSwiftlineLabel.parcelNumber, "SLCDEL200726001-02");
-    assert.equal(secondSwiftlineLabel.customerReference, "BOX-B");
-    assert.equal(secondSwiftlineLabel.weightKg, 11);
+    const firstLabel = bookingSnapshotToLabelData(snapshot, 0);
+    const secondLabel = bookingSnapshotToLabelData(snapshot, 1);
+    assert.equal(firstLabel.parcelNumber, "SLCDEL200726001-01");
+    assert.equal(firstLabel.consignee.contactName, "Asha Patel");
+    assert.equal(firstLabel.weightKg, 7);
+    // The station the AWB was allocated against is what the label routes on.
+    assert.equal(firstLabel.origin.stationCode, "DEL");
+    assert.equal(firstLabel.destination.city, "London");
+    assert.equal(secondLabel.parcelNumber, "SLCDEL200726001-02");
+    assert.equal(secondLabel.weightKg, 11);
 
     assert.deepEqual(serializeShipmentBookingConfirmation(snapshot), {
       swiftlineTrackingNumber: "SLCDEL200726001",
       carrierShipmentId: "TEST-SLCDEL200726001",
-      providerMode: "SIMULATED",
       shipmentReference: "BOX-A",
       customerReference: "BOX-A",
       serviceType: "COURIER",
@@ -250,7 +321,8 @@ describe("immutable multi-parcel booking snapshot", () => {
     assert.equal(revisedSnapshot.service.type, "CARGO");
     assert.equal(revisedSnapshot.parcels[0]?.actualWeightKg, 8);
     assert.equal(revisedSnapshot.parcels[0]?.reference, "BOX-A-UPDATED");
-    assert.equal(revisedSnapshot.parcels[0]?.carrierParcelNumber, "DPD-BOX-1");
+    // No carrier books these shipments, so no parcel carries a carrier number.
+    assert.equal(revisedSnapshot.parcels[0]?.carrierParcelNumber, "");
     assert.equal(revisedSnapshot.parcels[0]?.declaredGoodsValueMinor, 30_000);
     assert.equal(revisedSnapshot.payment.totalAmountMinor, 424800);
     assert.equal(revisedSnapshot.payment.advanceAmountMinor, 120000);

@@ -148,7 +148,7 @@ export default function CountryFlag({ code, className = "" }: { code: string; cl
   const flag = flags[code.toUpperCase()];
   if (!flag) {
     return (
-      <span className={`inline-flex h-[14px] w-5 shrink-0 items-center justify-center rounded-[2px] bg-slate-200 text-[8px] font-bold text-slate-600 ${className}`}>
+      <span className={`inline-flex h-3.5 w-5 shrink-0 items-center justify-center rounded-xs bg-slate-200 text-[8px] font-bold text-slate-600 ${className}`}>
         {code.toUpperCase().slice(0, 2)}
       </span>
     );
@@ -159,7 +159,7 @@ export default function CountryFlag({ code, className = "" }: { code: string; cl
       viewBox="0 0 20 14"
       role="img"
       aria-label={`${code.toUpperCase()} flag`}
-      className={`h-[14px] w-5 shrink-0 rounded-[2px] ring-1 ring-black/10 ${className}`}
+      className={`h-3.5 w-5 shrink-0 rounded-xs ring-1 ring-black/10 ${className}`}
     >
       {flag}
     </svg>

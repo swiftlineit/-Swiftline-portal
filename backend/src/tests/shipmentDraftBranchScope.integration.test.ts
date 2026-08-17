@@ -3,7 +3,7 @@ import { after, before, describe, test } from "node:test";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { env } from "../config/env.js";
-import { createDpdLabel } from "../controllers/dpdShipment.controller.js";
+import { createShipment } from "../controllers/dpdShipment.controller.js";
 import { createManualShipmentDraft } from "../controllers/shipmentDraft.controller.js";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
@@ -339,7 +339,7 @@ describe("operations branch scope on booking", () => {
     const draft = await createDraft(homeBranchId);
     const recorder = createResponseRecorder();
 
-    await createDpdLabel(
+    await createShipment(
       requestAs(
         "operations",
         outOfBranchUserId,
@@ -357,7 +357,7 @@ describe("operations branch scope on booking", () => {
     const draft = await createDraft(homeBranchId);
     const recorder = createResponseRecorder();
 
-    await createDpdLabel(
+    await createShipment(
       requestAs(
         "operations",
         inBranchUserId,
@@ -375,7 +375,7 @@ describe("operations branch scope on booking", () => {
     const draft = await createDraft(otherBranchId);
     const recorder = createResponseRecorder();
 
-    await createDpdLabel(
+    await createShipment(
       requestAs("admin", adminId, {}, { params: { id: String(draft._id) } }),
       recorder.response
     );

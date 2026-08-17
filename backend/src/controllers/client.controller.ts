@@ -884,8 +884,6 @@ function serializeClientDpdShipment(shipment: {
   forwardingNumber?: string;
   entryNumber?: string;
   swiftlineTrackingNumber?: string;
-  bookingProvider?: string;
-  providerMode?: string;
   parcelNumbers: string[];
   serviceCode: string;
   paymentSource: string;
@@ -902,8 +900,6 @@ function serializeClientDpdShipment(shipment: {
     forwardingNumber: shipment.forwardingNumber ?? "",
     entryNumber: shipment.entryNumber ?? "",
     swiftlineTrackingNumber: shipment.swiftlineTrackingNumber ?? "",
-    bookingProvider: shipment.bookingProvider ?? "DPD",
-    providerMode: shipment.providerMode ?? "LIVE",
     parcelNumbers: shipment.parcelNumbers,
     serviceCode: shipment.serviceCode,
     paymentSource: shipment.paymentSource,
@@ -918,7 +914,6 @@ function serializeClientLabel(label: {
   dpdShipmentId: unknown;
   parcelNumber: string;
   labelType?: string;
-  providerMode?: string;
   format: string;
   labelSize: string;
   fileChecksum: string;
@@ -928,8 +923,7 @@ function serializeClientLabel(label: {
     id: label._id,
     dpdShipmentId: label.dpdShipmentId,
     parcelNumber: label.parcelNumber,
-    labelType: label.labelType ?? "DPD",
-    providerMode: label.providerMode ?? "LIVE",
+    labelType: label.labelType ?? "SWIFTLINE",
     format: label.format,
     labelSize: label.labelSize,
     fileChecksum: label.fileChecksum,
@@ -1282,10 +1276,9 @@ const clientAcceptedPricingSchema = z.object({
   acceptedPricingHash: z.string().trim().min(1).max(128).optional()
 });
 
-async function createClientShipment(
+export async function createClientShipment(
   request: Request,
-  response: Response,
-  bookingProvider: "DPD" | "SWIFTLINE"
+  response: Response
 ): Promise<Response> {
   const userId = getAuthenticatedUserId(request);
   if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -1306,7 +1299,6 @@ async function createClientShipment(
       {
         actor: "client",
         paymentSource: "BUSINESS_ACCOUNT",
-        bookingProvider,
         acceptedPricingHash: acceptedPricing.success ? acceptedPricing.data.acceptedPricingHash : undefined
       }
     );
@@ -1359,19 +1351,9 @@ async function createClientShipment(
 
     return response.status(502).json({
       success: false,
-      message: bookingProvider === "DPD"
-        ? "DPD is temporarily unavailable."
-        : "The Swiftline shipment could not be created."
+      message: "The shipment could not be created."
     });
   }
-}
-
-export async function createClientDpdLabel(request: Request, response: Response): Promise<Response> {
-  return createClientShipment(request, response, "DPD");
-}
-
-export async function createClientSwiftlineShipment(request: Request, response: Response): Promise<Response> {
-  return createClientShipment(request, response, "SWIFTLINE");
 }
 
 export async function createClientShipmentLabelAccess(request: Request, response: Response): Promise<Response> {

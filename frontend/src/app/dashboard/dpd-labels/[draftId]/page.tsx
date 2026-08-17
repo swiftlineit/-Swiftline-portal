@@ -61,8 +61,7 @@ import {
   autocompleteAddress,
   autocompleteConsignorAddress,
   confirmAddress,
-  createDpdLabel,
-  createSwiftlineShipment,
+  createShipment,
   type CounterPaymentInput,
   deleteShipmentKycDocument,
   deleteShipmentParcelKycDocument,
@@ -93,11 +92,11 @@ import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { FaRegWindowClose, FaWeight } from "react-icons/fa";
 
-type DpdShipmentResult = Awaited<ReturnType<typeof createDpdLabel>>;
+type DpdShipmentResult = Awaited<ReturnType<typeof createShipment>>;
 const parcelRenderStyle = { contentVisibility: "auto", containIntrinsicSize: "auto 360px" } as const;
 /** The booking-panel action currently running; the two booking values are the
  *  provider each button books with. Null when the page is idle. */
-type PendingAction = "DPD" | "SWIFTLINE" | "DRAFT" | "ADDRESS" | null;
+type PendingAction = "BOOKING" | "DRAFT" | "ADDRESS" | null;
 type AddressForm = {
   countryCode: string;
   countryName: string;
@@ -336,8 +335,6 @@ function shipmentHistoryToResult(item: DpdShipmentHistoryItem): DpdShipmentResul
       dpdShipmentId: item.dpdShipment.dpdShipmentId,
       dpdTransactionId: item.dpdShipment.dpdTransactionId,
       swiftlineTrackingNumber: item.dpdShipment.swiftlineTrackingNumber,
-      bookingProvider: item.dpdShipment.bookingProvider,
-      providerMode: item.dpdShipment.providerMode,
       parcelNumbers: item.dpdShipment.parcelNumbers,
       serviceCode: item.dpdShipment.serviceCode,
       status: item.dpdShipment.status,
@@ -347,7 +344,6 @@ function shipmentHistoryToResult(item: DpdShipmentHistoryItem): DpdShipmentResul
       id: label.id,
       parcelNumber: label.parcelNumber,
       labelType: label.labelType,
-      providerMode: label.providerMode,
       format: label.format,
       labelSize: label.labelSize,
       generatedAt: label.generatedAt
@@ -966,13 +962,12 @@ export default function DpdLabelDraftPage() {
   }
 
  async function handleCreateLabel(
-  bookingProvider: "DPD" | "SWIFTLINE" = "DPD",
   // Supplied when re-booking after a changed price was accepted.
   acceptedPricingHash = costEstimate?.pricingHash
 ) {
   if (!draft) return;
 
-  setPendingAction(bookingProvider);
+  setPendingAction("BOOKING");
   setError("");
   setReviewIssues([]);
 
@@ -1087,10 +1082,7 @@ export default function DpdLabelDraftPage() {
       ? { method: counterMethod, reference: counterReference.trim(), note: "" }
       : undefined;
 
-    const data =
-      bookingProvider === "DPD"
-        ? await createDpdLabel(draftForValidation._id, counterPayment, acceptedPricingHash)
-        : await createSwiftlineShipment(draftForValidation._id, counterPayment, acceptedPricingHash);
+    const data = await createShipment(draftForValidation._id, counterPayment, acceptedPricingHash);
 
     setPriceChange(null);
     setResult(data);
@@ -1509,25 +1501,16 @@ export default function DpdLabelDraftPage() {
               ) : null}
               <button
                 type="button"
-                onClick={() => void handleCreateLabel("DPD")}
+                onClick={() => void handleCreateLabel()}
                 disabled={busy}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
-                {pendingAction === "DPD" ? "Creating..." : "Create Shipment"}
+                {pendingAction === "BOOKING" ? "Creating..." : "Create Shipment"}
               </button>
-              <button
-                type="button"
-                onClick={() => void handleCreateLabel("SWIFTLINE")}
-                disabled={busy}
-                className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-900 bg-white px-4 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
-              >
-                <FiTruck aria-hidden="true" className="h-4 w-4" />
-                {pendingAction === "SWIFTLINE" ? "Creating..." : "Create Without DPD Label"}
-              </button>
-              {/* Sits with the booking actions rather than in its own bar: this is
+              {/* Sits with the booking action rather than in its own bar: this is
                   where the operator already looks to finish the shipment, and
-                  saving for later is the third choice alongside the two. */}
+                  saving for later is the alternative to booking it now. */}
               <button
                 type="button"
                 onClick={() => void handleSaveDraft()}

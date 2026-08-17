@@ -37,7 +37,6 @@ function buildPayload(input: ShipmentBookedInput, context: {
     trackingNumber: dpdShipment.swiftlineTrackingNumber || "",
     customerReference: typeof customerReference === "string" ? customerReference : "",
     serviceType: draft.serviceType === "CARGO" ? "Cargo" : "Courier",
-    bookingProvider: dpdShipment.bookingProvider === "SWIFTLINE" ? "Swiftline" : "DPD",
     destination,
     consigneeName: consignee?.companyName || consignee?.contactName || "",
     parcelCount: draft.parcelList.length,
@@ -73,11 +72,9 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       BusinessAccount.findById(draft.businessAccountId).select("company.companyName").lean().exec(),
       Branch.findById(draft.branchId).select("name").lean().exec(),
       User.findById(input.bookedBy).select("name firstName lastName").lean().exec(),
-      LabelDocument.find({ dpdShipmentId: dpdShipment._id, voidedAt: null })
-        .select("_id labelType parcelNumber providerMode format")
-        // labelType ascending puts DPD before SWIFTLINE, which is the order the
-        // attachments are wanted in — see the budget note below.
-        .sort({ labelType: 1, parcelNumber: 1 })
+      LabelDocument.find({ dpdShipmentId: dpdShipment._id, labelType: "SWIFTLINE", voidedAt: null })
+        .select("_id parcelNumber format")
+        .sort({ parcelNumber: 1 })
         .lean()
         .exec()
     ]);
@@ -98,34 +95,20 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
 
     const labelAttachment = (label: {
       _id: mongoose.Types.ObjectId;
-      labelType: string;
       parcelNumber: string;
-      providerMode: string;
       format: string;
-    }): IEmailAttachmentRef => {
-      const name = label.labelType === "DPD" ? "DPD-Label" : "Swiftline-Internal-Label";
-      // Named the same way the portal marks it, so a simulated carrier label is
-      // never mistaken for one a depot will accept.
-      const prefix = label.labelType === "DPD" && label.providerMode === "SIMULATED" ? "TEST-NOT-FOR-CARRIAGE-" : "";
+    }): IEmailAttachmentRef => ({
+      kind: "LABEL_DOCUMENT",
+      refId: label._id,
+      revision: null,
+      filename: `Swiftline-Label-${label.parcelNumber}.${label.format.toLowerCase()}`
+    });
 
-      return {
-        kind: "LABEL_DOCUMENT",
-        refId: label._id,
-        revision: null,
-        filename: `${prefix}${name}-${label.parcelNumber}.${label.format.toLowerCase()}`
-      };
-    };
-
-    // Client and staff receive the same documents: the carrier label is what the
-    // parcel actually travels on, so withholding it from the client leaves them
-    // unable to hand over. The invoice leads the list so that if the size budget
-    // runs out it is labels that get dropped, never the document needed for
-    // accounts, and the DPD labels precede the internal ones for the same reason.
+    // Client and staff receive the same documents: the label is what the parcel
+    // travels on, so withholding it from the client leaves them unable to hand
+    // over. The invoice leads the list so that if the size budget runs out it is
+    // labels that get dropped, never the document needed for accounts.
     const attachments = [invoiceAttachment, ...labels.map(labelAttachment)];
-    // A booking made without a carrier label has no DPD label to send.
-    const dpdLabelIsTest = labels.some(
-      (label) => label.labelType === "DPD" && label.providerMode === "SIMULATED"
-    );
 
     const trackingNumber = payload.trackingNumber || String(draft._id);
     const idempotencyKey = `SHIPMENT_BOOKED:${String(dpdShipment._id)}`;
@@ -134,7 +117,7 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
     await notifyBusinessShipmentMembers(draft.businessAccountId, {
       type: "SHIPMENT_BOOKED",
       title: "Shipment booked",
-      message: `${trackingNumber} is booked with ${payload.bookingProvider} (${parcelLabel}). Invoice ${payload.invoiceNumber} is ready.`,
+      message: `${trackingNumber} is booked (${parcelLabel}). Invoice ${payload.invoiceNumber} is ready.`,
       href: payload.href,
       idempotencyKey,
       businessAccountId: draft.businessAccountId,
@@ -146,7 +129,7 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       },
       email: {
         templateKey: "SHIPMENT_BOOKED_CLIENT",
-        payload: { ...payload, dpdLabelIsTest },
+        payload,
         attachmentRefs: attachments
       }
     });
@@ -167,7 +150,7 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       },
       email: {
         templateKey: "SHIPMENT_BOOKED_STAFF",
-        payload: { ...payload, dpdLabelIsTest },
+        payload,
         attachmentRefs: attachments
       }
     });

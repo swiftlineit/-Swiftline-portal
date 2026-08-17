@@ -102,7 +102,6 @@ describe("shipment draft deletion", () => {
       dpdShipmentId: `TEST-${String(draft._id).slice(-8)}`,
       serviceCode: "TEST",
       paymentSource: "BUSINESS_ACCOUNT",
-      shippingEnvironment: "MOCK",
       status: "DPD_REJECTED"
     });
 
@@ -123,7 +122,6 @@ describe("shipment draft deletion", () => {
       dpdShipmentId: `TESTB-${String(draft._id).slice(-8)}`,
       serviceCode: "TEST",
       paymentSource: "BUSINESS_ACCOUNT",
-      shippingEnvironment: "MOCK",
       status: "LABEL_RECEIVED"
     });
 

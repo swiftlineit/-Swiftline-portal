@@ -862,10 +862,7 @@ export default function DpdLabelsPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              const label =
-                                item.labels.find(
-                                  (candidate) => candidate.labelType === "DPD",
-                                ) ?? item.labels[0];
+                              const label = item.labels[0];
                               if (label)
                                 void handleLabelDownload(
                                   item.dpdShipment.id,

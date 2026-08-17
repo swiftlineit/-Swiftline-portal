@@ -85,7 +85,6 @@ async function createCancellationFixture(input: {
     dpdShipmentId: `TEST-${String(draft._id).slice(-8)}`,
     serviceCode: "TEST",
     paymentSource: "BUSINESS_ACCOUNT",
-    shippingEnvironment: "MOCK",
     status: "LABEL_RECEIVED"
   });
   await ShipmentCharge.create({

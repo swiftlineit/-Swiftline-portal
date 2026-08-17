@@ -89,8 +89,7 @@ function weightLabel(weightKg: number | undefined) {
 function shipmentFacts(result: TrackingRecord): Array<{ label: string; value: string }> {
   return [
     { label: "AWB / Tracking No.", value: result.swiftlineTrackingNumber || "AWB Pending" },
-    { label: "Carrier Shipment ID", value: result.carrierShipmentNumber || "Not assigned" },
-    { label: "Carrier / Service Partner", value: result.summary?.carrierName || "Not assigned" },
+    { label: "Service Partner", value: result.summary?.carrierName || "Not assigned" },
     { label: "Service Type", value: result.service ? labelStatus(result.service) : "Not available" },
     { label: "Pieces", value: String(result.summary?.pieces ?? result.parcelCount) },
     { label: "Actual Weight", value: weightLabel(result.summary?.actualWeightKg) },
@@ -199,7 +198,7 @@ function fromClient(shipment: ClientShipmentDetails): TrackingRecord {
   };
 }
 
-/** One selectable piece: the DPD forwarding number with its Swiftline barcode. */
+/** One selectable piece, identified by its Swiftline barcode. */
 type SelectableParcel = { forwardingNumber: string; swiftlineNumber: string };
 
 function shipmentParcels(shipment: ShipmentListItem): SelectableParcel[] {
@@ -656,7 +655,7 @@ export default function ShipmentTrackingPage({
                           return (
                             <li
                               key={number}
-                              className={`break-words text-sm tracking-wide ${
+                              className={`wrap-break-words text-sm tracking-wide ${
                                 active
                                   ? "font-semibold  text-blue-900"
                                   : "font-medium text-slate-900"
@@ -699,7 +698,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 bg-white px-5 py-4">
       <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
-      <p className="mt-2 break-words text-sm  tracking-wide text-slate-950">
+      <p className="mt-2 wrap-break-words text-sm  tracking-wide text-slate-950">
         {value}
       </p>
     </div>
@@ -722,7 +721,7 @@ function Detail({
         <p className="text-xs font-semibold uppercase text-slate-500">
           {label}
         </p>
-        <p className="mt-1 break-words text-sm  tracking-wide text-slate-900">
+        <p className="mt-1 wrap-break-words text-sm  tracking-wide text-slate-900">
           {value}
         </p>
       </div>

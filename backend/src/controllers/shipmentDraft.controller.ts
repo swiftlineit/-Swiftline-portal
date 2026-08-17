@@ -4,12 +4,7 @@ import { z } from "zod";
 import { AuditLog } from "../models/auditLog.model.js";
 import { IShipmentDraft, ShipmentDraft, shipmentContentTypeValues, shipmentServiceTypeValues } from "../models/shipmentDraft.model.js";
 import { ShipmentImportEntry } from "../models/shipmentImportEntry.model.js";
-import { mapShipmentDraftToDpdPayload } from "../services/dpdPayloadMapper.service.js";
-import { validateDpdPayload } from "../services/dpdPayloadValidation.service.js";
-import {
-  DpdProviderConfigurationError,
-  getDpdProviderConfiguration
-} from "../services/dpdProviderConfiguration.service.js";
+import { buildShipmentPayload, validateShipmentPayload } from "../services/shipmentPayload.service.js";
 import { deleteObject } from "../services/storage/storage.service.js";
 import { maskAadhaarNumber, normalizeAadhaarNumber } from "../services/aadhaarValidation.service.js";
 import { csbTypeValues } from "../services/csbType.service.js";
@@ -246,7 +241,7 @@ function getDraftPatchValidationIssues(error: z.ZodError) {
     if (path.endsWith(".weightKg")) return "Parcel weight must be zero or greater";
     if (path.endsWith(".contentsDescription")) return "Parcel contents description is required";
     if (path === "serviceType") return "Service type must be Courier or Cargo";
-    if (path === "serviceCode") return "DPD service code must be 40 characters or fewer";
+    if (path === "serviceCode") return "Service code must be 40 characters or fewer";
     if (path === "consignorAddress.contactName") return "Consignor contact name must be 120 characters or fewer";
     if (path === "consignorAddress.email") return "Consignor email must be 160 characters or fewer";
     if (path === "consignorAddress.mobileNumber") return "Consignor mobile number must be 30 characters or fewer";
@@ -756,19 +751,11 @@ export async function validateShipmentDraft(request: Request, response: Response
   }
 
   const issues = validateShipmentDraftFields(shipmentDraft, { requireValidatedAddress: true });
-  let configuration;
-  try {
-    configuration = getDpdProviderConfiguration();
-  } catch (error) {
-    issues.push(error instanceof DpdProviderConfigurationError
-      ? error.message
-      : "The global DPD provider configuration is unavailable.");
-  }
-  const dpdConfigured = Boolean(configuration);
 
-  if (configuration && issues.length === 0) {
-    const payload = mapShipmentDraftToDpdPayload(shipmentDraft, configuration);
-    issues.push(...validateDpdPayload(payload, configuration));
+  // Only run the booking-payload checks once the draft's own fields are sound,
+  // so the booker is not shown the same missing value reported twice over.
+  if (issues.length === 0) {
+    issues.push(...validateShipmentPayload(buildShipmentPayload(shipmentDraft)));
   }
 
   shipmentDraft.validationIssues = issues;
@@ -779,11 +766,7 @@ export async function validateShipmentDraft(request: Request, response: Response
     "SHIPMENT_VALIDATION_COMPLETED",
     shipmentDraft._id as mongoose.Types.ObjectId,
     userId,
-    {
-      issueCount: issues.length,
-      dpdConfigured,
-      providerMode: configuration?.mode ?? "UNAVAILABLE"
-    }
+    { issueCount: issues.length }
   );
 
   return response.status(200).json({

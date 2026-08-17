@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
-import {
-  paymentSourceValues,
-  shippingEnvironmentValues,
-  type PaymentSource,
-  type ShippingEnvironment
-} from "./financialTypes.js";
+import { paymentSourceValues, type PaymentSource } from "./financialTypes.js";
 
+// Retained verbatim from when bookings were placed with an external carrier.
+// The values are written into every existing booking row and audit entry, so
+// they stay as the stored vocabulary: DPD_CREATED means the booking record is
+// durable but its documents are not yet complete, and DPD_REJECTED means the
+// attempt failed before anything was created.
 export const dpdShipmentStatusValues = [
   "DPD_CREATING",
   "DPD_CREATED",
@@ -15,10 +15,6 @@ export const dpdShipmentStatusValues = [
 ] as const;
 
 export type DpdShipmentStatus = (typeof dpdShipmentStatusValues)[number];
-export const dpdProviderModeValues = ["SIMULATED", "LIVE"] as const;
-export type DpdProviderMode = (typeof dpdProviderModeValues)[number];
-export const shipmentBookingProviderValues = ["DPD", "SWIFTLINE"] as const;
-export type ShipmentBookingProvider = (typeof shipmentBookingProviderValues)[number];
 
 export interface IDpdShipment extends mongoose.Document {
   shipmentDraftId: mongoose.Types.ObjectId;
@@ -28,8 +24,6 @@ export interface IDpdShipment extends mongoose.Document {
   forwardingNumber?: string;
   entryNumber?: string;
   swiftlineTrackingNumber?: string;
-  bookingProvider: ShipmentBookingProvider;
-  providerMode: DpdProviderMode;
   parcelNumbers: string[];
   serviceCode: string;
   bookingSnapshot: Record<string, unknown>;
@@ -38,7 +32,6 @@ export interface IDpdShipment extends mongoose.Document {
   requestSnapshot: Record<string, unknown>;
   responseSnapshot: Record<string, unknown>;
   paymentSource: PaymentSource;
-  shippingEnvironment: ShippingEnvironment;
   status: DpdShipmentStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -59,8 +52,6 @@ const dpdShipmentSchema = new mongoose.Schema<IDpdShipment>(
     forwardingNumber: { type: String, trim: true, maxlength: 120, default: "" },
     entryNumber: { type: String, trim: true, maxlength: 120, default: "" },
     swiftlineTrackingNumber: { type: String, trim: true, maxlength: 40, default: "" },
-    bookingProvider: { type: String, enum: shipmentBookingProviderValues, default: "DPD", required: true, index: true },
-    providerMode: { type: String, enum: dpdProviderModeValues, default: "SIMULATED", required: true, index: true },
     parcelNumbers: [{ type: String, trim: true, maxlength: 80 }],
     serviceCode: { type: String, required: true, trim: true, maxlength: 40 },
     bookingSnapshot: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -69,7 +60,6 @@ const dpdShipmentSchema = new mongoose.Schema<IDpdShipment>(
     requestSnapshot: { type: mongoose.Schema.Types.Mixed, default: {} },
     responseSnapshot: { type: mongoose.Schema.Types.Mixed, default: {} },
     paymentSource: { type: String, enum: paymentSourceValues, default: "ADMIN_DIRECT", required: true },
-    shippingEnvironment: { type: String, enum: shippingEnvironmentValues, default: "PRODUCTION", required: true, index: true },
     status: { type: String, enum: dpdShipmentStatusValues, default: "DPD_CREATING", index: true }
   },
   { timestamps: true }

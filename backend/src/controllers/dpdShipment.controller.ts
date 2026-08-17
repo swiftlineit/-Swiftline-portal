@@ -37,7 +37,7 @@ import {
   DpdShipmentServiceError,
   createLabelForShipmentDraft,
   reconcileShipmentDocuments,
-  resetSimulatedBookingForDevelopment
+  resetBookingForDevelopment
 } from "../services/dpdShipment.service.js";
 import {
   readShipmentBookingSnapshot,
@@ -93,8 +93,6 @@ function serializeDpdShipment(shipment: {
   forwardingNumber?: string;
   entryNumber?: string;
   swiftlineTrackingNumber?: string;
-  bookingProvider?: string;
-  providerMode?: string;
   parcelNumbers: string[];
   serviceCode: string;
   status: string;
@@ -111,8 +109,6 @@ function serializeDpdShipment(shipment: {
     forwardingNumber: shipment.forwardingNumber ?? "",
     entryNumber: shipment.entryNumber ?? "",
     swiftlineTrackingNumber: shipment.swiftlineTrackingNumber ?? "",
-    bookingProvider: shipment.bookingProvider ?? "DPD",
-    providerMode: shipment.providerMode ?? "LIVE",
     parcelNumbers: shipment.parcelNumbers,
     serviceCode: shipment.serviceCode,
     status: shipment.status,
@@ -127,7 +123,6 @@ function serializeLabel(label: {
   dpdShipmentId: unknown;
   parcelNumber: string;
   labelType?: string;
-  providerMode?: string;
   format: string;
   labelSize: string;
   fileChecksum: string;
@@ -139,8 +134,7 @@ function serializeLabel(label: {
     id: label._id,
     dpdShipmentId: label.dpdShipmentId,
     parcelNumber: label.parcelNumber,
-    labelType: label.labelType ?? "DPD",
-    providerMode: label.providerMode ?? "LIVE",
+    labelType: label.labelType ?? "SWIFTLINE",
     format: label.format,
     labelSize: label.labelSize,
     fileChecksum: label.fileChecksum,
@@ -452,10 +446,9 @@ async function sendStoredLabel(params: {
   });
 }
 
-async function createShipment(
+export async function createShipment(
   request: Request,
-  response: Response,
-  bookingProvider: "DPD" | "SWIFTLINE"
+  response: Response
 ): Promise<Response> {
   const userId = getAuthenticatedUserId(request);
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
@@ -493,7 +486,6 @@ async function createShipment(
     const result = await createLabelForShipmentDraft(shipmentDraftId, userId, {
       actor: "admin",
       paymentSource: isIndividual ? "ADMIN_DIRECT" : "BUSINESS_ACCOUNT",
-      bookingProvider,
       acceptedPricingHash: acceptedPricing.success ? acceptedPricing.data.acceptedPricingHash : undefined
     });
 
@@ -551,28 +543,15 @@ async function createShipment(
       return response.status(error.statusCode).json({
         success: false,
         message: error.message,
-        ...error.details,
-        // Operations-only: the carrier's own wording names the field to fix.
-        // The client booking route deliberately omits it.
-        ...(error.carrierErrors.length ? { carrierErrors: error.carrierErrors } : {})
+        ...error.details
       });
     }
 
     return response.status(502).json({
       success: false,
-      message: bookingProvider === "DPD"
-        ? "DPD is temporarily unavailable."
-        : "The Swiftline shipment could not be created."
+      message: "The shipment could not be created."
     });
   }
-}
-
-export async function createDpdLabel(request: Request, response: Response): Promise<Response> {
-  return createShipment(request, response, "DPD");
-}
-
-export async function createSwiftlineShipment(request: Request, response: Response): Promise<Response> {
-  return createShipment(request, response, "SWIFTLINE");
 }
 
 export async function reconcileDpdShipmentDocuments(request: Request, response: Response): Promise<Response> {
@@ -609,7 +588,7 @@ export async function resetDevelopmentShipmentBooking(request: Request, response
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
 
   try {
-    await resetSimulatedBookingForDevelopment(String(request.params.draftId ?? ""), userId);
+    await resetBookingForDevelopment(String(request.params.draftId ?? ""), userId);
     return response.status(200).json({
       success: true,
       message: "The simulated booking attempt was released. This draft can be booked again."
@@ -800,11 +779,11 @@ export async function listDpdShipments(request: Request, response: Response): Pr
 export async function getDpdShipment(request: Request, response: Response): Promise<Response> {
   const dpdShipmentId = typeof request.params.id === "string" ? request.params.id : "";
   if (!mongoose.Types.ObjectId.isValid(dpdShipmentId)) {
-    return response.status(404).json({ success: false, message: "DPD shipment not found" });
+    return response.status(404).json({ success: false, message: "Shipment not found" });
   }
 
   const shipment = await DpdShipment.findById(dpdShipmentId).lean().exec();
-  if (!shipment) return response.status(404).json({ success: false, message: "DPD shipment not found" });
+  if (!shipment) return response.status(404).json({ success: false, message: "Shipment not found" });
 
   const [labels, events] = await Promise.all([
     LabelDocument.find({
@@ -833,7 +812,7 @@ export async function holdDpdShipment(request: Request, response: Response): Pro
 
   const dpdShipmentId = typeof request.params.id === "string" ? request.params.id : "";
   if (!mongoose.Types.ObjectId.isValid(dpdShipmentId)) {
-    return response.status(404).json({ success: false, message: "DPD shipment not found" });
+    return response.status(404).json({ success: false, message: "Shipment not found" });
   }
 
   const parsed = holdShipmentSchema.safeParse(request.body);
@@ -846,7 +825,7 @@ export async function holdDpdShipment(request: Request, response: Response): Pro
   }
 
   const shipment = await DpdShipment.findById(dpdShipmentId).lean().exec();
-  if (!shipment) return response.status(404).json({ success: false, message: "DPD shipment not found" });
+  if (!shipment) return response.status(404).json({ success: false, message: "Shipment not found" });
 
   const cancellation = await ShipmentCancellation.findOne({
     shipmentDraftId: shipment.shipmentDraftId,
@@ -907,7 +886,7 @@ export async function releaseDpdShipment(request: Request, response: Response): 
 
   const dpdShipmentId = typeof request.params.id === "string" ? request.params.id : "";
   if (!mongoose.Types.ObjectId.isValid(dpdShipmentId)) {
-    return response.status(404).json({ success: false, message: "DPD shipment not found" });
+    return response.status(404).json({ success: false, message: "Shipment not found" });
   }
 
   const parsed = releaseShipmentSchema.safeParse(request.body);
@@ -920,7 +899,7 @@ export async function releaseDpdShipment(request: Request, response: Response): 
   }
 
   const shipment = await DpdShipment.findById(dpdShipmentId).lean().exec();
-  if (!shipment) return response.status(404).json({ success: false, message: "DPD shipment not found" });
+  if (!shipment) return response.status(404).json({ success: false, message: "Shipment not found" });
 
   const cancellation = await ShipmentCancellation.findOne({
     shipmentDraftId: shipment.shipmentDraftId,
@@ -979,7 +958,7 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
 
   const dpdShipmentId = typeof request.params.id === "string" ? request.params.id : "";
   if (!mongoose.Types.ObjectId.isValid(dpdShipmentId)) {
-    return response.status(404).json({ success: false, message: "DPD shipment not found" });
+    return response.status(404).json({ success: false, message: "Shipment not found" });
   }
 
   const parsed = updateShipmentStatusSchema.safeParse(request.body);
@@ -992,7 +971,7 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
   }
 
   const shipment = await DpdShipment.findById(dpdShipmentId).lean().exec();
-  if (!shipment) return response.status(404).json({ success: false, message: "DPD shipment not found" });
+  if (!shipment) return response.status(404).json({ success: false, message: "Shipment not found" });
 
   const cancellation = await ShipmentCancellation.findOne({
     shipmentDraftId: shipment.shipmentDraftId,
@@ -1062,15 +1041,14 @@ export async function downloadDpdLabel(request: Request, response: Response): Pr
 
   const dpdShipmentId = typeof request.params.id === "string" ? request.params.id : "";
   if (!mongoose.Types.ObjectId.isValid(dpdShipmentId)) {
-    return response.status(404).json({ success: false, message: "DPD shipment not found" });
+    return response.status(404).json({ success: false, message: "Shipment not found" });
   }
 
   const labelId = typeof request.query.labelId === "string" ? request.query.labelId : "";
   const label = await LabelDocument.findOne({
     dpdShipmentId: new mongoose.Types.ObjectId(dpdShipmentId),
-    ...(mongoose.Types.ObjectId.isValid(labelId)
-      ? { _id: new mongoose.Types.ObjectId(labelId) }
-      : { labelType: "DPD" })
+    labelType: "SWIFTLINE",
+    ...(mongoose.Types.ObjectId.isValid(labelId) ? { _id: new mongoose.Types.ObjectId(labelId) } : {})
   }).exec();
   if (!label) return response.status(404).json({ success: false, message: "Label not found" });
 

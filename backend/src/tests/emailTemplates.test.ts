@@ -7,7 +7,6 @@ const shipmentPayload = {
   trackingNumber: "SWL000123456",
   customerReference: "REF-8891",
   serviceType: "Courier",
-  bookingProvider: "DPD",
   destination: "Manchester, United Kingdom",
   parcelCount: 3,
   totalWeightKg: 12.5,
@@ -66,20 +65,19 @@ test("shipment booked client template does not claim labels are attached when th
   const attached = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: true });
   const dropped = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: false });
 
-  assert.match(attached.html, /Shipping labels are attached/);
-  assert.doesNotMatch(dropped.html, /Shipping labels are attached/);
+  assert.match(attached.html, /Swiftline shipping labels are attached/);
+  assert.doesNotMatch(dropped.html, /Swiftline shipping labels are attached/);
   assert.match(dropped.html, /download from the portal/);
 });
 
-test("shipment booked client template warns when the attached carrier label is simulated", () => {
-  const simulated = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: true, dpdLabelIsTest: true });
-  const live = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: true, dpdLabelIsTest: false });
+test("shipment booked client template names no carrier but Swiftline", () => {
+  const { html } = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: true });
 
-  assert.match(simulated.html, /not valid for carriage/);
-  assert.doesNotMatch(live.html, /not valid for carriage/);
-  // No label reached the message, so there is nothing to warn about.
-  const noLabels = render("SHIPMENT_BOOKED_CLIENT", { ...shipmentPayload, labelsAttached: false, dpdLabelIsTest: true });
-  assert.doesNotMatch(noLabels.html, /not valid for carriage/);
+  assert.doesNotMatch(html, /DPD/i);
+  // The old carrier flow attached a simulated label that had to be marked
+  // unusable; there is no such label now, so no such warning either.
+  assert.doesNotMatch(html, /not valid for carriage/);
+  assert.match(html, /Swiftline/);
 });
 
 test("shipment booked staff template names the account and the booker", () => {

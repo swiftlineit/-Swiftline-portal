@@ -237,11 +237,6 @@ export type TrackingSummary = {
   lastUpdateAt: string | null;
 };
 
-const carrierNames: Record<string, string> = {
-  DPD: "DPD",
-  SWIFTLINE: "Swiftline"
-};
-
 function round3(value: number) {
   return Number(value.toFixed(3));
 }
@@ -299,7 +294,7 @@ export function buildTrackingSummary(input: {
   return {
     serviceType,
     serviceCode: snapshot?.service?.code ?? input.draft.serviceCode ?? "",
-    carrierName: carrierNames[input.dpdShipment?.bookingProvider ?? ""] ?? "Not assigned",
+    carrierName: input.dpdShipment ? "Swiftline" : "Not assigned",
     pieces: parcels.length || input.draft.parcelList.length,
     actualWeightKg: round3(actualWeightKg),
     chargeableWeightKg: round3(chargeableWeightKg),

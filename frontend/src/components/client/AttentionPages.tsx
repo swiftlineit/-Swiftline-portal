@@ -170,7 +170,7 @@ export function ClientExceptionsPage() {
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-215 text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase text-slate-500">
               <th className="px-4 py-3">AWB</th>

@@ -176,7 +176,7 @@ export default function ClientPodCentrePage() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
+          <table className="w-full min-w-225 text-left text-sm">
             <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
               <tr>
                 <th className="w-10 px-4 py-3">

@@ -225,7 +225,7 @@ function DropdownChevron({ open, className = "" }: { open: boolean; className?: 
 export type FieldStatus = "idle" | "validating" | "valid" | "invalid";
 
 // Long option lists scroll inside the dropdown instead of stretching the page.
-// Matches the thin-scrollbar treatment already used by the DPD label screens.
+// Matches the thin-scrollbar treatment already used by the shipment screens.
 const thinScrollbarClasses =
   "[scrollbar-width:thin] [scrollbar-color:#94a3b8_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-400";
 

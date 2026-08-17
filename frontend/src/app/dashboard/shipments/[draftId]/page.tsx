@@ -526,7 +526,7 @@ export default function AdminShipmentDetailsPage() {
           <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4">
             <div>
               <h2 className="font-semibold text-amber-950">Carrier booking accepted, documents need review</h2>
-              <p className="mt-1 text-sm text-amber-800">Finalize the saved booking without submitting another request to DPD.</p>
+              <p className="mt-1 text-sm text-amber-800">Finalize the saved booking without creating another shipment.</p>
             </div>
             <button
               type="button"
@@ -542,7 +542,7 @@ export default function AdminShipmentDetailsPage() {
         {history?.dpdShipment.status === "DPD_STATUS_UNKNOWN" ? (
           <section className="border border-red-300 bg-red-50 rounded-2xl px-5 py-4">
             <h2 className="font-semibold text-red-950">Carrier outcome requires confirmation</h2>
-            <p className="mt-1 text-sm text-red-800">Do not submit this shipment again. Confirm the booking directly with DPD before releasing or completing it.</p>
+            <p className="mt-1 text-sm text-red-800">Do not submit this shipment again. Confirm the booking with Swiftline Operations before releasing or completing it.</p>
           </section>
         ) : null}
 
@@ -557,8 +557,6 @@ export default function AdminShipmentDetailsPage() {
 
                 <DetailPanel title="Booking" icon={<FiFileText aria-hidden="true" className="h-4 w-4" />}>
                   <DetailRow label="Swiftline Tax Invoice No." value={history?.shipmentInvoice?.invoiceNumber || "Tax Invoice Pending"} />
-                  {history?.dpdShipment.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Shipment ID" value={history?.dpdShipment.dpdShipmentId || "Pending"} /> : null}
-                  {history?.dpdShipment.bookingProvider !== "SWIFTLINE" ? <DetailRow label="Carrier Parcels" value={history?.dpdShipment.parcelNumbers.join(", ") || "Pending"} /> : null}
                   <DetailRow label="Booked At" value={formatDateTime(history?.dpdShipment.createdAt)} />
                 </DetailPanel>
 

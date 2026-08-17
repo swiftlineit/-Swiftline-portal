@@ -6,8 +6,7 @@ import { FiDownload, FiEye, FiPrinter } from "react-icons/fi";
 export type ShipmentLabelItem = {
   id: string;
   parcelNumber: string;
-  labelType: "DPD" | "SWIFTLINE";
-  providerMode: "SIMULATED" | "LIVE";
+  labelType: "SWIFTLINE";
   format: string;
   labelSize: string;
 };
@@ -75,8 +74,8 @@ export function ShipmentLabelsPanel({
     <section className="border border-slate-200 bg-white rounded-2xl">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-950">Shipment Labels</h2>
-          <p className="mt-1 text-sm text-slate-600">View, download, or print the carrier and parcel labels.</p>
+          <h2 className="text-base font-semibold text-slate-950">Swiftline Labels</h2>
+          <p className="mt-1 text-sm text-slate-600">View, download, or print one label per parcel.</p>
         </div>
       </div>
 
@@ -88,15 +87,10 @@ export function ShipmentLabelsPanel({
             <div key={label.id} className="p-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold text-slate-950">
-                    {label.labelType === "DPD" ? "DPD Label" : "Swiftline Internal Label"}
-                  </h3>
+                  <h3 className="font-semibold text-slate-950">Swiftline Label</h3>
                   <span className="text-xs font-medium text-slate-500">{label.format} </span>
                 </div>
                 <p className="mt-1 break-all text-sm font-medium text-slate-700">{label.parcelNumber}</p>
-                {label.labelType === "DPD" && label.providerMode === "SIMULATED" ? (
-                  <p className="mt-1 text-xs font-semibold text-red-700">Test - Not for carriage</p>
-                ) : null}
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <LabelButton icon={<FiEye />} label="View" busy={activeAction === `${label.id}:view`} onClick={() => runAction(label, "view")} compact />
@@ -108,7 +102,7 @@ export function ShipmentLabelsPanel({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-[760px] w-full text-left text-sm">
+          <table className="min-w-190 w-full text-left text-sm">
             <thead className="bg-slate-100 text-xs uppercase text-slate-600">
               <tr>
                 <th className="px-4 py-3 font-semibold">Label</th>
@@ -121,10 +115,7 @@ export function ShipmentLabelsPanel({
               {labels.map((label) => (
                 <tr key={label.id}>
                   <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-950">{label.labelType === "DPD" ? "DPD Label" : "Swiftline Internal Label"}</p>
-                    {label.labelType === "DPD" && label.providerMode === "SIMULATED" ? (
-                      <p className="mt-1 text-xs font-semibold text-red-700">Test - Not for carriage</p>
-                    ) : null}
+                    <p className="font-semibold text-slate-950">Swiftline Label</p>
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800">{label.parcelNumber}</td>
                   <td className="px-4 py-3 text-slate-600">{label.format} {label.labelSize}</td>

@@ -3,37 +3,20 @@ import mongoose from "mongoose";
 import { AuditLog } from "../models/auditLog.model.js";
 import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
-import {
-  DpdShipment,
-  IDpdShipment,
-  type ShipmentBookingProvider
-} from "../models/dpdShipment.model.js";
-import { LabelDocument, type LabelFormat, type LabelType } from "../models/labelDocument.model.js";
+import { DpdShipment, IDpdShipment } from "../models/dpdShipment.model.js";
+import { LabelDocument, type LabelFormat } from "../models/labelDocument.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
-import type { PaymentSource, ShippingEnvironment } from "../models/financialTypes.js";
+import type { PaymentSource } from "../models/financialTypes.js";
 import { validateShipmentDraftFields } from "./shipmentValidation.service.js";
 import {
-  DpdApiError,
-  DpdTimeoutError,
-  createDpdShipment,
-  readCarrierErrors,
-  type DpdCreateShipmentResponse
-} from "./dpdApiClient.service.js";
-import { mapShipmentDraftToDpdPayload, sanitizeDpdRequestSnapshot } from "./dpdPayloadMapper.service.js";
-import { validateDpdPayload } from "./dpdPayloadValidation.service.js";
-import {
-  DpdProviderConfigurationError,
-  getDpdProviderConfiguration,
-  type DpdProviderConfiguration,
-  type DpdProviderMode
-} from "./dpdProviderConfiguration.service.js";
+  buildShipmentPayload,
+  sanitizeShipmentRequestSnapshot,
+  validateShipmentPayload
+} from "./shipmentPayload.service.js";
 import { saveLabelBuffer } from "./labelStorage.service.js";
 import { buildPricingInputFromDraft, calculateShipmentPricingEstimate } from "./shipmentPricing.service.js";
 import { assertPriceLockUnchanged } from "./shipmentCostEstimate.service.js";
-import {
-  renderSimulatedDpdLabelPdf,
-  renderSwiftlineLabelPdf
-} from "./shipmentLabelPdf.service.js";
+import { renderSwiftlineLabelPdf } from "./shipmentLabelPdf.service.js";
 import { ensureShipmentInvoiceForDraft } from "./shipmentInvoice.service.js";
 import { notifyShipmentBooked } from "./shipmentBookedNotification.service.js";
 import {
@@ -62,15 +45,7 @@ export class DpdShipmentServiceError extends Error {
   constructor(
     message: string,
     public readonly statusCode = 400,
-    public readonly details: Record<string, unknown> = {},
-    /**
-     * The carrier's own rejection text.
-     *
-     * Kept off `details` because both the staff and the client controller spread
-     * `details` straight into their response, and a customer must not be shown
-     * ALS's internal wording. Only the staff controller reads this.
-     */
-    public readonly carrierErrors: string[] = []
+    public readonly details: Record<string, unknown> = {}
   ) {
     super(message);
   }
@@ -96,60 +71,18 @@ type LabelPaymentContext =
       // the admin arm of this union keeps clients unable to book one.
       actor: "admin";
       paymentSource?: Extract<PaymentSource, "BUSINESS_ACCOUNT" | "ADMIN_DIRECT" | "TEST">;
-      bookingProvider?: ShipmentBookingProvider;
     } & AcceptedPricing)
   | ({
       actor: "client";
       paymentSource: Extract<PaymentSource, "BUSINESS_ACCOUNT">;
-      bookingProvider?: ShipmentBookingProvider;
     } & AcceptedPricing);
-
-function getShippingEnvironment(mode: DpdProviderMode): ShippingEnvironment {
-  return mode === "LIVE" ? "PRODUCTION" : "MOCK";
-}
 
 function normalizePaymentContext(context?: LabelPaymentContext): LabelPaymentContext {
   return context ?? { actor: "admin", paymentSource: "BUSINESS_ACCOUNT" };
 }
 
-const swiftlineProviderConfiguration: DpdProviderConfiguration = {
-  mode: "SIMULATED",
-  active: true,
-  apiBaseUrl: "",
-  businessUnitCode: "SWIFTLINE",
-  customerId: "SWIFTLINE",
-  senderAddressId: "SWIFTLINE",
-  depotCode: "",
-  defaultServiceCode: "SWIFTLINE",
-  defaultLabelSize: "A6",
-  defaultPrintFormat: "PDF",
-  als: {
-    serviceCode: "DPD UK NEXTDAY"
-  },
-  credentials: {}
-};
-
-/**
- * Whether a carrier label set is complete for this booking.
- *
- * A live ALS booking has been observed returning one combined HTML document
- * holding a printable page per parcel, and its documentation leaves open that a
- * multi-parcel booking may come back as one label per parcel instead. Both are
- * accepted: asserting a single shape would push an otherwise good live booking
- * into the reconciliation path, where the customer's money stays reserved and
- * the shipment cannot be completed. Simulated mode always renders one PDF per
- * parcel locally, so there the count is exact.
- */
-export function isCompleteDpdLabelSet(input: {
-  bookingProvider: ShipmentBookingProvider;
-  providerMode: DpdProviderMode;
-  parcelCount: number;
-  labelCount: number;
-}) {
-  if (input.bookingProvider === "SWIFTLINE") return input.labelCount === 0;
-  if (input.providerMode === "LIVE") {
-    return input.labelCount === 1 || input.labelCount === input.parcelCount;
-  }
+/** One label per parcel, always: they are rendered locally from the snapshot. */
+export function isCompleteLabelSet(input: { parcelCount: number; labelCount: number }) {
   return input.labelCount === input.parcelCount;
 }
 
@@ -217,16 +150,11 @@ async function getReusableShipment(existingShipment: IDpdShipment | null, expect
   if (!existingShipment) return null;
 
   if (existingShipment.status === "LABEL_RECEIVED") {
-    const labels = await LabelDocument.find({ dpdShipmentId: existingShipment._id }).lean().exec();
-    const dpdLabelCount = labels.filter((label) => label.labelType === "DPD").length;
-    const swiftlineLabelCount = labels.filter((label) => label.labelType === "SWIFTLINE").length;
-    const completeDpdLabelSet = isCompleteDpdLabelSet({
-      bookingProvider: existingShipment.bookingProvider,
-      providerMode: existingShipment.providerMode,
-      parcelCount: expectedParcelCount,
-      labelCount: dpdLabelCount
-    });
-    if (!completeDpdLabelSet || swiftlineLabelCount !== expectedParcelCount) {
+    const labels = await LabelDocument.find({
+      dpdShipmentId: existingShipment._id,
+      labelType: "SWIFTLINE"
+    }).lean().exec();
+    if (!isCompleteLabelSet({ parcelCount: expectedParcelCount, labelCount: labels.length })) {
       throw new DpdShipmentServiceError(
         "This booking exists, but its label set is incomplete. Contact Swiftline Operations; do not book it again.",
         409
@@ -240,7 +168,7 @@ async function getReusableShipment(existingShipment: IDpdShipment | null, expect
   }
 
   if (existingShipment.status === "DPD_CREATING") {
-    throw new DpdShipmentServiceError("A DPD label request is already processing for this shipment.", 409);
+    throw new DpdShipmentServiceError("A booking is already processing for this shipment.", 409);
   }
 
   if (existingShipment.status === "DPD_STATUS_UNKNOWN") {
@@ -249,7 +177,7 @@ async function getReusableShipment(existingShipment: IDpdShipment | null, expect
 
   if (existingShipment.status === "DPD_CREATED") {
     throw new DpdShipmentServiceError(
-      "The carrier accepted this booking, but final documents require reconciliation. Contact Swiftline Operations; do not book it again.",
+      "This shipment is booked, but its documents require reconciliation. Contact Swiftline Operations; do not book it again.",
       409
     );
   }
@@ -262,8 +190,6 @@ async function getReusableShipment(existingShipment: IDpdShipment | null, expect
 export async function storeGeneratedLabel(input: {
   dpdShipmentId: mongoose.Types.ObjectId;
   parcelNumber: string;
-  labelType: LabelType;
-  providerMode: DpdProviderMode;
   buffer: Buffer;
   format?: LabelFormat;
   labelSize?: "A4" | "A6";
@@ -272,7 +198,7 @@ export async function storeGeneratedLabel(input: {
   const labelSize = input.labelSize ?? "A6";
   const existing = await LabelDocument.findOne({
     dpdShipmentId: input.dpdShipmentId,
-    labelType: input.labelType,
+    labelType: "SWIFTLINE",
     parcelNumber: input.parcelNumber
   }).select("labelVersion").lean().exec();
 
@@ -294,20 +220,19 @@ export async function storeGeneratedLabel(input: {
     buffer: input.buffer,
     format,
     labelSize,
-    labelType: input.labelType
+    labelType: "SWIFTLINE"
   });
 
   return LabelDocument.findOneAndUpdate(
     {
       dpdShipmentId: input.dpdShipmentId,
-      labelType: input.labelType,
+      labelType: "SWIFTLINE",
       parcelNumber: input.parcelNumber
     },
     {
       dpdShipmentId: input.dpdShipmentId,
       parcelNumber: input.parcelNumber,
-      labelType: input.labelType,
-      providerMode: input.providerMode,
+      labelType: "SWIFTLINE",
       format,
       labelSize,
       storageKey: stored.storageKey,
@@ -319,17 +244,12 @@ export async function storeGeneratedLabel(input: {
   ).exec();
 }
 
-function simulatedParcelNumber(trackingNumber: string, parcelIndex: number) {
-  return `DPDTEST${trackingNumber.slice(2)}${String(parcelIndex + 1).padStart(2, "0")}`;
-}
-
 export async function createLabelForShipmentDraft(
   shipmentDraftId: string,
   userId: mongoose.Types.ObjectId,
   paymentContextInput?: LabelPaymentContext
 ) {
   const paymentContext = normalizePaymentContext(paymentContextInput);
-  const bookingProvider = paymentContext.bookingProvider ?? "DPD";
   // Only account-backed bookings reserve capacity. TEST never did; ADMIN_DIRECT is
   // a counter sale that was paid before the booking was made, so there is nothing
   // to reserve, convert or release for it.
@@ -382,18 +302,6 @@ export async function createLabelForShipmentDraft(
   if (!branch) throw new DpdShipmentServiceError("The shipment branch could not be found.", 409);
   if (!businessAccount) throw new DpdShipmentServiceError("The business account could not be found.", 409);
 
-  let configuration = swiftlineProviderConfiguration;
-  if (bookingProvider === "DPD") {
-    try {
-      configuration = getDpdProviderConfiguration();
-    } catch (error) {
-      if (error instanceof DpdProviderConfigurationError) {
-        throw new DpdShipmentServiceError(error.message, 503);
-      }
-      throw error;
-    }
-  }
-
   let stationCode: string;
   try {
     stationCode = resolveStationCode(branch.labelCode, branch.code);
@@ -410,11 +318,10 @@ export async function createLabelForShipmentDraft(
     lockedDraft._id as mongoose.Types.ObjectId,
     bookingAttemptId
   );
-  const payload = mapShipmentDraftToDpdPayload(lockedDraft, configuration);
-  if (bookingProvider === "SWIFTLINE") payload.serviceCode = "SWIFTLINE";
-  const dpdPayloadIssues = validateDpdPayload(payload, configuration);
-  if (dpdPayloadIssues.length) {
-    lockedDraft.validationIssues = dpdPayloadIssues;
+  const payload = buildShipmentPayload(lockedDraft);
+  const payloadIssues = validateShipmentPayload(payload);
+  if (payloadIssues.length) {
+    lockedDraft.validationIssues = payloadIssues;
     lockedDraft.status = "VALIDATION_FAILED";
     await lockedDraft.save();
     await transitionShipmentDraftBooking({
@@ -423,8 +330,8 @@ export async function createLabelForShipmentDraft(
       bookingState: "EDITABLE"
     });
 
-    throw new DpdShipmentServiceError("Some carrier-required information must be corrected before booking this shipment.", 400, {
-      validationIssues: dpdPayloadIssues
+    throw new DpdShipmentServiceError("Some shipment information must be corrected before booking this shipment.", 400, {
+      validationIssues: payloadIssues
     });
   }
 
@@ -490,17 +397,16 @@ export async function createLabelForShipmentDraft(
     throw error;
   }
 
-  const requestSnapshot = sanitizeDpdRequestSnapshot(payload);
-  // Nothing durable is written for this booking until the carrier has answered.
-  // A rejection therefore leaves no booking record, no labels, no invoice and no
-  // burnt AWB behind — only the audit trail below and an editable draft.
+  const requestSnapshot = sanitizeShipmentRequestSnapshot(payload);
+  // Nothing durable is written until the booking record below is created. A
+  // failure before that point therefore leaves no booking record, no labels, no
+  // invoice and no burnt AWB behind — only the audit trail and an editable draft.
   let dpdShipment: IDpdShipment | null = null;
-  let providerAccepted = false;
+  let bookingRecorded = false;
 
-  const recordCarrierOutcome = async (input: {
+  const recordBookingOutcome = async (input: {
     status: IDpdShipment["status"];
     trackingNumber: string;
-    response?: DpdCreateShipmentResponse;
     responseSnapshot?: Record<string, unknown>;
   }) => {
     const booking = await DpdShipment.findOneAndUpdate(
@@ -509,21 +415,15 @@ export async function createLabelForShipmentDraft(
         shipmentDraftId: lockedDraft._id,
         idempotencyKey,
         serviceCode: payload.serviceCode,
-        requestSnapshot: input.response?.requestSnapshot ?? requestSnapshot,
-        // Persisted the moment the carrier answers, before any of the checks
-        // below can fail. Losing the carrier's own reply is what previously left
-        // an accepted booking with no AWB and no way to reconcile it.
-        responseSnapshot: input.responseSnapshot ?? input.response?.rawResponse ?? {},
-        dpdShipmentId: input.response?.dpdShipmentId ?? "",
-        dpdTransactionId: input.response?.dpdTransactionId ?? "",
-        forwardingNumber: input.response?.forwardingNumber ?? "",
-        entryNumber: input.response?.entryNumber ?? "",
-        parcelNumbers: input.response?.parcelNumbers ?? [],
+        requestSnapshot,
+        responseSnapshot: input.responseSnapshot ?? {},
+        dpdShipmentId: "",
+        dpdTransactionId: "",
+        forwardingNumber: "",
+        entryNumber: "",
+        parcelNumbers: [],
         swiftlineTrackingNumber: input.trackingNumber,
-        bookingProvider,
-        providerMode: configuration.mode,
         paymentSource: paymentContext.paymentSource ?? "BUSINESS_ACCOUNT",
-        shippingEnvironment: getShippingEnvironment(configuration.mode),
         status: input.status
       },
       { returnDocument: "after", upsert: true, runValidators: true, setDefaultsOnInsert: true }
@@ -570,77 +470,16 @@ export async function createLabelForShipmentDraft(
       await markShipmentBookingChargeConsuming(lockedDraft._id as mongoose.Types.ObjectId);
     }
 
-    let response: DpdCreateShipmentResponse;
-    const dpdLabelBuffers: Array<{ parcelNumber: string; buffer: Buffer; format: LabelFormat }> = [];
-
-    if (bookingProvider === "SWIFTLINE") {
-      response = {
-        dpdShipmentId: "",
-        dpdTransactionId: "",
-        forwardingNumber: "",
-        entryNumber: "",
-        parcelNumbers: [],
-        labels: [],
-        requestSnapshot,
-        rawResponse: { mode: "SWIFTLINE", notice: "Internal Swiftline shipment" }
-      };
-    } else if (configuration.mode === "SIMULATED") {
-      const parcelNumbers = payload.parcels.map((_, index) => simulatedParcelNumber(trackingNumber, index));
-      response = {
-        dpdShipmentId: `TEST-${trackingNumber}`,
-        dpdTransactionId: `SIM-${trackingNumber}`,
-        forwardingNumber: "",
-        entryNumber: `TEST-${trackingNumber}`,
-        parcelNumbers,
-        labels: [],
-        requestSnapshot,
-        rawResponse: {
-          mode: "SIMULATED",
-          notice: "TEST - NOT FOR CARRIAGE",
-          parcelNumbers
-        }
-      };
-    } else {
-      response = await createDpdShipment(
-        configuration,
-        lockedDraft,
-        trackingNumber,
-        generatedAt
-      );
-      // A successful carrier response may represent a real booking even if the
-      // local adapter cannot finish parsing it. Such responses require review.
-      providerAccepted = true;
-      if (!response.dpdShipmentId) {
-        throw new DpdApiError("DPD accepted the request but did not return a shipment number.", 502, response.rawResponse);
-      }
-      for (const label of response.labels) {
-        dpdLabelBuffers.push({
-          parcelNumber: label.parcelNumber,
-          buffer: label.content,
-          format: label.format
-        });
-      }
-    }
-
-    providerAccepted = true;
-
-    // The carrier has answered, so the booking becomes durable here — carrying
-    // its shipment number, parcel numbers and raw reply — before any of the
-    // checks below can fail. Recording it only after those checks is what
-    // previously discarded an accepted booking's AWB and left it unreconcilable.
-    const booking = await recordCarrierOutcome({
+    // The booking becomes durable here, before any of the work below can fail,
+    // so a shipment that has consumed an AWB and a customer's money always has a
+    // record to reconcile against.
+    const booking = await recordBookingOutcome({
       status: "DPD_CREATED",
       trackingNumber,
-      response
+      responseSnapshot: { notice: "Internal Swiftline shipment" }
     });
     dpdShipment = booking;
-
-    if (bookingProvider === "DPD" && (
-      response.parcelNumbers.length !== payload.parcels.length
-      || new Set(response.parcelNumbers).size !== payload.parcels.length
-    )) {
-      throw new Error("CARRIER_PARCEL_SET_INCOMPLETE");
-    }
+    bookingRecorded = true;
 
     const bookingSnapshot = buildShipmentBookingSnapshot({
       draft: lockedDraft,
@@ -650,46 +489,12 @@ export async function createLabelForShipmentDraft(
       serviceCode: payload.serviceCode,
       bookedAt: generatedAt,
       swiftlineTrackingNumber: trackingNumber,
-      carrierShipmentId: response.dpdShipmentId,
-      carrierTransactionId: response.dpdTransactionId,
-      carrierParcelNumbers: response.parcelNumbers,
-      providerMode: configuration.mode,
+      carrierShipmentId: "",
+      carrierTransactionId: "",
+      carrierParcelNumbers: [],
       advanceAmountMinor,
       creditAmountMinor
     });
-
-    if (bookingProvider === "DPD" && configuration.mode === "SIMULATED") {
-      for (let index = 0; index < bookingSnapshot.parcels.length; index += 1) {
-        const labelData = bookingSnapshotToLabelData(bookingSnapshot, index, "DPD");
-        dpdLabelBuffers.push({
-          parcelNumber: labelData.parcelNumber,
-          buffer: await renderSimulatedDpdLabelPdf(labelData),
-          format: "PDF"
-        });
-      }
-    }
-
-    const dpdLabelsByParcelNumber = new Map(dpdLabelBuffers.map((label) => [label.parcelNumber, label]));
-    const orderedDpdLabelBuffers = bookingProvider !== "DPD"
-      ? []
-      : configuration.mode === "LIVE"
-        ? dpdLabelBuffers
-        : response.parcelNumbers.map((parcelNumber) => dpdLabelsByParcelNumber.get(parcelNumber));
-    if (bookingProvider === "DPD" && (
-      !dpdLabelBuffers.length
-      || !isCompleteDpdLabelSet({
-        bookingProvider,
-        providerMode: configuration.mode,
-        parcelCount: payload.parcels.length,
-        labelCount: dpdLabelBuffers.length
-      })
-      // A repeated parcel number would silently overwrite one parcel's label
-      // with another's when they are stored.
-      || dpdLabelsByParcelNumber.size !== dpdLabelBuffers.length
-      || orderedDpdLabelBuffers.some((label) => !label)
-    )) {
-      throw new Error("CARRIER_LABEL_SET_INCOMPLETE");
-    }
 
     booking.bookingSnapshot = bookingSnapshot;
     booking.currentShipmentSnapshot = bookingSnapshot;
@@ -697,34 +502,17 @@ export async function createLabelForShipmentDraft(
     await booking.save();
 
     const labels = [];
-    for (const item of orderedDpdLabelBuffers) {
-      if (!item) continue;
-      const label = await storeGeneratedLabel({
-        dpdShipmentId: booking._id as mongoose.Types.ObjectId,
-        parcelNumber: item.parcelNumber,
-        labelType: "DPD",
-        providerMode: configuration.mode,
-        buffer: item.buffer,
-        format: item.format
-      });
-      if (label) labels.push(label);
-    }
-
     for (let index = 0; index < payload.parcels.length; index += 1) {
-      const labelData = bookingSnapshotToLabelData(bookingSnapshot, index, "SWIFTLINE");
+      const labelData = bookingSnapshotToLabelData(bookingSnapshot, index);
       const label = await storeGeneratedLabel({
         dpdShipmentId: booking._id as mongoose.Types.ObjectId,
         parcelNumber: labelData.parcelNumber,
-        labelType: "SWIFTLINE",
-        providerMode: configuration.mode,
         buffer: await renderSwiftlineLabelPdf(labelData)
       });
       if (label) labels.push(label);
     }
 
-    const dpdLabelCount = labels.filter((label) => label.labelType === "DPD").length;
-    const swiftlineLabelCount = labels.filter((label) => label.labelType === "SWIFTLINE").length;
-    if (dpdLabelCount !== dpdLabelBuffers.length || swiftlineLabelCount !== payload.parcels.length) {
+    if (!isCompleteLabelSet({ parcelCount: payload.parcels.length, labelCount: labels.length })) {
       throw new Error("SHIPMENT_LABEL_SET_INCOMPLETE");
     }
 
@@ -737,13 +525,9 @@ export async function createLabelForShipmentDraft(
       "DPD_SHIPMENT",
       userId,
       {
-        dpdShipmentId: response.dpdShipmentId,
-        parcelNumbers: response.parcelNumbers,
-        providerMode: configuration.mode,
-        bookingProvider,
         swiftlineTrackingNumber: trackingNumber,
-        dpdLabelCount,
-        swiftlineLabelCount
+        parcelNumbers: bookingSnapshot.parcels.map((parcel) => parcel.swiftlineParcelNumber),
+        labelCount: labels.length
       }
     );
 
@@ -785,51 +569,12 @@ export async function createLabelForShipmentDraft(
       reused: false
     };
   } catch (error) {
-    // The request left for the carrier and its fate is unknown, so a booking
-    // record has to exist even though none was created above: the shipment may
-    // be live at the carrier and the money must stay held until someone checks.
-    if (error instanceof DpdTimeoutError) {
-      const booking = dpdShipment ?? await recordCarrierOutcome({
-        status: "DPD_STATUS_UNKNOWN",
-        trackingNumber,
-        responseSnapshot: { message: error.message }
-      });
-      booking.status = "DPD_STATUS_UNKNOWN";
-      booking.responseSnapshot = { ...booking.responseSnapshot, message: error.message };
-      await booking.save();
-
-      await writeDpdAuditLog(
-        "DPD_REQUEST_FAILED",
-        booking._id as mongoose.Types.ObjectId,
-        "DPD_SHIPMENT",
-        userId,
-        { status: "DPD_STATUS_UNKNOWN", message: error.message }
-      );
-
-      if (usesBusinessAccountBilling) {
-        await markShipmentBookingChargeReviewRequired({
-          shipmentDraftId: lockedDraft._id as mongoose.Types.ObjectId,
-          dpdShipmentId: booking._id as mongoose.Types.ObjectId,
-          createdBy: userId
-        });
-      }
-
-      await transitionShipmentDraftBooking({
-        shipmentDraftId: lockedDraft._id as mongoose.Types.ObjectId,
-        bookingAttemptId,
-        bookingState: "REVIEW_REQUIRED"
-      });
-
-      throw new DpdShipmentServiceError(error.message, 409);
-    }
-
-    // The carrier accepted but something local failed afterwards. The booking is
-    // real, so it is kept for reconciliation and the funds stay reserved.
-    if (providerAccepted && dpdShipment) {
+    // The booking record exists but something after it failed. The shipment is
+    // real and has consumed its AWB, so the record is kept for reconciliation and
+    // the funds stay reserved rather than being silently released.
+    if (bookingRecorded && dpdShipment) {
       const booking = dpdShipment;
-      const message = bookingProvider === "DPD"
-        ? "The carrier booking succeeded, but its invoice or labels could not be finalized. Do not submit the shipment again; contact Swiftline Operations."
-        : "The shipment was created, but its invoice or Swiftline labels could not be finalized. Do not submit it again; contact Swiftline Operations.";
+      const message = "The shipment was created, but its invoice or labels could not be finalized. Do not submit it again; contact Swiftline Operations.";
       booking.status = "DPD_CREATED";
       booking.responseSnapshot = {
         ...booking.responseSnapshot,
@@ -842,7 +587,7 @@ export async function createLabelForShipmentDraft(
         booking._id as mongoose.Types.ObjectId,
         "DPD_SHIPMENT",
         userId,
-        { status: "DPD_CREATED", providerAccepted: true, message }
+        { status: "DPD_CREATED", message }
       );
 
       if (usesBusinessAccountBilling) {
@@ -862,17 +607,10 @@ export async function createLabelForShipmentDraft(
       throw new DpdShipmentServiceError(message, 409);
     }
 
-    // The carrier refused the shipment. Nothing was ever created for it, so the
-    // rejection leaves no booking record, no invoice and no labels — only this
-    // audit row against the draft, which returns to being editable.
-    const message = error instanceof DpdApiError
-      ? error.message
-      : bookingProvider === "DPD"
-        ? "DPD is temporarily unavailable."
-        : "The Swiftline shipment could not be created.";
-    const carrierErrors = error instanceof DpdApiError
-      ? readCarrierErrors(error.providerResponse)
-      : [];
+    // The booking failed before any record was created, so it leaves no booking
+    // record, no invoice and no labels behind — only this audit row against the
+    // draft, which returns to being editable.
+    const message = "The shipment could not be created.";
 
     await writeDpdAuditLog(
       "DPD_REQUEST_FAILED",
@@ -882,8 +620,7 @@ export async function createLabelForShipmentDraft(
       {
         status: "DPD_REJECTED",
         message,
-        carrierErrors,
-        providerResponse: error instanceof DpdApiError ? error.providerResponse : { message },
+        reason: error instanceof Error ? error.message : String(error),
         swiftlineTrackingNumber: trackingNumber
       }
     );
@@ -901,12 +638,7 @@ export async function createLabelForShipmentDraft(
       bookingState: "EDITABLE"
     });
 
-    throw new DpdShipmentServiceError(
-      message,
-      error instanceof DpdApiError ? error.statusCode : 502,
-      {},
-      carrierErrors
-    );
+    throw new DpdShipmentServiceError(message, 502);
   }
 }
 
@@ -921,7 +653,10 @@ export async function reconcileShipmentDocuments(
   const dpdShipment = await DpdShipment.findById(dpdShipmentId).exec();
   if (!dpdShipment) throw new DpdShipmentServiceError("Shipment booking not found.", 404);
   if (dpdShipment.status === "LABEL_RECEIVED") {
-    const labels = await LabelDocument.find({ dpdShipmentId: dpdShipment._id }).exec();
+    const labels = await LabelDocument.find({
+      dpdShipmentId: dpdShipment._id,
+      labelType: "SWIFTLINE"
+    }).exec();
     const shipmentInvoice = await ensureShipmentInvoiceForDraft({
       shipmentDraftId: dpdShipment.shipmentDraftId,
       dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
@@ -931,7 +666,7 @@ export async function reconcileShipmentDocuments(
   }
   if (dpdShipment.status !== "DPD_CREATED") {
     throw new DpdShipmentServiceError(
-      "This booking cannot be finalized until its carrier outcome is confirmed.",
+      "This booking cannot be finalized until its outcome is confirmed.",
       409
     );
   }
@@ -940,58 +675,29 @@ export async function reconcileShipmentDocuments(
     ?? readShipmentBookingSnapshot(dpdShipment.bookingSnapshot);
   if (!snapshot) {
     throw new DpdShipmentServiceError(
-      "The accepted carrier booking is missing its locked shipment snapshot. Contact technical support before taking further action.",
+      "This booking is missing its locked shipment snapshot. Contact technical support before taking further action.",
       409
     );
   }
 
-  const existingLabels = await LabelDocument.find({ dpdShipmentId: dpdShipment._id }).exec();
+  const existingLabels = await LabelDocument.find({
+    dpdShipmentId: dpdShipment._id,
+    labelType: "SWIFTLINE"
+  }).exec();
   const expectedLabelVersion = dpdShipment.snapshotRevision || 1;
-  const requiresDpdLabels = dpdShipment.bookingProvider !== "SWIFTLINE";
-  const hasLiveCombinedDpdLabel = existingLabels.some((label) => (
-    label.labelType === "DPD"
-    && label.labelVersion === expectedLabelVersion
-  ));
-
-  if (requiresDpdLabels && dpdShipment.providerMode === "LIVE" && !hasLiveCombinedDpdLabel) {
-    throw new DpdShipmentServiceError(
-      "The live ALS booking is missing its combined carrier label. Retrieve it from ALS before completing reconciliation.",
-      409
-    );
-  }
 
   for (let index = 0; index < snapshot.parcels.length; index += 1) {
-    const carrierParcelNumber = snapshot.parcels[index]?.carrierParcelNumber ?? "";
     const swiftlineParcelNumber = snapshot.parcels[index]?.swiftlineParcelNumber ?? "";
-    const hasDpdLabel = existingLabels.some((label) => (
-      label.labelType === "DPD"
-      && label.parcelNumber === carrierParcelNumber
-      && label.labelVersion === expectedLabelVersion
-    ));
-    const hasSwiftlineLabel = existingLabels.some((label) => (
-      label.labelType === "SWIFTLINE"
-      && label.parcelNumber === swiftlineParcelNumber
+    const hasLabel = existingLabels.some((label) => (
+      label.parcelNumber === swiftlineParcelNumber
       && label.labelVersion === expectedLabelVersion
     ));
 
-    if (requiresDpdLabels && dpdShipment.providerMode === "SIMULATED" && !hasDpdLabel) {
-      const labelData = bookingSnapshotToLabelData(snapshot, index, "DPD");
+    if (!hasLabel) {
+      const labelData = bookingSnapshotToLabelData(snapshot, index);
       await storeGeneratedLabel({
         dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
         parcelNumber: labelData.parcelNumber,
-        labelType: "DPD",
-        providerMode: dpdShipment.providerMode,
-        buffer: await renderSimulatedDpdLabelPdf(labelData)
-      });
-    }
-
-    if (!hasSwiftlineLabel) {
-      const labelData = bookingSnapshotToLabelData(snapshot, index, "SWIFTLINE");
-      await storeGeneratedLabel({
-        dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
-        parcelNumber: labelData.parcelNumber,
-        labelType: "SWIFTLINE",
-        providerMode: dpdShipment.providerMode,
         buffer: await renderSwiftlineLabelPdf(labelData)
       });
     }
@@ -999,17 +705,10 @@ export async function reconcileShipmentDocuments(
 
   const labels = await LabelDocument.find({
     dpdShipmentId: dpdShipment._id,
+    labelType: "SWIFTLINE",
     labelVersion: expectedLabelVersion
   }).exec();
-  const dpdLabelCount = labels.filter((label) => label.labelType === "DPD").length;
-  const swiftlineLabelCount = labels.filter((label) => label.labelType === "SWIFTLINE").length;
-  const completeDpdLabelSet = isCompleteDpdLabelSet({
-    bookingProvider: dpdShipment.bookingProvider,
-    providerMode: dpdShipment.providerMode,
-    parcelCount: snapshot.parcels.length,
-    labelCount: dpdLabelCount
-  });
-  if (!completeDpdLabelSet || swiftlineLabelCount !== snapshot.parcels.length) {
+  if (!isCompleteLabelSet({ parcelCount: snapshot.parcels.length, labelCount: labels.length })) {
     throw new DpdShipmentServiceError("The complete parcel label set could not be finalized.", 409);
   }
 
@@ -1036,59 +735,44 @@ export async function reconcileShipmentDocuments(
     dpdShipment._id as mongoose.Types.ObjectId,
     "DPD_SHIPMENT",
     userId,
-    { reconciled: true, dpdLabelCount, swiftlineLabelCount }
+    { reconciled: true, labelCount: labels.length }
   );
 
   return { dpdShipment, labels, shipmentInvoice, reused: false };
 }
 
-export async function regenerateSimulatedShipmentLabels(
+/**
+ * Re-renders every parcel label from the current shipment snapshot.
+ *
+ * Used after an amendment changes what a label must say. Labels are versioned
+ * rather than overwritten, so the copy already sent to a client stays retrievable.
+ */
+export async function regenerateShipmentLabels(
   dpdShipmentId: mongoose.Types.ObjectId,
   userId: mongoose.Types.ObjectId
 ) {
   const dpdShipment = await DpdShipment.findById(dpdShipmentId).exec();
   if (!dpdShipment) throw new DpdShipmentServiceError("Shipment booking not found.", 404);
-  if (dpdShipment.providerMode !== "SIMULATED") {
-    throw new DpdShipmentServiceError(
-      "Live DPD shipment changes require carrier confirmation before labels can be replaced.",
-      409
-    );
-  }
 
   const snapshot = readShipmentBookingSnapshot(dpdShipment.currentShipmentSnapshot)
     ?? readShipmentBookingSnapshot(dpdShipment.bookingSnapshot);
   if (!snapshot) throw new DpdShipmentServiceError("The current shipment snapshot is unavailable.", 409);
 
   for (let index = 0; index < snapshot.parcels.length; index += 1) {
-    const swiftlineLabelData = bookingSnapshotToLabelData(snapshot, index, "SWIFTLINE");
-    if (dpdShipment.bookingProvider !== "SWIFTLINE") {
-      const dpdLabelData = bookingSnapshotToLabelData(snapshot, index, "DPD");
-      await storeGeneratedLabel({
-        dpdShipmentId,
-        parcelNumber: dpdLabelData.parcelNumber,
-        labelType: "DPD",
-        providerMode: "SIMULATED",
-        buffer: await renderSimulatedDpdLabelPdf(dpdLabelData)
-      });
-    }
+    const labelData = bookingSnapshotToLabelData(snapshot, index);
     await storeGeneratedLabel({
       dpdShipmentId,
-      parcelNumber: swiftlineLabelData.parcelNumber,
-      labelType: "SWIFTLINE",
-      providerMode: "SIMULATED",
-      buffer: await renderSwiftlineLabelPdf(swiftlineLabelData)
+      parcelNumber: labelData.parcelNumber,
+      buffer: await renderSwiftlineLabelPdf(labelData)
     });
   }
 
   const labels = await LabelDocument.find({
     dpdShipmentId,
+    labelType: "SWIFTLINE",
     labelVersion: dpdShipment.snapshotRevision || 1
   }).exec();
-  const expectedDpdLabelCount = dpdShipment.bookingProvider === "SWIFTLINE" ? 0 : snapshot.parcels.length;
-  if (
-    labels.filter((label) => label.labelType === "DPD").length !== expectedDpdLabelCount
-    || labels.filter((label) => label.labelType === "SWIFTLINE").length !== snapshot.parcels.length
-  ) {
+  if (!isCompleteLabelSet({ parcelCount: snapshot.parcels.length, labelCount: labels.length })) {
     throw new DpdShipmentServiceError("The amended parcel label set could not be finalized.", 409);
   }
 
@@ -1107,7 +791,7 @@ export async function regenerateSimulatedShipmentLabels(
   return labels;
 }
 
-export async function resetSimulatedBookingForDevelopment(
+export async function resetBookingForDevelopment(
   shipmentDraftId: string,
   userId: mongoose.Types.ObjectId
 ) {
@@ -1136,10 +820,9 @@ export async function resetSimulatedBookingForDevelopment(
     return null;
   }
   const labelCount = await LabelDocument.countDocuments({ dpdShipmentId: dpdShipment._id }).exec();
-  const carrierAccepted = Boolean(dpdShipment.dpdShipmentId || dpdShipment.parcelNumbers.length || labelCount);
-  if (dpdShipment.providerMode !== "SIMULATED" || carrierAccepted || dpdShipment.status === "LABEL_RECEIVED") {
+  if (labelCount || dpdShipment.status === "LABEL_RECEIVED") {
     throw new DpdShipmentServiceError(
-      "This booking cannot be reset because carrier or label data already exists.",
+      "This booking cannot be reset because label data already exists.",
       409
     );
   }
