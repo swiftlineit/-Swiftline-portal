@@ -39,6 +39,7 @@ import {
   formatShipmentEventLabel
 } from "../services/shipmentStatusSequence.service.js";
 import {
+  DpdLabelUnavailableError,
   DpdShipmentServiceError,
   createLabelForShipmentDraft,
   reconcileShipmentDocuments,
@@ -77,7 +78,10 @@ const updateShipmentStatusSchema = z.object({
 // Optional: booking paths that were never quoted through the estimator have no
 // accepted price to check against.
 const acceptedPricingSchema = z.object({
-  acceptedPricingHash: z.string().trim().min(1).max(128).optional()
+  acceptedPricingHash: z.string().trim().min(1).max(128).optional(),
+  // Set only after the booker has been shown a DPD failure and chosen to go
+  // ahead without the carrier label. Never defaulted true.
+  skipDpdLabel: z.boolean().optional()
 });
 
 function getAuthenticatedUserId(request: Request): mongoose.Types.ObjectId | null {
@@ -486,7 +490,8 @@ export async function createShipment(
     const result = await createLabelForShipmentDraft(shipmentDraftId, userId, {
       actor: "admin",
       paymentSource: isIndividual ? "ADMIN_DIRECT" : "BUSINESS_ACCOUNT",
-      acceptedPricingHash: acceptedPricing.success ? acceptedPricing.data.acceptedPricingHash : undefined
+      acceptedPricingHash: acceptedPricing.success ? acceptedPricing.data.acceptedPricingHash : undefined,
+      skipDpdLabel: acceptedPricing.success ? acceptedPricing.data.skipDpdLabel : undefined
     });
 
     if (isIndividual && collection.success) {
@@ -536,6 +541,18 @@ export async function createShipment(
         message: error.message,
         pricing: error.currentPricing,
         pricingHash: buildPricingHash(error.currentPricing)
+      });
+    }
+
+    // Nothing was booked, so the form can offer to continue without the
+    // carrier label. Staff see the carrier's own wording; the client route
+    // deliberately does not.
+    if (error instanceof DpdLabelUnavailableError) {
+      return response.status(error.statusCode).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+        ...(error.carrierErrors.length ? { carrierErrors: error.carrierErrors } : {})
       });
     }
 
@@ -676,12 +693,11 @@ export async function listDpdShipments(request: Request, response: Response): Pr
       { swiftlineTrackingNumber: exact },
       { parcelNumbers: exact }
     ];
-    const matchingSwiftlineShipmentIds = await LabelDocument.find({
+    const matchingLabelShipmentIds = await LabelDocument.find({
       parcelNumber: exact,
-      labelType: "SWIFTLINE",
       voidedAt: null
     }).distinct("dpdShipmentId").exec();
-    if (matchingSwiftlineShipmentIds.length) trackingFilters.push({ _id: { $in: matchingSwiftlineShipmentIds } });
+    if (matchingLabelShipmentIds.length) trackingFilters.push({ _id: { $in: matchingLabelShipmentIds } });
     filters.$or = trackingFilters;
   }
 
@@ -1070,10 +1086,13 @@ export async function downloadDpdLabel(request: Request, response: Response): Pr
   }
 
   const labelId = typeof request.query.labelId === "string" ? request.query.labelId : "";
+  // Without an explicit id this falls back to the Swiftline label, which every
+  // shipment has; a DPD label is fetched by passing its id.
   const label = await LabelDocument.findOne({
     dpdShipmentId: new mongoose.Types.ObjectId(dpdShipmentId),
-    labelType: "SWIFTLINE",
-    ...(mongoose.Types.ObjectId.isValid(labelId) ? { _id: new mongoose.Types.ObjectId(labelId) } : {})
+    ...(mongoose.Types.ObjectId.isValid(labelId)
+      ? { _id: new mongoose.Types.ObjectId(labelId) }
+      : { labelType: "SWIFTLINE" })
   }).exec();
   if (!label) return response.status(404).json({ success: false, message: "Label not found" });
 

@@ -2,7 +2,7 @@ import { apiUrl } from "@/lib/api";
 import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
-import { toPriceChangedError } from "@/lib/shipmentCostEstimate";
+import { toDpdLabelUnavailableError, toPriceChangedError } from "@/lib/shipmentCostEstimate";
 import type { TrackingAttention, TrackingSummary } from "@/lib/shipmentTracking";
 
 export type ShipmentAddress = {
@@ -429,7 +429,7 @@ export type DpdShipmentHistoryItem = {
     id: string;
     dpdShipmentId: string;
     parcelNumber: string;
-    labelType: "SWIFTLINE";
+    labelType: "SWIFTLINE" | "DPD";
     format: string;
     labelSize: string;
     fileChecksum: string;
@@ -809,9 +809,10 @@ export type CounterPaymentInput = {
 export async function createShipment(
   shipmentDraftId: string,
   counterPayment?: CounterPaymentInput,
-  acceptedPricingHash?: string
+  acceptedPricingHash?: string,
+  skipDpdLabel?: boolean
 ) {
-  const body = { ...(counterPayment ?? {}), ...(acceptedPricingHash ? { acceptedPricingHash } : {}) };
+  const body = { ...(counterPayment ?? {}), ...(acceptedPricingHash ? { acceptedPricingHash } : {}), ...(skipDpdLabel ? { skipDpdLabel } : {}) };
   const response = await fetchWithAuth(apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/create-shipment`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -821,10 +822,16 @@ export async function createShipment(
   // A refusal because the price moved carries the new breakdown, so it is raised
   // as a typed error the booking page can render as a comparison rather than as
   // an opaque message.
-  if (response.status === 409) {
+  // Read on any refusal, not just 409: a DPD failure carries 503 when the
+  // integration is misconfigured or its credentials are rejected, 400 when the
+  // shipment cannot be expressed, and 409 when the carrier declines it. All
+  // three mean the same thing here- nothing was booked.
+  if (!response.ok) {
     const data = await response.clone().json().catch(() => ({}));
     const priceChanged = toPriceChangedError(data);
     if (priceChanged) throw priceChanged;
+    const dpdUnavailable = toDpdLabelUnavailableError(data);
+    if (dpdUnavailable) throw dpdUnavailable;
   }
 
   return parseApiResponse<{
@@ -845,7 +852,7 @@ export async function createShipment(
     labels: Array<{
       id: string;
       parcelNumber: string;
-      labelType: "SWIFTLINE";
+      labelType: "SWIFTLINE" | "DPD";
       format: string;
       labelSize: string;
       generatedAt: string;
@@ -899,7 +906,7 @@ export async function getDpdLabelAccessUrl(
     label: {
       id: string;
       parcelNumber: string;
-      labelType: "SWIFTLINE";
+      labelType: "SWIFTLINE" | "DPD";
       format: string;
       labelSize: string;
       generatedAt: string;

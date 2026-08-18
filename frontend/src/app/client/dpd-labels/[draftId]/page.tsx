@@ -85,6 +85,7 @@ import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import ShipmentCostEstimatePanel from "@/components/shipments/ShipmentCostEstimatePanel";
 import ShipmentPriceChangeDialog from "@/components/shipments/ShipmentPriceChangeDialog";
 import {
+  DpdLabelUnavailableError,
   ShipmentPriceChangedError,
   maxBoxWeightIssue,
   type ShipmentCostEstimateInput
@@ -95,7 +96,7 @@ import { getAddressBookEntry, type AddressBookEntry, type AddressBookEntryType }
 
 /** The booking-panel action currently running; the two booking values are the
  *  provider each button books with. Null when the page is idle. */
-type PendingAction = "BOOKING" | "DRAFT" | "ADDRESS" | null;
+type PendingAction = "BOOKING" | "BOOKING_NO_DPD" | "DRAFT" | "ADDRESS" | null;
 const parcelRenderStyle = { contentVisibility: "auto", containIntrinsicSize: "auto 360px" } as const;
 type AddressForm = {
   countryCode: string;
@@ -391,6 +392,13 @@ export default function ClientDpdDraftReviewPage() {
   // locks while any of them runs- booking is irreversible, so a second click
   // anywhere must not land- but only the one that was clicked shows progress.
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  /**
+   * The DPD label failure currently being offered a way past.
+   *
+   * Set only when the server confirmed nothing was booked, which is what makes
+   * it safe to show a button that books without the carrier label.
+   */
+  const [dpdLabelError, setDpdLabelError] = useState("");
   const busy = pendingAction !== null;
   const [addressBusy, setAddressBusy] = useState(false);
   const [error, setError] = useState("");
@@ -954,7 +962,9 @@ export default function ClientDpdDraftReviewPage() {
 
   async function handleCreateLabel(
     // Supplied when re-booking after the customer accepted a changed price.
-    acceptedPricingHash = costEstimate?.pricingHash
+    acceptedPricingHash = costEstimate?.pricingHash,
+    // Set by the fallback button only, after DPD has already refused once.
+    skipDpdLabel = false
   ) {
     if (!draft) return;
 
@@ -1005,7 +1015,10 @@ export default function ClientDpdDraftReviewPage() {
       return;
     }
 
-    setPendingAction("BOOKING");
+    setPendingAction(skipDpdLabel ? "BOOKING_NO_DPD" : "BOOKING");
+    // A new attempt supersedes the previous failure, so the fallback hides
+    // until this one has also been refused.
+    setDpdLabelError("");
     setError("");
     setNotice("");
     setReviewIssues([]);
@@ -1027,7 +1040,7 @@ export default function ClientDpdDraftReviewPage() {
         }
       }
 
-      const result = await createClientShipment(currentDraft._id, acceptedPricingHash);
+      const result = await createClientShipment(currentDraft._id, acceptedPricingHash, skipDpdLabel);
       setPriceChange(null);
       setNotice(result.reused ? "Existing shipment label found for this draft." : "Shipment request created.");
       toast.success(result.reused ? "Existing booked shipment opened." : "Shipment booked successfully.");
@@ -1037,6 +1050,19 @@ export default function ClientDpdDraftReviewPage() {
       // to accept the new price explicitly before this can be retried.
       if (caughtError instanceof ShipmentPriceChangedError) {
         setPriceChange(caughtError);
+        return;
+      }
+
+      // Nothing was booked: no charge, no invoice, no tracking number consumed.
+      // Surfacing it here is what reveals the option to go ahead without the
+      // carrier label, which is safe precisely because nothing exists yet.
+      if (caughtError instanceof DpdLabelUnavailableError) {
+        const detail = caughtError.carrierErrors.length
+          ? `${caughtError.message} ${caughtError.carrierErrors.join(" ")}`
+          : caughtError.message;
+        setDpdLabelError(detail);
+        setError(detail);
+        toast.error(detail);
         return;
       }
 
@@ -1412,6 +1438,20 @@ export default function ClientDpdDraftReviewPage() {
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
                   {pendingAction === "BOOKING" ? "Processing..." : "Create Shipment"}
                 </button>
+                {/* Offered only after DPD has refused, because only then is it certain
+                    nothing was booked. Booking without the carrier label is a decision
+                    someone has to take deliberately. */}
+                {dpdLabelError ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateLabel(undefined, true)}
+                    disabled={busy}
+                    className="mt-2 inline-flex h-10 w-full rounded-xl items-center justify-center gap-2 border border-amber-500 bg-amber-50 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                  >
+                    {/* <FiTruck aria-hidden="true" className="h-4 w-4" /> */}
+                    {pendingAction === "BOOKING_NO_DPD" ? "Processing..." : "Create Shipment Without DPD Label"}
+                  </button>
+                ) : null}
                 {/* Sits with the booking action rather than in its own bar: this
                     is where the customer already looks to finish the shipment, and
                     saving for later is the alternative to booking it now. */}

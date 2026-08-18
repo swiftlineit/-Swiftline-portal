@@ -169,7 +169,7 @@ function shippingLabelPipeline(scope: SuccessfulClientScope) {
   const destination = destinationExpression("$draft");
   const awb = trackingExpression("$booking", "$draft");
   return [
-    { $match: { voidedAt: null, labelType: "SWIFTLINE" } },
+    { $match: { voidedAt: null } },
     {
       $lookup: {
         from: DpdShipment.collection.name,
@@ -186,7 +186,9 @@ function shippingLabelPipeline(scope: SuccessfulClientScope) {
       $project: {
         _id: { $concat: ["SHIPPING_LABEL:", { $toString: "$_id" }] },
         documentType: { $literal: "SHIPPING_LABEL" },
-        title: { $literal: "Swiftline Shipping Label" },
+        title: {
+          $concat: [{ $cond: [{ $eq: ["$labelType", "DPD"] }, "DPD", "Swiftline"] }, " Shipping Label"]
+        },
         reference: "$parcelNumber",
         awb,
         awbCount: { $literal: 1 },

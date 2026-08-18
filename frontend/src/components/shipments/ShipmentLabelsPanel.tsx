@@ -6,12 +6,23 @@ import { FiDownload, FiEye, FiPrinter } from "react-icons/fi";
 export type ShipmentLabelItem = {
   id: string;
   parcelNumber: string;
-  labelType: "SWIFTLINE";
+  labelType: "SWIFTLINE" | "DPD";
   format: string;
   labelSize: string;
 };
 
 type LabelAction = "view" | "download" | "print";
+
+/**
+ * What this label is, in the terms the person printing it uses.
+ *
+ * A DPD label is the carrier document the parcel travels on and covers the
+ * whole shipment; the Swiftline label is one per box. Naming them apart is what
+ * stops someone affixing the wrong one.
+ */
+function labelTitle(label: ShipmentLabelItem) {
+  return label.labelType === "DPD" ? "DPD Carrier Label" : "Swiftline Label";
+}
 
 export function ShipmentLabelsPanel({
   labels,
@@ -74,8 +85,8 @@ export function ShipmentLabelsPanel({
     <section className="border border-slate-200 bg-white rounded-2xl">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-950">Swiftline Labels</h2>
-          <p className="mt-1 text-sm text-slate-600">View, download, or print one label per parcel.</p>
+          <h2 className="text-base font-semibold text-slate-950">Shipment Labels</h2>
+          <p className="mt-1 text-sm text-slate-600">View, download, or print the labels for this shipment.</p>
         </div>
       </div>
 
@@ -87,7 +98,7 @@ export function ShipmentLabelsPanel({
             <div key={label.id} className="p-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold text-slate-950">Swiftline Label</h3>
+                  <h3 className="font-semibold text-slate-950">{labelTitle(label)}</h3>
                   <span className="text-xs font-medium text-slate-500">{label.format} </span>
                 </div>
                 <p className="mt-1 break-all text-sm font-medium text-slate-700">{label.parcelNumber}</p>
@@ -115,7 +126,7 @@ export function ShipmentLabelsPanel({
               {labels.map((label) => (
                 <tr key={label.id}>
                   <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-950">Swiftline Label</p>
+                    <p className="font-semibold text-slate-950">{labelTitle(label)}</p>
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-800">{label.parcelNumber}</td>
                   <td className="px-4 py-3 text-slate-600">{label.format} {label.labelSize}</td>

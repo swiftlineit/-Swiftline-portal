@@ -2,8 +2,11 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiSearch } from "react-icons/fi";
-import { isTrackingReference, normalizeTrackingNumber } from "@/lib/publicTracking";
+import { FiArrowRight, FiSearch } from "react-icons/fi";
+import {
+  isTrackingReference,
+  normalizeTrackingNumber,
+} from "@/lib/publicTracking";
 
 /**
  * The search box on the public tracker.
@@ -32,19 +35,25 @@ export default function PublicTrackingForm({
     event.preventDefault();
 
     const trackingNumber = normalizeTrackingNumber(value);
+
     if (!trackingNumber) {
       setError("Enter the tracking number printed on your shipment label.");
       return;
     }
+
     if (!isTrackingReference(trackingNumber)) {
-      setError("That does not look like a tracking number. Enter it exactly as printed on your label.");
+      setError(
+        "That does not look like a tracking number. Enter it exactly as printed on your label.",
+      );
       return;
     }
 
     setError("");
+
     // Left true deliberately: the spinner state ends when the new route paints,
     // which also stops a double submit while the server renders the result.
     setSubmitting(true);
+
     router.push(`/track/${encodeURIComponent(trackingNumber)}`);
   }
 
@@ -55,10 +64,12 @@ export default function PublicTrackingForm({
           <label htmlFor="tracking-number" className="sr-only">
             Tracking number
           </label>
+
           <FiSearch
             aria-hidden="true"
             className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
           />
+
           <input
             id="tracking-number"
             name="trackingNumber"
@@ -87,14 +98,29 @@ export default function PublicTrackingForm({
         <button
           type="submit"
           disabled={submitting}
-          className="inline-flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#0D1282] px-6 text-sm font-semibold text-white transition hover:bg-[#0a0e68] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30 disabled:cursor-not-allowed disabled:bg-slate-400 sm:h-14 sm:px-8 sm:text-base"
+          className="group inline-flex h-12 shrink-0 items-center justify-center gap-2.5 rounded-xl bg-[#0D1282] px-6 text-sm font-semibold text-white transition hover:bg-[#0a0e68] focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30 disabled:cursor-not-allowed disabled:bg-slate-400 sm:h-14 sm:px-8 sm:text-base"
         >
-          {submitting ? "Searching…" : "Track"}
+          {submitting ? (
+            "Searching…"
+          ) : (
+            <>
+              <span>Track</span>
+
+              <FiArrowRight
+                aria-hidden="true"
+                className="h-4 w-4 text-[#d71920] transition-transform duration-200 group-hover:translate-x-0.5 sm:h-[18px] sm:w-[18px]"
+              />
+            </>
+          )}
         </button>
       </div>
 
       {error ? (
-        <p id="tracking-number-error" role="alert" className="mt-2.5 text-sm font-medium text-red-600">
+        <p
+          id="tracking-number-error"
+          role="alert"
+          className="mt-2.5 text-sm text-start font-medium text-red-600"
+        >
           {error}
         </p>
       ) : null}

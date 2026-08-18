@@ -100,6 +100,23 @@ const environmentSchema = z.object({
   RECAPTCHA_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.5),
   // Verifies a login email's domain exists (DNS MX/A lookup) before accepting it.
   // Disable only in environments without outbound DNS.
+  // ALS (Trackmate+ by ITD Services) is the carrier behind the DPD label. Labels
+  // are only requested for United Kingdom destinations; every other route ships
+  // on Swiftline labels alone and never touches these settings.
+  //
+  // ALS_ENABLED is the master switch. With it off the portal books exactly as it
+  // does today, which is what makes this feature safe to deploy dark.
+  ALS_ENABLED: booleanFromEnv.default(false),
+  ALS_API_BASE_URL: z.string().url().optional(),
+  ALS_COMPANY_ID: z.coerce.number().int().positive().optional(),
+  ALS_API_EMAIL: z.string().email().optional(),
+  ALS_API_PASSWORD: z.string().min(1).optional(),
+  // Confirmed against a live booking: the spec PDF example (D3) is not rated for
+  // this account and returns "Freight amount is 0".
+  ALS_SERVICE_CODE: z.string().trim().min(1).default("DPD UK NEXTDAY"),
+  // Portal values are held in INR; ALS declares customs value in GBP.
+  ALS_INR_PER_GBP: z.coerce.number().positive().optional(),
+  ALS_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   EMAIL_DOMAIN_CHECK: booleanFromEnv.default(true)
 }).superRefine((value, context) => {
   // Fail at boot rather than on the first upload: a missing bucket would

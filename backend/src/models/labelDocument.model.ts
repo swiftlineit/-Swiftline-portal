@@ -5,10 +5,11 @@ export const labelSizeValues = ["A4", "A6"] as const;
 
 export type LabelFormat = (typeof labelFormatValues)[number];
 export type LabelSize = (typeof labelSizeValues)[number];
-// Swiftline prints the only label. Rows written before that carry a legacy
-// "DPD" value; every query filters on SWIFTLINE so they never surface, and
-// nothing rewrites them.
-export const labelTypeValues = ["SWIFTLINE"] as const;
+// Every parcel gets a SWIFTLINE label. A DPD label is added only for United
+// Kingdom destinations, where ALS books the shipment into the DPD network — see
+// services/als. Queries that mean "the label on the box" must say so explicitly
+// rather than taking the first row for a parcel.
+export const labelTypeValues = ["SWIFTLINE", "DPD"] as const;
 export type LabelType = (typeof labelTypeValues)[number];
 
 export interface ILabelDocument extends mongoose.Document {

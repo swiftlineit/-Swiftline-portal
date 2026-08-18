@@ -48,6 +48,7 @@ import { serializeKycDocuments } from "./shipmentKyc.controller.js";
 import { downloadShipmentInvoicePdf, getShipmentInvoice } from "./shipmentInvoice.controller.js";
 import { buildStoredLabelAccess } from "./dpdShipment.controller.js";
 import {
+  DpdLabelUnavailableError,
   DpdShipmentServiceError,
   createLabelForShipmentDraft
 } from "../services/dpdShipment.service.js";
@@ -1256,7 +1257,10 @@ export async function downloadClientCustomsInvoiceWorkbook(request: Request, res
 
 // The price the customer accepted, as returned by the cost estimate endpoint.
 const clientAcceptedPricingSchema = z.object({
-  acceptedPricingHash: z.string().trim().min(1).max(128).optional()
+  acceptedPricingHash: z.string().trim().min(1).max(128).optional(),
+  // Set only after the booker has been shown a DPD failure and chosen to go
+  // ahead without the carrier label. Never defaulted true.
+  skipDpdLabel: z.boolean().optional()
 });
 
 export async function createClientShipment(
@@ -1282,7 +1286,8 @@ export async function createClientShipment(
       {
         actor: "client",
         paymentSource: "BUSINESS_ACCOUNT",
-        acceptedPricingHash: acceptedPricing.success ? acceptedPricing.data.acceptedPricingHash : undefined
+        acceptedPricingHash: acceptedPricing.success ? acceptedPricing.data.acceptedPricingHash : undefined,
+        skipDpdLabel: acceptedPricing.success ? acceptedPricing.data.skipDpdLabel : undefined
       }
     );
     await ensureClientShipmentBookedEvent({
@@ -1321,6 +1326,16 @@ export async function createClientShipment(
         message: error.message,
         pricing: error.currentPricing,
         pricingHash: buildPricingHash(error.currentPricing)
+      });
+    }
+
+    // Nothing was booked, so the form can offer to continue without the
+    // carrier label. The carrier's own wording is withheld from a customer.
+    if (error instanceof DpdLabelUnavailableError) {
+      return response.status(error.statusCode).json({
+        success: false,
+        code: error.code,
+        message: error.message
       });
     }
 

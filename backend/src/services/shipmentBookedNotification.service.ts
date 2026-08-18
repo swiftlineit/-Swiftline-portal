@@ -72,9 +72,11 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       BusinessAccount.findById(draft.businessAccountId).select("company.companyName").lean().exec(),
       Branch.findById(draft.branchId).select("name").lean().exec(),
       User.findById(input.bookedBy).select("name firstName lastName").lean().exec(),
-      LabelDocument.find({ dpdShipmentId: dpdShipment._id, labelType: "SWIFTLINE", voidedAt: null })
-        .select("_id parcelNumber format")
-        .sort({ parcelNumber: 1 })
+      LabelDocument.find({ dpdShipmentId: dpdShipment._id, voidedAt: null })
+        .select("_id labelType parcelNumber format")
+        // labelType descending puts SWIFTLINE after DPD, which is the order the
+        // attachments are wanted in — see the size-budget note below.
+        .sort({ labelType: -1, parcelNumber: 1 })
         .lean()
         .exec()
     ]);
@@ -95,13 +97,14 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
 
     const labelAttachment = (label: {
       _id: mongoose.Types.ObjectId;
+      labelType?: string;
       parcelNumber: string;
       format: string;
     }): IEmailAttachmentRef => ({
       kind: "LABEL_DOCUMENT",
       refId: label._id,
       revision: null,
-      filename: `Swiftline-Label-${label.parcelNumber}.${label.format.toLowerCase()}`
+      filename: `${label.labelType === "DPD" ? "DPD" : "Swiftline"}-Label-${label.parcelNumber}.${label.format.toLowerCase()}`
     });
 
     // Client and staff receive the same documents: the label is what the parcel
@@ -109,6 +112,9 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
     // over. The invoice leads the list so that if the size budget runs out it is
     // labels that get dropped, never the document needed for accounts.
     const attachments = [invoiceAttachment, ...labels.map(labelAttachment)];
+    // Drives the wording in the booked email: a UK shipment travels on the DPD
+    // label, so the message must not tell the customer to affix only ours.
+    const hasDpdLabel = labels.some((label) => label.labelType === "DPD");
 
     const trackingNumber = payload.trackingNumber || String(draft._id);
     const idempotencyKey = `SHIPMENT_BOOKED:${String(dpdShipment._id)}`;
@@ -129,7 +135,7 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       },
       email: {
         templateKey: "SHIPMENT_BOOKED_CLIENT",
-        payload,
+        payload: { ...payload, hasDpdLabel },
         attachmentRefs: attachments
       }
     });
@@ -150,7 +156,7 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       },
       email: {
         templateKey: "SHIPMENT_BOOKED_STAFF",
-        payload,
+        payload: { ...payload, hasDpdLabel },
         attachmentRefs: attachments
       }
     });

@@ -287,7 +287,11 @@ describe("Swiftline tracking sequence", () => {
 
     const result = await createLabelForShipmentDraft(String(draft._id), userId, {
       actor: "admin",
-      paymentSource: "TEST"
+      paymentSource: "TEST",
+      // Never call the carrier from a test: ALS has no sandbox, so a booking
+      // here would be a real, chargeable DPD consignment. The carrier path is
+      // covered against stubbed responses in alsLabel.test.ts.
+      skipDpdLabel: true
     });
 
     result.labels.forEach((label) => generatedKeys.add(label.storageKey));
@@ -406,7 +410,11 @@ describe("Swiftline tracking sequence", () => {
 
     const first = await createLabelForShipmentDraft(String(draft._id), userId, {
       actor: "admin",
-      paymentSource: "TEST"
+      paymentSource: "TEST",
+      // Never call the carrier from a test: ALS has no sandbox, so a booking
+      // here would be a real, chargeable DPD consignment. The carrier path is
+      // covered against stubbed responses in alsLabel.test.ts.
+      skipDpdLabel: true
     });
     first.labels.forEach((label) => generatedKeys.add(label.storageKey));
     assert.equal(first.reused, false);
@@ -444,7 +452,11 @@ describe("Swiftline tracking sequence", () => {
 
     const second = await createLabelForShipmentDraft(String(draft._id), userId, {
       actor: "admin",
-      paymentSource: "TEST"
+      paymentSource: "TEST",
+      // Never call the carrier from a test: ALS has no sandbox, so a booking
+      // here would be a real, chargeable DPD consignment. The carrier path is
+      // covered against stubbed responses in alsLabel.test.ts.
+      skipDpdLabel: true
     });
     assert.equal(second.reused, true);
     assert.equal(String(second.dpdShipment._id), String(first.dpdShipment._id));
@@ -477,7 +489,11 @@ describe("Swiftline tracking sequence", () => {
     });
     const swiftlineOnly = await createLabelForShipmentDraft(String(swiftlineDraft._id), userId, {
       actor: "admin",
-      paymentSource: "TEST"
+      paymentSource: "TEST",
+      // Never call the carrier from a test: ALS has no sandbox, so a booking
+      // here would be a real, chargeable DPD consignment. The carrier path is
+      // covered against stubbed responses in alsLabel.test.ts.
+      skipDpdLabel: true
     });
     swiftlineOnly.labels.forEach((label) => generatedKeys.add(label.storageKey));
     // No carrier is called, so the booking carries no carrier identifiers.
@@ -489,7 +505,11 @@ describe("Swiftline tracking sequence", () => {
 
     const swiftlineReuse = await createLabelForShipmentDraft(String(swiftlineDraft._id), userId, {
       actor: "admin",
-      paymentSource: "TEST"
+      paymentSource: "TEST",
+      // Never call the carrier from a test: ALS has no sandbox, so a booking
+      // here would be a real, chargeable DPD consignment. The carrier path is
+      // covered against stubbed responses in alsLabel.test.ts.
+      skipDpdLabel: true
     });
     assert.equal(swiftlineReuse.reused, true);
     assert.equal(swiftlineReuse.labels.length, 2);

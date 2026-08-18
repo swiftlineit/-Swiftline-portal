@@ -235,6 +235,37 @@ export async function fetchShipmentCostEstimate(
  * Returns null for every other outcome, so callers keep their existing error
  * handling for anything that is not a price change.
  */
+/**
+ * The DPD label could not be created and the shipment was not booked.
+ *
+ * Distinct from a generic failure because the booking form responds to it by
+ * offering to continue without the carrier label, which is only safe because
+ * nothing was created.
+ */
+export class DpdLabelUnavailableError extends Error {
+  constructor(message: string, public readonly carrierErrors: string[] = []) {
+    super(message);
+    this.name = "DpdLabelUnavailableError";
+  }
+}
+
+export function toDpdLabelUnavailableError(data: {
+  code?: string;
+  message?: string;
+  carrierErrors?: unknown;
+}): DpdLabelUnavailableError | null {
+  if (data.code !== "DPD_LABEL_FAILED") return null;
+
+  const carrierErrors = Array.isArray(data.carrierErrors)
+    ? data.carrierErrors.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+  return new DpdLabelUnavailableError(
+    data.message || "The DPD label could not be created. Nothing has been booked.",
+    carrierErrors
+  );
+}
+
 export function toPriceChangedError(data: {
   code?: string;
   message?: string;

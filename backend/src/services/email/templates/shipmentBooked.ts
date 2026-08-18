@@ -42,6 +42,7 @@ export function shipmentBookedClientTemplate(context: EmailTemplateContext): Ema
   const trackingNumber = asText(payload.trackingNumber, "");
   const parcelCount = asNumber(payload.parcelCount);
   const labelsAttached = Boolean(payload.labelsAttached);
+  const hasDpdLabel = Boolean(payload.hasDpdLabel);
   const invoiceLabel = payload.taxTreatment === "NO_GST" ? "invoice" : "tax invoice";
 
   return {
@@ -61,11 +62,13 @@ export function shipmentBookedClientTemplate(context: EmailTemplateContext): Ema
       ...(labelsAttached
         ? [{
           kind: "paragraph" as const,
-          text: "Your Swiftline shipping labels are attached. Print one label per parcel and affix it before handover."
+          text: hasDpdLabel
+            ? "Your shipping labels are attached: the DPD carrier label the parcel travels on, and a Swiftline label for each box. Print and affix both before handover."
+            : "Your Swiftline shipping labels are attached. Print one label per parcel and affix it before handover."
         }]
         : [{
           kind: "paragraph" as const,
-          text: "Your Swiftline shipping labels are ready to download from the portal. Print one label per parcel and affix it before handover."
+          text: "Your shipping labels are ready to download from the portal. Print one label per parcel and affix it before handover."
         }]),
       { kind: "button", label: "View shipment", url: toAbsoluteUrl(appUrl, asText(payload.href, "/client/shipments")) },
       // "View shipment" needs a session, so it is only useful to the account

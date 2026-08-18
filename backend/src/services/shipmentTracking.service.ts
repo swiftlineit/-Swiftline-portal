@@ -43,9 +43,9 @@ export async function resolveShipmentByTrackingNumber(
     DpdShipment.findOne({
       $or: [{ dpdShipmentId: exact }, { swiftlineTrackingNumber: exact }, { parcelNumbers: exact }]
     }).select("shipmentDraftId").lean().exec(),
+    // Either label's number resolves: a consignee reads whichever is on the box.
     LabelDocument.findOne({
       parcelNumber: exact,
-      labelType: "SWIFTLINE",
       voidedAt: null
     }).select("dpdShipmentId").lean().exec()
   ]);

@@ -1,6 +1,6 @@
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
-import { toPriceChangedError } from "@/lib/shipmentCostEstimate";
+import { toDpdLabelUnavailableError, toPriceChangedError } from "@/lib/shipmentCostEstimate";
 import type { TrackingAttention, TrackingSummary } from "@/lib/shipmentTracking";
 import {
   AddressPrediction,
@@ -232,7 +232,7 @@ export type ClientShipmentDetails = {
     id: string;
     dpdShipmentId: string;
     parcelNumber: string;
-    labelType: "SWIFTLINE";
+    labelType: "SWIFTLINE" | "DPD";
     format: string;
     labelSize: string;
     fileChecksum: string;
@@ -521,21 +521,28 @@ export async function updateClientShipmentDraft(shipmentDraftId: string, patch: 
 
 export async function createClientShipment(
   shipmentDraftId: string,
-  acceptedPricingHash?: string
+  acceptedPricingHash?: string,
+  skipDpdLabel?: boolean
 ) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/client/dpd-labels/drafts/${shipmentDraftId}/create-shipment`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(acceptedPricingHash ? { acceptedPricingHash } : {})
+    body: JSON.stringify({ ...(acceptedPricingHash ? { acceptedPricingHash } : {}), ...(skipDpdLabel ? { skipDpdLabel } : {}) })
   });
 
   // A refusal because the price moved carries the new breakdown, so it is raised
   // as a typed error the booking page can render as a comparison rather than as
   // an opaque message.
-  if (response.status === 409) {
+  // Read on any refusal, not just 409: a DPD failure carries 503 when the
+  // integration is misconfigured or its credentials are rejected, 400 when the
+  // shipment cannot be expressed, and 409 when the carrier declines it. All
+  // three mean the same thing here- nothing was booked.
+  if (!response.ok) {
     const data = await response.clone().json().catch(() => ({}));
     const priceChanged = toPriceChangedError(data);
     if (priceChanged) throw priceChanged;
+    const dpdUnavailable = toDpdLabelUnavailableError(data);
+    if (dpdUnavailable) throw dpdUnavailable;
   }
 
   return parseApiResponse<{
@@ -551,7 +558,7 @@ export async function createClientShipment(
     labels: Array<{
       id: string;
       parcelNumber: string;
-      labelType: "SWIFTLINE";
+      labelType: "SWIFTLINE" | "DPD";
       format: string;
       labelSize: string;
     }>;

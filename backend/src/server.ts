@@ -4,6 +4,7 @@ import { app } from "./app.js";
 import { connectDatabase } from "./config/database.js";
 import { ensureAdminSeeded } from "./config/admin.js";
 import { env } from "./config/env.js";
+import { isAlsEnabled, readAlsConfiguration } from "./services/als/alsClient.service.js";
 
 // Production defaulting to the SMTP driver would quietly send client mail
 // through whatever relay is left in the environment, with no bounce handling and
@@ -25,6 +26,25 @@ function warnOnMailMisconfiguration(): void {
   }
 }
 
+/**
+ * States plainly whether United Kingdom shipments will get a DPD label.
+ *
+ * Printed at boot because these settings are read once from the environment: a
+ * .env edited after startup has no effect, and without this line the only way
+ * to find out is to book a shipment and read the failure.
+ */
+function reportDpdLabelling() {
+  if (!isAlsEnabled()) {
+    console.log("DPD labelling: OFF (ALS_ENABLED is not true) — UK bookings will ask before continuing without a carrier label.");
+    return;
+  }
+
+  const settings = readAlsConfiguration();
+  console.log(settings.ok
+    ? "DPD labelling: ON — UK shipments will be booked with ALS and carry a DPD label."
+    : `DPD labelling: ON but UNUSABLE — missing ${settings.missing.join(", ")}.`);
+}
+
 async function bootstrap(): Promise<void> {
   await connectDatabase();
   await ensureAdminSeeded();
@@ -35,6 +55,7 @@ async function bootstrap(): Promise<void> {
     console.log(
       `Health check: http://localhost:${env.PORT}/api/v1/health`
     );
+    reportDpdLabelling();
   });
 
   const shutdown = async (signal: string): Promise<void> => {
