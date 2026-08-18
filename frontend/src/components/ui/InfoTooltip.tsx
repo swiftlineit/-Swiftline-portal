@@ -25,7 +25,7 @@ const arrowClasses = {
  * Opens three ways so it works on every device: hover and keyboard focus are
  * handled in CSS (`group-hover` / `group-focus-within`), while a tap toggles
  * `open`. Touch devices fire focus *and* click from one tap, so the tap path
- * deliberately keeps its own state instead of toggling on focus — otherwise the
+ * deliberately keeps its own state instead of toggling on focus- otherwise the
  * click would immediately close what the focus just opened.
  */
 export default function InfoTooltip({
@@ -44,7 +44,7 @@ export default function InfoTooltip({
    * Keeps the bubble on screen.
    *
    * Centred on its icon it would hang off a narrow viewport whenever the icon
-   * sits near an edge — which happens on a phone as soon as a label is even
+   * sits near an edge- which happens on a phone as soon as a label is even
    * moderately long. Measured on hover and on tap rather than in an effect, so
    * the position is already correct on the first paint that shows it.
    */

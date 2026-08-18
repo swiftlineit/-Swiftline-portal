@@ -64,7 +64,7 @@ export type RateCardSelection = {
 
 /**
  * Reads the live rate card and freezes the selection into share rows. Called
- * once, at share time — nothing here re-reads the rate card afterwards, which is
+ * once, at share time- nothing here re-reads the rate card afterwards, which is
  * what makes the share immutable.
  */
 export async function buildRateCardSnapshot(

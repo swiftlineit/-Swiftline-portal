@@ -20,7 +20,7 @@ export type EmailTemplate = (context: EmailTemplateContext) => EmailContent;
 /**
  * Renders any notification that has no bespoke template. A portal notification
  * already carries a title, a message and a deep link, which is exactly enough
- * for a correct, on-brand email — so every existing notification type gets
+ * for a correct, on-brand email- so every existing notification type gets
  * usable mail without 34 hand-written files, and a bespoke template is only
  * written where the email needs more than the in-app card shows.
  */

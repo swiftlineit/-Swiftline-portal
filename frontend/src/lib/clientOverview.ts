@@ -60,7 +60,7 @@ export type ClientOverviewSummary = {
   actionRequired: number;
   openClaims: number;
   openTickets: number;
-  /** Null when this member may not see balances — never a misleading zero. */
+  /** Null when this member may not see balances- never a misleading zero. */
   outstandingBalanceMinor: number | null;
   availableCreditMinor: number | null;
 };
@@ -121,7 +121,7 @@ export async function listClientActions(input: { businessAccountId: string; bran
 
 /** Paise to rupees, the way every other money figure in the portal is shown. */
 export function formatMinor(amountMinor: number | null) {
-  if (amountMinor === null) return "—";
+  if (amountMinor === null) return "-";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",

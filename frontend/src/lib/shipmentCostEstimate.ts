@@ -52,7 +52,7 @@ export type ShipmentEstimateParcel = {
  * Why a box is over the maximum box weight, in terms the person can act on.
  *
  * The limit is checked against chargeable weight, which for a large light box is
- * its volumetric weight — a 100 x 60 x 70 cm carton is 84 kg chargeable however
+ * its volumetric weight- a 100 x 60 x 70 cm carton is 84 kg chargeable however
  * little it weighs. Saying "box weight" there sends someone to re-weigh a 5 kg
  * parcel that was never the problem, so the message names the weight that
  * actually breached the limit and what to change.
@@ -203,7 +203,7 @@ function costEstimateUrl(shipmentDraftId: string, audience: ShipmentEstimateAudi
 /**
  * Prices the shipment as it currently stands and previews how it would be paid.
  *
- * Safe to call repeatedly — it reads and reserves nothing — so the booking form
+ * Safe to call repeatedly- it reads and reserves nothing- so the booking form
  * can re-price as the customer edits. Pass an `AbortSignal` so a superseded
  * request cannot land after a newer one and show a stale total.
  */

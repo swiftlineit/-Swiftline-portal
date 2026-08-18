@@ -3,7 +3,7 @@
 // which would create a circular dependency.
 
 // The declaration note starts empty: staff type whatever the shipment needs, and
-// nothing is printed unless they do. Never pre-fill it — an unedited default
+// nothing is printed unless they do. Never pre-fill it- an unedited default
 // would put a gift declaration on commercial shipments.
 export const defaultDeclarationNote = "";
 

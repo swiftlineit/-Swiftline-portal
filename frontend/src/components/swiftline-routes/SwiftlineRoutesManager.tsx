@@ -22,7 +22,7 @@ import {
 } from "@/lib/swiftlineRoutes";
 
 /**
- * Swiftline Routes — the lanes we operate, and the transit time each one quotes.
+ * Swiftline Routes- the lanes we operate, and the transit time each one quotes.
  *
  * The transit time entered here is what produces the Estimated Delivery date on
  * every shipment, the On Schedule / Delayed status, and the transit figure shown
@@ -100,7 +100,7 @@ function toRouteInput(form: FormState): SwiftlineRouteInput {
  * Transit stops are picked out from the endpoints, because the thing an
  * operator is scanning this column for is whether a lane goes direct or
  * through somewhere. There is deliberately no separate "Via GB" badge beside
- * it — the arrow already says that, and saying it twice is the repeated
+ * it- the arrow already says that, and saying it twice is the repeated
  * information the design brief asks us to avoid.
  */
 function RoutePath({ route }: { route: SwiftlineRoute }) {
@@ -529,7 +529,7 @@ export default function SwiftlineRoutesManager() {
 
         <div className="overflow-x-auto">
           {/* 620 rather than 720: the destination cell stacks its name above the
-              path now, so the table no longer needs the extra width — and at
+              path now, so the table no longer needs the extra width- and at
               720 the actions column fell off the edge of the slot beside the
               form, leaving Delete unreachable without scrolling. */}
           <table className="w-full min-w-155 text-sm">
@@ -575,7 +575,7 @@ export default function SwiftlineRoutesManager() {
                     </td>
                     <td className="px-4 py-3 text-slate-700">{formatCountryRateService(route.service)}</td>
                     <td className="px-4 py-3 text-slate-700 tabular-nums">{formatTransitTime(route)}</td>
-                    <td className="px-4 py-3 text-slate-700 tabular-nums">{route.cutOffTime || "—"}</td>
+                    <td className="px-4 py-3 text-slate-700 tabular-nums">{route.cutOffTime || "-"}</td>
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${

@@ -2,7 +2,7 @@
  * Proof of delivery as a PDF, one delivery per page.
  *
  * A merged document rather than a zip of original files: a POD is usually sent
- * on to somebody — a supplier, an insurer, a customer's own client — and one
+ * on to somebody- a supplier, an insurer, a customer's own client- and one
  * attachment they can open is worth more than a folder they have to unpack.
  * The signature and photographs are placed inline for the same reason.
  *
@@ -59,7 +59,7 @@ export async function buildPodPdf(pods: PodCentreRow[], accountLabel: string): P
          * Any failure to read one file is reported on the page, never thrown.
          *
          * Deliberately broader than StorageObjectNotFoundError, so that an
-         * unreadable file loses its own image and nothing else — throwing here
+         * unreadable file loses its own image and nothing else- throwing here
          * aborted the whole document on the first bad file, losing every other
          * POD in the batch along with it.
          */

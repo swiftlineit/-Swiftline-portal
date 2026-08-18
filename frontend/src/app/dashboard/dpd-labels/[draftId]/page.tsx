@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ChangeEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiChevronDown, FiExternalLink, FiMapPin, FiPackage, FiSave, FiSearch, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
-import { maxParcelDimensionsCm } from "@/lib/shipmentPricing";
+import { exceedsStandardParcelSize, standardParcelDimensionsLabel } from "@/lib/shipmentPricing";
 import { DashboardLoading } from "@/components/DashboardShell";
 import {
   ShipmentCsbTypeField,
@@ -249,17 +249,11 @@ function getReviewFormIssueDetail(
     } else if (!Number.isFinite(weightKg) || weightKg <= 0) {
       invalid.push(`${label}: weight must be greater than zero`);
     }
-    for (const [field, value, maximum] of [
-      ["length", parcel.lengthCm, maxParcelDimensionsCm.lengthCm],
-      ["width", parcel.widthCm, maxParcelDimensionsCm.widthCm],
-      ["height", parcel.heightCm, maxParcelDimensionsCm.heightCm]
-    ] as const) {
+    for (const [field, value] of [["length", parcel.lengthCm], ["width", parcel.widthCm], ["height", parcel.heightCm]]) {
       if (!value.trim()) {
         missing.push(`${label}: ${field} is required`);
       } else if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
         invalid.push(`${label}: ${field} must be greater than zero`);
-      } else if (Number(value) > maximum) {
-        invalid.push(`${label}: ${field} cannot exceed ${maximum} cm`);
       }
     }
     if (!parcel.shipmentContentType) missing.push(`${label}: shipment content type is required`);
@@ -425,8 +419,8 @@ export default function DpdLabelDraftPage() {
   const [addressQuery, setAddressQuery] = useState("");
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   // Which action is in flight, not merely whether one is. Every action button
-  // locks while any of them runs — booking is irreversible, so a second click
-  // anywhere must not land — but only the one that was clicked shows progress.
+  // locks while any of them runs- booking is irreversible, so a second click
+  // anywhere must not land- but only the one that was clicked shows progress.
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const busy = pendingAction !== null;
   const [addressBusy, setAddressBusy] = useState(false);
@@ -877,7 +871,7 @@ export default function DpdLabelDraftPage() {
   /**
    * Stores whatever the form currently holds.
    *
-   * Blank fields are kept as-is — that is the point of a draft, and booking
+   * Blank fields are kept as-is- that is the point of a draft, and booking
    * still refuses to proceed without them. Fields filled in wrongly are refused,
    * because a draft holding data the form rejects cannot be reopened cleanly.
    *
@@ -1449,9 +1443,16 @@ export default function DpdLabelDraftPage() {
                     </div>
                     <div className="grid gap-4 p-3 md:grid-cols-4">
                       <ShipmentTextField label="Actual Weight KG" required type="number" inputMode="decimal" max={costEstimate?.pricing.routeMaxBoxKg ?? undefined} value={parcel.weightKg} onChange={handleParcelFieldChange(index, "weightKg")} error={getParcelFieldIssue(index, ["weight"])} revealError={submitAttempted} />
-                      <ShipmentTextField label="Length CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.lengthCm} value={parcel.lengthCm} onChange={handleParcelFieldChange(index, "lengthCm")} error={getParcelFieldIssue(index, ["length"])} revealError={submitAttempted} />
-                      <ShipmentTextField label="Width CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.widthCm} value={parcel.widthCm} onChange={handleParcelFieldChange(index, "widthCm")} error={getParcelFieldIssue(index, ["width"])} revealError={submitAttempted} />
-                      <ShipmentTextField label="Height CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.heightCm} value={parcel.heightCm} onChange={handleParcelFieldChange(index, "heightCm")} error={getParcelFieldIssue(index, ["height"])} revealError={submitAttempted} />
+                      <ShipmentTextField label="Length CM" required type="number" inputMode="decimal" value={parcel.lengthCm} onChange={handleParcelFieldChange(index, "lengthCm")} error={getParcelFieldIssue(index, ["length"])} revealError={submitAttempted} />
+                      <ShipmentTextField label="Width CM" required type="number" inputMode="decimal" value={parcel.widthCm} onChange={handleParcelFieldChange(index, "widthCm")} error={getParcelFieldIssue(index, ["width"])} revealError={submitAttempted} />
+                      <ShipmentTextField label="Height CM" required type="number" inputMode="decimal" value={parcel.heightCm} onChange={handleParcelFieldChange(index, "heightCm")} error={getParcelFieldIssue(index, ["height"])} revealError={submitAttempted} />
+                      {/* Oversized parcels are accepted, not refused- the sender is told what
+                          it will cost before they commit. */}
+                      {exceedsStandardParcelSize(parcel) ? (
+                        <p className="md:col-span-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                          These dimensions exceed the standard parcel size of {standardParcelDimensionsLabel}. This box will be charged on its volumetric weight, so additional charges apply.
+                        </p>
+                      ) : null}
                       <ShipmentSelectField label="Content Type" required value={parcel.shipmentContentType} onChange={handleParcelFieldChange(index, "shipmentContentType")} error={getParcelFieldIssue(index, ["content type"])} revealError={submitAttempted}>
                           {shipmentContentTypeOptions.map((option) => (
                             <option key={option.value} value={option.value}>

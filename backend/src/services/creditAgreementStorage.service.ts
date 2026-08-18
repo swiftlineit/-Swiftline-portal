@@ -8,8 +8,8 @@ import {
 /**
  * Credit agreement PDFs.
  *
- * This module was already key-based before the S3 migration — it stored a
- * `storageKey` and resolved it through one function — so converting it meant
+ * This module was already key-based before the S3 migration- it stored a
+ * `storageKey` and resolved it through one function- so converting it meant
  * rewriting that function rather than changing what callers persist.
  *
  * The agreement number is deliberately not part of the key. A key's filename is

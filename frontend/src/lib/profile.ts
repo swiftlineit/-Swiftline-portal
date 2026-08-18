@@ -198,7 +198,7 @@ export const contactTitles = ["mr.", "mrs.", "ms.", "dr.", "prof."];
  * KEEP IN SYNC with portal/backend/src/controllers/profile.controller.ts
  */
 /**
- * A number is typed the way it reads — "+91 87450 63206" — and checked as
+ * A number is typed the way it reads- "+91 87450 63206"- and checked as
  * digits. Kept in step with `isValidProfilePhone` in profile.controller.ts, so
  * this cannot reject a value the server would have accepted, or the reverse.
  */

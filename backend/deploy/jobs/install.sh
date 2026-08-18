@@ -3,7 +3,7 @@
 # Installs the Swiftline scheduled jobs on an EC2 host.
 #
 # Idempotent: safe to re-run after a deploy or a path change. It only writes
-# configuration — it never starts a job, so installing it cannot itself move
+# configuration- it never starts a job, so installing it cannot itself move
 # money or send mail.
 #
 # Run as root:  sudo ./install.sh
@@ -43,7 +43,7 @@ fi
 if [ ! -r "${APP_DIR}/.env" ]; then
   # Every job reads its configuration from this file via dotenv. Without it they
   # would each fail at startup on a missing MONGODB_URI.
-  echo "No readable ${APP_DIR}/.env — the jobs cannot run without it." >&2
+  echo "No readable ${APP_DIR}/.env- the jobs cannot run without it." >&2
   exit 1
 fi
 
@@ -65,7 +65,7 @@ if [ -z "$NODE_BIN_DIR" ] || [ "$NODE_BIN_DIR" = "." ]; then
 fi
 
 cat >"$CONFIG_FILE" <<EOF
-# Written by deploy/jobs/install.sh — edit here, not in run-job.sh.
+# Written by deploy/jobs/install.sh- edit here, not in run-job.sh.
 SWIFTLINE_APP_DIR="${APP_DIR}"
 SWIFTLINE_LOG_DIR="${LOG_DIR}"
 SWIFTLINE_NODE_BIN_DIR="${NODE_BIN_DIR}"

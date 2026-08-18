@@ -23,7 +23,7 @@ export function passwordResetTemplate(context: EmailTemplateContext): EmailConte
       },
       {
         kind: "note",
-        text: "If you did not request a password reset you can ignore this email — your current password stays active."
+        text: "If you did not request a password reset you can ignore this email- your current password stays active."
       }
     ]
   };

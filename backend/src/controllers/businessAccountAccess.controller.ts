@@ -217,8 +217,8 @@ export type GrantClientAccessResult =
  * Creates a client login, its membership and its password invitation.
  *
  * Extracted from the HTTP handler so that approving a customer's access
- * request runs exactly these rules — the account and KYC gate, the global
- * identity check, the invitation email — rather than a second implementation
+ * request runs exactly these rules- the account and KYC gate, the global
+ * identity check, the invitation email- rather than a second implementation
  * of who is allowed to sign in to Swiftline. Both callers are thin wrappers.
  *
  * Returns a result rather than writing a response, because one caller answers

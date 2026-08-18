@@ -3,7 +3,7 @@
  *
  * Those indexes are partial and skip rejected accounts, so this applies exactly
  * the same filter. MongoDB refuses to build a unique index over a collection
- * that already contains duplicates, and the failure surfaces at startup — so
+ * that already contains duplicates, and the failure surfaces at startup- so
  * run this and clear anything it reports before deploying.
  *
  *   npm run check:duplicate-accounts

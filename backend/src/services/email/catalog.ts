@@ -8,7 +8,7 @@ type CatalogEntry = {
 
 /**
  * Every notification type that should also go out by email, with the policy
- * that governs it. A type absent from this map is in-app only — that absence is
+ * that governs it. A type absent from this map is in-app only- that absence is
  * the switch for adding email to an event, so new notification types stay
  * silent by default rather than surprising clients.
  *
@@ -88,7 +88,7 @@ const catalog: Record<string, CatalogEntry> = {
   // Client-facing claim mail is TRANSACTIONAL throughout: a claim is a money
   // matter with deadlines attached, and a client who unsubscribed from operational
   // mail must still be told their evidence is missing or their appeal window is
-  // closing. Staff-facing claim mail is OPERATIONAL — it is queue management.
+  // closing. Staff-facing claim mail is OPERATIONAL- it is queue management.
   CLAIM_SUBMITTED: { category: "TRANSACTIONAL", priority: 80 },
   CLAIM_DOCUMENTS_REQUIRED: { category: "TRANSACTIONAL", priority: 80 },
   CLAIM_DOCUMENT_REJECTED: { category: "TRANSACTIONAL", priority: 80 },

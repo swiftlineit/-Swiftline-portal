@@ -84,7 +84,7 @@ export async function getClientCreditSummary(request: Request, response: Respons
    * Overdue and next-due live on statements, and the last payment on the
    * payment ledger, so a billing summary that only read the credit account
    * could show a limit and a balance but never answer "how much is late" or
-   * "when is the next bill due" — the two questions a finance user opens this
+   * "when is the next bill due"- the two questions a finance user opens this
    * page to ask. Only fetched for a caller allowed to see balances.
    */
   const billing = canViewBalances

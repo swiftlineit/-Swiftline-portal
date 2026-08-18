@@ -151,7 +151,7 @@ export function renderEmail(content: EmailContent, footerNote: string) {
     "",
     ...content.blocks.map(renderBlockText),
     "",
-    "—",
+    "-",
     footerNote
   ].join("\n\n").replace(/\n{3,}/g, "\n\n");
 

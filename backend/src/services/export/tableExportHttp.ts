@@ -6,7 +6,7 @@
  *
  * Exports are served from the same controller as the table they export, not
  * from a parallel endpoint. Every list in this portal decides what a login is
- * allowed to see — which accounts, which branches — before it queries anything,
+ * allowed to see- which accounts, which branches- before it queries anything,
  * and a second endpoint reimplementing that is how one of them ends up subtly
  * more generous than the other. Sharing the controller makes the export scope
  * wrong only if the table is already wrong.

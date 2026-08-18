@@ -44,7 +44,7 @@ export function matchesDeclaredType(buffer: Buffer, mimeType: string) {
 }
 
 /**
- * True when the bytes are a PDF, JPEG, or PNG — the set every KYC and staff
+ * True when the bytes are a PDF, JPEG, or PNG- the set every KYC and staff
  * document field accepts, regardless of which of the three was declared.
  *
  * Deliberately looser than `matchesDeclaredType`: a browser mislabelling a JPEG

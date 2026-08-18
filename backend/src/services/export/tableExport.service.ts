@@ -34,7 +34,7 @@ export type ExportColumn<Row> = {
 };
 
 export type TableExportInput<Row> = {
-  /** Sheet name and PDF heading. Keep it short — Excel caps sheet names at 31. */
+  /** Sheet name and PDF heading. Keep it short- Excel caps sheet names at 31. */
   title: string;
   columns: Array<ExportColumn<Row>>;
   rows: Row[];
@@ -127,8 +127,8 @@ export async function buildTableWorkbook<Row>(input: TableExportInput<Row>): Pro
  * Nothing is clipped. Cells wrap and rows grow to fit, and when there are more
  * columns than a landscape page can hold legibly, the table is split into
  * bands: the first eight-or-so columns for every row, then the next set, and
- * so on. Each band after the first repeats the leading column — usually the
- * AWB or reference — so a reader can line the bands back up.
+ * so on. Each band after the first repeats the leading column- usually the
+ * AWB or reference- so a reader can line the bands back up.
  *
  * The alternative, squeezing twenty-three columns into one page, gives each
  * about thirty points of width and truncates every value in the file. A wide
@@ -200,7 +200,7 @@ export function buildTablePdf<Row>(input: TableExportInput<Row>): Promise<Buffer
      * pdfkit advances `document.y` on every `text()` call, so writing a row
      * cell by cell would move the cursor once per column. Every cell is drawn
      * against a captured top instead, and the cursor is set explicitly
-     * afterwards — without this a six-column table paginates six times too fast.
+     * afterwards- without this a six-column table paginates six times too fast.
      */
     function drawCells(values: string[], widths: number[], top: number, height: number) {
       let x = left;
@@ -258,7 +258,7 @@ export function buildTablePdf<Row>(input: TableExportInput<Row>): Promise<Buffer
         // Named, so a reader knows this is the same table continued rather
         // than a second one.
         document.fillColor("#64748B").fontSize(9).font("Helvetica-Bold")
-          .text(`${input.title} — columns continued (${bandIndex + 1} of ${bands.length})`, left, document.y);
+          .text(`${input.title}- columns continued (${bandIndex + 1} of ${bands.length})`, left, document.y);
         document.font("Helvetica").moveDown(0.4);
       }
 
@@ -284,7 +284,7 @@ export function buildTablePdf<Row>(input: TableExportInput<Row>): Promise<Buffer
 
     // Page numbers, added after layout so the total is known. The footer sits
     // inside the bottom margin, and pdfkit starts a new page for anything drawn
-    // past it — so the margin is dropped for the stamp and put back after,
+    // past it- so the margin is dropped for the stamp and put back after,
     // otherwise every export gains a trailing blank page.
     const range = document.bufferedPageRange();
     for (let page = range.start; page < range.start + range.count; page += 1) {

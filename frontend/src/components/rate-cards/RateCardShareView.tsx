@@ -65,7 +65,7 @@ export default function RateCardShareView({
           <Metric
             icon={<FiTrendingDown />}
             label="Starting from"
-            value={lowestRate ? `${formatRate(lowestRate, share.currency)} / kg` : "—"}
+            value={lowestRate ? `${formatRate(lowestRate, share.currency)} / kg` : "-"}
           />
           <Metric icon={<FiCalendar />} label="Valid until" value={formatShareDate(share.terms.validUntil)} /> 
           <Metric icon={<FiInfo />} label="Reference" value={share.shareNumber} />
@@ -271,7 +271,7 @@ function ValidityBanner({
       <div>
         <p className="text-sm font-semibold">{headline}</p>
         <p className="mt-0.5 text-xs">
-          Valid {formatShareDate(validFrom)} — {formatShareDate(validUntil)}
+          Valid {formatShareDate(validFrom)}- {formatShareDate(validUntil)}
           {expired ? ". Please contact your Swiftline representative for the latest rates." : ""}
         </p>
       </div>
@@ -281,7 +281,7 @@ function ValidityBanner({
 
 function TermsSection({ share }: { share: RateCardShare }) {
   // A zeroed term is one that was never set, so it is left out rather than
-  // printed as "0%" — which a customer would read as a commitment.
+  // printed as "0%"- which a customer would read as a commitment.
   const terms = [
     { label: "Currency", value: `${share.currency} per kilogram` },
     share.terms.fuelSurchargePercent > 0

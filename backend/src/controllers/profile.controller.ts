@@ -31,7 +31,7 @@ import {
 const accountEditorRoles = new Set(["account_owner", "account_admin"]);
 
 /**
- * People type a number the way they read it — "+91 87450 63206" — while it is
+ * People type a number the way they read it- "+91 87450 63206"- while it is
  * stored and compared as digits. Separators are dropped before the length is
  * counted so the same number cannot be valid on the staff form, which already
  * accepts them, and invalid here. Mirrored in the frontend's validateProfileUser.
@@ -308,7 +308,7 @@ export async function updateProfileDetails(request: Request, response: Response)
   }
 
   // A login is one identity across staff, drivers and clients, so this looks at
-  // every user rather than only at staff — the same check the staff and driver
+  // every user rather than only at staff- the same check the staff and driver
   // paths already make. Editing your own record must not be the way a number
   // already in use gets taken over. A blank number is skipped: "not provided"
   // is not a value that can collide.

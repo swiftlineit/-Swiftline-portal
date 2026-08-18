@@ -203,7 +203,7 @@ export function ClientExceptionsPage() {
                 return (
                   <tr key={item.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
                     <td className="px-4 py-3">
-                      <span className="font-semibold text-slate-900">{item.awb || "—"}</span>
+                      <span className="font-semibold text-slate-900">{item.awb || "-"}</span>
                       <span className={`mt-1 block w-fit rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${tone.chip}`}>
                         {item.label}
                       </span>

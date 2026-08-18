@@ -217,8 +217,8 @@ export async function drainEmailOutbox(limit = env.EMAIL_DRAIN_BATCH_SIZE) {
 /**
  * Sends one queued row immediately and reports what happened.
  *
- * Used by the flows a person is actively waiting on — an invitation or a
- * password reset — where "we queued it" is not a good enough answer for the
+ * Used by the flows a person is actively waiting on- an invitation or a
+ * password reset- where "we queued it" is not a good enough answer for the
  * admin staring at the screen. Everything else should go through the drain.
  */
 export async function flushOutboxRow(idempotencyKey: string) {

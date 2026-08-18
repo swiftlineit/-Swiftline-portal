@@ -62,7 +62,7 @@ function buildPayload(input: ShipmentBookedInput, context: {
  *
  * Delivery is best effort. The shipment, its labels and its invoice are already
  * persisted by the time this runs, so a notification failure must never
- * propagate — re-booking is precisely what must not happen here.
+ * propagate- re-booking is precisely what must not happen here.
  */
 export async function notifyShipmentBooked(input: ShipmentBookedInput) {
   const { draft, dpdShipment, shipmentInvoice } = input;

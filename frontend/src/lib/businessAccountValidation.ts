@@ -3,8 +3,8 @@
 // Pure on purpose: it takes the form data and reports the state of every field,
 // with no React, no side effects, and no opinion about when a message should be
 // shown. The wizard uses one call for three jobs that previously each had their
-// own copy of the rules — the live tick/warning on a field, the per-step gate,
-// and the submit gate — so the three can no longer disagree.
+// own copy of the rules- the live tick/warning on a field, the per-step gate,
+// and the submit gate- so the three can no longer disagree.
 //
 // Deciding *when* to paint a field red stays in the UI: this module reports that
 // an empty mandatory field is incomplete, and the form suppresses that until the
@@ -74,7 +74,7 @@ export function countryRequiresRegistrationId(country: string) {
   return !["Kuwait"].includes(country);
 }
 
-// Neither escape hatch — "no registration number" nor "no company" — applies to
+// Neither escape hatch- "no registration number" nor "no company"- applies to
 // the US. An individual with no company still holds an SSN or an ITIN, which is
 // precisely why those are offered as types, so there is no route to a US account
 // without a taxpayer ID.

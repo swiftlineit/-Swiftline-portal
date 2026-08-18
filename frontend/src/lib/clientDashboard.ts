@@ -165,7 +165,7 @@ export type ClientShipmentListItem = {
   bookingState: "EDITABLE" | "BOOKING" | "BOOKED" | "REVIEW_REQUIRED";
   /**
    * Whether to offer Delete on this row. Decided by the server, which also
-   * re-checks on the delete itself — so a true here is an invitation to try,
+   * re-checks on the delete itself- so a true here is an invitation to try,
    * not a guarantee the delete will succeed.
    */
   canDelete: boolean;

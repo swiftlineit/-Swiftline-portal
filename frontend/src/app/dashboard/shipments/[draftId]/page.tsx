@@ -22,6 +22,8 @@ import {
   ShipmentDraft,
   ShipmentOperationalStatus,
   createShipmentAmendment,
+  findMissingStatusPrerequisites,
+  firstAllowedOperationalStatus,
   getDpdLabelAccessUrl,
   getShipmentDraft,
   holdDpdShipment,
@@ -187,7 +189,7 @@ export default function AdminShipmentDetailsPage() {
   const [holdReason, setHoldReason] = useState<ShipmentHoldReason | "">("");
   const [nextStatus, setNextStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [actionNote, setActionNote] = useState("");
-  // Where this scan happened. Optional — an event without a location is still
+  // Where this scan happened. Optional- an event without a location is still
   // recorded, it just does not move the shipment's "current location".
   const [actionLocation, setActionLocation] = useState("");
   const [amendmentBusy, setAmendmentBusy] = useState(false);
@@ -204,6 +206,25 @@ export default function AdminShipmentDetailsPage() {
   );
   const isOnHold = history?.currentEvent?.status === "ON_HOLD";
   const cancellationLocked = cancellation?.status === "REQUESTED" || cancellation?.status === "COMPLETED";
+
+  /**
+   * Every status this shipment has ever recorded, which is what decides how far
+   * up the ladder Operations may go next. Progress is recorded in order, so a
+   * stage whose earlier steps are missing cannot be selected until they are
+   * filled in- see findMissingStatusPrerequisites.
+   */
+  const recordedStatuses = useMemo(
+    () => (history?.events ?? []).map((event) => event.status),
+    [history]
+  );
+  const statusChoices = useMemo(
+    () => shipmentOperationalStatusOptions.map((option) => ({
+      ...option,
+      missing: findMissingStatusPrerequisites(option.value, recordedStatuses)
+    })),
+    [recordedStatuses]
+  );
+  const blockedStatus = statusChoices.find((option) => option.value === nextStatus);
 
   const loadShipment = useCallback(async () => {
     if (!params.draftId) return;
@@ -282,8 +303,11 @@ export default function AdminShipmentDetailsPage() {
       await loadShipment();
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Shipment action failed.";
-      const requiresFinalVerification = message.toLowerCase().includes("verify the final shipment weight and charge");
-      setActionFeedback({ message, tone: requiresFinalVerification ? "warning" : "error" });
+      // Both of these say something has to happen first, rather than that the
+      // action failed, so they read as guidance rather than as an error.
+      const isWorkflowGuidance = message.toLowerCase().includes("verify the final shipment weight and charge")
+        || message.includes("must be recorded in order");
+      setActionFeedback({ message, tone: isWorkflowGuidance ? "warning" : "error" });
     } finally {
       setActionBusy(false);
     }
@@ -376,6 +400,9 @@ export default function AdminShipmentDetailsPage() {
                     type="button"
                     onClick={() => {
                       setActionMode("status");
+                      // Opens on the earliest stage this shipment may record, so the
+                      // form never presents a selection the server would reject.
+                      setNextStatus(firstAllowedOperationalStatus(recordedStatuses));
                       setActionNote("");
                     }}
                     className="h-10 border border-blue-900 px-4 rounded-4xl text-sm font-semibold text-blue-900 hover:bg-blue-50"
@@ -460,12 +487,34 @@ export default function AdminShipmentDetailsPage() {
                           onChange={(event) => setNextStatus(event.target.value as ShipmentOperationalStatus)}
                           className="h-10 w-full appearance-none border rounded-xl border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
                         >
-                          {shipmentOperationalStatusOptions.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
+                          {statusChoices.map((option) => (
+                            <option
+                              key={option.value}
+                              value={option.value}
+                              // A stage the shipment has not reached yet. Shown rather
+                              // than hidden so the whole journey stays visible and the
+                              // outstanding step explains itself.
+                              disabled={option.missing.length > 0}
+                            >
+                              {option.label}
+                              {option.missing.length ? "- not yet reached" : ""}
+                            </option>
                           ))}
                         </select>
                         <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       </div>
+                      {/* Says which step is outstanding before anything is submitted,
+                          rather than leaving the server to explain it afterwards. */}
+                      {blockedStatus?.missing.length ? (
+                        <p className="mt-2 text-xs font-medium leading-5 text-amber-700">
+                          Record{" "}
+                          {blockedStatus.missing
+                            .map((status) => shipmentOperationalStatusOptions.find((option) => option.value === status)?.label ?? status)
+                            .join(", ")}{" "}
+                          before {blockedStatus.label.toLowerCase()} becomes available. Shipment progress is
+                          recorded in order.
+                        </p>
+                      ) : null}
                     </label>
                   ) : (
                     <div>
@@ -501,7 +550,7 @@ export default function AdminShipmentDetailsPage() {
                     <button
                       type="button"
                       onClick={handleShipmentAction}
-                      disabled={actionBusy || ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3) || (actionMode === "hold" && !holdReason)}
+                      disabled={actionBusy || ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3) || (actionMode === "hold" && !holdReason) || (actionMode === "status" && Boolean(blockedStatus?.missing.length))}
                       className="h-10 bg-blue-900 px-4  rounded-2xl text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                     >
                       {actionBusy ? "Saving..." : actionMode === "hold" ? "Hold" : actionMode === "release" ? "Release" : "Update"}

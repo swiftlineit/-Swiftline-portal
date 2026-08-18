@@ -21,8 +21,8 @@ import { useClientUser } from "@/lib/useClientUser";
  * Every proof of delivery in one place.
  *
  * The per-shipment POD panel still exists and is the right place when you are
- * already looking at a shipment. This page answers the other question — the
- * month-end reconciliation, or the supplier asking whether a batch arrived —
+ * already looking at a shipment. This page answers the other question- the
+ * month-end reconciliation, or the supplier asking whether a batch arrived-
  * which previously meant opening shipments one at a time.
  */
 export default function ClientPodCentrePage() {

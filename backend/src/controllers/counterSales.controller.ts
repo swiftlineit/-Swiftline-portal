@@ -23,7 +23,7 @@ export function counterSalesTotalsPipeline(filters: Record<string, unknown>) {
  *
  * Deliberately not part of the credit ledger. Individual shipments are settled in
  * full before booking and never touch a credit account, so their money lives in
- * `CounterPayment` and is reported here instead — keeping the credit ledger's
+ * `CounterPayment` and is reported here instead- keeping the credit ledger's
  * balances meaning exactly what they meant before individual shipments existed.
  */
 export async function listCounterSales(request: Request, response: Response): Promise<Response> {

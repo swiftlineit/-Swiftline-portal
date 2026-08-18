@@ -74,7 +74,7 @@ import { AuditLog } from "../models/auditLog.model.js";
 import type { Role } from "../models/user.model.js";
 
 /**
- * HTTP surface for claims — client and staff.
+ * HTTP surface for claims- client and staff.
  *
  * Route handlers stay thin: they authenticate, validate, delegate, and shape a
  * response. Every rule that matters lives in the services, so nothing can be
@@ -100,7 +100,7 @@ function actor(request: Request) {
  * Maps a service error to its status code.
  *
  * Anything unrecognised is passed to the error middleware rather than guessed
- * at — a 500 that reaches the logs is better than a 400 that hides a bug.
+ * at- a 500 that reaches the logs is better than a 400 that hides a bug.
  */
 function handle(error: unknown, response: Response, next: NextFunction) {
   const known =
@@ -121,8 +121,8 @@ function handle(error: unknown, response: Response, next: NextFunction) {
   /**
    * A model validator refusing the input.
    *
-   * These are rules the caller broke — approving more than was requested, paying
-   * more than was approved — not server faults. Reported with the validator's
+   * These are rules the caller broke- approving more than was requested, paying
+   * more than was approved- not server faults. Reported with the validator's
    * own message, which is written for a person, rather than as a 500.
    */
   if (error instanceof mongoose.Error.ValidationError) {
@@ -137,7 +137,7 @@ function handle(error: unknown, response: Response, next: NextFunction) {
    * A unique-index collision, translated into the reason it happened.
    *
    * The service checks for an existing claim before creating one, so reaching
-   * the index means two requests raced — two tabs, or a double submit. That is a
+   * the index means two requests raced- two tabs, or a double submit. That is a
    * conflict the caller can act on, not a server fault, and "Internal server
    * error" tells them nothing.
    */
@@ -162,7 +162,7 @@ function handle(error: unknown, response: Response, next: NextFunction) {
 /**
  * Confirms the caller is an active member of the claim's account.
  *
- * Returns null rather than throwing so callers answer 404 — a 403 would confirm
+ * Returns null rather than throwing so callers answer 404- a 403 would confirm
  * the claim exists to someone with no right to know that.
  */
 async function clientAccess(claimId: string, userId: string) {
@@ -196,7 +196,7 @@ function staffCanReachBranch(role: Role, branchIds: string[], claimBranchId: str
 /**
  * Shapes a claim for the wire.
  *
- * Financial fields are withheld from members who cannot see them — a
+ * Financial fields are withheld from members who cannot see them- a
  * tracking-only member gets status and nothing that would tell them what the
  * company is claiming.
  */
@@ -820,7 +820,7 @@ export async function disputeClientSettlement(request: Request, response: Respon
 /**
  * The decision letter as a PDF.
  *
- * Served to both audiences from one helper because the document is identical —
+ * Served to both audiences from one helper because the document is identical-
  * a decision says the same thing to the client and to the handler, and two
  * renderings that could drift apart would be worse than one.
  */
@@ -1446,7 +1446,7 @@ export const withdrawStaffClaim = staffTransitionHandler({
  * Places or lifts a legal hold.
  *
  * Admin only. A hold suspends the retention purge indefinitely, and lifting one
- * re-exposes eight-year-old evidence to deletion — neither belongs with a role
+ * re-exposes eight-year-old evidence to deletion- neither belongs with a role
  * that handles claims day to day.
  */
 export async function setStaffClaimLegalHold(request: Request, response: Response, next: NextFunction) {
@@ -1482,7 +1482,7 @@ export async function setStaffClaimLegalHold(request: Request, response: Respons
 /**
  * Drops a required document from this claim.
  *
- * Restricted to WAIVE_DOCUMENT — finance can pay a claim but must not be able
+ * Restricted to WAIVE_DOCUMENT- finance can pay a claim but must not be able
  * to lower the evidence bar it was assessed against.
  */
 export async function waiveStaffClaimDocument(request: Request, response: Response, next: NextFunction) {
@@ -1547,7 +1547,7 @@ export async function requestStaffConditionalDocuments(
 /**
  * Staff document upload.
  *
- * Separate from the client handler because staff attach different things —
+ * Separate from the client handler because staff attach different things-
  * payment proof above all, which a settlement cannot be recorded without. The
  * client upload route could not serve this: it authorises through business
  * account membership, which no staff user has.
@@ -1682,7 +1682,7 @@ export async function revealStaffBeneficiary(request: Request, response: Respons
       entityId: beneficiary._id,
       performedBy: new mongoose.Types.ObjectId(access.user.id),
       performedAt: new Date(),
-      // The number itself is never written to the audit trail — only the fact
+      // The number itself is never written to the audit trail- only the fact
       // that someone read it.
       metadata: { claimId: String(access.claim._id), action: "REVEALED", version: beneficiary.version }
     });

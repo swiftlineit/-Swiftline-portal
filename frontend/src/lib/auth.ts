@@ -6,7 +6,7 @@ let refreshInFlight: Promise<string | null> | null = null;
 /**
  * Why the session ended, when the server ended it rather than the user.
  *
- * Held here so the login screen can explain the bounce — "signed in on another
+ * Held here so the login screen can explain the bounce- "signed in on another
  * device" reads very differently from an unexplained trip back to the login
  * form, which users report as the app logging them out at random.
  */
@@ -56,7 +56,7 @@ async function requestRefreshedAccessToken() {
       return data.accessToken;
     }
 
-    // A session ended elsewhere — signed in on another device, terminated by an
+    // A session ended elsewhere- signed in on another device, terminated by an
     // admin, or gone idle. The user needs to be told why, otherwise being
     // bounced to the login screen looks like a bug.
     if (data.sessionEnded && typeof data.message === "string") {
@@ -140,7 +140,7 @@ export async function loginWithGoogle(credential: string) {
 /**
  * Asks for an email sign-in code.
  *
- * Resolves the same way whether or not the address has an account — the server
+ * Resolves the same way whether or not the address has an account- the server
  * will not say, so that the sign-in form cannot be used to test which addresses
  * are registered. The caller must move to the code screen regardless.
  */

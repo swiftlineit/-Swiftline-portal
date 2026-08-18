@@ -8,7 +8,7 @@ import { useLeavePrompt } from "@/lib/useUnsavedChanges";
  * The prompt shown when leaving a form that holds unsaved edits.
  *
  * Mounted once per shell. It replaces a native `window.confirm`, which could
- * only ever offer leave-or-stay — there was no way to add the third and usually
+ * only ever offer leave-or-stay- there was no way to add the third and usually
  * best answer, which is to keep the work as a draft and carry on elsewhere.
  *
  * Tab close is still handled by the browser's own prompt: a page being torn down
@@ -18,7 +18,7 @@ export default function UnsavedChangesDialog() {
   const { open, form, resolve } = useLeavePrompt();
   const [saving, setSaving] = useState(false);
 
-  // Escape means "stay" — the safe answer, and the one that loses nothing.
+  // Escape means "stay"- the safe answer, and the one that loses nothing.
   const dialogRef = useDialog<HTMLDivElement>(open, () => {
     if (!saving) resolve("stay");
   });

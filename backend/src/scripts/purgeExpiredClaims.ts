@@ -6,7 +6,7 @@ import { purgeExpiredClaimDocuments } from "../services/claims/claimRetention.se
  * Destroys claim evidence past its eight-year retention period.
  *
  * Reports by default and only deletes when passed `--apply`, matching the other
- * destructive scripts in this project. Nothing here removes a claim record —
+ * destructive scripts in this project. Nothing here removes a claim record-
  * the claim, its timeline, and its decisions remain readable. What expires is
  * the right to keep the loss photographs and bank proofs behind them.
  *
@@ -22,7 +22,7 @@ async function main() {
 
     console.log(
       [
-        apply ? "Purge applied." : "Dry run — nothing was deleted. Pass --apply to act.",
+        apply ? "Purge applied." : "Dry run- nothing was deleted. Pass --apply to act.",
         `Claims past retention: ${result.examined}`,
         `Claims processed:      ${result.purgedClaims}`,
         `Documents ${apply ? "deleted" : "that would be deleted"}: ${result.purgedDocuments}`,

@@ -3,7 +3,7 @@
 // wrapped party details, so the sheet is readable without touching a column width.
 //
 // Built with ExcelJS rather than `xlsx` because the community `xlsx` build
-// silently discards cell styles — borders, bold and widths never reach the file,
+// silently discards cell styles- borders, bold and widths never reach the file,
 // which is what left earlier exports looking unstructured.
 //
 // Column map, taken from the supplied template:
@@ -283,7 +283,7 @@ export async function buildCustomsInvoiceWorkbook(invoice: CustomsInvoiceModel):
 
 /**
  * The import sheet: Field | Value pairs for the details the printed invoice does
- * not carry in a machine-readable way — the CSB route, service type, consignor
+ * not carry in a machine-readable way- the CSB route, service type, consignor
  * details and Aadhaar number.
  *
  * Re-uploading this workbook prefills the shipment form from these values, so

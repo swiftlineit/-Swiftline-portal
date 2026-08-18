@@ -11,7 +11,7 @@ import { SupportTicket } from "../models/supportTicket.model.js";
 /**
  * What needs the customer's attention, derived rather than stored.
  *
- * Every signal here already exists somewhere in the system — a hold and its
+ * Every signal here already exists somewhere in the system- a hold and its
  * reason, a failed delivery attempt, a POD dispute, an overdue statement, a
  * claim waiting on documents. Nothing new is written and nothing has to be kept
  * in step: storing a copy would mean invalidating it on every event, dispute and
@@ -20,7 +20,7 @@ import { SupportTicket } from "../models/supportTicket.model.js";
  * The split is by what the reader can do about it. An **exception** is something
  * wrong that Swiftline is working on; the client is being told, not asked. An
  * **action** is something only the client can clear, and it always carries the
- * control that clears it. Anything that is both is an action — the customer
+ * control that clears it. Anything that is both is an action- the customer
  * needs the button more than they need the news.
  */
 
@@ -275,7 +275,7 @@ export async function collectClientAttention(scope: AttentionScope): Promise<Cli
   };
   if (scope.branchIds?.length) draftFilter.branchId = { $in: scope.branchIds };
 
-  // The account's own drafts first, then their bookings — not every booked
+  // The account's own drafts first, then their bookings- not every booked
   // shipment in the system narrowed down afterwards. Both steps ride an index
   // (businessAccountId on the draft, shipmentDraftId on the booking), so the
   // work stays proportional to one account rather than to the whole database.

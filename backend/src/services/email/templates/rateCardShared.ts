@@ -5,7 +5,7 @@ import { asNumber, asRecordArray, asText, firstNameOf, formatDate } from "../for
 /**
  * The rate card email. The tariff itself is attached as PDF and Excel, so the
  * body's job is to establish what the sheet is, how long it holds and what is
- * excluded — a highlights table rather than the full slab list, which would run
+ * excluded- a highlights table rather than the full slab list, which would run
  * to hundreds of rows in a mail client.
  */
 export function rateCardSharedTemplate(context: EmailTemplateContext): EmailContent {

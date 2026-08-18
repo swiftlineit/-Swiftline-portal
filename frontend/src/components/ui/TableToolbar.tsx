@@ -9,7 +9,7 @@ import { downloadTableExport, type TableExportFormat } from "@/lib/tableExport";
  * The controls every portal table shares: export and column selection.
  *
  * One component rather than per-table copies, so a customer learns the buttons
- * once. Sorting lives on the column headers instead of here — a sort control
+ * once. Sorting lives on the column headers instead of here- a sort control
  * detached from the column it sorts is harder to read than an arrow on the
  * heading itself.
  */
@@ -161,7 +161,7 @@ export function TableToolbar({
       {/* Said before the click, not after a truncated file has been saved. */}
       {exportPath && typeof rowCount === "number" && rowCount > 10_000 ? (
         <p className="w-full text-xs text-amber-700">
-          {rowCount.toLocaleString()} rows match. An export includes the first 10,000 —
+          {rowCount.toLocaleString()} rows match. An export includes the first 10,000-
           narrow the date range to capture the rest.
         </p>
       ) : null}

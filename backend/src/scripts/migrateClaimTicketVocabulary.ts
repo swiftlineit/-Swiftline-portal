@@ -1,7 +1,7 @@
 /**
  * Moves stored claim and ticket values onto the customer-facing vocabulary.
  *
- * Renames only — no record changes meaning, and every old value has exactly one
+ * Renames only- no record changes meaning, and every old value has exactly one
  * new one. `AWAITING_THIRD_PARTY` becomes `SUBMITTED_TO_CARRIER` rather than
  * `CARRIER_REVIEWING`: the old single state only ever recorded that the claim had
  * been sent, so claiming the carrier had picked it up would assert something the
@@ -92,7 +92,7 @@ async function main() {
   console.log(
     pending
       ? apply ? `\nUpdated ${pending} value(s).` : `\n${pending} value(s) would be updated.`
-      : "\nNothing to migrate — every value is already current."
+      : "\nNothing to migrate- every value is already current."
   );
 
   await mongoose.disconnect();

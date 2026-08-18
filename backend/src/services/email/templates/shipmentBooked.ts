@@ -68,7 +68,22 @@ export function shipmentBookedClientTemplate(context: EmailTemplateContext): Ema
           text: "Your Swiftline shipping labels are ready to download from the portal. Print one label per parcel and affix it before handover."
         }]),
       { kind: "button", label: "View shipment", url: toAbsoluteUrl(appUrl, asText(payload.href, "/client/shipments")) },
-      { kind: "note", text: "Keep the tracking number handy when contacting support about this shipment." }
+      // "View shipment" needs a session, so it is only useful to the account
+      // holder receiving this email. The consignee has no account and holds
+      // nothing but the number on the label, so they get a link that needs none.
+      ...(trackingNumber
+        ? [{
+          kind: "button" as const,
+          label: "Track shipment",
+          url: toAbsoluteUrl(appUrl, `/track/${encodeURIComponent(trackingNumber)}`)
+        }]
+        : []),
+      {
+        kind: "note",
+        text: trackingNumber
+          ? "The tracking link opens without signing in- forward it to your consignee so they can follow the shipment themselves."
+          : "Keep the tracking number handy when contacting support about this shipment."
+      }
     ]
   };
 }
@@ -78,7 +93,7 @@ export function shipmentBookedStaffTemplate(context: EmailTemplateContext): Emai
   const trackingNumber = asText(payload.trackingNumber, "");
 
   return {
-    subject: `New booking ${trackingNumber} — ${asText(payload.businessAccountName, "client")}`,
+    subject: `New booking ${trackingNumber}- ${asText(payload.businessAccountName, "client")}`,
     preheader: `Booked by ${asText(payload.bookedByName)} at ${asText(payload.branchName)}.`,
     heading: "New shipment booked",
     blocks: [

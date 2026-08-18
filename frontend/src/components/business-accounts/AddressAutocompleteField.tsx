@@ -20,7 +20,7 @@ import {
  * The input is the address line itself, not a separate search box: whatever the
  * user types is the stored value, and picking a suggestion simply fills it in
  * along with the fields around it. That way the form is completable by hand at
- * any time, which it has to be — the lookup can be unconfigured, rate limited or
+ * any time, which it has to be- the lookup can be unconfigured, rate limited or
  * down, and none of those may block an account being created.
  */
 export function AddressAutocompleteField({
@@ -48,7 +48,7 @@ export function AddressAutocompleteField({
   required?: boolean;
 }) {
   // Results carry the query they answered, so a slower response for an older
-  // query can never be shown against a newer one — and "searching" falls out of
+  // query can never be shown against a newer one- and "searching" falls out of
   // the same comparison instead of being toggled in an effect.
   const [results, setResults] = useState<{ query: string; predictions: AddressPrediction[] }>({
     query: "",

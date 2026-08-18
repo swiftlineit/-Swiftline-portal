@@ -4,7 +4,7 @@ import { env } from "../config/env.js";
 import { drainEmailOutbox } from "../services/email/dispatcher.js";
 
 // Scheduled job: the safety net behind the post-enqueue drain. Picks up rows the
-// API process never got to — because it crashed mid-send, because SES was
+// API process never got to- because it crashed mid-send, because SES was
 // throttling, or because the send is waiting out its backoff.
 // Recommended cadence: every 5 minutes.
 //

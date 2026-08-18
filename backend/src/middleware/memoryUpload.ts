@@ -6,7 +6,7 @@ import multer from "multer";
  *
  * Every upload in the portal now goes to the storage service rather than to
  * local disk, so writing to disk first would only create a temporary file to
- * clean up — and a request that failed after the write would leave it behind.
+ * clean up- and a request that failed after the write would leave it behind.
  * That cleanup logic was duplicated in every upload middleware and in most of
  * the controllers behind them; buffering removes the need for all of it, since
  * a rejected request simply drops the buffer.
@@ -21,7 +21,7 @@ interface MemoryUploadOptions {
   field: string | multer.Field[];
   maxBytes: number;
   maxFiles?: number;
-  /** Accepted MIME types — one list for every field, or one list per field. */
+  /** Accepted MIME types- one list for every field, or one list per field. */
   accept: readonly string[] | Record<string, readonly string[]>;
   /** Rejection copy. Each falls back to a generic equivalent. */
   messages?: {

@@ -6,7 +6,7 @@
 # exists because of a specific way these jobs fail without it:
 #
 #   * cron's PATH is roughly `/usr/bin:/bin`, so `node` and `npm` are usually not
-#     on it at all — especially under nvm. Hence the explicit PATH handling.
+#     on it at all- especially under nvm. Hence the explicit PATH handling.
 #   * the app reads its `.env` through `dotenv/config`, which resolves relative
 #     to the working directory. cron starts in the user's home, so without the
 #     `cd` below the process exits complaining about MONGODB_URI.
@@ -87,7 +87,7 @@ cd "$APP_DIR" || {
 #
 # The availability check matters more than it looks. `flock` is part of
 # util-linux and is present on Amazon Linux and Ubuntu, but if it were ever
-# missing, an unguarded `if ! flock -n 9` would be true on every single run — so
+# missing, an unguarded `if ! flock -n 9` would be true on every single run- so
 # every job would log "SKIPPED" and exit 0, for ever, looking perfectly healthy.
 # That is the exact failure this whole file exists to prevent, so it degrades to
 # running without the lock and says so, rather than silently doing nothing.

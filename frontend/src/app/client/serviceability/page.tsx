@@ -59,7 +59,7 @@ function transitLabel(option: ServiceabilityOption) {
  *
  * Answers from the same records that price and schedule a real booking, so a
  * lane called unserviceable here would genuinely be refused at booking. Both
- * services are always listed, including those that cannot carry it and why —
+ * services are always listed, including those that cannot carry it and why-
  * omitting one silently leaves the customer unsure it was considered.
  */
 export default function ServiceabilityPage() {
@@ -109,7 +109,7 @@ export default function ServiceabilityPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-slate-950">Serviceability Checker</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Check where Swiftline delivers, how long it takes, and what weight is accepted — before you book.
+          Check where Swiftline delivers, how long it takes, and what weight is accepted- before you book.
         </p>
       </div>
 
@@ -166,7 +166,7 @@ export default function ServiceabilityPage() {
                     it is not remote, and saying "No" to an unchecked postcode
                     would be a promise nothing supports. */}
                 {!result.remoteArea.checked
-                  ? "Not checked — enter a destination postcode, or no remote-area list is configured for this country."
+                  ? "Not checked- enter a destination postcode, or no remote-area list is configured for this country."
                   : result.remoteArea.isRemote
                     ? "This postcode is a remote area. A remote area surcharge applies."
                     : "This postcode is not a remote area."}

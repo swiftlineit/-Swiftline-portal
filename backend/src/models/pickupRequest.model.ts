@@ -7,7 +7,7 @@ import mongoose from "mongoose";
  * anyone coming?" and "did they turn up?" could not be answered from this
  * field. Driver assignment was recorded only on the attempt, so the request
  * still read CONFIRMED once a driver was on it; and a failed collection had
- * nowhere to go at all — `CLOSED_UNSUCCESSFUL` existed in this list but was
+ * nowhere to go at all- `CLOSED_UNSUCCESSFUL` existed in this list but was
  * never set by anything.
  *
  * `MISSED` is distinct from `CLOSED_UNSUCCESSFUL`: missed means nobody

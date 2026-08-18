@@ -59,7 +59,7 @@ export async function reconcileCreditAccount(businessAccountId: mongoose.Types.O
 }
 
 // Reconcile every credit account that has ever held a balance and return the ones
-// with drift. Read-only — it never corrects anything.
+// with drift. Read-only- it never corrects anything.
 export async function reconcileAllCreditAccounts() {
   const accounts = await BusinessCreditAccount.find({
     status: { $nin: ["NOT_REQUESTED", "REJECTED"] }

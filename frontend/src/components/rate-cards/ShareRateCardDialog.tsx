@@ -30,8 +30,8 @@ import {
 } from "@/lib/rateCardShares";
 import { listBusinessAccounts, type BusinessAccount } from "@/lib/businessAccounts";
 
-// Standard Indian export-freight defaults. They are only a starting point — every
-// field stays editable — but they mean a routine share needs no typing at all.
+// Standard Indian export-freight defaults. They are only a starting point- every
+// field stays editable- but they mean a routine share needs no typing at all.
 const DEFAULT_GST_PERCENT = 18;
 const DEFAULT_VOLUMETRIC_DIVISOR = 5000;
 const DEFAULT_VALIDITY_DAYS = 90;
@@ -479,7 +479,7 @@ function RatesStep({
               onChange={(event) => setAdjustmentMode(event.target.value as "NONE" | "PERCENT" | "FLAT")}
               className={inputClass}
             >
-              <option value="NONE">None — share base rates</option>
+              <option value="NONE">None- share base rates</option>
               <option value="PERCENT">Percentage</option>
               <option value="FLAT">Flat amount per kg</option>
             </select>
@@ -509,7 +509,7 @@ function RatesStep({
           <>
             {matchCount} weight {matchCount === 1 ? "slab" : "slabs"} will be shared
             {adjustedRange
-              ? ` · ${formatRate(adjustedRange.lowest)} — ${formatRate(adjustedRange.highest)} per kg`
+              ? ` · ${formatRate(adjustedRange.lowest)}- ${formatRate(adjustedRange.highest)} per kg`
               : ""}
           </>
         ) : (
@@ -880,7 +880,7 @@ function RecipientList({
 
 /**
  * Shown once, after a successful share. The link token is never persisted in a
- * readable form, so this screen is the only place the working links exist —
+ * readable form, so this screen is the only place the working links exist-
  * hence the copy buttons and the warning.
  */
 function ShareResult({ result, onClose }: { result: RateCardShareResult; onClose: () => void }) {
@@ -901,7 +901,7 @@ function ShareResult({ result, onClose }: { result: RateCardShareResult; onClose
           {result.emailsQueued ? ` · ${result.emailsQueued} ${result.emailsQueued === 1 ? "email" : "emails"} queued` : ""}
         </p>
         <p className="mt-1 text-xs text-emerald-700">
-          The link expires on {new Date(result.share.expiresAt).toLocaleDateString("en-GB")}. Copy it now — for
+          The link expires on {new Date(result.share.expiresAt).toLocaleDateString("en-GB")}. Copy it now- for
           security it is not stored and cannot be shown again.
         </p>
       </div>

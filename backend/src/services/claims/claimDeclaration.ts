@@ -9,7 +9,7 @@
  *   "1.0"        the first Legal-approved wording
  *
  * Keeping "-draft" in the version means every claim filed against placeholder
- * text stays findable — `Claim.find({ declarationVersion: /-draft$/ })` — which
+ * text stays findable- `Claim.find({ declarationVersion: /-draft$/ })`- which
  * is what you would need if Legal's wording differs materially and those claims
  * have to be re-confirmed. A version string of "1.0" for both would make that
  * distinction unrecoverable.

@@ -73,7 +73,7 @@ export function useUnsavedChanges(
   options: { label?: string; saveDraft?: () => Promise<void> } = {}
 ) {
   // Stable across renders, unique per component instance, and safe to read
-  // while rendering — unlike a ref.
+  // while rendering- unlike a ref.
   const formId = useId();
 
   // Held in a ref so a new inline `saveDraft` closure on every render does not
@@ -160,7 +160,7 @@ export function useLeavePrompt() {
 /**
  * Opens the leave prompt and resolves once the user chooses.
  *
- * Returns true when it is safe to leave — either there was nothing unsaved, the
+ * Returns true when it is safe to leave- either there was nothing unsaved, the
  * work was saved as a draft, or the user chose to discard it.
  */
 export function requestLeave(): Promise<boolean> {

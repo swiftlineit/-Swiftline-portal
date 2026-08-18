@@ -17,7 +17,7 @@ import { getVolumetricDivisor, getVolumetricFormula } from "@/lib/shipmentPricin
  *
  * Every figure here comes from the server, priced by the same engine the booking
  * itself uses, so what a customer reads is what they are charged. The panel is
- * shared by the client and the admin booking forms — one breakdown, one place to
+ * shared by the client and the admin booking forms- one breakdown, one place to
  * change it, and no way for the two to drift apart.
  */
 export default function ShipmentCostEstimatePanel({

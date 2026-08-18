@@ -118,7 +118,7 @@ export function hasValidGstinCheckDigit(value: string) {
  * Blocking problems with a GSTIN, most specific first so the message points at
  * the part that is actually wrong instead of restating the whole format.
  * Returns "" when the value is acceptable. An empty value is not this
- * function's concern — whether the field is mandatory is decided by the caller.
+ * function's concern- whether the field is mandatory is decided by the caller.
  */
 export function getGstinError(value: string) {
   const gstin = normalizeGstin(value);

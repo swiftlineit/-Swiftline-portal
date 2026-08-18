@@ -346,7 +346,7 @@ export default function StaffDetail({
 
           Every level carries min-w-0 and the row stacks below `sm`: a flex item
           defaults to min-width:auto, so without it the name's `truncate` never
-          engages and a long email pushes the card sideways — which is exactly
+          engages and a long email pushes the card sideways- which is exactly
           what the profile header did before it was fixed.
         */}
         <section className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

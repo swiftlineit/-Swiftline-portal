@@ -18,7 +18,7 @@ type OtpCodeInputProps = {
 /**
  * Six single-character boxes backed by one dense string.
  *
- * Keeping the value dense — never a sparse array with holes — is what makes the
+ * Keeping the value dense- never a sparse array with holes- is what makes the
  * keyboard behaviour predictable: box `i` always shows `value[i]`, so backspace,
  * arrows and a pasted code all reduce to plain string edits.
  */

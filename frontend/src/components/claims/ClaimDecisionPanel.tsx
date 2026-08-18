@@ -14,7 +14,7 @@ import {
  *
  * The approved amount is typed by a reviewer and never calculated. Declared
  * value is shown beside the request so the comparison is explicit, but nothing
- * here adjusts the figure on the client's behalf — no insurance, liability, or
+ * here adjusts the figure on the client's behalf- no insurance, liability, or
  * salvage formula silently rewrites what they asked for.
  */
 

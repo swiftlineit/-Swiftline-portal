@@ -1,6 +1,6 @@
 // The customs ("shipment") invoice: the goods declaration that travels with an
 // export shipment. It is a DIFFERENT document from the GST tax invoice built by
-// shipmentInvoice.service.ts — that one bills freight and 18% GST to the customer,
+// shipmentInvoice.service.ts- that one bills freight and 18% GST to the customer,
 // this one declares what is inside the boxes and what the goods are worth.
 //
 // It is not stored: the model is derived from the shipment draft every time it is
@@ -164,7 +164,7 @@ function partyFrom(source: Record<string, unknown> | null | undefined, fallbackC
  * Builds the invoice model from a shipment draft.
  *
  * Every content item becomes its own row, grouped under its box header, exactly
- * as the sample lays it out. The total is the declared goods value only — freight,
+ * as the sample lays it out. The total is the declared goods value only- freight,
  * GST and the CSB-V clearance charge belong to the tax invoice, not here.
  */
 export function buildCustomsInvoiceModel(input: {

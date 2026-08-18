@@ -168,7 +168,7 @@ export async function saveSwiftlineRoute(request: Request, response: Response): 
  * Removes a lane outright.
  *
  * Closing a lane is what `serviceable: false` is for and is almost always the
- * right action — it keeps the transit times for when the lane reopens. Deletion
+ * right action- it keeps the transit times for when the lane reopens. Deletion
  * exists for lanes added by mistake.
  */
 export async function deleteSwiftlineRoute(request: Request, response: Response): Promise<Response> {

@@ -26,7 +26,7 @@ import type {
  * One affected item within the claim.
  *
  * Parcel items on a shipment are stored with `_id: false`, so they have no
- * stable identity — only a position. An amendment can reorder or replace them
+ * stable identity- only a position. An amendment can reorder or replace them
  * after booking, which means a live lookup would silently repoint what the
  * client claimed for.
  *
@@ -79,7 +79,7 @@ export interface ClaimShipmentSnapshot {
  *
  * Both live on the claim rather than in a separate collection because the
  * checklist is rebuilt on every read and a join per render would buy nothing.
- * A waiver is never silent — it carries who granted it and why, and that reason
+ * A waiver is never silent- it carries who granted it and why, and that reason
  * reaches the timeline, because "we stopped requiring proof of value" is
  * precisely the decision an auditor will ask about later.
  */
@@ -253,12 +253,12 @@ const claimSchema = new mongoose.Schema<IClaim>(
     // id, so an abandoned draft never burns a number in the financial-year run.
     // Uniqueness is enforced by a partial index below, not by `unique: true`
     // here. `sparse` would only skip documents where the field is *absent*, and
-    // this one defaults to null — so every draft would collide with every other
+    // this one defaults to null- so every draft would collide with every other
     // draft on the null value, and a second draft could never be created.
     // Not `immutable`: the field defaults to null at draft creation, so mongoose
     // would consider it already set and silently discard the number assigned at
     // submission. Immutability is enforced by the guard below instead, which is
-    // what was actually wanted — settable once, never changed after.
+    // what was actually wanted- settable once, never changed after.
     claimNumber: {
       type: String,
       default: null,
@@ -274,7 +274,7 @@ const claimSchema = new mongoose.Schema<IClaim>(
     submissionStage: { type: String, enum: claimSubmissionStageValues, default: "PRELIMINARY", required: true },
 
     // Entered by the client and never recalculated by the portal. No insurance,
-    // liability, or salvage formula adjusts it — a reviewer weighs the evidence
+    // liability, or salvage formula adjusts it- a reviewer weighs the evidence
     // and enters an approved figure by hand.
     requestedAmountMinor: minorAmount(true),
     approvedAmountMinor: minorAmount(false),
@@ -382,8 +382,8 @@ claimSchema.pre("validate", function validateApprovedAmount() {
 /**
  * One active claim per shipment.
  *
- * Partial rather than plain unique so that closed and withdrawn claims — which
- * null the marker — do not collide with each other or block a legitimate second
+ * Partial rather than plain unique so that closed and withdrawn claims- which
+ * null the marker- do not collide with each other or block a legitimate second
  * claim after the first is fully resolved.
  */
 claimSchema.index(

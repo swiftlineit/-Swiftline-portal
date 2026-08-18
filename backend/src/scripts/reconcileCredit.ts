@@ -4,7 +4,7 @@ import { reconcileAllCreditAccounts } from "../services/creditReconciliation.ser
 import { notifyActiveAdmins } from "../services/portalNotification.service.js";
 
 // Scheduled job: read-only reconciliation of every credit account against the
-// ledger, statements, and reservations. It corrects nothing — it surfaces drift
+// ledger, statements, and reservations. It corrects nothing- it surfaces drift
 // (to the console and to admins) so a human can resolve it with the write-off /
 // adjust tools. Recommended cadence: nightly.
 async function run() {

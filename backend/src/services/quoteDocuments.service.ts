@@ -1,6 +1,6 @@
 // Export documents a customer declares on a live quote request.
 //
-// These are declarations only — nothing is uploaded at the quote stage. The
+// These are declarations only- nothing is uploaded at the quote stage. The
 // branch uses the list to see which paperwork is already in place when pricing
 // the quote. Which documents apply depends on the customs route.
 
@@ -37,7 +37,7 @@ export const quoteDocumentLabels: Record<QuoteDocumentCode, string> = {
 const csbIvDocumentCodes = new Set<QuoteDocumentCode>(["PAN", "AADHAR"]);
 
 /**
- * The documents that apply to a customs route. Every one of them is required —
+ * The documents that apply to a customs route. Every one of them is required-
  * the list *is* the requirement, so there is no optional tier.
  *
  * Mirrored in the frontend's quoteDocuments.ts; the two live in separate

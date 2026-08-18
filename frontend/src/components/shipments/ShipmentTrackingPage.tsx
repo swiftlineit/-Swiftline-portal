@@ -1,17 +1,8 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
-import {
-  FiAlertCircle,
-  FiCheckCircle,
-  FiChevronDown,
-  FiMapPin,
-  FiSearch,
-  FiTruck,
-  FiUser,
-} from "react-icons/fi";
+import { FiAlertCircle, FiChevronDown, FiSearch } from "react-icons/fi";
 import {
   trackClientShipment,
   type ClientShipmentDetails,
@@ -22,13 +13,9 @@ import {
   type ShipmentEvent,
 } from "@/lib/dpdLabels";
 import { listShipments, type ShipmentListItem } from "@/lib/shipmentsList";
-import { formatDashboardDateTime } from "@/lib/dateFormat";
-import {
-  ActionRequiredChip,
-  EstimatedDelivery,
-  ShipmentJourney,
-  type DeliveryEstimate,
-} from "@/components/shipments/ShipmentJourney";
+import type { DeliveryEstimate } from "@/components/shipments/ShipmentJourney";
+import TrackingResult from "@/components/shipments/TrackingResult";
+import { labelStatus } from "@/lib/shipmentJourney";
 import type {
   TrackingAttention,
   TrackingSummary,
@@ -59,65 +46,6 @@ type ShipmentTrackingPageProps = {
   title: string;
   description: string;
 };
-
-function labelStatus(value: string) {
-  return value
-    .replaceAll("_", " ")
-    .toLowerCase()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-/**
- * A weight, or an honest blank.
- *
- * Zero is shown as unavailable rather than "0.000 kg": a booked shipment always
- * weighs something, so a zero here means the figure is missing, not that the
- * parcel is weightless.
- */
-function weightLabel(weightKg: number | undefined) {
-  return weightKg ? `${weightKg.toFixed(3)} kg` : "Not available";
-}
-
-/**
- * The reference strip under the status card.
- *
- * Built as a list rather than written out as JSX so the grid can tell how many
- * cells it has and fill a short final row. Consignee and destination are
- * deliberately absent: they have their own panel beside the timeline, and the
- * strip is for the shipment's identifiers and measurements.
- */
-function shipmentFacts(result: TrackingRecord): Array<{ label: string; value: string }> {
-  return [
-    { label: "AWB / Tracking No.", value: result.swiftlineTrackingNumber || "AWB Pending" },
-    { label: "Service Partner", value: result.summary?.carrierName || "Not assigned" },
-    { label: "Service Type", value: result.service ? labelStatus(result.service) : "Not available" },
-    { label: "Pieces", value: String(result.summary?.pieces ?? result.parcelCount) },
-    { label: "Actual Weight", value: weightLabel(result.summary?.actualWeightKg) },
-    // What the shipment was priced on: the greater of actual and volumetric
-    // weight, so it can legitimately exceed the row above.
-    { label: "Chargeable Weight", value: weightLabel(result.summary?.chargeableWeightKg) },
-    { label: "Customer Reference", value: result.summary?.customerReference || "Not provided" },
-    { label: "Booked", value: formatDashboardDateTime(result.createdAt) },
-    {
-      label: "Last Update",
-      value: result.summary?.lastUpdateAt
-        ? formatDashboardDateTime(result.summary.lastUpdateAt)
-        : "No updates yet"
-    }
-  ];
-}
-
-function statusTone(status: string) {
-  if (status === "DELIVERED")
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (["SHIPMENT_CANCELLED", "RETURNED", "LOST", "DAMAGED"].includes(status))
-    return "border-red-200 bg-red-50 text-red-700";
-  if (status === "ON_HOLD")
-    return "border-amber-200 bg-amber-50 text-amber-800";
-  if (["SHIPMENT_BOOKED", "DPD_CREATED", "LABEL_RECEIVED"].includes(status))
-    return "border-slate-200 bg-slate-50 text-slate-700";
-  return "border-blue-200 bg-blue-50 text-blue-800";
-}
 
 function fromAdmin(item: DpdShipmentHistoryItem): TrackingRecord {
   const current = item.currentEvent;
@@ -301,24 +229,6 @@ export default function ShipmentTrackingPage({
     void track(parcelNumber);
   }
 
-  const timeline = [...(result?.events ?? [])].sort(
-    (left, right) =>
-      new Date(left.eventAt).getTime() - new Date(right.eventAt).getTime(),
-  );
-  // The newest event that recorded a place. Events without one leave the
-  // shipment's last known location standing rather than blanking it.
-  const currentLocation = [...(result?.events ?? [])]
-    .sort((left, right) => new Date(right.eventAt).getTime() - new Date(left.eventAt).getTime())
-    .find((event) => event.location)?.location ?? "";
-  const facts = result ? shipmentFacts(result) : [];
-  // A parcel-level search is one whose number belongs to a piece rather than the
-  // shipment itself, whether it was picked from the list or typed by hand.
-  const trackedParcel =
-    result &&
-    [
-      ...result.parcelNumbers,
-      ...(selectedShipment?.awbNumbers ?? []),
-    ].find((number) => number.toLowerCase() === trackedNumber.toLowerCase());
   const detailsHref = result
     ? mode === "client"
       ? `/client/shipments/${result.draftId}`
@@ -402,7 +312,7 @@ export default function ShipmentTrackingPage({
               parcels.length ? (
                 <div className="mt-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Parcels — select one to track
+                    Parcels- select one to track
                   </p>
                   <ul className="mt-2 grid gap-2 sm:grid-cols-4">
                     {parcels.map((parcel) => {
@@ -485,246 +395,15 @@ export default function ShipmentTrackingPage({
       ) : null}
 
       {result ? (
-        <div className="mt-5 space-y-5">
-          {trackedParcel ? (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-900">
-              <FiTruck aria-hidden="true" className="h-4 w-4 shrink-0" />
-              <span className="font-semibold tracking-wide">Tracking parcel {trackedParcel}</span>
-              <span className="text-blue-800">
-                of shipment{" "}
-                {result.swiftlineTrackingNumber || "AWB Pending"} (
-                {result.parcelCount}{" "}
-                {result.parcelCount === 1 ? "parcel" : "parcels"}). Events below
-                cover the whole shipment.
-              </span>
-            </div>
-          ) : null}
-
-          {/* The journey and the promised date lead, because "where is it and
-              will it arrive on time" is the whole reason anyone opens this. */}
-          <ShipmentJourney events={result.events} />
-
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
-            <section className="border border-slate-100 bg-white rounded-2xl">
-              <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase text-slate-500">
-                    Current Shipment Status
-                  </p>
-                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
-                    {result.consignee}
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {result.swiftlineTrackingNumber ||
-                      result.carrierShipmentNumber}
-                  </p>
-                  {currentLocation ? (
-                    <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                      <FiMapPin aria-hidden="true" className="h-3.5 w-3.5 text-slate-400" />
-                      {currentLocation}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`border px-3 py-1.5 text-xs font-semibold uppercase ${statusTone(result.status)}`}
-                  >
-                    {result.statusLabel}
-                  </span>
-                  <ActionRequiredChip attention={result.attention} />
-                </div>
-              </div>
-
-              {/* The chip says something is needed; this says what, because a
-                  customer told only "action required" still has to ring in. */}
-              {result.attention ? (
-                <div className="border-t border-red-100 bg-red-50/60 px-5 py-4">
-                  <p className="text-sm font-semibold text-red-800">
-                    {result.attention.label}
-                  </p>
-                  <p className="mt-1 text-sm text-red-700">
-                    {result.attention.detail}
-                  </p>
-                </div>
-              ) : null}
-            </section>
-
-            <EstimatedDelivery estimate={result.deliveryEstimate} />
-          </div>
-
-          <section className="overflow-hidden border border-slate-100 bg-white rounded-2xl">
-            <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-              {facts.map((fact) => (
-                <Info key={fact.label} label={fact.label} value={fact.value} />
-              ))}
-              {/* The grid draws its dividers by letting a slate background show
-                  through 1px gaps, so a short final row would read as a grey
-                  block. Only the four-column layout can be short — an even
-                  count always fills two columns — so the fillers appear there
-                  and nowhere else, where they would add a blank row instead. */}
-              {Array.from(
-                { length: (4 - (facts.length % 4)) % 4 },
-                (_, index) => <div key={`filler-${index}`} className="hidden bg-white lg:block" />
-              )}
-            </div>
-          </section>
-
-          <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-            <section className="border border-slate-200 bg-white rounded-2xl">
-              <div className="border-b border-slate-200 px-5 py-4">
-                <h2 className="font-semibold tracking-wide text-slate-950">
-                  Shipment Timeline
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Confirmed shipment events from Swiftline operations.
-                </p>
-              </div>
-              <div className="p-5">
-                {timeline.length ? (
-                  <ol className="relative ml-3 border-l border-slate-300">
-                    {timeline.map((item) => (
-                      <li
-                        key={item.id}
-                        className="relative pb-7 pl-7 last:pb-0"
-                      >
-                        <span className="absolute -left-3 top-0 flex h-6 w-6 items-center justify-center border border-emerald-400 bg-emerald-50 text-emerald-600 rounded">
-                          <FiCheckCircle className="h-4 w-4" />
-                        </span>
-                        <p className="font-semibold tracking-wide text-slate-950">
-                          {item.statusLabel || labelStatus(item.status)}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {formatDashboardDateTime(item.eventAt)}
-                        </p>
-                        {/* Only scans Operations recorded a place for carry one;
-                            the rest of the timeline reads normally without it. */}
-                        {item.location ? (
-                          <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                            <FiMapPin aria-hidden="true" className="h-3.5 w-3.5 text-slate-400" />
-                            {item.location}
-                          </p>
-                        ) : null}
-                        {item.note ? (
-                          <p className="mt-1 text-sm text-slate-600">
-                            {item.note}
-                          </p>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    No customer-visible tracking events have been recorded yet.
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <aside className="border border-slate-200 bg-white rounded-2xl">
-              <div className="border-b border-slate-200 px-5 py-4">
-                <h2 className="font-semibold text-slate-950 tracking-wide">
-                  Shipment Details
-                </h2>
-              </div>
-              <div className="divide-y divide-slate-200">
-                <Detail
-                  icon={<FiMapPin />}
-                  label="Destination"
-                  value={result.destination}
-                />
-                <Detail
-                  icon={<FiUser />}
-                  label="Consignee"
-                  value={result.consignee}
-                />
-                {/* Pieces and service used to share a "Packages" line here.
-                    Both now have their own field above, so repeating them
-                    would just be the same facts twice. */}
-                {result.parcelNumbers.length ? (
-                  <div className="flex gap-3 p-5">
-                    <span className="mt-0.5 text-blue-900">
-                      <FiTruck />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase text-slate-500">
-                        Parcel Numbers
-                      </p>
-                      <ul className="mt-1 space-y-1">
-                        {result.parcelNumbers.map((number) => {
-                          const active = number === trackedParcel;
-                          return (
-                            <li
-                              key={number}
-                              className={`wrap-break-words text-sm tracking-wide ${
-                                active
-                                  ? "font-semibold  text-blue-900"
-                                  : "font-medium text-slate-900"
-                              }`}
-                            >
-                              {active ? "▸ " : ""}
-                              {number}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  </div>
-                ) : null}
-                {result.branchName ? (
-                  <Detail
-                    icon={<FiMapPin />}
-                    label="Assigned Branch"
-                    value={result.branchName}
-                  />
-                ) : null}
-              </div>
-              <div className="border-t border-slate-200 p-5">
-                <Link
-                  href={detailsHref}
-                  className="inline-flex h-10 w-full items-center justify-center border border-blue-900 text-sm font-semibold text-blue-900 hover:bg-blue-50 rounded-4xl"
-                >
-                  Open Shipment Details
-                </Link>
-              </div>
-            </aside>
-          </div>
+        <div className="mt-5">
+          <TrackingResult
+            record={result}
+            trackedNumber={trackedNumber}
+            detailsHref={detailsHref}
+          />
         </div>
       ) : null}
     </div>
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 bg-white px-5 py-4">
-      <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
-      <p className="mt-2 wrap-break-words text-sm  tracking-wide text-slate-950">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function Detail({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex gap-3 p-5">
-      <span className="mt-0.5 text-blue-900">{icon}</span>
-      <div className="min-w-0">
-        <p className="text-xs font-semibold uppercase text-slate-500">
-          {label}
-        </p>
-        <p className="mt-1 wrap-break-words text-sm  tracking-wide text-slate-900">
-          {value}
-        </p>
-      </div>
-    </div>
-  );
-}

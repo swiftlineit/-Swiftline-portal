@@ -4,7 +4,7 @@ import mongoose from "mongoose";
  * A signed-in session.
  *
  * Authentication is otherwise stateless JWT, which cannot express "only one
- * device at a time" — a token stays valid until it expires no matter what
+ * device at a time"- a token stays valid until it expires no matter what
  * happens elsewhere. This record is the server-side half: every token carries
  * its session id, and `attachUser` refuses a token whose session has been
  * terminated or has gone idle.

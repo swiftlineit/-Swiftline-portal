@@ -53,7 +53,7 @@ export function listClientAccessRequests() {
  * Approves the request: creates the login, sends the invitation, clears the row.
  *
  * One call rather than a redirect to a prefilled form. `emailSent` is false
- * when the login was created but the invitation could not be delivered — the
+ * when the login was created but the invitation could not be delivered- the
  * approval still stands, so the caller reports it as a warning, not a failure.
  */
 export function approveClientAccessRequest(requestId: string) {

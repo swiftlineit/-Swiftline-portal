@@ -8,7 +8,7 @@ sites now read and write through the storage service. Nothing in the application
 touches `private_uploads/` except the local driver itself, which is what
 `STORAGE_DRIVER=local` selects.
 
-The remaining work is infrastructure verification — the unchecked rows in
+The remaining work is infrastructure verification- the unchecked rows in
 section 7.
 
 ---
@@ -35,7 +35,7 @@ key structure, because the current roots grew organically.
 
 ### Environment variables
 
-Three already exist for SES and are reused as-is — S3 needs no separate
+Three already exist for SES and are reused as-is- S3 needs no separate
 credentials:
 
 | Variable | Existing | Notes |
@@ -49,10 +49,10 @@ New:
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `STORAGE_DRIVER` | no | `local` | `local` or `s3`. The migration switch |
-| `S3_BUCKET` | when driver is `s3` | — | Bucket name only, not an ARN or URL |
+| `S3_BUCKET` | when driver is `s3` |- | Bucket name only, not an ARN or URL |
 | `S3_SIGNED_URL_TTL_SECONDS` | no | `300` | Download link lifetime |
-| `S3_KEY_PREFIX` | no | — | Namespaces one bucket across environments |
-| `S3_ENDPOINT` | no | — | For MinIO or LocalStack in development |
+| `S3_KEY_PREFIX` | no |- | Namespaces one bucket across environments |
+| `S3_ENDPOINT` | no |- | For MinIO or LocalStack in development |
 
 `STORAGE_DRIVER` defaults to `local` deliberately. Nothing changes behaviour
 until it is set, tests keep running without AWS credentials, and a rollback is a
@@ -64,12 +64,12 @@ config change rather than a deploy.
 |---|---|---|
 | Block Public Access | All four ON | Access is only ever through signed URLs |
 | Default encryption | SSE-S3 (AES-256) | The at-rest encryption local disk could not provide |
-| Versioning | Enabled | Makes retention and legal hold real — an overwrite or delete stays recoverable |
+| Versioning | Enabled | Makes retention and legal hold real- an overwrite or delete stays recoverable |
 | Lifecycle expiry | **None** | An expiry rule would destroy evidence under an eight-year retention duty |
 | Lifecycle transition | Optional: Standard-IA after 90 days | Cost saving with no correctness risk |
 | CORS | Not required | Uploads pass through the API; the browser never talks to S3 directly |
 
-> **Attention — lifecycle rules.** It is easy to add a "delete after N days" rule
+> **Attention- lifecycle rules.** It is easy to add a "delete after N days" rule
 > for cost control and not realise it applies to claim evidence under legal hold.
 > If a lifecycle expiry rule is ever added, it must exclude the `claims/` prefix.
 
@@ -102,7 +102,7 @@ The application needs four actions, scoped to the one bucket:
 `ListBucket` is on the bucket ARN; the object actions are on `/*`. Both entries
 are needed.
 
-> **Attention — do not reuse the SES user's key if it is broadly scoped.** The
+> **Attention- do not reuse the SES user's key if it is broadly scoped.** The
 > credentials are shared by configuration, but the *policy* attached to them
 > should grant only SES send permissions plus the block above. If the existing
 > key carries a wider policy, narrow it now rather than after the migration.
@@ -112,7 +112,7 @@ are needed.
 ## 3. Key structure
 
 S3 has no directories. A key is a single string; the console renders `/` as
-folders. Nothing is pre-created — writing an object creates every implied prefix.
+folders. Nothing is pre-created- writing an object creates every implied prefix.
 So the bucket is created empty and the layout below appears as uploads happen.
 
 ### Layout
@@ -158,7 +158,7 @@ One service with two drivers. Callers never learn which is active.
 
 ```
 services/storage/
-  storage.service.ts      Public interface — put, get, delete, signed URL
+  storage.service.ts      Public interface- put, get, delete, signed URL
   localDriver.ts          Existing private_uploads behaviour
   s3Driver.ts             S3 implementation
   keys.ts                 Key builders, one per module
@@ -176,11 +176,11 @@ The interface stays deliberately small:
 
 ### What callers store
 
-Records persist **the key only** — never an absolute path, never a URL. This is
+Records persist **the key only**- never an absolute path, never a URL. This is
 the single most important rule in the migration.
 
 Every record now stores `storageKey`. The fields that used to hold a path or a
-multer filename — `path`, `storedName`, `storagePath`, `filePath` — are gone from
+multer filename- `path`, `storedName`, `storagePath`, `filePath`- are gone from
 `user`, `businessAccount`, `branch`, `shipmentDraft`, `invoiceUpload`,
 `labelDocument`, `pickupEvidence`, and `pod`.
 
@@ -193,9 +193,9 @@ empty key as "there is nothing to read", not as a broken reference.
 
 Two options, and the choice differs by document type:
 
-1. **Signed URL** — the API returns a short-lived S3 link and the browser fetches
+1. **Signed URL**- the API returns a short-lived S3 link and the browser fetches
    it directly. Cheaper and faster; the URL is a bearer token for its lifetime.
-2. **Streamed through the API** — the server authorises, then pipes the bytes.
+2. **Streamed through the API**- the server authorises, then pipes the bytes.
    The file is never reachable without a live session.
 
 In the end **every** download streams through the API. Signed URLs remain
@@ -207,8 +207,8 @@ signed URL forwarded in an email stays readable until it expires; a streamed
 response dies with the session.
 
 There is also no generic "fetch by key" endpoint, deliberately. Every document is
-reached through the endpoint that owns it — `/api/v1/branches/:id/documents/:n`,
-`/api/v1/staff/:id/documents/:type`, and so on — so the check is always "may
+reached through the endpoint that owns it- `/api/v1/branches/:id/documents/:n`,
+`/api/v1/staff/:id/documents/:type`, and so on- so the check is always "may
 *this* user see *this* record", never "is this user signed in".
 
 ---
@@ -220,7 +220,7 @@ Existing local files were development artefacts and were discarded, which remove
 the backfill step, the copy-verify-delete dance, and the dual-read window that
 would otherwise have dominated this work.
 
-> **Attention — existing development records are now unreadable.** Every affected
+> **Attention- existing development records are now unreadable.** Every affected
 > collection changed field names, so rows written before this change point at
 > nothing. Drop and re-seed the development database rather than trying to repair
 > them.
@@ -260,7 +260,7 @@ branch-access check as the rest of the record.
 ### The security fix that came with this
 
 `/api/v1/files` mounted the entire `private_uploads/` tree behind `attachUser` +
-`requireAuthenticated` — nothing more. Any authenticated user of any role who
+`requireAuthenticated`- nothing more. Any authenticated user of any role who
 could guess or observe a stored path could read any other account's KYC
 documents, invoices, or credit agreements. It is deleted, and nothing generic
 replaces it.
@@ -274,7 +274,7 @@ Done, on the local driver:
 - Both projects typecheck clean.
 - 467 unit tests pass; 87 of 89 integration tests pass. The two failures are in
   `individualShipment.integration.test.ts` and assert on name casing
-  (`'ASHA KUMARI'` vs `'Asha Kumari'`) — they fail identically on the unmodified
+  (`'ASHA KUMARI'` vs `'Asha Kumari'`)- they fail identically on the unmodified
   code, so they predate this work and are unrelated to storage.
 - Uploading the same file twice produces two distinct keys.
 - A key containing `..` is refused before any driver call.
@@ -294,7 +294,7 @@ Still to do, and needing the real bucket:
 
 | Item | Owner | Status |
 |---|---|---|
-| Bucket created | Infrastructure | Done — `swiftline-prod-storage-…-ap-south-1-an`, `ap-south-1` |
+| Bucket created | Infrastructure | Done- `swiftline-prod-storage-…-ap-south-1-an`, `ap-south-1` |
 | Claims wired to the storage service | Backend | Done |
 | Convert the ten existing upload sites | Backend | Done |
 | POD schema change (absolute paths → keys) | Backend | Done |
@@ -302,9 +302,9 @@ Still to do, and needing the real bucket:
 | IAM policy narrowed to the block above | Infrastructure | Unverified |
 | Block Public Access, SSE-S3, versioning confirmed on the bucket | Infrastructure | Unverified |
 | Confirm no lifecycle expiry rule covers `claims/` | Infrastructure | Unverified |
-| End-to-end check against the real bucket with `STORAGE_DRIVER=s3` | Backend | Not done — the suite runs on the local driver |
+| End-to-end check against the real bucket with `STORAGE_DRIVER=s3` | Backend | Not done- the suite runs on the local driver |
 
-> **Attention — environment naming.** The configured bucket is named `-prod-` and
+> **Attention- environment naming.** The configured bucket is named `-prod-` and
 > `S3_KEY_PREFIX=production`, while the portal is otherwise described as
 > pre-production. If a development environment points at this bucket, dev uploads
 > land in production storage and the no-backfill shortcut in section 5 stops

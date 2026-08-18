@@ -28,7 +28,7 @@ export type DashboardRole = AuthenticatedUser["role"];
 
 // What each internal role is allowed to read. Every admin data route is gated to
 // `admin`, manifests additionally admit `operations`, and notifications are open
-// to every signed-in role — so asking for anything else would only collect 403s.
+// to every signed-in role- so asking for anything else would only collect 403s.
 export type DashboardCapability = "shipments" | "accounts" | "finance" | "approvals" | "manifests";
 
 // Operations is deliberately left off "shipments": that flag also selects the
@@ -428,7 +428,7 @@ function shipmentActivity(items: DpdShipmentHistoryItem[]): ActivityItem[] {
       id: `shipment-${item.dpdShipment.id}`,
       kind: status === "DELIVERED" ? "delivery" : exception ? "exception" : "shipment",
       title: `${reference} · ${item.currentEvent?.statusLabel || titleCase(status)}`,
-      detail: `${consignee} — ${item.branch?.name || "Branch not assigned"}`,
+      detail: `${consignee}- ${item.branch?.name || "Branch not assigned"}`,
       actor: item.branch?.code || "Swiftline",
       at: item.currentEvent?.eventAt || item.dpdShipment.updatedAt || item.dpdShipment.createdAt || "",
       href: `/dashboard/shipments/${item.dpdShipment.shipmentDraftId}`

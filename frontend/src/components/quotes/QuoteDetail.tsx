@@ -298,7 +298,7 @@ export default function QuoteDetail({
             <div className="space-y-3 p-5 text-sm">
               {/* An approved quote is priced by the branch as its own set of
                   figures, so it keeps the fixed rows below. The rate-card estimate
-                  lists exactly the charges the route applies — and falls back to
+                  lists exactly the charges the route applies- and falls back to
                   the freight and clearance split on quotes estimated before route
                   charges existed. */}
               {!displayedPricing && quote.estimate.lines?.length ? (

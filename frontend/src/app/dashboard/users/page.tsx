@@ -91,7 +91,7 @@ export default function UsersPage() {
   // Login status is an admin action. HR reads the directory only, matching the
   // guard on PATCH /users/:id/status.
   const canManageStatus = user?.role === "admin";
-  // Approving a request creates a real login, so the queue is admin-only —
+  // Approving a request creates a real login, so the queue is admin-only-
   // the same line the endpoint draws.
   const canReviewRequests = user?.role === "admin";
 
@@ -132,7 +132,7 @@ export default function UsersPage() {
    * Approves the request in one step and reports what happened.
    *
    * The server creates the login, sends the password invitation and clears the
-   * request, so the list is reloaded rather than edited in place — the row is
+   * request, so the list is reloaded rather than edited in place- the row is
    * gone, and the person appears under Users once they set their password.
    *
    * `busyRequestId` disables the buttons for the row being worked on, because

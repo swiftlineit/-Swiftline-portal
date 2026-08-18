@@ -224,8 +224,8 @@ export async function ensureShipmentInvoiceForDraft(input: {
   const snapshotConsignee = asRecord(bookingSnapshot?.consignee);
   // Every field below falls back to the business account when the snapshot leaves
   // it blank. For a walk-in that account is the shared sentinel, so the fallback
-  // would print its bookkeeping identity — "Customers" as a surname, and its
-  // internal system email address — onto a real customer's invoice. Individuals
+  // would print its bookkeeping identity- "Customers" as a surname, and its
+  // internal system email address- onto a real customer's invoice. Individuals
   // are billed from their snapshot alone; a blank field stays blank.
   const isIndividualCustomer = draft.customerType === "INDIVIDUAL";
   const fallbackContact = isIndividualCustomer
@@ -241,13 +241,13 @@ export async function ensureShipmentInvoiceForDraft(input: {
   const taxableValueMinor = toMinor(pricing.baseAmount);
   const totalTaxAmountMinor = toMinor(pricing.gstAmount);
   // Resolved to GST state codes so both sides of the place-of-supply test speak
-  // the same language — see resolveGstStateCode.
+  // the same language- see resolveGstStateCode.
   const supplierJurisdiction = resolveGstStateCode(supplierGstin, supplierState);
   const customerJurisdiction = resolveGstStateCode(customerGstin, customerState);
   const taxAmounts = getTaxAmounts(taxableValueMinor, totalTaxAmountMinor, supplierJurisdiction, customerJurisdiction);
   // Only Swiftline's own GSTIN can hold an invoice back: a tax invoice without
   // the supplier's registration number is not a tax invoice. A missing customer
-  // GSTIN is ordinary — an unregistered recipient never has one — so the field
+  // GSTIN is ordinary- an unregistered recipient never has one- so the field
   // is left blank on the document and the invoice issues normally.
   const validationWarnings = supplierGstin ? [] : ["Branch GSTIN is not configured."];
   // A shipment with no GST is still a valid completed invoice, so the GST cells

@@ -20,6 +20,7 @@ import ShareRateCardDialog from "@/components/rate-cards/ShareRateCardDialog";
 import RouteChargesForm from "@/components/rate-cards/RouteChargesForm";
 import RateCardAssignments from "@/components/rate-cards/RateCardAssignments";
 import { countryOptions } from "@/lib/branches";
+import { portalCountries } from "@/lib/portalCountries";
 import {
   buildCountryRateCardCsv,
   CountryRateCard,
@@ -57,11 +58,28 @@ const defaultForm: FormState = {
   maxBoxKg: "",
 };
 
-function getCountryName(countryCode: string) {
-  return (
-    countryOptions.find((country) => country.code === countryCode)?.name ??
-    countryCode
+// The rate-card picker: the shared shortlist plus Poland, and an "Other" entry
+// that staff resolve against the full portal country list before saving.
+const rateCardCountryOptions = [
+  ...countryOptions,
+  { code: "PL", name: "Poland" },
+  { code: "OTHER", name: "Other" }
+];
+
+function findRateCardCountry(countryCode: string) {
+  const shortlist = rateCardCountryOptions.find(
+    (country) => country.code === countryCode,
   );
+  if (shortlist) return shortlist;
+
+  const portal = portalCountries.find(
+    (country) => country.iso2.toUpperCase() === countryCode,
+  );
+  return portal ? { code: portal.iso2.toUpperCase(), name: portal.name } : null;
+}
+
+function getCountryName(countryCode: string) {
+  return findRateCardCountry(countryCode)?.name ?? countryCode;
 }
 
 function getCountryIso2(countryCode: string) {
@@ -170,6 +188,12 @@ export default function CountryRateCardPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (form.countryCode === "OTHER") {
+      setError("Add the country from the Other option before saving.");
+      return;
+    }
+
     setBusy(true);
     setError("");
     setMessage("");
@@ -492,7 +516,7 @@ export default function CountryRateCardPage() {
 }
 
 function formatRouteChargeSummary(routeCharge: CountryRouteCharge | undefined) {
-  if (!routeCharge) return "—";
+  if (!routeCharge) return "-";
 
   const details: string[] = [];
   if (routeCharge.fuelSurchargePercent > 0) details.push(`Fuel ${routeCharge.fuelSurchargePercent}%`);
@@ -510,7 +534,7 @@ function formatRouteChargeSummary(routeCharge: CountryRouteCharge | undefined) {
   // would describe a charge no shipment can incur.
   if (routeCharge.discountPercent > 0) details.push(`Discount ${routeCharge.discountPercent}%`);
 
-  return details.length ? details.join(" · ") : "—";
+  return details.length ? details.join(" · ") : "-";
 }
 
 function CountryRateSelect({
@@ -524,9 +548,12 @@ function CountryRateSelect({
   const listRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const selectedCountry =
-    countryOptions.find((country) => country.code === value) ??
-    countryOptions[0];
+  const [otherQuery, setOtherQuery] = useState("");
+  const [otherError, setOtherError] = useState("");
+  const isOther = value === "OTHER";
+  const selectedCountry = isOther
+    ? null
+    : findRateCardCountry(value) ?? rateCardCountryOptions[0];
 
   useEffect(() => {
     if (!open) return;
@@ -545,9 +572,30 @@ function CountryRateSelect({
       ?.scrollIntoView({ block: "nearest" });
   }, [highlightedIndex]);
 
-  function selectCountry(country: (typeof countryOptions)[number]) {
+  function selectCountry(country: (typeof rateCardCountryOptions)[number]) {
     onChange(country.code);
     setOpen(false);
+    setOtherError("");
+  }
+
+  function confirmOther() {
+    const target = otherQuery.trim();
+    if (!target) {
+      setOtherError("Enter a country name.");
+      return;
+    }
+
+    const match = portalCountries.find(
+      (country) => country.name.toLowerCase() === target.toLowerCase(),
+    );
+    if (!match) {
+      setOtherError(`"${target}" is not in our countries list.`);
+      return;
+    }
+
+    onChange(match.iso2.toUpperCase());
+    setOtherQuery("");
+    setOtherError("");
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -565,7 +613,7 @@ function CountryRateSelect({
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setHighlightedIndex((current) =>
-        Math.min(current + 1, countryOptions.length - 1),
+        Math.min(current + 1, rateCardCountryOptions.length - 1),
       );
     }
 
@@ -574,9 +622,9 @@ function CountryRateSelect({
       setHighlightedIndex((current) => Math.max(current - 1, 0));
     }
 
-    if (event.key === "Enter" && countryOptions[highlightedIndex]) {
+    if (event.key === "Enter" && rateCardCountryOptions[highlightedIndex]) {
       event.preventDefault();
-      selectCountry(countryOptions[highlightedIndex]);
+      selectCountry(rateCardCountryOptions[highlightedIndex]);
     }
   }
 
@@ -600,17 +648,60 @@ function CountryRateSelect({
         className="mt-2 flex h-10 w-full rounded-2xl items-center gap-3 border border-slate-300 bg-white px-3 text-left text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
       >
         <span className="flex h-5 w-7 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
-          <FlagImage iso2={getCountryIso2(selectedCountry.code)} size="20px" />
+          {selectedCountry ? (
+            <FlagImage iso2={getCountryIso2(selectedCountry.code)} size="20px" />
+          ) : null}
         </span>
-        <span className="min-w-0 flex-1 truncate">{selectedCountry.name}</span>
+        <span className="min-w-0 flex-1 truncate">
+          {selectedCountry?.name ?? "Other"}
+        </span>
       </button>
+
+      {isOther ? (
+        <div className="mt-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              list="portal-countries"
+              value={otherQuery}
+              onChange={(event) => {
+                setOtherQuery(event.target.value);
+                setOtherError("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  confirmOther();
+                }
+              }}
+              placeholder="Type a country from our list"
+              className="h-10 w-full rounded-2xl border border-slate-300 px-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
+            />
+            <button
+              type="button"
+              onClick={confirmOther}
+              className="h-10 shrink-0 rounded-2xl border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:border-slate-500"
+            >
+              Add
+            </button>
+          </div>
+          <datalist id="portal-countries">
+            {portalCountries.map((country) => (
+              <option key={country.iso2} value={country.name} />
+            ))}
+          </datalist>
+          {otherError ? (
+            <p className="mt-1 text-xs font-semibold text-red-600">{otherError}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {open ? (
         <div
           ref={listRef}
           className="absolute top-full z-50 mt-1 max-h-64 w-full overflow-y-auto border border-slate-200 bg-white shadow-lg"
         >
-          {countryOptions.map((country, index) => (
+          {rateCardCountryOptions.map((country, index) => (
             <button
               key={country.code}
               type="button"
@@ -624,7 +715,9 @@ function CountryRateSelect({
               }`}
             >
               <span className="flex h-5 w-7 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
-                <FlagImage iso2={getCountryIso2(country.code)} size="20px" />
+                {country.code === "OTHER" ? null : (
+                  <FlagImage iso2={getCountryIso2(country.code)} size="20px" />
+                )}
               </span>
               <span className="truncate">{country.name}</span>
             </button>

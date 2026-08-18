@@ -161,7 +161,7 @@ async function createAccount(label: string) {
         widthCm: 20,
         heightCm: 20,
         shipmentContentType: "PARCEL",
-        // 4 units at ₹500 each — the snapshot should total 200,000 paise.
+        // 4 units at ₹500 each- the snapshot should total 200,000 paise.
         items: [{ description: "Wool rug", quantity: 4, unitRate: 500, unitType: "PCS" }]
       }
     ]

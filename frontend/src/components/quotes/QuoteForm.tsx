@@ -86,7 +86,7 @@ function formatTransit(transit: { daysMin: number; daysMax: number; basis: "BUSI
 }
 
 /**
- * A parcel while it is being edited. `contentsIsOther` is presentation only —
+ * A parcel while it is being edited. `contentsIsOther` is presentation only-
  * it remembers that the customer chose "Other" so the text box stays open while
  * `contents` is still empty. It travels with the parcel object rather than being
  * keyed by sequence, which is renumbered whenever a box is removed.
@@ -149,7 +149,7 @@ export default function QuoteForm({
    * A quote is only ever submitted, never saved as a draft: its entire content
    * is the priced estimate, which cannot be produced without the destination,
    * weights, and goods value. By the time enough is filled in to store, it is
-   * ready to submit — so this guards against losing work, nothing more.
+   * ready to submit- so this guards against losing work, nothing more.
    */
   useUnsavedChanges(
     !submitted && (
@@ -675,7 +675,7 @@ export default function QuoteForm({
           </div>
         </section>
 
-        {/* Declarations only — no uploads happen at the quote stage. */}
+        {/* Declarations only- no uploads happen at the quote stage. */}
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
             <div className="min-w-0">

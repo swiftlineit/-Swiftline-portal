@@ -2,8 +2,8 @@
  * Regenerates the compact HS code file the shipment forms search, from the
  * published Harmonized System CSV.
  *
- * The source carries the full hierarchy — sections, chapters, parent links and
- * a grand-total row — none of which a person typing "cotton shirt" needs. This
+ * The source carries the full hierarchy- sections, chapters, parent links and
+ * a grand-total row- none of which a person typing "cotton shirt" needs. This
  * reduces it to the headings (4 digit) and subheadings (6 digit) that may
  * actually be declared, as `[code, description]` pairs.
  *
@@ -62,12 +62,12 @@ function main() {
 
   if (!sourcePath) {
     // Only this script needs the CSV. If you are seeing this, you are trying to
-    // regenerate without it — data/reference/hs-codes.json is committed and is
+    // regenerate without it- data/reference/hs-codes.json is committed and is
     // what the app actually reads.
     throw new Error(
       `Harmonized System CSV not found at ${candidateSources.join(" or ")}.\n`
       + "It is git-ignored on purpose. Copy it there to regenerate;\n"
-      + "the app itself does not need it — data/reference/hs-codes.json is committed."
+      + "the app itself does not need it- data/reference/hs-codes.json is committed."
     );
   }
 

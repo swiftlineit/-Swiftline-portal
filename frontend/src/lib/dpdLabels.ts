@@ -448,7 +448,7 @@ export type DpdShipmentHistoryItem = {
   } | null;
   currentEvent: ShipmentEvent | null;
   events: ShipmentEvent[];
-  /** Only populated when the caller asked for it — see `listDpdShipments`. */
+  /** Only populated when the caller asked for it- see `listDpdShipments`. */
   deliveryEstimate?: {
     estimatedDeliveryAt: string;
     earliestDeliveryAt: string;
@@ -520,6 +520,42 @@ export const shipmentOperationalStatusOptions = [
 ] as const;
 
 export type ShipmentOperationalStatus = (typeof shipmentOperationalStatusOptions)[number]["value"];
+
+/**
+ * The ladder steps before `target` that this shipment has not recorded yet.
+ *
+ * A deliberate mirror of `findMissingPrerequisites` in the backend's
+ * shipmentStatusSequence.service.ts. The two packages share no library, and the
+ * alternative- a round trip per option- is a poor trade for greying out a
+ * dropdown. The backend stays authoritative: this copy exists to stop a doomed
+ * submission being made, never to decide whether one is allowed.
+ */
+export function findMissingStatusPrerequisites(
+  target: string,
+  recorded: Iterable<string>
+): ShipmentOperationalStatus[] {
+  const ladder = shipmentOperationalStatusOptions.map((option) => option.value);
+  const index = ladder.indexOf(target as ShipmentOperationalStatus);
+  if (index < 0) return [];
+
+  const already = new Set(recorded);
+  return ladder.slice(0, index).filter((status) => !already.has(status));
+}
+
+/**
+ * The first status this shipment may record, so the form never opens on an
+ * option it would immediately reject. Falls back to the head of the ladder for a
+ * shipment whose history has not loaded yet.
+ */
+export function firstAllowedOperationalStatus(
+  recorded: Iterable<string>
+): ShipmentOperationalStatus {
+  const already = [...recorded];
+  return shipmentOperationalStatusOptions
+    .map((option) => option.value)
+    .find((status) => findMissingStatusPrerequisites(status, already).length === 0)
+    ?? "PARCEL_COLLECTED";
+}
 
 export type DpdShipmentAuditLog = {
   id: string;
@@ -616,7 +652,7 @@ export async function createManualShipmentDraft(input: {
 }
 
 /**
- * Identity of a walk-in customer. Only the name is taken at the counter — every
+ * Identity of a walk-in customer. Only the name is taken at the counter- every
  * other field is filled in on the draft form and enforced before booking.
  */
 export type IndividualCustomerDetails = {

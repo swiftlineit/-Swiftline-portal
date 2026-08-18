@@ -1,5 +1,5 @@
 // Goods that may never be shipped. This is the frontend mirror of the backend's
-// restrictedGoods.service.ts — the two live in separate packages, so keep them in
+// restrictedGoods.service.ts- the two live in separate packages, so keep them in
 // step by hand. The backend is the authoritative reject at booking time; this copy
 // only powers the immediate "This item is restricted." toast at data entry.
 

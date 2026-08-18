@@ -4,7 +4,7 @@ import { countryRateServiceValues, type CountryRateService } from "./countryRate
 /**
  * One lane Swiftline operates, and how long it takes.
  *
- * A route is origin country + destination country + service — "India → United
+ * A route is origin country + destination country + service- "India → United
  * Kingdom, Courier". Today every shipment leaves India (`consignorCountryCode`
  * in shipmentDraft.model.ts is fixed to "IN"), but the origin is stored rather
  * than assumed so opening a second gateway later is a data change, not a schema
@@ -121,7 +121,7 @@ const swiftlineRouteSchema = new mongoose.Schema<ISwiftlineRoute>(
   { timestamps: true }
 );
 
-// A shipment resolves exactly one route, so the lane key has to be unique — two
+// A shipment resolves exactly one route, so the lane key has to be unique- two
 // rows would leave the estimate depending on which one the query happened to
 // return first.
 swiftlineRouteSchema.index(
@@ -136,8 +136,8 @@ swiftlineRouteSchema.index({ destinationCountryCode: 1, service: 1 });
  * The rules a lane must satisfy however it is written.
  *
  * Returns the first problem, or null. Shared by both hooks below because
- * `pre("validate")` covers `save()` while `findOneAndUpdate` — which is how the
- * upsert in the controller writes — never fires document middleware at all.
+ * `pre("validate")` covers `save()` while `findOneAndUpdate`- which is how the
+ * upsert in the controller writes- never fires document middleware at all.
  * Guarding only one of the two leaves the other silently unchecked.
  */
 function findRouteProblem(route: {
@@ -193,8 +193,8 @@ swiftlineRouteSchema.pre("findOneAndUpdate", async function ensureUpdatedRouteIs
   const filter = this.getFilter() as Record<string, unknown>;
 
   const problem = findRouteProblem({
-    // Anything the update does not mention is unchanged, so the filter — which
-    // carries the lane key — supplies it.
+    // Anything the update does not mention is unchanged, so the filter- which
+    // carries the lane key- supplies it.
     originCountryCode: String(candidate.originCountryCode ?? filter.originCountryCode ?? ""),
     destinationCountryCode: String(candidate.destinationCountryCode ?? filter.destinationCountryCode ?? ""),
     viaCountryCodes: candidate.viaCountryCodes as string[] | undefined,

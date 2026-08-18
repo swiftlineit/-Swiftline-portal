@@ -24,7 +24,7 @@ import { currentDeclarationVersion as declarationVersion } from "./claimDeclarat
  *
  * The two are separate on purpose. A draft is private working space with no
  * number and no deadlines; submission is the moment the claim becomes a record
- * — number allocated, snapshot frozen, clocks started, acknowledgement sent.
+ *- number allocated, snapshot frozen, clocks started, acknowledgement sent.
  */
 
 export class ClaimSubmissionError extends Error {
@@ -98,7 +98,7 @@ export async function createClaimDraft(input: CreateClaimDraftInput) {
   // Captured at draft creation as well as at submission. The client has to pick
   // affected parcels and items before they can file, and they cannot do that
   // against a shipment the claim does not yet hold. Submission re-captures, and
-  // that later copy is the one that counts — this is working data, taken while
+  // that later copy is the one that counts- this is working data, taken while
   // the claim is still private and editable.
   const draftSnapshot = await captureShipmentSnapshot(
     new mongoose.Types.ObjectId(input.shipmentDraftId)
@@ -139,7 +139,7 @@ export async function createClaimDraft(input: CreateClaimDraftInput) {
  * Saves draft edits.
  *
  * Only a draft is editable. Once filed, the claim's content is what a reviewer
- * is judging, and changing it underneath them would make the timeline a lie —
+ * is judging, and changing it underneath them would make the timeline a lie-
  * corrections after submission go through messages and document replacement.
  */
 export async function updateClaimDraft(input: UpdateClaimDraftInput) {
@@ -178,8 +178,8 @@ export async function updateClaimDraft(input: UpdateClaimDraftInput) {
 /**
  * Permanently removes a draft claim and everything it accumulated.
  *
- * Only a draft can be deleted. Once filed, a claim is a record — a number has
- * been allocated, staff may already be reviewing it — so it must be withdrawn
+ * Only a draft can be deleted. Once filed, a claim is a record- a number has
+ * been allocated, staff may already be reviewing it- so it must be withdrawn
  * or closed, never erased. A draft is private working space, so nothing on it
  * is worth keeping: uploaded evidence files, timeline events, and any messages
  * go with it.
@@ -366,7 +366,7 @@ export async function submitClaim(input: {
  *
  * The client sends only a position and a quantity. Everything else is copied
  * from the snapshot rather than accepted from the request, so a client cannot
- * declare their own item values — the declared value on a claim is whatever was
+ * declare their own item values- the declared value on a claim is whatever was
  * declared at booking.
  */
 function buildAffectedItem(

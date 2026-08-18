@@ -16,7 +16,7 @@ import { notifyOperationsStaff, notifyPortalUsers } from "../portalNotification.
 
 /** Rupees for display. Claim amounts are stored as integer paise. */
 function money(minor: number | null | undefined) {
-  if (minor === null || minor === undefined) return "—";
+  if (minor === null || minor === undefined) return "-";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
@@ -184,7 +184,7 @@ export async function notifyClaimDecision(
       metadata: { outcome, approvedAmountMinor },
       // The only claim mail with its own template. Everything the client needs
       // to accept or challenge the outcome has to be in the email itself, not
-      // behind a login — including the arithmetic and the appeal deadline.
+      // behind a login- including the arithmetic and the appeal deadline.
       email: {
         templateKey: "CLAIM_DECISION",
         payload: {
@@ -308,7 +308,7 @@ export async function notifyClaimSettlementAccepted(claim: IClaim) {
   await safely(async () => {
     await notifyPortalUsers(await settlementStaff(), {
       type: "CLAIM_SETTLEMENT_ACCEPTED",
-      title: `${claim.claimNumber ?? "A claim"} accepted — payment due`,
+      title: `${claim.claimNumber ?? "A claim"} accepted- payment due`,
       message: `${money(claim.approvedAmountMinor)} to pay once bank details are verified.`,
       href: staffHref(claim),
       idempotencyKey: `claim-settlement-accepted:${String(claim._id)}`

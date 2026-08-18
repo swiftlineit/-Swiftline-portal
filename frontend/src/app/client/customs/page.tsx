@@ -304,7 +304,7 @@ export default function CustomsKycPage() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           {/* Upload lives on the shipment, where the documents
-                              attach — this points at it rather than making a
+                              attach- this points at it rather than making a
                               second place to send the same files. */}
                           <Link
                             href={`/client/shipments/${shipment.shipmentDraftId}`}

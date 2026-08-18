@@ -121,7 +121,7 @@ export async function approveShipmentCancellation(
     reviewNote: string;
     /**
      * How the refund was paid back to a walk-in customer. Required only when the
-     * shipment was a counter sale with something to refund — account-backed
+     * shipment was a counter sale with something to refund- account-backed
      * cancellations settle through the credit ledger instead.
      */
     refundPayout?: {

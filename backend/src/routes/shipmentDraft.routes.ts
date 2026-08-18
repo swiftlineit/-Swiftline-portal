@@ -45,7 +45,7 @@ shipmentDraftRouter.post("/individual", requireOperations, createIndividualShipm
 // would otherwise read "editable" as a draft id.
 shipmentDraftRouter.get("/editable", requireOperations, listEditableShipmentDrafts);
 shipmentDraftRouter.get("/:id", getShipmentDraft);
-// Only an unbooked draft can be deleted, and deletion is soft — see
+// Only an unbooked draft can be deleted, and deletion is soft- see
 // shipmentDraftDeletion.service.ts. Restore backs the undo on the delete toast.
 shipmentDraftRouter.delete("/:id", requireOperations, deleteShipmentDraftHandler);
 shipmentDraftRouter.post("/:id/restore", requireOperations, restoreShipmentDraftHandler);

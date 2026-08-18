@@ -106,7 +106,7 @@ export type ShipmentChargeLine = {
   code: ShipmentChargeLineCode;
   label: string;
   kind: ShipmentChargeLineKind;
-  /** Rupees. Always positive — `kind` carries the sign. */
+  /** Rupees. Always positive- `kind` carries the sign. */
   amount: number;
   amountMinor: number;
   /** How the amount was derived, shown under the line so a customer can check it. */
@@ -159,7 +159,7 @@ export type ShipmentPricingEstimate = {
   missingRate: boolean;
   exceedsMaxBoxKg: boolean;
   /**
-   * The heaviest a single box may be on this route — the largest maxBoxKg across
+   * The heaviest a single box may be on this route- the largest maxBoxKg across
    * the destination's rate bands. Null when the route has no rate card at all.
    *
    * Route-level rather than per-parcel: the parcel figure belongs to whichever
@@ -213,7 +213,7 @@ export function roundShipmentMoney(value: number) {
  * Freight is charged in whole kilograms, rounded up: a 10.1 kg parcel bills as 11 kg.
  *
  * Settled to three decimals before rounding up, because a volumetric weight is a
- * division and lands on values like 10.000000001 — billing that as 11 kg would
+ * division and lands on values like 10.000000001- billing that as 11 kg would
  * overcharge a parcel that is exactly 10 kg.
  */
 export function billableWeightKg(weightKg: number) {
@@ -234,7 +234,7 @@ function percentageOf(amount: number, percent: number) {
  * clearance, handling, insurance and any discount.
  *
  * Freight is already itemised per box and GST is totalled separately, so both are
- * excluded — listing them again would double them on the invoice.
+ * excluded- listing them again would double them on the invoice.
  *
  * Reads a stored snapshot rather than a live estimate, because an invoice must
  * always print the charges it was raised with. Snapshots taken before route
@@ -328,7 +328,7 @@ type PricingDraftSource = {
  * Everything pricing needs from a stored draft.
  *
  * Every caller that prices a draft goes through this, so a new pricing input can
- * never be added to the engine and silently forgotten at one call site — which
+ * never be added to the engine and silently forgotten at one call site- which
  * would let a shipment be invoiced for a different amount than it was booked at.
  */
 export function buildPricingInputFromDraft(draft: PricingDraftSource): ShipmentPricingInput {
@@ -502,8 +502,8 @@ export async function calculateShipmentPricingEstimate(
  *
  * Deliberately pure: it takes the freight it was handed and the configuration to
  * apply, touches no database, and is the single place the order of operations
- * lives. That order is load-bearing — the discount comes off the subtotal of all
- * charges, and GST is charged on what remains — so it is unit tested directly in
+ * lives. That order is load-bearing- the discount comes off the subtotal of all
+ * charges, and GST is charged on what remains- so it is unit tested directly in
  * `shipmentCostEstimator.test.ts` rather than only through a booking.
  */
 export function calculateChargeBreakdown(input: {
@@ -539,7 +539,7 @@ export function calculateChargeBreakdown(input: {
   // but `insuranceApplied` is forced false and the amount is always zero.
   //
   // Historical bookings are untouched: this only affects pricing calculated from
-  // now on. Reactivating is a matter of restoring the opt-in below — the fields,
+  // now on. Reactivating is a matter of restoring the opt-in below- the fields,
   // the route-charge configuration, and the response shape all still exist.
   const insurancePremium = Math.max(
     percentageOf(declaredGoodsValue, routeCharges.insurancePercent),

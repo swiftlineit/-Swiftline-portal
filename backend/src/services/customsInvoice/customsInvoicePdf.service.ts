@@ -4,7 +4,7 @@
 // under a full-width box header, then the amount-chargeable footer.
 //
 // The header block repeats on every page, matching the template's behaviour when
-// item rows overflow. There is deliberately NO revision/version line — unlike the
+// item rows overflow. There is deliberately NO revision/version line- unlike the
 // GST tax invoice, this document is always regenerated fresh from the shipment.
 
 import fs from "fs";

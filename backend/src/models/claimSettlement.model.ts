@@ -104,7 +104,7 @@ export interface IClaimSettlement extends mongoose.Document {
   paidAmountMinor: number;
   currency: "INR";
   method: "BANK_TRANSFER";
-  /** UTR or equivalent. Required — a payment without one cannot be traced. */
+  /** UTR or equivalent. Required- a payment without one cannot be traced. */
   transactionReference: string;
   paymentDate: Date;
   proofDocumentId: mongoose.Types.ObjectId;

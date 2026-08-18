@@ -4,7 +4,7 @@ import { formatClaimAmount, type ClaimShipmentSnapshot } from "@/lib/claims";
 /**
  * The shipment, exactly as it was when the claim was filed.
  *
- * Read-only on purpose. These are frozen snapshot values, not live form fields —
+ * Read-only on purpose. These are frozen snapshot values, not live form fields-
  * an amendment months later must not change what a reviewer sees, and letting a
  * client edit them here would imply otherwise.
  */
@@ -16,14 +16,14 @@ export default function ClaimShipmentPanel({
   compact?: boolean;
 }) {
   const facts: Array<[string, string]> = [
-    ["Swiftline tracking", snapshot.trackingNumber || "—"],
-    ["Carrier tracking", snapshot.carrierTrackingNumber || "—"],
+    ["Swiftline tracking", snapshot.trackingNumber || "-"],
+    ["Carrier tracking", snapshot.carrierTrackingNumber || "-"],
     ["Booked", formatDashboardDate(snapshot.bookedAt)],
     ["Delivered", snapshot.deliveredAt ? formatDashboardDate(snapshot.deliveredAt) : "Not delivered"],
-    ["Service", snapshot.serviceName || "—"],
+    ["Service", snapshot.serviceName || "-"],
     ["Route", `${snapshot.originCountryCode} → ${snapshot.destinationCountryCode}`],
-    ["Consignor", snapshot.consignorName || "—"],
-    ["Consignee", snapshot.consigneeName || "—"],
+    ["Consignor", snapshot.consignorName || "-"],
+    ["Consignee", snapshot.consigneeName || "-"],
     ["Parcels", String(snapshot.parcelCount)],
     ["Declared value", formatClaimAmount(snapshot.totalDeclaredValueMinor)]
   ];
@@ -85,8 +85,8 @@ export default function ClaimShipmentPanel({
                       <tbody className="divide-y divide-slate-100">
                         {parcel.items.map((item) => (
                           <tr key={item.itemIndex}>
-                            <td className="px-4 py-2 text-slate-900">{item.description || "—"}</td>
-                            <td className="px-4 py-2 text-slate-500">{item.hsnCode || "—"}</td>
+                            <td className="px-4 py-2 text-slate-900">{item.description || "-"}</td>
+                            <td className="px-4 py-2 text-slate-500">{item.hsnCode || "-"}</td>
                             <td className="px-4 py-2 text-right text-slate-700">
                               {item.quantity} {item.unitType}
                             </td>

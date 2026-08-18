@@ -162,7 +162,7 @@ export async function approveAdminCreditAccount(request: Request, response: Resp
       if (!business) throw new Error("BUSINESS_NOT_FOUND");
       const account = await ensureCreditAccount(businessAccountId, session);
 
-      // A live facility must stay live after an edit — resetting it to APPROVED
+      // A live facility must stay live after an edit- resetting it to APPROVED
       // would zero its available credit and break in-flight bookings.
       if (account.status === "CLOSED") throw new Error("CREDIT_CLOSED_IMMUTABLE");
       if (account.status === "SUSPENDED") throw new Error("CREDIT_SUSPENDED_EDIT");

@@ -43,7 +43,7 @@ const SUPPORT_EMAIL = "Info@swiftlinefreight.com";
 /**
  * Mobile sign-in is designed and built but not wired: OTP delivery needs a Jio
  * DLT-registered sender, which is not provisioned yet. Flipping this to `true`
- * is the whole switch — the tab, the country selector and the field are already
+ * is the whole switch- the tab, the country selector and the field are already
  * here, and only the request/verify calls need pointing at the SMS endpoints.
  */
 const MOBILE_LOGIN_ENABLED = false;
@@ -83,7 +83,7 @@ function formatCountdown(totalSeconds: number) {
 }
 
 /**
- * Format check for the email fields. Only catches structural problems — the
+ * Format check for the email fields. Only catches structural problems- the
  * authoritative check on whether a domain actually exists happens on the server.
  * `gmail.cos` is syntactically valid, so it passes here and is rejected there.
  */
@@ -111,15 +111,15 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   // Seeded from the global rather than left to `<Script onLoad>`: next/script
-  // caches loaded sources module-wide and returns early — without firing onLoad
-  // — on every later mount of the same src, so a client-side return to this page
+  // caches loaded sources module-wide and returns early- without firing onLoad
+  //- on every later mount of the same src, so a client-side return to this page
   // (sign-out, back navigation) left this false and the Google button missing
   // until a hard refresh.
   const [googleReady, setGoogleReady] = useState(
     () => typeof window !== "undefined" && Boolean(window.google?.accounts?.id)
   );
   // Read once, during the initial state, from whatever ended the previous
-  // session — so the reason is on screen in the same paint the user lands on.
+  // session- so the reason is on screen in the same paint the user lands on.
   // An unexplained bounce back to the login form reads as a bug.
   const [sessionEndedNotice] = useState(() => takeSessionEndedReason());
   // Absolute timestamps rather than remaining seconds, so a backgrounded tab
@@ -321,7 +321,7 @@ export default function Home() {
     // Mobile stays fluid and clips horizontal decoration; desktop keeps the
     // original viewport-locked two-column experience from `lg` upward.
     // Locked to the viewport from `lg` up so the whole screen is visible without
-    // scrolling. The card, not the page, is what gives way on a short laptop —
+    // scrolling. The card, not the page, is what gives way on a short laptop-
     // a frame that stays put beats either a clipped footer or a scrolling page.
     <div className="flex min-h-dvh w-full max-w-full flex-col overflow-x-hidden bg-[#F6F8FC] text-slate-900 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
       {/* Mobile header intentionally shows only the essentials; the richer company
@@ -740,7 +740,7 @@ export default function Home() {
             ))}
           </ul>
 
-          {/* `hide-on-short-desktop` is defined in globals.css — see the note
+          {/* `hide-on-short-desktop` is defined in globals.css- see the note
               there on why this one rule is not a Tailwind utility. */}
           <div className="hide-on-short-desktop mt-3 rounded-xl bg-slate-50/80 px-3.5 py-3">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

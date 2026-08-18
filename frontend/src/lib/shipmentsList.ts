@@ -139,7 +139,7 @@ export function shipmentListPath(audience: ShipmentAudience) {
  * Query string for a shipment list request.
  *
  * Shared with the export so a downloaded file carries exactly the filters on
- * screen — building the two separately is how they drift apart.
+ * screen- building the two separately is how they drift apart.
  */
 export function shipmentListParams(input: {
   page?: number;

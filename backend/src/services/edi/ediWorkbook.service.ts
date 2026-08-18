@@ -5,7 +5,7 @@ import { EDI_COLUMNS, EDI_HEADERS, type EdiColumn, type EdiContext } from "./edi
 // The customs EDI is a single flat sheet, headers on row 1, one row per parcel. It is
 // written as .xlsx (via ExcelJS) so it can carry the requested styling: 8pt font, bold
 // headers, upper-cased content, and readable column widths. The writer is column-
-// agnostic — it walks EDI_COLUMNS and never needs to know what a column is.
+// agnostic- it walks EDI_COLUMNS and never needs to know what a column is.
 
 const AADHAAR_COLUMN = EDI_COLUMNS.findIndex((column) => column.header === "GSTINNumber");
 const HEADER_HEIGHT = 20;

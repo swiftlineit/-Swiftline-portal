@@ -154,12 +154,12 @@ export function ConsignorKycSection({
     }
   }
 
-  // Required on CSB-V only. On CSB-IV a blank is accepted, but a number that has
-  // been typed still has to be a real one.
-  const aadhaarRequired = csbType === "CSB_V";
+  // The Aadhaar number identifies the sender and is required on every route.
+  // Only the document uploads follow the CSB checklist.
+  const aadhaarRequired = true;
   const aadhaarError = (value: string) => {
     if (!submitAttempted) return undefined;
-    if (!value.trim()) return aadhaarRequired ? "Aadhaar number is required" : undefined;
+    if (!value.trim()) return "Aadhaar number is required";
     return isValidAadhaarNumber(value) ? undefined : "Enter a valid 12 digit Aadhaar number";
   };
   const sharedAadhaarError = kycUseForAll ? aadhaarError(form.aadhaarNumber) : undefined;

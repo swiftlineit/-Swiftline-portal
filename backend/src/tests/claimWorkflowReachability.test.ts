@@ -72,7 +72,7 @@ describe("every transition has a route", () => {
     // `requireAuthenticated` and `requireRole` only inspect `req.user`;
     // `attachUser` is what reads the Bearer token and sets it. A router that
     // mounts the check without the setter rejects every request with a 401,
-    // signed in or not — which is exactly what happened, and which a test
+    // signed in or not- which is exactly what happened, and which a test
     // asserting only that routes exist could never notice.
     const clientSection = routesSource.slice(
       routesSource.indexOf("clientClaimRouter = Router()"),
@@ -194,7 +194,7 @@ describe("the workflow has no dead ends", () => {
 
   it("offers the decision control before an outcome has been chosen", () => {
     // The bug this exists for: DECIDE requires a decision outcome, which does
-    // not exist until a reviewer picks one — and the reviewer picks one in the
+    // not exist until a reviewer picks one- and the reviewer picks one in the
     // panel that is only rendered when DECIDE is offered. Evaluating the command
     // payload while deciding what to *offer* made the panel unreachable, so a
     // claim could reach PENDING_APPROVAL and never be decided.

@@ -317,7 +317,7 @@ async function getMemberAccountIds(userId: mongoose.Types.ObjectId) {
  * What the client tray is allowed to see: an active share, addressed to one of
  * the caller's accounts, that the sender actually chose to deliver in-portal.
  * A share emailed to an account without the PORTAL channel stays out of the
- * tray — the channel selection is an instruction, not a hint.
+ * tray- the channel selection is an instruction, not a hint.
  */
 function clientShareFilter(accountIds: mongoose.Types.ObjectId[]) {
   return {
@@ -446,7 +446,7 @@ export async function downloadClientRateCardShareWorkbook(request: Request, resp
 
 /**
  * Resolves a share from its id and link token. Returns a single opaque failure
- * for a bad id, a bad token, a revoked share and an expired one alike — a
+ * for a bad id, a bad token, a revoked share and an expired one alike- a
  * recipient whose link stopped working is told so by the page, not by a status
  * code that distinguishes "wrong token" from "no such share".
  */

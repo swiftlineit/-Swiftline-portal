@@ -31,7 +31,7 @@ import TicketShipmentContext from "./TicketShipmentContext";
  * the ticket says the same thing the queue's badge does rather than making
  * someone open the list to find out whether it is late.
  *
- * "Escalated" is only claimed when Swiftline was genuinely alerted — the
+ * "Escalated" is only claimed when Swiftline was genuinely alerted- the
  * sweeper stamps that, so an overdue ticket the job has not reached yet reads
  * as exceeded but not yet escalated, which is the truth.
  */
@@ -41,7 +41,7 @@ function TicketSla({ sla }: { sla: SupportTicket["sla"] }) {
   if (sla.breached) {
     return (
       <span className="inline-flex items-center rounded-4xl border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold uppercase text-red-700">
-        {sla.escalatedAt ? "SLA exceeded — escalated" : "SLA exceeded"}
+        {sla.escalatedAt ? "SLA exceeded- escalated" : "SLA exceeded"}
       </span>
     );
   }
@@ -496,7 +496,7 @@ export default function TicketDetail({
               {/*
                 Offered only on the client's own view, and only for the loss and
                 damage categories. A ticket is an enquiry; a claim asks for money.
-                Raising one does not close the ticket — the two run in parallel
+                Raising one does not close the ticket- the two run in parallel
                 and can end differently.
               */}
               {audience === "client" && claimableCategories.includes(ticket.category) ? (

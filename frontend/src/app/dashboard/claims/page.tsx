@@ -296,16 +296,16 @@ export default function StaffClaimsPage() {
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-slate-700">
-                      {claim.businessAccountName || "—"}
+                      {claim.businessAccountName || "-"}
                       {claim.businessAccountCode ? (
                         <span className="block text-xs text-slate-400">
                           {claim.businessAccountCode}
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{claim.branchName || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600">{claim.branchName || "-"}</td>
                     <td className="px-4 py-3 text-slate-600">
-                      {claim.shipmentSnapshot?.trackingNumber || "—"}
+                      {claim.shipmentSnapshot?.trackingNumber || "-"}
                     </td>
                     <td className="px-4 py-3 text-slate-600">{claimLabel(claim.category)}</td>
                     <td
@@ -337,7 +337,7 @@ export default function StaffClaimsPage() {
                           {formatDashboardDate(due)}
                         </span>
                       ) : (
-                        <span className="text-slate-400">—</span>
+                        <span className="text-slate-400">-</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-slate-500">

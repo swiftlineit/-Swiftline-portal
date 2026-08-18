@@ -93,7 +93,7 @@ export interface IRateCardShare extends mongoose.Document {
   recipientEmails: IRateCardShareEmailRecipient[];
   recipientPhones: IRateCardSharePhoneRecipient[];
   // SHA-256 of the link secret. The raw token is returned once, at creation, and
-  // is never recoverable from the database — a leaked dump cannot open shares.
+  // is never recoverable from the database- a leaked dump cannot open shares.
   publicTokenHash: string;
   publicTokenExpiresAt: Date;
   status: RateCardShareStatus;
@@ -198,7 +198,7 @@ const rateCardShareSchema = new mongoose.Schema<IRateCardShare>({
 //
 // `channels` is deliberately absent even though the tray also filters on it.
 // MongoDB refuses to build a compound index spanning two array fields, and
-// `channels` and `recipientAccounts` are both arrays — including it makes every
+// `channels` and `recipientAccounts` are both arrays- including it makes every
 // insert that populates both fail. The account and status keys already cut the
 // scan down to one customer's shares; the channel match runs over that handful.
 rateCardShareSchema.index({ "recipientAccounts.businessAccountId": 1, status: 1, createdAt: -1 });

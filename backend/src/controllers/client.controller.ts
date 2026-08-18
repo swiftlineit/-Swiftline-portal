@@ -12,8 +12,10 @@ import { ShipmentImportBatch } from "../models/shipmentImportBatch.model.js";
 import {
   buildDeliveryEstimate,
   buildTrackingAttention,
-  buildTrackingSummary
+  buildTrackingSummary,
+  resolveShipmentByTrackingNumber
 } from "../services/shipmentTracking.service.js";
+import { formatShipmentEventLabel } from "../services/shipmentStatusSequence.service.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
   createShipmentImportBatch,
@@ -931,11 +933,6 @@ function serializeClientLabel(label: {
   };
 }
 
-function formatShipmentEventLabel(value?: string | null) {
-  if (!value) return "Shipment Created";
-  return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
 function serializeClientShipmentEvent(event: {
   _id: unknown;
   shipmentDraftId: unknown;
@@ -1178,22 +1175,8 @@ export async function trackClientShipment(request: Request, response: Response):
   if (!trackingNumber || trackingNumber.length > 80) {
     return response.status(400).json({ success: false, message: "Enter a valid tracking number." });
   }
-  const exact = new RegExp(`^${trackingNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
-  const [shipmentByReference, pieceLabel] = await Promise.all([
-    DpdShipment.findOne({
-      $or: [{ dpdShipmentId: exact }, { swiftlineTrackingNumber: exact }, { parcelNumbers: exact }]
-    }).select("shipmentDraftId").lean().exec(),
-    LabelDocument.findOne({
-      parcelNumber: exact,
-      labelType: "SWIFTLINE",
-      voidedAt: null
-    }).select("dpdShipmentId").lean().exec()
-  ]);
-  const shipment = shipmentByReference ?? (
-    pieceLabel
-      ? await DpdShipment.findById(pieceLabel.dpdShipmentId).select("shipmentDraftId").lean().exec()
-      : null
-  );
+
+  const shipment = await resolveShipmentByTrackingNumber(trackingNumber);
   if (!shipment || !await clientCanAccessDraft(userId, String(shipment.shipmentDraftId))) {
     return response.status(404).json({ success: false, message: "No shipment was found for that tracking number." });
   }

@@ -160,7 +160,7 @@ describe("shipment manifest workbook", () => {
     assert.equal(capturedParty.city, "Rupnagar");
     assert.equal(capturedParty.postcode, "140102");
     assert.equal(capturedParty.countryCode, "IN");
-    // The redacted Aadhaar is never carried on the party — the EDI reads it live.
+    // The redacted Aadhaar is never carried on the party- the EDI reads it live.
     assert.equal("aadhaarNumber" in (capturedParty as Record<string, unknown>), false);
   });
 

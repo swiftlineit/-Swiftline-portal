@@ -292,7 +292,7 @@ async function main() {
   ).exec();
 
   // The shipment record claims LABEL_RECEIVED, so it needs actual labels behind
-  // it — without these the portal shows a booked shipment with nothing to
+  // it- without these the portal shows a booked shipment with nothing to
   // download, and there is no way to check a label change.
   const swiftlineTrackingNumber = `SLCDEMO${String(shipmentDraft._id).slice(-6).toUpperCase()}`;
 

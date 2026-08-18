@@ -13,7 +13,7 @@ import type { PutObjectInput, SignedUrlInput, StorageDriver, StoredObject } from
  * module from local disk to S3 becomes a configuration change plus a backfill,
  * with no change to the code that uploads or reads.
  *
- * Records must persist the returned `key` and nothing else — never an absolute
+ * Records must persist the returned `key` and nothing else- never an absolute
  * path, never a URL. A row holding an absolute path is tied to one server's
  * filesystem forever, which is exactly the problem the POD evidence rows have
  * and why they need a backfill before that module can move.
@@ -51,7 +51,7 @@ export async function getSignedDownloadUrl(input: SignedUrlInput): Promise<strin
 /**
  * Streams a stored document to an already-authorised response.
  *
- * The caller is responsible for authorisation — this function has no way to
+ * The caller is responsible for authorisation- this function has no way to
  * know who is asking, and deliberately does not try to guess.
  *
  * Streaming rather than redirecting to a signed URL is the right default for

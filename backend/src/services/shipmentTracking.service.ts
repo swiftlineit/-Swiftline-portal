@@ -7,12 +7,57 @@
  * time. Everything either page shows about schedule, weights, references or
  * required action is built here so both read the same shipment the same way.
  */
+import mongoose from "mongoose";
+import { DpdShipment } from "../models/dpdShipment.model.js";
+import { LabelDocument } from "../models/labelDocument.model.js";
 import type { IShipmentDraft } from "../models/shipmentDraft.model.js";
 import type { ShipmentHoldReason } from "../models/shipmentEvent.model.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 import { calculateParcelVolumetricWeight } from "./shipmentPricing.service.js";
 import { estimateRouteDelivery, findRoute, loadDestinationHolidays } from "./swiftlineRoute.service.js";
 import type { ISwiftlineRoute } from "../models/swiftlineRoute.model.js";
+
+/**
+ * The shipment a typed tracking number belongs to, whatever kind of number it is.
+ *
+ * Customers quote whatever is printed in front of them: the Swiftline AWB, the
+ * carrier's own shipment id, or a single piece's parcel number. All three resolve
+ * to the same shipment, and a piece number that was never written onto the
+ * DpdShipment still resolves through its label.
+ *
+ * Shared by the client tracker and the public one so the two can never disagree
+ * about what counts as a valid reference. Returns the draft id only- deciding
+ * who may see that shipment, and how much of it, belongs to the caller.
+ */
+export async function resolveShipmentByTrackingNumber(
+  trackingNumber: string
+): Promise<{ shipmentDraftId: mongoose.Types.ObjectId } | null> {
+  const trimmed = trackingNumber.trim();
+  if (!trimmed || trimmed.length > 80) return null;
+
+  // Anchored and escaped: the number is user input on its way into a query, and
+  // an unescaped "." would quietly match every shipment of the same length.
+  const exact = new RegExp(`^${trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+
+  const [shipmentByReference, pieceLabel] = await Promise.all([
+    DpdShipment.findOne({
+      $or: [{ dpdShipmentId: exact }, { swiftlineTrackingNumber: exact }, { parcelNumbers: exact }]
+    }).select("shipmentDraftId").lean().exec(),
+    LabelDocument.findOne({
+      parcelNumber: exact,
+      labelType: "SWIFTLINE",
+      voidedAt: null
+    }).select("dpdShipmentId").lean().exec()
+  ]);
+
+  const shipment = shipmentByReference ?? (
+    pieceLabel
+      ? await DpdShipment.findById(pieceLabel.dpdShipmentId).select("shipmentDraftId").lean().exec()
+      : null
+  );
+
+  return shipment ? { shipmentDraftId: shipment.shipmentDraftId } : null;
+}
 
 /** The events tracking needs. Both callers already load more than this. */
 export type TrackingEvent = {
@@ -118,7 +163,7 @@ export async function buildDeliveryEstimate(input: {
  * Estimates for a whole page of shipments, in a handful of queries.
  *
  * Calling `buildDeliveryEstimate` per row would issue a route lookup and a
- * holiday lookup for every shipment — forty queries to draw a twenty-row
+ * holiday lookup for every shipment- forty queries to draw a twenty-row
  * table, most of them asking the identical question, because a page of
  * shipments is usually a handful of lanes repeated.
  *
@@ -186,7 +231,7 @@ export async function buildDeliveryEstimates<T>(
  * Kept here rather than derived from `exceptionNextSteps` in
  * clientAttention.service, because that table answers "what is Swiftline doing"
  * for a dashboard list, and a payment hold maps there to a generic delay whose
- * next step reads as Operations chasing it — the opposite of the truth. Every
+ * next step reads as Operations chasing it- the opposite of the truth. Every
  * other hold reason is Swiftline's move and produces no chip.
  */
 const clientActionByHoldReason: Partial<Record<ShipmentHoldReason, { label: string; detail: string }>> = {

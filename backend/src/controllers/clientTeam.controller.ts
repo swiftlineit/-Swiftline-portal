@@ -17,7 +17,7 @@ import { notifyOperationsStaff } from "../services/portalNotification.service.js
  *
  * An invitation raised here does not create a login. It creates a request in
  * `pending_approval` and tells Swiftline, because anyone named would gain
- * immediate sight of the account's shipments, invoices and claims — and a
+ * immediate sight of the account's shipments, invoices and claims- and a
  * customer minting portal logins unsupervised is not a feature.
  */
 

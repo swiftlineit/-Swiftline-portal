@@ -114,7 +114,7 @@ function formatConsignor(snapshot: ShipmentBookingSnapshot) {
  * that need discrete columns rather than the manifest's newline-joined `formatted`
  * block. Built beside `formatted` from the same booking snapshot, so it adds no DB
  * reads and never loses fields to address de-duplication. Aadhaar is deliberately
- * absent — it stays redacted in snapshots and is read live when actually needed.
+ * absent- it stays redacted in snapshots and is read live when actually needed.
  */
 export type ManifestPartySnapshot = {
   companyName: string;

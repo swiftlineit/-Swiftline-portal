@@ -52,7 +52,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
    * What is typed, and what has actually been searched for.
    *
    * Held apart so the list refetches once the typing settles rather than on
-   * every keystroke — this is a server-side search across every page, not a
+   * every keystroke- this is a server-side search across every page, not a
    * filter over the rows already on screen.
    */
   const [searchInput, setSearchInput] = useState("");
@@ -129,7 +129,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  // Applies the typed term once typing settles, and returns to page one — the
+  // Applies the typed term once typing settles, and returns to page one- the
   // page you were on rarely exists in a narrower result set.
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -387,8 +387,8 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                 {shows("amount") ? <th className="px-4 py-3">Chargeable Amount</th> : null}
                 {shows("status") ? <th className="px-4 py-3">Status</th> : null}
                 {/* The only sortable column on show. Consignee, Route, Amount
-                    and Status cannot be ordered by the server — see
-                    shipmentSortableColumns for why — so they stay plain
+                    and Status cannot be ordered by the server- see
+                    shipmentSortableColumns for why- so they stay plain
                     headings rather than arrows that reorder one page. */}
                 {shows("eta") ? <th className="px-4 py-3">Estimated Delivery</th> : null}
                 {shows("created") ? (

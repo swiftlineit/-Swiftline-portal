@@ -108,7 +108,7 @@ export async function captureShipmentSnapshot(
  * Resolves an affected-item coordinate against a snapshot.
  *
  * Returns null when the coordinate does not exist, which the caller must treat
- * as a validation failure rather than as an empty item — a claim referencing a
+ * as a validation failure rather than as an empty item- a claim referencing a
  * parcel that was never in the shipment is malformed, not merely sparse.
  */
 export function resolveSnapshotItem(

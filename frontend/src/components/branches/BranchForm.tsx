@@ -791,7 +791,7 @@ export default function BranchForm({
             ? `Branch saved, but a file upload failed: ${uploadError.message}`
             : "Branch saved, but a file upload failed."
         );
-        // The branch itself is stored, so the form is no longer unsaved work —
+        // The branch itself is stored, so the form is no longer unsaved work-
         // but the user must stay to fix the file.
         setBranchPersisted(true);
         return false;
@@ -968,7 +968,7 @@ export default function BranchForm({
             value={form.gstin}
             onChange={(event) => updateForm({ gstin: normalizeGstin(event.target.value) })}
             error={visibleErrors.gstin}
-            helper={gstinStateName ? `State code ${form.gstin.slice(0, 2)} — ${gstinStateName}` : undefined}
+            helper={gstinStateName ? `State code ${form.gstin.slice(0, 2)}- ${gstinStateName}` : undefined}
             maxLength={GSTIN_LENGTH}
             placeholder={GSTIN_EXAMPLE}
           />

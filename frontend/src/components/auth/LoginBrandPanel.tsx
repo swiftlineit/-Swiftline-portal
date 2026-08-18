@@ -13,7 +13,7 @@ const capabilities = [
 /**
  * Dot coordinates for a simplified world map (Robinson projection), normalized
  * to a 400×166 viewBox. Generated once offline from real coastline data at a
- * deliberately low sampling rate — enough to read as continents at 42% panel
+ * deliberately low sampling rate- enough to read as continents at 42% panel
  * width, far short of the thousands of points a faithful map would need.
  * Source: https://github.com/johan/world.geo.json via the 'dotted-map' package.
  */
@@ -60,7 +60,7 @@ const DOT_RADIUS = 1.35;
 
 /**
  * All 495 landmass dots collapse into one compound path (two arcs per dot)
- * instead of 495 <circle> nodes. Same pixels, one element — the DOM cost of
+ * instead of 495 <circle> nodes. Same pixels, one element- the DOM cost of
  * "photorealistic" dot density stays close to zero. Computed once at module
  * load, not per render.
  */
@@ -134,7 +134,7 @@ const PLANE_PATH =
  * place of an abstract swirl: it reads as "global logistics" at a glance and
  * keeps the brand's navy/red without a busy multi-node network competing with
  * the headline. Drawn rather than photographed for the same reasons as before
- * — a stock photo dates quickly, costs weight on the one page every user must
+ *- a stock photo dates quickly, costs weight on the one page every user must
  * load, and can't be tinted to the brand.
  *
  * Deliberately *contained* rather than full-bleed. Stretched across the whole
@@ -145,14 +145,14 @@ const PLANE_PATH =
  *
  * Vertically centered on the panel (`top-1/2 -translate-y-1/2`) rather than
  * pinned to the top corner: the headline block it sits beside isn't anchored
- * to the top of the card either, and centering — instead of guessing a fixed
- * offset — keeps the two aligned even as the headline's clamp()'d size
+ * to the top of the card either, and centering- instead of guessing a fixed
+ * offset- keeps the two aligned even as the headline's clamp()'d size
  * changes its height across breakpoints. `right-4` echoes the panel's own
  * `p-4`, rather than `right-0` overriding it and sitting flush with the edge.
  *
  * Desktop-only (`hidden lg:block`): on phones and tablets the panel stacks
  * below the sign-in form with no spare width beside the text, so the map would
- * have nowhere to sit — the mobile layout shows the headline and capabilities
+ * have nowhere to sit- the mobile layout shows the headline and capabilities
  * alone.
  *
  * Positioned with a plain `absolute`, never a negative z-index: `relative`
@@ -168,7 +168,7 @@ function WorldMapBackdrop() {
     >
       <defs>
         {/* Fades on every edge, so the dotted landmasses dissolve instead of
-            ending on a hard rectangle — that soft boundary is what stops the
+            ending on a hard rectangle- that soft boundary is what stops the
             map from looking like a misplaced block. */}
         <radialGradient id="world-map-fade" cx="54%" cy="40%" r="70%">
           <stop offset="0%" stopColor="#fff" stopOpacity="0.65" />
@@ -184,7 +184,7 @@ function WorldMapBackdrop() {
         <path d={WORLD_DOTS_PATH} fill="#0D1282" fillOpacity="0.5" />
       </g>
 
-      {/* Flight path + plane — left unmasked so the route stays legible even
+      {/* Flight path + plane- left unmasked so the route stays legible even
           where the dotted map field has faded out. The dash pattern reads as a
           travel/route line rather than a solid border. */}
       <path

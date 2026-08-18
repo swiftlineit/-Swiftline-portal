@@ -73,7 +73,7 @@ export const supportTicketPriorityValues = ["NORMAL", "URGENT", "CRITICAL"] as c
 
 /**
  * Where a ticket sits. `IN_PROGRESS` is the stored value behind the "Under
- * Investigation" label — see `supportTicketStatusLabels`.
+ * Investigation" label- see `supportTicketStatusLabels`.
  *
  * The three waiting states are kept apart because they need different chasing:
  * a carrier gets chased by Swiftline, a customer gets a reminder, and an
@@ -188,7 +188,7 @@ const supportTicketSchema = new mongoose.Schema<ISupportTicket>({
    * Recorded even though `breached` itself is derived, because this is not a
    * fact about the ticket but about a message already sent: without it the
    * sweeper would re-alert on every run, and an alert that repeats every few
-   * minutes is one people learn to ignore. It is deliberately never cleared —
+   * minutes is one people learn to ignore. It is deliberately never cleared-
    * answering a ticket late does not un-send the escalation.
    */
   slaEscalatedAt: { type: Date, default: null, index: true },

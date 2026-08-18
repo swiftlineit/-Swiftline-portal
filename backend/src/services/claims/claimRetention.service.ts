@@ -10,7 +10,7 @@ import { deleteObject } from "../storage/storage.service.js";
  *
  * Two separate things that interact: retention says when a claim's evidence may
  * be destroyed, legal hold says it may not be destroyed regardless. Hold always
- * wins — a retention job that could delete something under litigation would be
+ * wins- a retention job that could delete something under litigation would be
  * worse than one that never ran.
  */
 
@@ -24,8 +24,8 @@ export class ClaimRetentionError extends Error {
 /**
  * Places or lifts a legal hold.
  *
- * Both directions require a reason. Lifting one is the more dangerous action —
- * it re-exposes the claim to deletion — so it is recorded just as carefully as
+ * Both directions require a reason. Lifting one is the more dangerous action-
+ * it re-exposes the claim to deletion- so it is recorded just as carefully as
  * placing it.
  */
 export async function setClaimLegalHold(input: {
@@ -91,7 +91,7 @@ export interface PurgeResult {
  * Destroys the stored evidence of claims whose retention period has expired.
  *
  * Deletes the *objects*, not the claim records. The claim, its timeline, and its
- * decisions stay readable forever — what expires is the right to keep loss
+ * decisions stay readable forever- what expires is the right to keep loss
  * photographs and bank proofs, not the record that a claim happened. A file row
  * survives with `deletedAt` set so the timeline still references something real.
  *

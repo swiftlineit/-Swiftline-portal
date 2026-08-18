@@ -9,7 +9,7 @@ import type { ClaimDocumentCategory } from "./claimDocument.model.js";
  *
  * Deadlines are not hard-coded because they are not one number: they vary by
  * mode, by route, by carrier contract, and by what went wrong. A rule is chosen
- * at submission, then frozen onto the claim — so revising policy next quarter
+ * at submission, then frozen onto the claim- so revising policy next quarter
  * cannot retroactively expire a claim already in flight.
  *
  * Rules are matched most-specific-first. A rule with no route, carrier, or

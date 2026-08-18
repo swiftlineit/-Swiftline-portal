@@ -19,7 +19,7 @@ import {
 
 /**
  * The Service Disruption Centre tab. Publishes the advisories that run on the
- * header marquee and notify clients. The form is always on screen — blank for
+ * header marquee and notify clients. The form is always on screen- blank for
  * a new disruption, populated when the staff click Edit on a listed one.
  */
 

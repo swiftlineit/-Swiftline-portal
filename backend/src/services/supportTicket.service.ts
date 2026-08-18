@@ -177,7 +177,7 @@ async function contextFor(ticket: InstanceType<typeof SupportTicket>) {
  * `breached` is derived here rather than stored: a written flag is wrong for
  * every minute between the deadline passing and a sweeper noticing it, and this
  * is read far more often than any job would run. Once Swiftline has replied the
- * clock stops, whether it was met or missed — the answer is a fact about that
+ * clock stops, whether it was met or missed- the answer is a fact about that
  * reply, not about the current time.
  */
 function serializeTicketSla(ticket: InstanceType<typeof SupportTicket>) {
@@ -195,7 +195,7 @@ function serializeTicketSla(ticket: InstanceType<typeof SupportTicket>) {
      * When Swiftline was alerted, or null if the sweeper has not run yet.
      *
      * Stored rather than derived, unlike `breached`, because it records a
-     * message that was actually sent — the UI can only claim "escalated" if
+     * message that was actually sent- the UI can only claim "escalated" if
      * somebody was genuinely told.
      */
     escalatedAt: ticket.slaEscalatedAt ?? null

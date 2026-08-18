@@ -2,7 +2,7 @@
  * Can Swiftline carry this, and on what terms?
  *
  * Answered before a shipment exists, from the same records that price and
- * schedule a real one — routes for transit and restrictions, rate cards for
+ * schedule a real one- routes for transit and restrictions, rate cards for
  * weight bands, route charges for remote areas. Nothing here is a second
  * opinion: if this says a lane is unserviceable, booking would refuse it too.
  */
@@ -126,7 +126,7 @@ export async function checkServiceability(query: ServiceabilityQuery): Promise<S
 
   const postcode = (query.destinationPostcode ?? "").trim();
   // Any service that lists this postcode makes it remote for the customer's
-  // purposes — the surcharge applies on whichever one they end up booking.
+  // purposes- the surcharge applies on whichever one they end up booking.
   const remoteList = [...new Set(services.flatMap((service) => remotePostcodesByService.get(service) ?? []))];
 
   return {

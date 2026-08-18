@@ -34,6 +34,11 @@ import {
   buildTrackingSummary
 } from "../services/shipmentTracking.service.js";
 import {
+  describeMissingPrerequisites,
+  findMissingPrerequisites,
+  formatShipmentEventLabel
+} from "../services/shipmentStatusSequence.service.js";
+import {
   DpdShipmentServiceError,
   createLabelForShipmentDraft,
   reconcileShipmentDocuments,
@@ -193,11 +198,6 @@ function serializeBranchSummary(branch: {
     code: branch.code,
     city: branch.address?.city ?? ""
   };
-}
-
-function formatShipmentEventLabel(value?: string | null) {
-  if (!value) return "Shipment Created";
-  return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function serializeShipmentEvent(event: {
@@ -992,6 +992,31 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
     .exec();
   if (latestEvent?.status === "ON_HOLD") {
     return response.status(409).json({ success: false, message: "Release the shipment before updating its status." });
+  }
+
+  /**
+   * Progress is recorded in order, so the timeline can never claim a shipment
+   * reached a stage it has no record of passing through.
+   *
+   * Checked ahead of the charge verification below because it is the coarser
+   * gate: a shipment at the wrong rung entirely has a more fundamental problem
+   * than an unverified charge, and answering with the charge message first would
+   * send Operations to fix something that is not yet the obstacle.
+   *
+   * The recorded set is deliberately not filtered on `customerVisible`- an
+   * internal scan still happened, and hiding an event from customers must not
+   * also hide it from this check.
+   */
+  const recordedStatuses = await ShipmentEvent.distinct("status", {
+    shipmentDraftId: shipment.shipmentDraftId
+  });
+  const missingPrerequisites = findMissingPrerequisites(parsed.data.status, recordedStatuses);
+  if (missingPrerequisites.length) {
+    return response.status(409).json({
+      success: false,
+      message: describeMissingPrerequisites(parsed.data.status, missingPrerequisites),
+      missingStatuses: missingPrerequisites
+    });
   }
 
   if (

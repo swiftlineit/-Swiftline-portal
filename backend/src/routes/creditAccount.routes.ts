@@ -22,7 +22,7 @@ import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 export const creditAccountRouter = Router();
 
 creditAccountRouter.use(attachUser);
-// Operations reads credit records — statements, payments, and the ledger — to
+// Operations reads credit records- statements, payments, and the ledger- to
 // answer client questions. Moving money or changing a credit account's standing
 // stays with finance, so every write below re-checks with the narrower guard.
 creditAccountRouter.use(requireRole("admin", "finance", "operations"));

@@ -25,7 +25,7 @@ export interface PolicyMatchInput {
  * How narrowly a rule matches. Higher wins.
  *
  * A rule tied to one business account beats one tied to a carrier, which beats
- * a route rule, which beats the catch-all — so a negotiated contract term always
+ * a route rule, which beats the catch-all- so a negotiated contract term always
  * takes precedence over a general default.
  */
 function specificity(rule: IClaimPolicyRule) {
@@ -98,7 +98,7 @@ export interface ComputedClaimDeadlines {
   /**
    * True when Swiftline's own window to notify the carrier has already closed.
    *
-   * The client's claim stays valid — this only marks that the payout is likely
+   * The client's claim stays valid- this only marks that the payout is likely
    * unrecoverable, so a reviewer knows the exposure before approving rather than
    * finance discovering it afterwards.
    */

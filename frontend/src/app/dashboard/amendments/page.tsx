@@ -288,7 +288,7 @@ function AmendmentReviewModal({
                 <div className="mt-4 border border-amber-200 bg-amber-50 p-4">
                   <p className="text-sm font-semibold text-amber-900">
                     {counterDeltaMinor > 0 ? "Additional Amount Collected" : "Amount Refunded"}
-                    {" — "}
+                    {"- "}
                     {formatMinorAmount(Math.abs(counterDeltaMinor))}
                   </p>
                   <p className="mt-1 text-sm text-amber-800">

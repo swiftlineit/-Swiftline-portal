@@ -34,7 +34,7 @@ function normalizeCountryCode(value: string) {
 
 /**
  * Compares names loosely so a value stored before this dataset existed still
- * matches its dropdown entry — case, accents, punctuation and spacing vary
+ * matches its dropdown entry- case, accents, punctuation and spacing vary
  * between what a person typed and what the dataset records.
  */
 export function normalizePlaceName(value: string) {

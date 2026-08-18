@@ -22,6 +22,7 @@ import {
   publicRateCardRouter,
   rateCardShareRouter,
 } from "./routes/rateCardShare.routes.js";
+import { publicTrackingRouter } from "./routes/publicTracking.routes.js";
 import { dpdShipmentRouter } from "./routes/dpdShipment.routes.js";
 import { shipmentImportRouter } from "./routes/shipmentImport.routes.js";
 import { shipmentDraftRouter } from "./routes/shipmentDraft.routes.js";
@@ -58,7 +59,7 @@ app.disable("x-powered-by");
 // One hop: nginx terminating TLS on the same instance. Without this every request
 // carries the proxy's IP, so the rate limiters below collapse into a single shared
 // bucket and five bad logins lock out every user at once. Raise to 2 if an ALB or
-// CloudFront is ever put in front of nginx — setting it higher than the real hop
+// CloudFront is ever put in front of nginx- setting it higher than the real hop
 // count lets clients spoof X-Forwarded-For and walk past the limiters entirely.
 app.set("trust proxy", 1);
 
@@ -128,6 +129,10 @@ app.use("/api/v1/swiftline-routes", swiftlineRouteRouter);
 app.use("/api/v1/rate-card-shares", rateCardShareRouter);
 // Session-free by design: the link token in the query string is the credential.
 app.use("/api/v1/public/rate-cards", publicRateCardRouter);
+// Also session-free, but for a different reason: the consignee owns the parcel
+// and has no portal account, so the AWB on the label is the only credential
+// there is. Its payload is limited to what that label already shows.
+app.use("/api/v1/public/tracking", publicTrackingRouter);
 app.use("/api/v1/dpd-shipments", dpdShipmentRouter);
 app.use("/api/v1/shipment-imports", shipmentImportRouter);
 app.use("/api/v1/shipment-drafts", shipmentDraftRouter);

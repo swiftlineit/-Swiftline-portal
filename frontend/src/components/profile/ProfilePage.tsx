@@ -318,7 +318,7 @@ export default function ProfilePage() {
   const [accountForm, setAccountForm] = useState<{ company: EditableCompany; contact: ProfileContact } | null>(null);
 
   // Profile edits are inline panels rather than a page, so "dirty" is simply
-  // having one of them open — closing either discards whatever was typed.
+  // having one of them open- closing either discards whatever was typed.
   useUnsavedChanges(editingUser || Boolean(editingAccountId), { label: "your profile" });
   const [passwordForm, setPasswordForm] = useState(emptyPassword);
   // Inline messages keyed by field, cleared whenever an edit starts.
@@ -514,7 +514,7 @@ export default function ProfilePage() {
           Stacks below `sm`, where a 320px screen cannot hold an avatar beside
           a full name and email. Every level of this row carries `min-w-0`:
           a flex item defaults to min-width:auto, so without it the name's
-          `truncate` never engages and a long email pushes the card sideways —
+          `truncate` never engages and a long email pushes the card sideways-
           which is exactly what it did.
         */}
         <div className="flex flex-col gap-4 px-4 pb-5 sm:flex-row sm:items-end sm:justify-between sm:px-6">

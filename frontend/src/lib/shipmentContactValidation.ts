@@ -78,7 +78,7 @@ export function isAcceptableShipmentEmail(value: string): boolean {
   return /^[a-z]{2,24}$/.test(tld);
 }
 
-/** Undefined when acceptable; otherwise the message to surface. Empty is treated as valid here — callers own the required check. */
+/** Undefined when acceptable; otherwise the message to surface. Empty is treated as valid here- callers own the required check. */
 export function getShipmentEmailError(value: string): string | undefined {
   if (!value.trim()) return undefined;
   return isAcceptableShipmentEmail(value) ? undefined : shipmentEmailMessage;
@@ -87,7 +87,7 @@ export function getShipmentEmailError(value: string): string | undefined {
 /**
  * Validates the mobile number against the selected dial code using libphonenumber,
  * so the format has to match the country the code belongs to. Empty is treated as
- * valid here — callers own the required check.
+ * valid here- callers own the required check.
  */
 export function getShipmentMobileError(dialCode: string, mobileNumber: string): string | undefined {
   const code = dialCode.trim();
@@ -112,7 +112,7 @@ export function isPostcodeValidForCountry(countryCode: string, postcode: string)
   return genericPostcodePattern.test(value);
 }
 
-/** Undefined when acceptable; otherwise the message to surface. Empty is treated as valid here — callers own the required check. */
+/** Undefined when acceptable; otherwise the message to surface. Empty is treated as valid here- callers own the required check. */
 export function getPostcodeError(countryCode: string, postcode: string): string | undefined {
   if (!postcode.trim()) return undefined;
   return isPostcodeValidForCountry(countryCode, postcode) ? undefined : shipmentPostcodeMessage;

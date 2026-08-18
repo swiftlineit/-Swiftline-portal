@@ -300,7 +300,7 @@ export default function ClientTeamPage() {
                         ? formatDashboardDateTime(member.joinedAt)
                         : member.requestedAt
                           ? formatDashboardDateTime(member.requestedAt)
-                          : "—"}
+                          : "-"}
                     </td>
                   </tr>
                 );

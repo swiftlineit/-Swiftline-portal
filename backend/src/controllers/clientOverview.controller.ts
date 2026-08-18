@@ -239,7 +239,7 @@ export async function downloadClientShipmentDocument(request: Request, response:
 
 /**
  * Staff global search. Scoped to the branches a staff user is assigned to, and
- * unscoped for those assigned none — which is how the staff shipment listings
+ * unscoped for those assigned none- which is how the staff shipment listings
  * already behave.
  */
 export async function searchStaff(request: Request, response: Response): Promise<Response> {

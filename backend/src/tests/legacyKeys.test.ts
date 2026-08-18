@@ -11,7 +11,7 @@ import { localStorageDriver } from "../services/storage/localDriver.js";
  * prefix that does not exist.
  *
  * Runs against the local driver and the real filesystem, because the whole
- * question is whether a key lands on a file — which a mock cannot answer.
+ * question is whether a key lands on a file- which a mock cannot answer.
  */
 
 const root = path.resolve(process.cwd(), "private_uploads");

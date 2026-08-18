@@ -11,7 +11,7 @@ export type UserBranch = { _id?: string; id?: string; name: string; code: string
 export const staffDocumentTypes = ["aadhaar", "pan", "other"] as const;
 export type StaffDocumentType = (typeof staffDocumentTypes)[number];
 
-/** Metadata only — the bytes come from the document endpoint. */
+/** Metadata only- the bytes come from the document endpoint. */
 export type StaffDocumentSummary = {
   type: StaffDocumentType;
   originalName: string;
@@ -121,7 +121,7 @@ export async function updateUserStatus(userId: string, status: User["userStatus"
  * Creates an internal staff member.
  *
  * The body is multipart because it carries the KYC documents, so no
- * Content-Type is set here — the browser adds it along with the boundary.
+ * Content-Type is set here- the browser adds it along with the boundary.
  */
 export async function createStaff(form: FormData) {
   const response = await fetchWithAuth(apiUrl("/api/v1/users/staff"), {

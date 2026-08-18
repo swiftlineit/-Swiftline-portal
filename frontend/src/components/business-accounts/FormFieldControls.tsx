@@ -40,7 +40,7 @@ export const businessAccountSteps = ["Contact Details", "Company Details", "Uplo
 export { departments, industries, shipmentVolumes } from "@/lib/businessAccountOptions";
 
 // Derived from the canonical list in `lib/portalCountries`, which the geography
-// lookup also reads — so an option can never appear here without the state and
+// lookup also reads- so an option can never appear here without the state and
 // city data behind it, or vice versa.
 export const countryOptions: SelectOption[] = [
   ...portalCountries.map((country): SelectOption => ({
@@ -106,7 +106,8 @@ export const mobileTypeOptions = [
 export const companyTypeOptions = [
   { value: "pvt_ltd", label: "Pvt. Ltd" },
   { value: "llp", label: "LLP" },
-  { value: "enterprise", label: "Enterprise" }
+  { value: "enterprise", label: "Enterprise" },
+  { value: "proprietorship", label: "Proprietorship" }
 ];
 
 export const canadaRegistrationTypeOptions = [
@@ -218,7 +219,7 @@ function DropdownChevron({ open, className = "" }: { open: boolean; className?: 
  * Live validation state of a control.
  *
  * `valid` means the value passed its rules, never merely that the field is
- * filled — a green tick on unvalidated input is worse than no tick at all.
+ * filled- a green tick on unvalidated input is worse than no tick at all.
  * An `error` always wins over the passed-in status, so a control cannot show a
  * tick and a message at the same time.
  */
@@ -255,7 +256,7 @@ export function FieldStatusIcon({ status, className = "" }: { status: FieldStatu
  * Label, help icon, error and helper text around a control.
  *
  * The label sits above the control and carries the mandatory asterisk, so the
- * marker stays visible once the field is filled — a placeholder-only asterisk
+ * marker stays visible once the field is filled- a placeholder-only asterisk
  * disappears exactly when the user wants to re-check what is required.
  */
 export function FieldShell({
@@ -782,7 +783,7 @@ export function SearchableSelect({
 
 /**
  * Text field with suggestions, for values where the list is helpful but never
- * complete — city being the case in point, since the dataset misses smaller
+ * complete- city being the case in point, since the dataset misses smaller
  * towns entirely for some countries.
  *
  * Unlike SearchableSelect this is a real input, so the value can be typed,
@@ -874,7 +875,7 @@ export function ComboBoxField({
       setHighlightedIndex((current) => Math.max(current - 1, 0));
     }
 
-    // Enter picks the highlighted suggestion, but only while the list is open —
+    // Enter picks the highlighted suggestion, but only while the list is open-
     // otherwise it would overwrite a deliberately typed value.
     if (event.key === "Enter" && open && suggestions[highlightedIndex]) {
       event.preventDefault();

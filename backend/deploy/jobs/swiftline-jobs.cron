@@ -1,4 +1,4 @@
-# Swiftline Portal — scheduled maintenance jobs
+# Swiftline Portal- scheduled maintenance jobs
 #
 # Install as /etc/cron.d/swiftline-jobs (root-owned, mode 0644, and it MUST end
 # with a newline or cron silently ignores the last entry).
@@ -7,7 +7,7 @@
 # and self-healing: a missed run is picked up by the next one, so a reboot or a
 # deploy in the middle of the schedule needs no manual catch-up.
 #
-# Times are IST because that is the day boundary the credit module bills on —
+# Times are IST because that is the day boundary the credit module bills on-
 # see the Asia/Kolkata handling in dailyTopUpLimit.service.ts. CRON_TZ makes the
 # entries below mean what they say regardless of the server clock, which on EC2
 # is normally UTC.
@@ -27,7 +27,7 @@ MAILTO=""
 
 # Alert admin and operations when a support ticket misses its first-response
 # deadline. Nothing else can raise this: every other ticket notification hangs
-# off somebody acting, and a breach happens precisely because nobody did — so
+# off somebody acting, and a breach happens precisely because nobody did- so
 # without a scheduled pass the one event that most needs attention is the only
 # one that goes unannounced. Escalation is stamped on the ticket, so a breach is
 # announced once however often this runs, and a ticket answered late is never

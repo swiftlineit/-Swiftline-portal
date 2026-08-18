@@ -50,7 +50,7 @@ export async function resolveUserRecipients(
 }
 
 /**
- * Writes queue rows. Nothing is sent here — enqueueing is a plain write that
+ * Writes queue rows. Nothing is sent here- enqueueing is a plain write that
  * can join the caller's transaction, so an email can never escape for a
  * shipment or payment that later rolled back.
  *

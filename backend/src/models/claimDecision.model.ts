@@ -7,7 +7,7 @@ import type { ClaimDecisionOutcome } from "./claimTypes.js";
  * One decision revision on a claim.
  *
  * Immutable and versioned rather than a field on the claim, because an appeal
- * produces a *second* decision and both must remain readable — a client
+ * produces a *second* decision and both must remain readable- a client
  * disputing an outcome is entitled to see what the original said, and so is
  * anyone reviewing the file later.
  */

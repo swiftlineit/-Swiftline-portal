@@ -2,7 +2,7 @@
  * Shapes the tracking pages share.
  *
  * Client and staff tracking read two different endpoints but render one page,
- * so these live apart from either lib — a field added to one payload and not
+ * so these live apart from either lib- a field added to one payload and not
  * the other is exactly the drift that left staff without a delivery estimate.
  */
 

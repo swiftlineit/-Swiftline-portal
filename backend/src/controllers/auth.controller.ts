@@ -47,7 +47,7 @@ const googleClient = env.GOOGLE_OAUTH_CLIENT_ID ? new OAuth2Client(env.GOOGLE_OA
  * than c-ares (`resolveMx`) because the OS path honors hosts-file overrides and
  * works in environments where c-ares can't reach the configured DNS server.
  * Results are cached so repeated sign-in attempts don't hit DNS on every request.
- * The check only exposes whether a domain is registered — public information —
+ * The check only exposes whether a domain is registered- public information-
  * so it doesn't weaken the enumeration resistance of the login endpoints.
  */
 const EMAIL_DOMAIN_CHECK_ENABLED = env.EMAIL_DOMAIN_CHECK;
@@ -136,7 +136,7 @@ const passwordResetResponse = {
   message: "If an active account exists for this email, a reset link has been sent."
 };
 
-/** Email sign-in codes. Digits only — the code is retyped off a phone screen. */
+/** Email sign-in codes. Digits only- the code is retyped off a phone screen. */
 const LOGIN_OTP_TTL_MS = 10 * 60 * 1000;
 /** Per-account send throttle, mirrored by the countdown on the sign-in screen. */
 const LOGIN_OTP_RESEND_INTERVAL_MS = 60 * 1000;
@@ -168,8 +168,8 @@ const loginOtpRequestResponse = {
   resendInSeconds: LOGIN_OTP_RESEND_INTERVAL_MS / 1000
 };
 
-// One message for every rejection — wrong code, expired code, no code
-// outstanding, attempts exhausted, unknown address — for the same reason.
+// One message for every rejection- wrong code, expired code, no code
+// outstanding, attempts exhausted, unknown address- for the same reason.
 const LOGIN_OTP_GENERIC_ERROR = "This sign-in code is invalid or has expired. Request a new one.";
 
 // Bound to the address as well as the code, so a code minted for one account can
@@ -207,7 +207,7 @@ function canSignIn(user: IUser | null): user is IUser {
 }
 
 /**
- * Finishes a successful sign-in — password, Google or email code — by opening a
+ * Finishes a successful sign-in- password, Google or email code- by opening a
  * session and issuing the token pair. Shared so the three entry points cannot
  * drift apart on cookie flags, session handling, or the response shape the
  * frontend reads.
@@ -431,7 +431,7 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<Resp
  *
  * Always answers with the same neutral 200. An account that does not exist, is
  * not activated, is suspended, or is inside its resend cooldown is silently
- * given nothing — the caller cannot tell those apart from a delivered code, so
+ * given nothing- the caller cannot tell those apart from a delivered code, so
  * this endpoint cannot be used to work out which addresses hold portal accounts.
  */
 export async function requestLoginOtp(req: Request, res: Response): Promise<Response> {
@@ -455,7 +455,7 @@ export async function requestLoginOtp(req: Request, res: Response): Promise<Resp
 
   // An invited user has not set a password yet and must come in through their
   // activation link, which is what proves they control the mailbox in the first
-  // place — a sign-in code would let them skip that.
+  // place- a sign-in code would let them skip that.
   if (!canSignIn(user) || !user.passwordHash) {
     return res.status(200).json(loginOtpRequestResponse);
   }
@@ -468,7 +468,7 @@ export async function requestLoginOtp(req: Request, res: Response): Promise<Resp
   const code = generateLoginOtp();
   const expiresAt = new Date(Date.now() + LOGIN_OTP_TTL_MS);
 
-  // Issuing a new code retires the previous one, including its spent attempts —
+  // Issuing a new code retires the previous one, including its spent attempts-
   // otherwise a resend would inherit an exhausted counter and fail on arrival.
   user.loginOtpHash = hashLoginOtp(email, code);
   user.loginOtpExpiresAt = expiresAt;

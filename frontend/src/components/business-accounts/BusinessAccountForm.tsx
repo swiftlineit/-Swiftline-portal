@@ -198,7 +198,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
   const validation = useMemo(() => validateBusinessAccountForm(formData), [formData]);
 
   // A field only turns red once the user has left it (or a button revealed the
-  // whole step). Green needs no such gate — a tick the moment the value becomes
+  // whole step). Green needs no such gate- a tick the moment the value becomes
   // valid is helpful, whereas a red field mid-word is not.
   const validationErrors = useMemo(() => {
     const errors: Record<string, string> = {};
@@ -257,7 +257,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
     && !isCheckingUnique;
 
   // Shown beside a disabled button so it never reads as broken. On a step the
-  // user has not started, the empty form is its own explanation — listing every
+  // user has not started, the empty form is its own explanation- listing every
   // field before they have typed anything reads as a wall of failures, so the
   // checklist waits until they have engaged with the step.
   const outstandingIssues = useMemo(() => {
@@ -558,7 +558,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
         ? await updateBusinessAccount(account.accountId, formData, files)
         : await createBusinessAccount(formData, files, idempotencyKeyRef.current);
 
-      // Saved on the server from here on, so leaving no longer loses anything —
+      // Saved on the server from here on, so leaving no longer loses anything-
       // including on the submit-failure path below, which navigates away.
       setPersisted(true);
 
@@ -567,7 +567,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
           await submitBusinessAccount(result.account.accountId);
         } catch (submitError) {
           // The account (or draft) was already saved. Navigate to it so the record
-          // is not stranded — a retry from the form would hit a duplicate conflict
+          // is not stranded- a retry from the form would hit a duplicate conflict
           // and the user could never move past it.
           router.push(`/dashboard/business-accounts/${result.account.accountId}`);
           throw submitError;
@@ -586,7 +586,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
    * Stores the form without submitting it for review.
    *
    * Only the contact identity fields are required, matching the relaxed schema
-   * the server applies to drafts — the account keeps its `draft` status and the
+   * the server applies to drafts- the account keeps its `draft` status and the
    * accounts table offers "Submit for Review" when it is complete.
    *
    * Returns whether it was saved, so the leave prompt can keep the user on the
@@ -756,7 +756,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
         ) : null}
 
         {/* The forward button is disabled until the step is valid, so the reason
-            has to be on screen — otherwise it just looks broken. */}
+            has to be on screen- otherwise it just looks broken. */}
         {outstandingIssues.length ? (
           <div className="mt-8 rounded-2xl border border-[#F0DE36] bg-[#F0DE36]/10 px-4 py-3">
             <p className="text-sm font-bold text-[#0D1282]">

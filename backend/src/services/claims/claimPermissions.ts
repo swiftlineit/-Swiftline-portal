@@ -10,7 +10,7 @@ import type { Role } from "../../models/user.model.js";
  * behalf; a Swiftline delivery user can read claims for their branch but must
  * not touch money.
  *
- * Pure functions over role strings — no database access — so the matrix can be
+ * Pure functions over role strings- no database access- so the matrix can be
  * tested exhaustively and so authorisation cannot depend on request shape.
  */
 
@@ -87,7 +87,7 @@ const clientMatrix: Record<BusinessAccountMemberRole, readonly ClaimAction[]> = 
   // Deliberately without VIEW_FINANCIALS: status only, no amounts, no bank data.
   /**
    * Booking, not compensation. A booking user can see that a claim exists
-   * against a shipment they created, and nothing more — the same visibility a
+   * against a shipment they created, and nothing more- the same visibility a
    * tracking login has.
    */
   booking_user: ["VIEW"],
@@ -97,7 +97,7 @@ const clientMatrix: Record<BusinessAccountMemberRole, readonly ClaimAction[]> = 
    * VIEW_FINANCIALS is included because the amount is the claim: a claims
    * handler who cannot see what was requested cannot do the job. Accepting a
    * settlement and setting bank details stay with an owner or admin, for the
-   * same reason they do for operations — those two decide where money goes.
+   * same reason they do for operations- those two decide where money goes.
    */
   claims_user: [
     "VIEW",
@@ -166,7 +166,7 @@ export function staffCan(role: Role, action: ClaimAction) {
  * Branch scoping.
  *
  * Admins see every branch. Everyone else sees only their assigned branches, and
- * a member with no assignment sees nothing — an empty list means no access, not
+ * a member with no assignment sees nothing- an empty list means no access, not
  * unrestricted access. Getting that default backwards is the classic way this
  * check fails open.
  */

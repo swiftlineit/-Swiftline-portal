@@ -4,8 +4,8 @@ import { CounterPayment, type CounterPaymentMethod } from "../models/counterPaym
 
 /**
  * Individual (walk-in) shipments are booked for people who have no company, no
- * KYC file and no portal login. The shipment chain — draft, invoice, shipment
- * manifest and operations consignment — all require a `businessAccountId`, so
+ * KYC file and no portal login. The shipment chain- draft, invoice, shipment
+ * manifest and operations consignment- all require a `businessAccountId`, so
  * every individual shipment is booked against this one system-owned account.
  *
  * A record per customer is deliberately NOT created: `BusinessAccount` carries
@@ -27,7 +27,7 @@ const SENTINEL_MOBILE = "0000000000";
 
 /**
  * Adds the sentinel exclusion to a business account query filter. Use this on
- * every path that lists or counts accounts for a human — the sentinel is
+ * every path that lists or counts accounts for a human- the sentinel is
  * bookkeeping, not a customer, and must never appear in a list, a search result
  * or a dashboard count.
  *

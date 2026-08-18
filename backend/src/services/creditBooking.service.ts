@@ -268,8 +268,8 @@ export async function reserveBookingCapacity(input: ReserveBookingCapacityInput)
     // of money, and most failed bookings never become one: writing it at this
     // point filled the customer's ledger with reserved/released pairs for
     // shipments that were rejected by the carrier and never existed. The hold is
-    // still real — it sits on the account's reserved totals and on the
-    // BalanceReservation — so concurrent bookings cannot overdraw the limit.
+    // still real- it sits on the account's reserved totals and on the
+    // BalanceReservation- so concurrent bookings cannot overdraw the limit.
     // The ledger records the booking when the reservation converts.
     return { reserved: true as const, reservation, charge };
   });
@@ -384,7 +384,7 @@ export async function releaseBookingReservation(input: ReservationTransitionInpu
     ).exec();
     if (!account) throw new Error("BOOKING_RESERVATION_RELEASE_FAILED");
 
-    // Only closes out a hold the ledger was already told about — which means a
+    // Only closes out a hold the ledger was already told about- which means a
     // booking that went to operations review. A reservation released without
     // ever being announced leaves no trace, because nothing about it ever
     // reached the customer's statement.
@@ -412,7 +412,7 @@ export async function releaseBookingReservation(input: ReservationTransitionInpu
 }
 
 // Release a single reservation that has passed its TTL without progressing to a
-// booking attempt. Only ACTIVE reservations are eligible — a CONSUMING one is a
+// booking attempt. Only ACTIVE reservations are eligible- a CONSUMING one is a
 // live booking in flight and must never be swept.
 export async function expireStaleReservation(reservationId: mongoose.Types.ObjectId) {
   const idempotencyKey = `BOOKING:EXPIRE:${reservationId.toString()}`;

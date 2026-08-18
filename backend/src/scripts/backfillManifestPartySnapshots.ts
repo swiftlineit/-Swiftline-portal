@@ -1,7 +1,7 @@
 // R7 backfill: adds structured consignor/consignee `party` fields to operations
 // manifests sealed before EDI support existed, so their EDI export stops 409-ing.
 // Parties are re-derived from each shipment's still-present booking snapshot; nothing
-// else in the sealed snapshot is touched. Aadhaar is never written here — the EDI
+// else in the sealed snapshot is touched. Aadhaar is never written here- the EDI
 // reads it live. Safe to re-run: manifests already carrying parties are skipped.
 import mongoose from "mongoose";
 import { connectDatabase } from "../config/database.js";

@@ -20,8 +20,8 @@ import {
  * Revocation has to work with `SINGLE_SESSION_ENFORCED` off.
  *
  * It previously did not: `verifySession` returned "fine" without reading the
- * session whenever that flag was unset — which is its default and what the
- * deployed environment used — so logging out, an admin terminating a session and
+ * session whenever that flag was unset- which is its default and what the
+ * deployed environment used- so logging out, an admin terminating a session and
  * suspending an account were all accepted by the API and then ignored. Nothing
  * read `userStatus` after login either, and because `/auth/refresh` mints a new
  * seven-day cookie on every call, a blocked login renewed itself indefinitely.

@@ -287,7 +287,7 @@ describe("credit account database lifecycle", () => {
     assert.equal(operationsAgreements.statusCode(), 403);
 
     // Agreements go through the storage service now, so there is no temporary
-    // directory to create or tear down — the local driver handles placement.
+    // directory to create or tear down- the local driver handles placement.
     const generated = await generateCreditAgreement({
       agreementId: new mongoose.Types.ObjectId(draft.id),
       generatedBy: adminId

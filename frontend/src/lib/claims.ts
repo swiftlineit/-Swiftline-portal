@@ -160,7 +160,7 @@ const claimStatusOverrides: Partial<Record<ClaimStatus, string>> = {
 /**
  * The status as a client should read it.
  *
- * A decided claim reads as "Approved" or "Rejected" rather than "Decided" — the
+ * A decided claim reads as "Approved" or "Rejected" rather than "Decided"- the
  * outcome is the part anyone wants, and a partial approval is still an approval
  * in the headline; the settled amount tells the rest. Mirrors
  * `claimStatusLabel` on the server so both sides say the same word.
@@ -487,7 +487,7 @@ export async function submitClaim(claimId: string) {
 /**
  * Uploads one document.
  *
- * Sent as multipart, so the Content-Type header is deliberately not set — the
+ * Sent as multipart, so the Content-Type header is deliberately not set- the
  * browser has to add it along with the multipart boundary, and setting it by
  * hand produces a request the server cannot parse.
  */
@@ -660,7 +660,7 @@ export async function getStaffClaim(claimId: string) {
 /**
  * The staff review transitions.
  *
- * One route each rather than a single call taking a transition name — the server
+ * One route each rather than a single call taking a transition name- the server
  * is built the same way, deliberately, so that no endpoint can set a status
  * without its own preconditions.
  */
@@ -859,7 +859,7 @@ export async function saveClaimRecovery(
 
 /** Integer paise to a displayable rupee string. */
 export function formatClaimAmount(minor: number | null | undefined) {
-  if (minor === null || minor === undefined) return "—";
+  if (minor === null || minor === undefined) return "-";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",

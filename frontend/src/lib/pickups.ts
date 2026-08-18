@@ -63,7 +63,7 @@ export function listEligiblePickupShipments() { return request<{ success: true; 
  * The six views item 19 asks for, expressed over the stored statuses.
  *
  * "Today" is a date range rather than a status, because a pickup happening
- * today can be scheduled, assigned or already collected — it is a question
+ * today can be scheduled, assigned or already collected- it is a question
  * about when, not about what state the request is in.
  */
 export const pickupViews = [

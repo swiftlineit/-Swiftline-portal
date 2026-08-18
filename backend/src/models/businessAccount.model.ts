@@ -81,7 +81,7 @@ export interface IBusinessDocument {
  * the single system-owned record that individual (walk-in) shipments are booked
  * against: those customers have no company, no KYC file and no portal login, but
  * the shipment chain requires a business account to point at. The sentinel is
- * excluded from every account listing — see `individualCustomer.service.ts`.
+ * excluded from every account listing- see `individualCustomer.service.ts`.
  */
 export const businessAccountKinds = ["BUSINESS", "INDIVIDUAL_SENTINEL"] as const;
 export type BusinessAccountKind = (typeof businessAccountKinds)[number];
@@ -315,7 +315,7 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
      *
      * The descriptive fields are optional so a draft can be saved from the first
      * step. Completeness is enforced on the way out of draft, by
-     * `submitBusinessAccount` — never here, or drafts could not be saved at all.
+     * `submitBusinessAccount`- never here, or drafts could not be saved at all.
      */
     contact: {
       title: { type: String, enum: ["mr.", "mrs.", "ms.", "dr.", "prof.", ""], default: "", trim: true },
@@ -338,7 +338,7 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
       registrationIdType: { type: String, default: "", trim: true },
       registrationId: { type: String, default: "", trim: true, index: true },
       // AES-256-GCM, keyed by TAX_ID_ENCRYPTION_KEY. Never indexed and never
-      // returned to a client — see toSafeBusinessAccount.
+      // returned to a client- see toSafeBusinessAccount.
       registrationIdEncrypted: { type: String, default: "", select: false },
       registrationIdKey: { type: String, default: "", trim: true },
       gstin: { type: String, uppercase: true, trim: true, default: "", maxlength: 15 },
@@ -350,7 +350,7 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
       secondaryRegistrationId: { type: String, default: "", trim: true },
       noCompanyRegistration: { type: Boolean, default: false },
       noCompany: { type: Boolean, default: false },
-      companyType: { type: String, enum: ["", "pvt_ltd", "llp", "enterprise"], default: "", trim: true },
+      companyType: { type: String, enum: ["", "pvt_ltd", "llp", "enterprise", "proprietorship"], default: "", trim: true },
       companyName: { type: String, default: "", trim: true },
       registeredAddress: { type: String, default: "", trim: true },
       addressLine2: { type: String, default: "", trim: true, maxlength: 200 },
@@ -441,7 +441,7 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
 
 /**
  * Uniqueness enforced by the database, not only by the pre-flight query in the
- * controller — two simultaneous requests can both pass that check and both
+ * controller- two simultaneous requests can both pass that check and both
  * insert.
  *
  * Partial on purpose. A rejected application must be able to re-apply with the

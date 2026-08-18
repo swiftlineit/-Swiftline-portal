@@ -25,7 +25,7 @@ export default function TicketTable({
         <p className="font-semibold text-slate-900">No support tickets yet</p>
         <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
           Need help with a shipment, a delivery, customs, or billing? Raise a ticket and the
-          Swiftline team will pick it up — you will see every reply here.
+          Swiftline team will pick it up- you will see every reply here.
         </p>
         {audience === "client" ? (
           <Link

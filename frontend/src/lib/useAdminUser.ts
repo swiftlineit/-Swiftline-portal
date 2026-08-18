@@ -24,7 +24,7 @@ const ADMIN_ONLY: readonly PortalRole[] = [];
 /**
  * Confirms the signed-in user may be on this page, redirecting when not.
  *
- * Admin always passes. `additionalRoles` names the other roles allowed here —
+ * Admin always passes. `additionalRoles` names the other roles allowed here-
  * pass one of the area bundles from `@/lib/roles` so the page and the sidebar
  * link that leads to it stay in agreement.
  */

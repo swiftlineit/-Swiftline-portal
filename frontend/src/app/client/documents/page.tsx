@@ -51,7 +51,7 @@ function branchesFor(account: ClientDashboardAccount | null) {
 }
 
 function formatDate(value: string) {
-  if (!value) return "—";
+  if (!value) return "-";
   return new Intl.DateTimeFormat("en-IN", {
     day: "2-digit",
     month: "short",
@@ -64,7 +64,7 @@ function readableStatus(value: string) {
 }
 
 function awbLabel(item: ClientDocumentCentreItem) {
-  if (!item.awb) return "—";
+  if (!item.awb) return "-";
   return item.awbCount > 1 ? `${item.awb} +${item.awbCount - 1}` : item.awb;
 }
 
@@ -404,7 +404,7 @@ export default function ClientDocumentsPage() {
                             </div>
                           </td>
                           <td className="px-4 py-4 font-medium text-slate-700">{awbLabel(item)}</td>
-                          <td className="px-4 py-4 text-slate-600">{item.destination || "—"}</td>
+                          <td className="px-4 py-4 text-slate-600">{item.destination || "-"}</td>
                           <td className="whitespace-nowrap px-4 py-4 text-slate-600">{formatDate(item.documentDate)}</td>
                           <td className="px-4 py-4"><span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">{readableStatus(item.status)}</span></td>
                           <td className="px-5 py-4">
@@ -430,7 +430,7 @@ export default function ClientDocumentsPage() {
                       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                         <MobileDetail label="AWB" value={awbLabel(item)} />
                         <MobileDetail label="Date" value={formatDate(item.documentDate)} />
-                        <MobileDetail label="Destination" value={item.destination || "—"} />
+                        <MobileDetail label="Destination" value={item.destination || "-"} />
                         <MobileDetail label="Status" value={readableStatus(item.status)} />
                       </dl>
                       <div className="mt-4"><DocumentActions item={item} busyId={busyId} onAccess={access} mobile /></div>

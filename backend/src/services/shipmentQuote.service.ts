@@ -140,7 +140,7 @@ export async function calculateQuoteEstimate(context: QuoteContext, input: Shipm
   /**
    * How long this lane actually takes.
    *
-   * The quote screen printed a hard-coded "3-5 days" for every destination —
+   * The quote screen printed a hard-coded "3-5 days" for every destination-
    * a placeholder from before the route table existed that had quietly become
    * a false promise, telling a customer shipping to Australia the same as one
    * shipping to Nepal. Fetched alongside the price rather than on the booking
@@ -396,7 +396,7 @@ export async function changeShipmentQuoteStatus(input: {
  * unscoped, as it does throughout the branch middleware.
  *
  * Raised as a ShipmentQuoteError rather than left to the draft service, because
- * handleQuoteError only translates quote errors — a ManualShipmentDraftError
+ * handleQuoteError only translates quote errors- a ManualShipmentDraftError
  * would reach the client as a 500 instead of a 403.
  */
 function assertQuoteBranchAllowed(allowedBranchIds: string[] | null, branchId: unknown) {

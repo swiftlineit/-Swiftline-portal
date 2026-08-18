@@ -14,7 +14,7 @@ import { grantClientAccess } from "./businessAccountAccess.controller.js";
  * Client login requests awaiting Swiftline.
  *
  * A business account administrator can ask for portal access for a colleague,
- * but the login is not created until somebody here approves it — anyone named
+ * but the login is not created until somebody here approves it- anyone named
  * would otherwise gain immediate sight of that account's shipments, invoices
  * and claims with nobody at Swiftline in the loop.
  */
@@ -71,7 +71,7 @@ export async function listClientAccessRequests(_request: Request, response: Resp
  * Done in one step rather than by handing the operator a prefilled form. The
  * approval decision has already been made by the time this is called, so an
  * extra screen only creates a window where the request is approved but no
- * invitation exists — and it left the request sitting in the queue looking
+ * invitation exists- and it left the request sitting in the queue looking
  * unhandled.
  *
  * `grantClientAccess` is the same function the manual form uses, so the
@@ -129,7 +129,7 @@ export async function approveClientAccessRequest(request: Request, response: Res
     emailError: granted.emailError,
     message: granted.emailSent
       ? `Invitation sent to ${pending.requestedInvite.email}. They now appear under Users as Invited, and become Active once they set their password.`
-      : `Access approved, but the invitation email could not be sent to ${pending.requestedInvite.email} — copy the activation link from the business account instead. They appear under Users as Invited.`
+      : `Access approved, but the invitation email could not be sent to ${pending.requestedInvite.email}- copy the activation link from the business account instead. They appear under Users as Invited.`
   });
 }
 
@@ -171,8 +171,8 @@ async function finaliseApprovedRequest(
  * An operator who creates the access directly on the business account screen
  * leaves the matching request in the queue, where approving it would now fail
  * on the duplicate-identity check. This settles that row without creating a
- * second login. No screen calls it yet — Decline covers the same situation
- * with a reason attached — so it exists for that path rather than for the
+ * second login. No screen calls it yet- Decline covers the same situation
+ * with a reason attached- so it exists for that path rather than for the
  * approve button, which no longer needs a second step.
  */
 export async function completeClientAccessRequest(request: Request, response: Response): Promise<Response> {

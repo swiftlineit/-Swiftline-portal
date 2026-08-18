@@ -54,13 +54,13 @@ export default function ClaimTable({
                 {claim.claimNumber ?? <span className="text-slate-400">Draft</span>}
               </td>
               <td className="px-4 py-3 text-slate-600">
-                {claim.shipmentSnapshot?.trackingNumber || "—"}
+                {claim.shipmentSnapshot?.trackingNumber || "-"}
               </td>
               <td className="px-4 py-3 text-slate-600">{claimLabel(claim.category)}</td>
               <td className="px-4 py-3 text-slate-900">
                 {/* Undefined rather than null when the member cannot see amounts. */}
                 {claim.requestedAmountMinor === undefined
-                  ? "—"
+                  ? "-"
                   : formatClaimAmount(claim.requestedAmountMinor)}
               </td>
               <td className="px-4 py-3">
@@ -70,7 +70,7 @@ export default function ClaimTable({
                 {formatDashboardDateTime(claim.updatedAt)}
               </td>
               <td className="px-4 py-3 text-right">
-                {/* A draft has nothing to view — its answers are only half
+                {/* A draft has nothing to view- its answers are only half
                     entered. It reopens in the wizard instead. */}
                 {claim.status === "DRAFT" && basePath === "/client/claims" ? (
                   <div className="flex items-center justify-end gap-3">

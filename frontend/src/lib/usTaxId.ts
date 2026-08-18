@@ -93,7 +93,7 @@ export function isMaskedUsTaxId(value: string) {
 
 /**
  * Blocking problems, most specific first. Returns "" when acceptable. An empty
- * value is not this function's concern — whether the field is mandatory is
+ * value is not this function's concern- whether the field is mandatory is
  * decided by the caller.
  *
  * The EIN campus prefix is deliberately not checked: the IRS reassigns prefixes
@@ -121,7 +121,7 @@ export function getUsTaxIdError(value: string, type: UsTaxIdType) {
     // The 9xx range is reserved for ITINs, so that case gets a message the user
     // can act on rather than a flat rejection.
     if (Number(area) >= 900) {
-      return "An SSN cannot begin with 9. Numbers in that range are ITINs — change the type to ITIN if that is what this is.";
+      return "An SSN cannot begin with 9. Numbers in that range are ITINs- change the type to ITIN if that is what this is.";
     }
     if (area === "000" || area === "666") {
       return `An SSN cannot begin with ${area}.`;

@@ -38,7 +38,7 @@ export default function GlobalSearch({
    *
    * Held as one value so results and their error can never disagree, and
    * compared against what is currently typed instead of being cleared on every
-   * keystroke — clearing would mean writing state from inside an effect, and
+   * keystroke- clearing would mean writing state from inside an effect, and
    * the tag makes a stale answer simply stop being shown.
    */
   const [outcome, setOutcome] = useState<{

@@ -17,7 +17,7 @@ import { checksumOf, claimDocumentKey, getObjectBuffer, putObject } from "../sto
  *
  * The bytes are *copied* into the claim's own storage prefix rather than
  * referenced where they sit. A claim is a legal record kept for eight years, and
- * it must not depend on another module's retention decisions — a deleted draft
+ * it must not depend on another module's retention decisions- a deleted draft
  * or a superseded invoice must not take a claim's evidence with it.
  */
 

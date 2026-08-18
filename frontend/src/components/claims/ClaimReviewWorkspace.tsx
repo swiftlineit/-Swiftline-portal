@@ -38,7 +38,7 @@ import { ClaimOutcomeNote, ClaimStatusBadge } from "./ClaimStatusBadge";
  * those sit together rather than behind separate tabs.
  *
  * Which actions are offered comes from the server's `availableActions`, and the
- * role gates below only hide controls — the server refuses regardless.
+ * role gates below only hide controls- the server refuses regardless.
  */
 export default function ClaimReviewWorkspace({
   claimId,
@@ -171,7 +171,7 @@ export default function ClaimReviewWorkspace({
                 {claim.approvedAmountMinor ? (
                   <span className="text-sm text-slate-500">
                     {" "}
-                    — {formatClaimAmount(claim.approvedAmountMinor)}
+                   - {formatClaimAmount(claim.approvedAmountMinor)}
                     {claim.status === "PAYMENT_PROCESSING" ? ", awaiting payment" : ""}
                     {claim.status === "SETTLED" ? ", paid" : ""}
                   </span>
@@ -385,13 +385,13 @@ export default function ClaimReviewWorkspace({
           {data.legalHold?.active ? (
             <span className="inline-flex items-center gap-2 rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">
               <FiAlertTriangle />
-              Under legal hold — evidence cannot be deleted
+              Under legal hold- evidence cannot be deleted
             </span>
           ) : null}
           {claim.deadlines?.filedLate ? (
             <span className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
               <FiAlertTriangle />
-              Filed after the permitted window — review before accepting
+              Filed after the permitted window- review before accepting
             </span>
           ) : null}
           {overdue ? (
@@ -410,7 +410,7 @@ export default function ClaimReviewWorkspace({
       </header>
 
       {/* Split three ways because total elapsed is the number a client feels but
-          the wrong number to judge a team on — a claim can sit for weeks because
+          the wrong number to judge a team on- a claim can sit for weeks because
           nobody chased it, or because the client took weeks to reply. */}
       <section className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-4">
         {[
@@ -470,7 +470,7 @@ export default function ClaimReviewWorkspace({
                     {claim.affectedItems.map((item) => (
                       <tr key={`${item.parcelSequence}:${item.itemIndex}`}>
                         <td className="px-4 py-2 text-slate-900">
-                          {item.descriptionSnapshot || "—"}
+                          {item.descriptionSnapshot || "-"}
                         </td>
                         <td className="px-4 py-2 text-slate-500">{item.parcelSequence}</td>
                         <td className="px-4 py-2 text-right text-slate-600">
@@ -541,7 +541,7 @@ export default function ClaimReviewWorkspace({
                         onClick={() =>
                           setDialog({
                             title: "Reject this document",
-                            description: `${document.originalName} — the reason is shown to the client so they know what to send instead.`,
+                            description: `${document.originalName}- the reason is shown to the client so they know what to send instead.`,
                             confirmLabel: "Reject it",
                             tone: "danger",
                             fields: [
@@ -549,7 +549,7 @@ export default function ClaimReviewWorkspace({
                                 kind: "textarea",
                                 name: "reason",
                                 label: "What is wrong with it?",
-                                placeholder: "e.g. The invoice is unreadable — please send a clearer scan."
+                                placeholder: "e.g. The invoice is unreadable- please send a clearer scan."
                               }
                             ],
                             onConfirm: (values) =>

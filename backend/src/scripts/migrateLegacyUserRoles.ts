@@ -7,7 +7,7 @@ import { legacyRoleReplacements, User } from "../models/user.model.js";
  * `staff` -> `operations` and `accounts` -> `finance`.
  *
  * Reads already normalize through `normalizePortalRole`, and writes go through
- * the schema setter, so this migration is not required for correctness — it
+ * the schema setter, so this migration is not required for correctness- it
  * exists so stored data matches the code and so role filters written directly
  * against the collection (reports, ad-hoc queries) do not miss users.
  *

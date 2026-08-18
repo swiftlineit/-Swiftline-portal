@@ -7,7 +7,7 @@ import { User } from "../models/user.model.js";
  * Seeds the fallback claim policy rule.
  *
  * Without one, deadline calculation falls back to the constants in
- * `claimTypes.ts` and `carrierRecoveryDays` is null — which means the
+ * `claimTypes.ts` and `carrierRecoveryDays` is null- which means the
  * recovery-exposure warning never fires and staff approve payouts with no
  * signal that the carrier can no longer be billed.
  *
@@ -25,7 +25,7 @@ const ruleName = "Swiftline default claim policy";
  * common carriage conventions, and erring short is the safe direction: a warning
  * that fires too early costs a reviewer one check against the contract, while
  * one that fires too late costs an unrecoverable payout. Replace it with the
- * real per-carrier figures — that is what `carrierCodes` on a rule is for.
+ * real per-carrier figures- that is what `carrierCodes` on a rule is for.
  */
 const provisionalCarrierRecoveryDays = 21;
 

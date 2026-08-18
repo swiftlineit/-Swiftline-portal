@@ -86,7 +86,7 @@ export async function computeClaimSla(claim: IClaim, now = new Date()): Promise<
   else if (waitingOnThirdParty.has(status)) thirdPartyHours += tail;
 
   const totalHours = hoursBetween(start, end);
-  // Swiftline owns whatever is left over — the safer attribution, since an
+  // Swiftline owns whatever is left over- the safer attribution, since an
   // unclassified wait is far more likely to be ours than the client's.
   const swiftlineHours = Math.max(0, totalHours - clientHours - thirdPartyHours);
 

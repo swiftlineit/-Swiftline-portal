@@ -160,7 +160,7 @@ export default function BranchUsersSection({
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700">{kindLabels[user.kind]}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-medium text-slate-800">{roleLabel(user)}</td>
                     <td className="px-4 py-3 text-slate-700">
-                      <p>{user.organization || "—"}</p>
+                      <p>{user.organization || "-"}</p>
                       {user.accountId ? <p className="text-xs text-slate-500">{user.accountId}</p> : null}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-slate-700">{accessLabels[user.branchAccess]}</td>
@@ -184,7 +184,7 @@ export default function BranchUsersSection({
                         <Link href={href} className="inline-flex items-center gap-1 font-semibold text-[#0D1282] hover:underline">
                           View <FiChevronRight className="h-4 w-4" />
                         </Link>
-                      ) : <span className="text-slate-400">—</span>}
+                      ) : <span className="text-slate-400">-</span>}
                     </td>
                   </tr>
                 );

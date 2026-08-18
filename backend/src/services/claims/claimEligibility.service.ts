@@ -16,7 +16,7 @@ import { clientCan } from "./claimPermissions.js";
  * know whether to wait, to contact support, or that they are simply too late.
  * A bare `false` sends them to the help desk.
  *
- * One rule overrides all the others — a shipment belonging to another business
+ * One rule overrides all the others- a shipment belonging to another business
  * account returns the same not-found answer as a shipment that does not exist.
  * Confirming that another company's tracking number is real would leak the fact
  * that they ship with Swiftline.
@@ -63,7 +63,7 @@ export interface ClaimEligibility {
   message: string | null;
   /**
    * True when the only obstacle is the deadline. Late claims are flagged for
-   * staff review rather than blocked — carrier tracking is often incomplete or
+   * staff review rather than blocked- carrier tracking is often incomplete or
    * delayed, and a client should not lose a valid claim to a date.
    */
   requiresStaffReview: boolean;
@@ -137,7 +137,7 @@ async function hasActiveClaim(
   const existing = await Claim.exists({
     shipmentDraftId,
     status: { $in: activeClaimStatusValues },
-    // The claim being submitted is itself active — a draft counts as occupying
+    // The claim being submitted is itself active- a draft counts as occupying
     // its shipment. Without this exclusion the re-check at submission finds the
     // very claim it is validating and refuses it, so nothing could ever be filed.
     ...(excludeClaimId ? { _id: { $ne: new mongoose.Types.ObjectId(excludeClaimId) } } : {})
@@ -176,7 +176,7 @@ export async function checkClaimEligibility(input: {
     .exec();
 
   // No membership means this shipment belongs to someone else. Same answer as a
-  // shipment that does not exist — see the note at the top of this file.
+  // shipment that does not exist- see the note at the top of this file.
   if (!membership) throw new ClaimEligibilityError("Shipment not found.", 404);
 
   const account = await BusinessAccount.findById(shipment.businessAccountId)
@@ -190,7 +190,7 @@ export async function checkClaimEligibility(input: {
 
   if (!clientCan(membership.role, "CREATE")) return ineligible("NOT_PERMITTED");
 
-  // An empty assignment list means every branch for this member — the account's
+  // An empty assignment list means every branch for this member- the account's
   // own scoping convention, distinct from staff branch scoping.
   const assigned = (membership.assignedBranches ?? []).map(String);
   if (assigned.length > 0 && !assigned.includes(String(shipment.branchId))) {

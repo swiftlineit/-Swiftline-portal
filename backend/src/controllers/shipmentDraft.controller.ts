@@ -170,7 +170,7 @@ function getAuthenticatedPortalRole(request: Request) {
  * Only internal staff carry a branch assignment. Clients reach these handlers
  * through client.controller.ts, which resolves the branch from their own
  * account membership and overwrites the request body with it before delegating
- * here — so a client is already confined to its own branch, and reading a
+ * here- so a client is already confined to its own branch, and reading a
  * branch assignment it does not have would refuse every client booking.
  */
 function draftCreationBranchScope(request: Request) {
@@ -296,7 +296,7 @@ export async function getShipmentDraft(request: Request, response: Response): Pr
  *
  * Every field is optional: the panel posts whatever the customer has filled in so
  * far, and anything missing falls back to what is stored on the draft. Only the
- * inputs that affect price are accepted — this endpoint reads, it never writes.
+ * inputs that affect price are accepted- this endpoint reads, it never writes.
  */
 const costEstimateSchema = z.object({
   countryCode: z.string().trim().toUpperCase().max(2).optional(),

@@ -11,7 +11,7 @@ import type { CountryRateService } from "../models/countryRateCard.model.js";
  * it. Callers format the result in whatever zone they display.
  */
 
-/** The default origin. Every shipment leaves India today — see the route model. */
+/** The default origin. Every shipment leaves India today- see the route model. */
 export const defaultOriginCountryCode = "IN";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -95,7 +95,7 @@ export async function loadDestinationHolidays(
  *
  * On `BUSINESS_DAYS` weekends and destination holidays are skipped and do not
  * consume a day; on `CALENDAR_DAYS` every day counts. The step limit is a guard
- * against a pathological holiday set — the schema already caps transit at 120
+ * against a pathological holiday set- the schema already caps transit at 120
  * days, so a correct call can never reach it.
  */
 export function addTransitDays(
@@ -143,7 +143,7 @@ export async function findRoute(input: {
 /**
  * The delivery estimate for one shipment.
  *
- * Returns null when the lane has no route configured or the route is closed —
+ * Returns null when the lane has no route configured or the route is closed-
  * callers must render "not available" rather than inventing a date, because a
  * wrong promised date is worse for a customer than an absent one.
  *

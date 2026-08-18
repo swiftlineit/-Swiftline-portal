@@ -101,12 +101,12 @@ describe("consignor draft validation", () => {
     assert.ok(issues.includes("Enter a valid 12 digit Aadhaar number"));
   });
 
-  test("requires no KYC document or Aadhaar number for CSB-IV", () => {
-    // CSB-IV is the simplified low-value route: nothing is mandatory, including
-    // the Aadhaar number that CSB-V still demands.
+  test("requires no KYC document for CSB-IV, but still requires the Aadhaar number", () => {
+    // CSB-IV is the simplified low-value route: no upload is mandatory. The
+    // Aadhaar number identifies the sender and is required on every route.
     const issues = validateShipmentDraftFields(draftWith({ kyc: {}, consignor: { aadhaarNumber: "" } }));
     assert.equal(issues.some((issue) => issue.startsWith("Upload ")), false, issues.join(" | "));
-    assert.equal(issues.some((issue) => issue.toLowerCase().includes("aadhaar")), false, issues.join(" | "));
+    assert.ok(issues.includes("Aadhaar number is required"), issues.join(" | "));
   });
 
   test("still rejects a malformed Aadhaar number on CSB-IV when one is supplied", () => {
@@ -156,15 +156,28 @@ describe("consignor draft validation", () => {
     );
   });
 
-  test("asks nothing of a per-parcel CSB-IV shipment with no KYC at all", () => {
+  test("asks for no per-parcel upload on CSB-IV, but still asks each parcel for its Aadhaar number", () => {
     const issues = validateShipmentDraftFields(draftWith({
       useForAll: false,
       parcels: [
         { sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "A" }
       ]
     }));
-    assert.equal(issues.some((issue) => issue.toLowerCase().includes("aadhaar")), false, issues.join(" | "));
     assert.equal(issues.some((issue) => issue.includes("upload ")), false, issues.join(" | "));
+    assert.ok(issues.includes("Parcel 1: Aadhaar number is required"), issues.join(" | "));
+  });
+
+  test("accepts dimensions above the standard parcel size- they are priced, not refused", () => {
+    const issues = validateShipmentDraftFields(draftWith({
+      parcels: [
+        { sequence: 1, weightKg: 5, lengthCm: 150, widthCm: 120, heightCm: 140, shipmentContentType: "PARCEL", contentsDescription: "A" }
+      ]
+    }));
+    assert.equal(
+      issues.some((issue) => /cannot exceed|exceed the maximum/.test(issue)),
+      false,
+      issues.join(" | ")
+    );
   });
 
   test("rejects matching consignor and consignee identity", () => {

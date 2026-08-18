@@ -3,8 +3,8 @@
  * the person filling a customs invoice does not have to know the tariff.
  *
  * `data/reference/hs-codes.json` is generated from the published HS CSV by
- * `npm run build:hs-codes`. It is ~800 KB — far too much to ship to a browser
- * on every shipment form — so it is loaded once into this process and only the
+ * `npm run build:hs-codes`. It is ~800 KB- far too much to ship to a browser
+ * on every shipment form- so it is loaded once into this process and only the
  * handful of matches for a query ever crosses the wire.
  */
 import fs from "node:fs";
@@ -72,7 +72,7 @@ const synonyms: Record<string, string[]> = {
 
 /**
  * The shortest word a query term can be, and so the width of the inverted
- * index's keys — every candidate lookup is by exactly this many characters.
+ * index's keys- every candidate lookup is by exactly this many characters.
  */
 const keyLength = 3;
 
@@ -155,7 +155,7 @@ function scoreTerm(haystack: string, term: string) {
 /**
  * Scores one entry against the query's terms, each of which may also be matched
  * through a synonym. Entries matching every term are ranked far above partial
- * matches, but partial matches are still returned — "handmade wooden box" should
+ * matches, but partial matches are still returned- "handmade wooden box" should
  * suggest wooden boxes rather than nothing at all.
  */
 function scoreEntry(entry: IndexedHsCode, termForms: string[][]) {

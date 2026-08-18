@@ -157,7 +157,7 @@ export function NeedsAttention({ items }: { items: AttentionItem[] }) {
           <p className="mt-3 text-sm font-semibold text-slate-800">Nothing needs you right now</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
             Every shipment is moving normally and nothing is waiting on your side. Anything that
-            stops — a customs hold, an address problem, a document request — appears here first.
+            stops- a customs hold, an address problem, a document request- appears here first.
           </p>
         </div>
       ) : (

@@ -311,7 +311,7 @@ export async function cancelPickup(input: {
   const request = await PickupRequest.findById(requestId).exec();
   if (!request) throw new PickupServiceError("Pickup request was not found.", 404);
   // A driver being assigned, or a pickup being missed, is still before any
-  // collection work — both remain cancellable.
+  // collection work- both remain cancellable.
   if (!["REQUESTED", "CONFIRMED", "DRIVER_ASSIGNED", "ACTION_REQUIRED", "MISSED"].includes(request.status)) {
     throw new PickupServiceError("This pickup can no longer be cancelled because collection work has started.", 409);
   }
@@ -433,7 +433,7 @@ export async function markPickupMissed(input: {
  * Moves a pickup to a new window.
  *
  * Reschedule replaces the requested window and returns the request to
- * REQUESTED, because a new window has not been confirmed by anyone yet —
+ * REQUESTED, because a new window has not been confirmed by anyone yet-
  * leaving it CONFIRMED would assert an agreement to a time nobody agreed to.
  * Any existing attempt is cancelled: it was scheduled against the old window.
  */

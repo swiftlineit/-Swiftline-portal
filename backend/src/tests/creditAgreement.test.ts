@@ -165,7 +165,7 @@ describe("credit agreement snapshot", () => {
       assert.equal(stored.size, buffer.length);
       assert.match(stored.checksumSha256, /^[a-f0-9]{64}$/);
       // The key is namespaced by the agreement and its filename is a generated
-      // UUID — never the agreement number, and never a client-supplied name.
+      // UUID- never the agreement number, and never a client-supplied name.
       assert.match(stored.storageKey, new RegExp(`^credit-agreements/${agreementId}/[0-9a-f-]{36}\\.pdf$`));
       assert.deepEqual(await getObjectBuffer(stored.storageKey), buffer);
     } finally {

@@ -16,7 +16,7 @@ const estimateDebounceMs = 400;
  * Keeps the booking form's cost estimate in step with what the customer is
  * editing.
  *
- * The server prices every estimate, so this hook holds no pricing logic — it
+ * The server prices every estimate, so this hook holds no pricing logic- it
  * debounces, discards superseded responses, and surfaces the result. Requests are
  * read-only and reserve nothing, so re-pricing on every edit is safe.
  */
@@ -77,7 +77,7 @@ export function useShipmentCostEstimate(input: {
     };
   }, [shipmentDraftId, audience, enabled, serializedValues, reloadKey]);
 
-  /** Re-prices immediately — used after a booking is refused for a changed price. */
+  /** Re-prices immediately- used after a booking is refused for a changed price. */
   const refresh = useCallback(() => setReloadKey((current) => current + 1), []);
   const acceptEstimate = useCallback((nextEstimate: ShipmentCostEstimate) => {
     setEstimate(nextEstimate);

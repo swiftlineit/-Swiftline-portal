@@ -9,7 +9,7 @@ import {
 
 /**
  * How long a deleted draft stays restorable from the UI. The undo action on the
- * delete toast is the only route back, so this only has to outlast the toast —
+ * delete toast is the only route back, so this only has to outlast the toast-
  * it exists to stop a stale tab resurrecting a draft days later.
  */
 export const shipmentDraftRestoreWindowMs = 15 * 60 * 1000;

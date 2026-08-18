@@ -16,7 +16,7 @@ import { assertTransition, type ClaimTransition } from "./claimStateMachine.js";
  * The claim transitions that move a case through review.
  *
  * Each is a named command with its own route, not a status field anyone can
- * set. That is the whole reason the state machine exists — but the machine only
+ * set. That is the whole reason the state machine exists- but the machine only
  * decides whether a move is *legal*; this is where a legal move is actually
  * performed, recorded on the timeline, and audited.
  */
@@ -48,7 +48,7 @@ const eventTypes: Partial<Record<ClaimTransition, ClaimEventType>> = {
 /**
  * Transitions whose timeline entry the client should see.
  *
- * Internal routing — picking a case up, sending it for approval — is noise to a
+ * Internal routing- picking a case up, sending it for approval- is noise to a
  * client and is kept off their timeline. Anything that asks them for something,
  * or ends the claim, is public.
  */
@@ -77,7 +77,7 @@ export interface RunTransitionInput {
 /**
  * Applies one transition.
  *
- * Deliberately not exported as a generic "set the status to X" — callers reach
+ * Deliberately not exported as a generic "set the status to X"- callers reach
  * it through the named wrappers below, each of which is a distinct route with
  * its own permission check. A single exported mover with a `transition`
  * parameter would recreate exactly the endpoint the design rules out.
@@ -297,7 +297,7 @@ export async function reopenClaim(input: {
 /**
  * Drops a required document from this claim's checklist.
  *
- * Exists because some requirements are genuinely unobtainable — a packing list
+ * Exists because some requirements are genuinely unobtainable- a packing list
  * for goods the shipper never itemised, a consignee statement from a receiver
  * who will not respond. Without it those claims stall forever with no remedy
  * an operator can apply.
@@ -354,8 +354,8 @@ export async function waiveClaimDocument(input: {
 /**
  * Asks the client for extra evidence beyond the standard list.
  *
- * A survey report or police complaint is not required of every claim — asking
- * for one routinely would make an ordinary claim feel like an investigation —
+ * A survey report or police complaint is not required of every claim- asking
+ * for one routinely would make an ordinary claim feel like an investigation-
  * so they are requested case by case and then appear on the client's checklist
  * as required.
  */
@@ -421,7 +421,7 @@ export async function withdrawClaim(input: {
  * The client rejects the outcome without formally appealing.
  *
  * Keeps the claim at DECIDED and marks acceptance disputed, so staff see the
- * disagreement while the appeal window — and the one appeal it allows — stays
+ * disagreement while the appeal window- and the one appeal it allows- stays
  * untouched.
  */
 export async function disputeClaimSettlement(input: {

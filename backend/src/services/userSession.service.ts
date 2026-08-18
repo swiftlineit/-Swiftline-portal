@@ -3,8 +3,8 @@
  *
  * Three separate rules live here, and only two of them are optional:
  *
- * - Revocation is always enforced. A session that has been ended — by logout, by
- *   an admin, or by the owning account being suspended — stops working
+ * - Revocation is always enforced. A session that has been ended- by logout, by
+ *   an admin, or by the owning account being suspended- stops working
  *   immediately. This cannot be behind a flag: it is what makes signing someone
  *   out mean anything, and a stateless JWT has no other way to express it.
  * - Single-active-session ("newest login wins") stays behind
@@ -161,7 +161,7 @@ export type SessionCheck =
  * carries one, because `issueSignedInResponse` opens a session on every login.
  *
  * Revocation is checked whatever `SINGLE_SESSION_ENFORCED` says. It used to sit
- * behind that flag, which meant that with the flag off — its default — logging
+ * behind that flag, which meant that with the flag off- its default- logging
  * out, an admin terminating a session, and suspending an account were all
  * silently ignored, and the token kept working.
  */

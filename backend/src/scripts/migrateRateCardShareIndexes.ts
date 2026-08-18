@@ -12,7 +12,7 @@ import { RateCardShare } from "../models/rateCardShare.model.js";
  * a business account over any channel could never be saved.
  *
  * Mongoose creates missing indexes on boot but never removes stale ones, so
- * correcting the schema is not enough — the old key has to be dropped here.
+ * correcting the schema is not enough- the old key has to be dropped here.
  */
 async function migrateRateCardShareIndexes() {
   await connectDatabase();

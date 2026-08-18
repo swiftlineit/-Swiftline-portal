@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import "react-international-phone/style.css";
 import "react-toastify/dist/ReactToastify.css";
 import PortalToasts from "@/components/PortalToasts";
+import { SITE_URL } from "@/lib/siteUrl";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://swiftlineportal.com"),
+  metadataBase: new URL(SITE_URL),
   title: "Swiftline Cargo Portal",
   description: "A portal provided by Swiftline Cargo for managing your shipments and tracking your orders.",
   alternates: {

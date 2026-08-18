@@ -13,7 +13,7 @@ import type { IClaimPolicyRule } from "../models/claimPolicyRule.model.js";
  * Validation is driven through `validate()` rather than `validateSync()`.
  *
  * The cross-field rules live in `pre("validate")` hooks, and document middleware
- * does not run on the sync path — a `validateSync()` harness would report every
+ * does not run on the sync path- a `validateSync()` harness would report every
  * one of these models as valid and quietly prove nothing. `validate()` is also
  * what `save()` runs, so this exercises the real path without a connection.
  */

@@ -32,7 +32,7 @@ export interface IServiceDisruption extends mongoose.Document {
   /** Optional end. `null` means the disruption runs until it is deactivated. */
   endAt?: Date | null;
   /**
-   * Branches the disruption applies to. Empty means every branch — the common
+   * Branches the disruption applies to. Empty means every branch- the common
    * case for network-wide alerts like a customs strike.
    */
   affectedBranches: mongoose.Types.ObjectId[];

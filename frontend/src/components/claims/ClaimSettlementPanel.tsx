@@ -92,7 +92,7 @@ export default function ClaimSettlementPanel({
   /**
    * Retires the key once a payment has actually landed.
    *
-   * The key must survive a retry — that is the whole point — but it must not
+   * The key must survive a retry- that is the whole point- but it must not
    * survive a *success*. Now that a claim can be paid in instalments, a second
    * payment carrying the first one's key would be recognised as a replay and
    * silently discarded, leaving the balance unpaid with nothing to show why.
@@ -171,7 +171,7 @@ export default function ClaimSettlementPanel({
                 <span>{beneficiary.bankName}</span>
                 <span>·</span>
                 {/* Masked until asked for. The full number is fetched on demand,
-                    held in state only, and never cached or logged — the reveal
+                    held in state only, and never cached or logged- the reveal
                     itself is recorded server-side. */}
                 <span className={revealed ? "font-mono font-semibold text-slate-900" : ""}>
                   {revealed?.accountNumber ?? beneficiary.accountNumberMasked}

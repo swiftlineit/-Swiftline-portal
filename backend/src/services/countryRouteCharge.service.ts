@@ -54,7 +54,7 @@ export function normalizePostcode(value: unknown): string {
  *
  * Prefix matching, so an operator can list a broad "HS" for the Outer Hebrides or
  * a precise "HS12AB" for one delivery point without needing two mechanisms. An
- * empty postcode is never remote — an unknown destination must not silently
+ * empty postcode is never remote- an unknown destination must not silently
  * attract a surcharge the customer cannot see the reason for.
  */
 export function isRemoteAreaPostcode(postcode: unknown, remoteAreaPostcodes: string[]): boolean {

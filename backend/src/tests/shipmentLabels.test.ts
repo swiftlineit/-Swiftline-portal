@@ -166,7 +166,7 @@ describe("shipment label PDFs", () => {
     const runs = drawnRuns(await renderSwiftlineLabelPdf(labelData("SLCDEL200726001-01")));
     const find = (value: string) => runs.find((run) => run.text === value);
 
-    // One component per line — never slash- or comma-joined into a single run.
+    // One component per line- never slash- or comma-joined into a single run.
     for (const line of ["10 Downing Street", "London", "Greater London"]) {
       assert.ok(find(line), `address line "${line}" should be drawn on its own`);
     }

@@ -4,7 +4,7 @@ import { portalCountries, type PortalCountry } from "@/lib/portalCountries";
  * Matches what a person types to a country.
  *
  * Country fields take an ISO-3166 alpha-2 code, which almost nobody types.
- * People type the name, or the abbreviation they use in conversation — and the
+ * People type the name, or the abbreviation they use in conversation- and the
  * everyday abbreviation is frequently not the code: the United Kingdom is "UK"
  * to a customer and "GB" to the standard, the United States is "USA", and the
  * United Arab Emirates is "UAE". Matching on the code alone therefore fails on
@@ -15,7 +15,7 @@ import { portalCountries, type PortalCountry } from "@/lib/portalCountries";
  * Everyday names that are not the country's own name or its code.
  *
  * Deliberately short. Every entry here is a term a customer would actually
- * type into a destination field, not an exhaustive list of endonyms — a long
+ * type into a destination field, not an exhaustive list of endonyms- a long
  * speculative list would only add ways for two countries to collide.
  */
 const aliases: Record<string, string[]> = {
@@ -79,7 +79,7 @@ export function findCountries(query: string): PortalCountry[] {
 /**
  * The single country a typed value unambiguously means, or null.
  *
- * Only an exact hit counts — a code, a full name, or a known alias. A prefix
+ * Only an exact hit counts- a code, a full name, or a known alias. A prefix
  * is deliberately not enough: "united" would otherwise silently resolve to
  * whichever of the three "United …" countries happens to sort first.
  */

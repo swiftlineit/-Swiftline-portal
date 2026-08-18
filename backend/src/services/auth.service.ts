@@ -15,7 +15,7 @@ export async function comparePassword(password: string, hash: string): Promise<b
 }
 
 // `sid` ties a token to a server-side session record, which is what makes
-// "one device at a time" expressible at all — a stateless token stays valid
+// "one device at a time" expressible at all- a stateless token stays valid
 // until it expires no matter what happens elsewhere. It is optional so tokens
 // issued before sessions existed keep working until they lapse.
 export function createAccessToken(user: { id: string; role: string; email: string }, sessionId?: string) {

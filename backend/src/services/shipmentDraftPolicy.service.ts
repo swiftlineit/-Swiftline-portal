@@ -55,8 +55,8 @@ function getBookingStateMessage(bookingState: ShipmentDraftBookingState) {
 }
 
 export async function assertShipmentDraftEditable(draft: IShipmentDraft) {
-  // Checked here rather than at each call site so every mutation path — field
-  // edits, KYC uploads, address selection, booking, amendments — refuses a
+  // Checked here rather than at each call site so every mutation path- field
+  // edits, KYC uploads, address selection, booking, amendments- refuses a
   // deleted draft without needing its own filter.
   if (draft.deletedAt) {
     throw new ShipmentDraftPolicyError("This shipment draft has been deleted.", 404);

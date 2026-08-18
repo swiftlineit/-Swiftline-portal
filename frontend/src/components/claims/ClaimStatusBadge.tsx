@@ -11,8 +11,8 @@ const statusTones: Record<ClaimStatus, string> = {
   DOCUMENTS_PENDING: "border-amber-200 bg-amber-50 text-amber-800",
   UNDER_REVIEW: "border-blue-200 bg-blue-50 text-blue-800",
   NEEDS_INFORMATION: "border-amber-200 bg-amber-50 text-amber-800",
-  // Both carrier states share a tone: to a client they mean the same thing —
-  // it is out of Swiftline's hands — and the wording carries the difference.
+  // Both carrier states share a tone: to a client they mean the same thing-
+  // it is out of Swiftline's hands- and the wording carries the difference.
   SUBMITTED_TO_CARRIER: "border-violet-200 bg-violet-50 text-violet-800",
   CARRIER_REVIEWING: "border-violet-200 bg-violet-50 text-violet-800",
   PENDING_APPROVAL: "border-blue-200 bg-blue-50 text-blue-800",
@@ -61,10 +61,10 @@ export function ClaimStatusBadge({
 /**
  * The decision outcome, as supporting text rather than a second pill.
  *
- * Status and outcome answer different questions — where the claim is now, and
+ * Status and outcome answer different questions- where the claim is now, and
  * what was decided. But two equal-weight badges side by side read as two
  * competing statuses: "Settlement pending" next to "Fully approved" looks like a
- * contradiction when it is really a sequence — approved, now awaiting payment.
+ * contradiction when it is really a sequence- approved, now awaiting payment.
  *
  * One pill for where it is, one line of text for what was decided.
  */

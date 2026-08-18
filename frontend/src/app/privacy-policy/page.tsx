@@ -142,7 +142,7 @@ export default function PrivacyPolicyPage() {
             {[
               { label: "Effective date", value: EFFECTIVE_DATE },
               { label: "Last updated", value: LAST_UPDATED },
-              { label: "Policy owner", value: "Swiftline — Data Protection & Compliance" },
+              { label: "Policy owner", value: "Swiftline- Data Protection & Compliance" },
               {
                 label: "Applies to",
                 value: "Swiftline Cargo Ltd® and Swiftline Cargo & Express Logistics Private Limited"

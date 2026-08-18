@@ -57,7 +57,7 @@ type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking" | "addres
  *
  * Only destinations that exist are listed, so a link is never a 404. Still to
  * arrive: Bulk Upload. Shipment Templates is deliberately
- * absent — it was dropped from scope rather than deferred.
+ * absent- it was dropped from scope rather than deferred.
  */
 const clientNavigation: Array<
   | { label: string; href: string; icon: IconType }
@@ -156,7 +156,7 @@ export function ClientDashboardShell({
   // a fresh closure each render would rebind that listener each render.
   const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
   // Taken from the dashboard call the navigation already makes, so search costs
-  // no extra request. Search stays hidden until it resolves — a box that
+  // no extra request. Search stays hidden until it resolves- a box that
   // returns nothing because it does not know the account is worse than none.
   const [searchAccountId, setSearchAccountId] = useState("");
 
@@ -243,7 +243,7 @@ export function ClientDashboardShell({
               ["account_owner", "account_admin", "operations"].includes(item.membership.role)
               && item.dashboardAccess.state === "READY",
           ),
-          // Activity names who did what, which is management information —
+          // Activity names who did what, which is management information-
           // owners and admins only, matching what the endpoint enforces.
           dashboard.accounts.some((item) =>
             ["account_owner", "account_admin"].includes(item.membership.role),

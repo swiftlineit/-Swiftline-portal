@@ -86,7 +86,7 @@ export function CompanyStep({
     || "";
   const usTaxIdType: UsTaxIdType = isUsTaxIdType(selectedRegistrationType) ? selectedRegistrationType : "ein";
   // Each cache records which country or state its contents belong to, so
-  // "loading" is derived from that mismatch rather than toggled in an effect —
+  // "loading" is derived from that mismatch rather than toggled in an effect-
   // no synchronous setState, and the spinner is already showing on the render
   // where the country changed.
   const [states, setStates] = useState<GeographyState[]>([]);
@@ -247,7 +247,7 @@ export function CompanyStep({
    * The state has to be resolved against the reference list rather than stored
    * verbatim: the dropdown can only show a value that is one of its options, and
    * the provider's spelling does not always match the dataset's. Address line 2
-   * is deliberately left alone — it holds what the user knows and the lookup
+   * is deliberately left alone- it holds what the user knows and the lookup
    * does not.
    */
   function applyLookupToCompanyAddress(address: LookupAddress) {
@@ -376,7 +376,7 @@ export function CompanyStep({
         ) : null}
 
         {/* Every US person and entity holds an EIN, SSN or ITIN, so there is no
-            legitimate case for skipping it — and offering the tick would be a
+            legitimate case for skipping it- and offering the tick would be a
             one-click bypass of a mandatory field. */}
         {isUnitedStates ? null : (
         <CheckboxField
@@ -461,7 +461,7 @@ export function CompanyStep({
               warning={fieldWarnings.gstin}
               status={fieldStatus.gstin}
               placeholder={`e.g. ${GSTIN_EXAMPLE}`}
-              helper={gstinStateName ? `State code ${(formData.company.gstin ?? "").slice(0, 2)} — ${gstinStateName}` : undefined}
+              helper={gstinStateName ? `State code ${(formData.company.gstin ?? "").slice(0, 2)}- ${gstinStateName}` : undefined}
               info={companyTooltips.gstin}
               disabled={noCompanyChecked || gstExemptChecked}
               maxLength={GSTIN_LENGTH}

@@ -3,7 +3,7 @@ import path from "path";
 import PDFDocument from "pdfkit";
 import bwipjs from "bwip-js";
 
-// A6 (105 x 148 mm) — standard courier label stock.
+// A6 (105 x 148 mm)- standard courier label stock.
 const A6_WIDTH = 283.46;
 const A6_HEIGHT = 425.2;
 const PAGE_MARGIN = 8;
@@ -96,7 +96,7 @@ async function barcode(value: string, options: { scale?: number; height?: number
   return bwipjs.toBuffer({
     bcid: "code128",
     text: value,
-    // `scale` is the raster resolution, not the printed size — the PDF box
+    // `scale` is the raster resolution, not the printed size- the PDF box
     // decides that. Rendering above the printed size and letting it downsample
     // is what keeps the bars crisp instead of soft-edged.
     scale: options.scale ?? 5,
@@ -153,7 +153,7 @@ function rule(document: PDFKit.PDFDocument, y: number, lineWidth = 1, right = CO
  * Largest size at or below `start` whose wrapped block fits `maxHeight`.
  *
  * Used where the value may legitimately need more than one line, so it is
- * measured as the block it becomes rather than as a single line — sizing on one
+ * measured as the block it becomes rather than as a single line- sizing on one
  * line would shrink a two-line value far smaller than it needs to be.
  */
 function fitBlock(
@@ -177,7 +177,7 @@ const CELL_VALUE_HEIGHT = 30;
 /**
  * A captioned value inside one grid cell, left-aligned to the cell's inset.
  *
- * `wrap` is for values that may legitimately need a second or third line — the
+ * `wrap` is for values that may legitimately need a second or third line- the
  * destination, whose town name is the one field with no length ceiling. The
  * codes and measurements never need it and stay on one line.
  */
@@ -202,8 +202,8 @@ function cell(
 /**
  * The Swiftline shipment label.
  *
- * Every parcel carries one. The barcode encodes the parcel number — the value
- * the warehouse scanners read — and the rest of the label is what a handler
+ * Every parcel carries one. The barcode encodes the parcel number- the value
+ * the warehouse scanners read- and the rest of the label is what a handler
  * needs to route the piece without looking it up: where it came from, where it
  * is going, how many pieces the shipment has, and who receives it.
  */
@@ -346,7 +346,7 @@ export async function renderSwiftlineLabelPdf(data: ShipmentLabelData) {
       .font("Helvetica")
       .fontSize(8.5)
       .text(addressLines.join("\n"), TEXT_LEFT, ROW_CONSIGNEE + 44, {
-        // Three 8.5pt lines measure 33.3pt — enough for street, town and county
+        // Three 8.5pt lines measure 33.3pt- enough for street, town and county
         // without letting a fourth reach the postcode below.
         width: TEXT_WIDTH,
         height: 34,

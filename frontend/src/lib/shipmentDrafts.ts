@@ -67,7 +67,7 @@ export async function deleteShipmentDraft(actor: ShipmentDraftActor, shipmentDra
   return parseApiResponse<{ success: true; message: string; shipmentDraftId: string }>(response);
 }
 
-/** Undo for the delete above. Only valid for a short window — see the service. */
+/** Undo for the delete above. Only valid for a short window- see the service. */
 export async function restoreShipmentDraft(actor: ShipmentDraftActor, shipmentDraftId: string) {
   const response = await fetchWithAuth(apiUrl(`${draftPath(actor, shipmentDraftId)}/restore`), {
     method: "POST"

@@ -10,22 +10,6 @@ import { isValidAadhaarNumber } from "./aadhaarValidation.service.js";
 import { isValidHsnCode, normalizeParcelItems } from "./parcelItems.service.js";
 import { findRestrictedCategories } from "./restrictedGoods.service.js";
 
-/**
- * The largest parcel Swiftline carries, per side — 100 x 60 x 70 cm, which is
- * the 230 cm girth the network is built around.
- *
- * Maximum weight is deliberately absent: it comes from the matched rate card's
- * maxBoxKg, so it varies by destination and service rather than being fixed here.
- *
- * KEEP IN SYNC with the frontend copy (separate package, cannot share a module):
- *   portal/frontend/src/lib/shipmentPricing.ts
- */
-export const maxParcelDimensionsCm = {
-  lengthCm: 100,
-  widthCm: 60,
-  heightCm: 70
-} as const;
-
 const ukPostcodePattern = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/;
 const indianPostcodePattern = /^[1-9]\d{5}$/;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -141,12 +125,12 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
   const issues: string[] = [];
   const isCsbV = draft.csbType === "CSB_V";
   const requiredDocuments = isCsbV ? csbVKycDocuments : csbIvKycDocuments;
-  // An Aadhaar number is part of the CSB-V checklist. On CSB-IV it is optional,
-  // but a value that has been entered must still be a real Aadhaar number.
+  // The Aadhaar number identifies the sender and is required on every route,
+  // whatever the document checklist asks for.
   const aadhaarNumberIssue = (value: string | undefined, label?: string) => {
     const scope = label ? `${label}: ` : "";
 
-    if (!hasText(value)) return isCsbV ? `${scope}Aadhaar number is required` : "";
+    if (!hasText(value)) return `${scope}Aadhaar number is required`;
     return isValidAadhaarNumber(value)
       ? ""
       : `${scope}${label ? "enter" : "Enter"} a valid 12 digit Aadhaar number`;
@@ -200,15 +184,16 @@ function validateParcel(parcel: ShipmentParcel, index: number, requireItemHsnCod
     issues.push(`${label}: weight must be greater than zero`);
   }
 
-  for (const [fieldName, value, maximum] of [
-    ["length", parcel.lengthCm, maxParcelDimensionsCm.lengthCm],
-    ["width", parcel.widthCm, maxParcelDimensionsCm.widthCm],
-    ["height", parcel.heightCm, maxParcelDimensionsCm.heightCm]
+  // Dimensions are not capped. An oversized parcel is accepted and priced- its
+  // volumetric weight is what carries the extra cost- and the booking form
+  // advises the sender before they commit rather than refusing the entry.
+  for (const [fieldName, value] of [
+    ["length", parcel.lengthCm],
+    ["width", parcel.widthCm],
+    ["height", parcel.heightCm]
   ] as const) {
     if (value === undefined || value === null || !Number.isFinite(value) || value <= 0) {
       issues.push(`${label}: ${fieldName} must be greater than zero`);
-    } else if (value > maximum) {
-      issues.push(`${label}: ${fieldName} cannot exceed ${maximum} cm`);
     }
   }
 

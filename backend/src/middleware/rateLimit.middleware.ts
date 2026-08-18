@@ -76,6 +76,40 @@ export const publicRateCardLimiter = rateLimit({
   legacyHeaders: false
 });
 
+/**
+ * Public shipment tracking, capped harder than the rate card above.
+ *
+ * That limiter can afford 30/min because its link token carries 256 bits of
+ * entropy, so nobody guesses their way in. A Swiftline AWB is `SLC` + station +
+ * DDMMYY + a three-digit daily counter, which walks in about 999 requests- so
+ * here the limiter is the only thing standing between a script and a bulk
+ * harvest of every shipment a station booked that day.
+ *
+ * Two buckets: a burst ceiling for the person tracking three parcels in a row,
+ * and an hourly one that a human never reaches but a crawl does within minutes.
+ *
+ * Caveat worth knowing before this is relied on: express-rate-limit here uses
+ * the default in-memory store, so counters are per-process. Behind more than one
+ * backend instance the effective ceiling multiplies by the instance count, and a
+ * shared store stops being a nicety. What actually makes the endpoint safe to
+ * expose is that its payload carries nothing the shipping label does not.
+ */
+export const publicTrackingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: env.NODE_ENV === "production" ? 15 : 300,
+  message: { success: false, message: "Too many tracking requests. Please wait a moment and try again." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+export const publicTrackingHourlyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: env.NODE_ENV === "production" ? 120 : 3000,
+  message: { success: false, message: "Too many tracking requests from this network. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
 const passwordLoginLimitMessage = {
   success: false,
@@ -202,7 +236,7 @@ export const passwordResetLimiter = rateLimit({
 
 // Requesting a sign-in code needs its own cap, and it must count *successful*
 // requests too. The endpoint answers 200 whether or not the address has an
-// account — deliberately, so it cannot be used to enumerate clients — which
+// account- deliberately, so it cannot be used to enumerate clients- which
 // means `skipSuccessfulRequests` would leave it effectively uncapped and turn it
 // into a way to mail-bomb any address. Sized for a shared office IP where a few
 // people sign in around the same time; flooding a single mailbox is held off

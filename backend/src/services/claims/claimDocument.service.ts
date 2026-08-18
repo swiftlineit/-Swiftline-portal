@@ -154,8 +154,8 @@ export async function uploadClaimDocument(input: {
  * Streams a document to an authorised caller.
  *
  * Streamed rather than redirected to a signed URL. A signed URL stays valid for
- * its whole lifetime wherever it travels — forwarded in an email, sitting in a
- * browser history — and claim evidence contains loss photographs and bank
+ * its whole lifetime wherever it travels- forwarded in an email, sitting in a
+ * browser history- and claim evidence contains loss photographs and bank
  * identifiers. A streamed response dies with the request.
  */
 export async function streamClaimDocument(input: {

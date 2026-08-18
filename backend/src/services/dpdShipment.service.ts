@@ -186,7 +186,7 @@ async function getReusableShipment(existingShipment: IDpdShipment | null, expect
 }
 
 // Exported so the demo seeder can produce labels through the same storage path
-// as a real booking — same checksum, storage layout and version numbering.
+// as a real booking- same checksum, storage layout and version numbering.
 export async function storeGeneratedLabel(input: {
   dpdShipmentId: mongoose.Types.ObjectId;
   parcelNumber: string;
@@ -426,7 +426,7 @@ export async function createLabelForShipmentDraft(
   const requestSnapshot = sanitizeShipmentRequestSnapshot(payload);
   // Nothing durable is written until the booking record below is created. A
   // failure before that point therefore leaves no booking record, no labels, no
-  // invoice and no burnt AWB behind — only the audit trail and an editable draft.
+  // invoice and no burnt AWB behind- only the audit trail and an editable draft.
   let dpdShipment: IDpdShipment | null = null;
   let bookingRecorded = false;
 
@@ -634,7 +634,7 @@ export async function createLabelForShipmentDraft(
     }
 
     // The booking failed before any record was created, so it leaves no booking
-    // record, no invoice and no labels behind — only this audit row against the
+    // record, no invoice and no labels behind- only this audit row against the
     // draft, which returns to being editable.
     const message = "The shipment could not be created.";
 

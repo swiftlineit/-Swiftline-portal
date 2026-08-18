@@ -28,7 +28,7 @@ const statusStyles: Record<string, string> = {
  * Renders a pickup request status, or an attempt status.
  *
  * Request statuses read from the shared label map so a badge says the same
- * word as the filter tab that found it — CONFIRMED is called "Scheduled"
+ * word as the filter tab that found it- CONFIRMED is called "Scheduled"
  * everywhere, and a customer clicking Scheduled must not then see cards marked
  * CONFIRMED. Attempt statuses (EN_ROUTE, COLLECTING and the rest) are not in
  * that map and keep the plain formatting.

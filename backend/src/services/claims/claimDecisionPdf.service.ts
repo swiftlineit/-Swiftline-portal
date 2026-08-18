@@ -8,7 +8,7 @@ import type { IClaimDecision } from "../../models/claimDecision.model.js";
  * The decision letter.
  *
  * A client needs something they can file, print, or forward to their own insurer
- * — an email in an inbox is not that. The letter restates the decision, the
+ *- an email in an inbox is not that. The letter restates the decision, the
  * arithmetic behind it, and the right to appeal, so it stands on its own without
  * the portal.
  *
@@ -85,8 +85,8 @@ export function buildClaimDecisionPdf(input: {
     let y = addFacts(
       document,
       [
-        ["Claim number", claim.claimNumber ?? "—"],
-        ["Shipment", claim.shipmentSnapshot?.trackingNumber || "—"],
+        ["Claim number", claim.claimNumber ?? "-"],
+        ["Shipment", claim.shipmentSnapshot?.trackingNumber || "-"],
         ["Claim type", claim.category.replace(/_/g, " ").toLowerCase()],
         ["Date filed", date(claim.submittedAt)],
         ["Decision", outcomeLabel]

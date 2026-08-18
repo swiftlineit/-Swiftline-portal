@@ -277,7 +277,7 @@ export default function NewSupportTicketPage() {
                         value={shipment.id}
                         disabled={Boolean(openTicket)}
                       >
-                        {openTicket ? `${label} — ${openTicket} open` : label}
+                        {openTicket ? `${label}- ${openTicket} open` : label}
                       </option>
                     );
                   })}

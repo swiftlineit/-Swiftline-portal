@@ -98,7 +98,7 @@ const stateCodeByName: Record<string, string> = {
  * one side off a GSTIN ("07") and the other off a state name ("Delhi") never
  * matches, which silently bills every intra-state supply as inter-state.
  *
- * Returns "" when neither is known, which is treated as inter-state — the
+ * Returns "" when neither is known, which is treated as inter-state- the
  * conservative default for a place of supply nobody has recorded.
  */
 export function resolveGstStateCode(gstin?: string | null, stateName?: string | null) {
@@ -122,7 +122,7 @@ export function getGstinPan(value: string) {
 
 /**
  * Blocking problems with a GSTIN, most specific first. Returns "" when the
- * value is acceptable. An empty value is not this function's concern — whether
+ * value is acceptable. An empty value is not this function's concern- whether
  * the field is mandatory is decided by the caller.
  *
  * The 15th character is a mod-36 check digit, which is deliberately NOT checked

@@ -35,7 +35,7 @@ export async function fetchHsCodeSuggestions(query: string): Promise<HsCodeSugge
     cache.set(key, suggestions);
     return suggestions;
   } catch {
-    // A lookup failure must never block the form — the HS code stays typed by hand.
+    // A lookup failure must never block the form- the HS code stays typed by hand.
     return [];
   }
 }

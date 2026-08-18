@@ -49,7 +49,7 @@ export type ClientExtras = {
 
 // The controller computes `readyForLabel`, `needsReview`, and `validationFailed`
 // from mutually exclusive draft-status checks, but a draft moves on to booking
-// once its label is created — so those three never sum to `totalShipments`.
+// once its label is created- so those three never sum to `totalShipments`.
 // "In progress" is the remainder: drafts still short of ready-for-label that
 // haven't hit an exception status either.
 export function buildShipmentPipeline(summary: ClientShipmentSummary): ClientStageCount[] {

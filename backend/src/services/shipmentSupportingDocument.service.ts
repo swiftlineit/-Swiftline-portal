@@ -65,8 +65,8 @@ export async function listSupportingDocuments(
     .lean()
     .exec();
 
-  // Only staff are told who sent it. A client already knows — it was their own
-  // account — and naming a colleague back to them adds nothing.
+  // Only staff are told who sent it. A client already knows- it was their own
+  // account- and naming a colleague back to them adds nothing.
   const uploaders = options.includeUploader && documents.length
     ? new Map(
       (await User.find({ _id: { $in: documents.map((document) => document.uploadedBy) } })
@@ -193,7 +193,7 @@ async function notifyOperations(input: {
     recipients: await resolveUserRecipients(recipients),
     // The tracking number leads the subject line so it is readable from a
     // notification list without opening the mail.
-    subject: `${reference} — ${input.documentLabel} uploaded by customer`,
+    subject: `${reference}- ${input.documentLabel} uploaded by customer`,
     payload: {
       trackingNumber: reference,
       documentLabel: input.documentLabel,

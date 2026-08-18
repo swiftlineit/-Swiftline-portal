@@ -2,43 +2,26 @@
 
 import { FiCheck, FiClock } from "react-icons/fi";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
+import { resolveJourneyStages, type DeliveryEstimate } from "@/lib/shipmentJourney";
 
 /**
  * The shipment's journey as a row of stages, and whether it is going to arrive
  * when it should.
  *
- * Stages come from the operational status ladder rather than from a separate
- * list, so the picture can never claim a step the event history does not have.
+ * This is the *portal's* rail. The stages themselves, and which statuses reach
+ * them, live in `@/lib/shipmentJourney` because the public tracker draws its own
+ * rail from the same data - the two may look nothing alike, but they must never
+ * disagree about how far a shipment has got.
  */
 
-export type DeliveryEstimate = {
-  estimatedDeliveryAt: string;
-  earliestDeliveryAt: string;
-  transitDaysMin: number;
-  transitDaysMax: number;
-  transitBasis: "BUSINESS_DAYS" | "CALENDAR_DAYS";
-  state: "ON_SCHEDULE" | "POTENTIAL_DELAY" | "DELAYED" | "DELIVERED" | "ON_HOLD";
-  deliveredAt: string | null;
-};
-
-/** The published journey, in the order a shipment travels it. */
-const journeyStages: Array<{ label: string; statuses: string[] }> = [
-  { label: "Booked", statuses: ["SHIPMENT_BOOKED", "SHIPMENT_CREATED"] },
-  { label: "Pickup Completed", statuses: ["PARCEL_COLLECTED"] },
-  { label: "Origin Hub", statuses: ["WAREHOUSE_SCAN_IN"] },
-  { label: "Exported", statuses: ["EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED", "FLIGHT_DEPARTED"] },
-  { label: "Destination Hub", statuses: ["DESTINATION_ARRIVED"] },
-  { label: "Customs Clearance", statuses: ["IMPORT_CUSTOMS_CLEARANCE"] },
-  { label: "Out for Delivery", statuses: ["OUT_FOR_DELIVERY"] },
-  { label: "Delivered", statuses: ["DELIVERED"] }
-];
+export type { DeliveryEstimate };
 
 const scheduleChips: Record<DeliveryEstimate["state"], { label: string; className: string }> = {
   ON_SCHEDULE: { label: "On Schedule", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
   POTENTIAL_DELAY: { label: "Potential Delay", className: "border-amber-200 bg-amber-50 text-amber-800" },
   DELAYED: { label: "Delayed", className: "border-red-200 bg-red-50 text-red-700" },
   DELIVERED: { label: "Delivered", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  // A hold means the date can no longer be relied on — not that it has passed.
+  // A hold means the date can no longer be relied on- not that it has passed.
   ON_HOLD: { label: "Estimate Paused", className: "border-slate-300 bg-slate-100 text-slate-600" }
 };
 
@@ -47,7 +30,7 @@ const scheduleChips: Record<DeliveryEstimate["state"], { label: string; classNam
  *
  * Kept off the Estimated Delivery card deliberately. That card's chip has to
  * describe the date, and "action required" says nothing about when a parcel
- * arrives — it belongs beside the status, which is what the customer would act
+ * arrives- it belongs beside the status, which is what the customer would act
  * on. The two chips can and often do show at once: a held shipment is both
  * waiting on the customer and no longer on a reliable schedule.
  */
@@ -124,35 +107,21 @@ export function ShipmentJourney({
 }: {
   events: Array<{ status: string; eventAt: string }>;
 }) {
-  const reachedAt = new Map<string, string>();
-  for (const event of events) {
-    const stage = journeyStages.find((entry) => entry.statuses.includes(event.status));
-    if (!stage) continue;
-    const existing = reachedAt.get(stage.label);
-    if (!existing || new Date(event.eventAt) < new Date(existing)) {
-      reachedAt.set(stage.label, event.eventAt);
-    }
-  }
-
-  const lastReachedIndex = journeyStages.reduce(
-    (last, stage, index) => (reachedAt.has(stage.label) ? index : last),
-    -1
-  );
+  const stages = resolveJourneyStages(events);
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shipment journey</h2>
 
       <ol className="mt-4 flex flex-col gap-0 md:flex-row md:gap-0">
-        {journeyStages.map((stage, index) => {
-          const reached = reachedAt.has(stage.label);
-          const current = index === lastReachedIndex;
+        {stages.map((stage, index) => {
+          const reached = stage.reachedAt !== null;
 
           return (
             <li key={stage.label} className="relative flex flex-1 gap-3 pb-5 md:flex-col md:gap-2 md:pb-0">
               {/* The connector runs down on a phone and across from md, so the
                   rail never forces the page sideways on a narrow screen. */}
-              {index < journeyStages.length - 1 ? (
+              {index < stages.length - 1 ? (
                 <span
                   aria-hidden="true"
                   // Green only when the stage it leads *to* was actually
@@ -160,7 +129,7 @@ export function ShipmentJourney({
                   // stage would draw a completed path through steps that never
                   // happened, next to labels still reading "Pending".
                   className={`absolute left-[11px] top-6 h-full w-0.5 md:left-auto md:top-[11px] md:h-0.5 md:w-full md:translate-x-1/2 ${
-                    reachedAt.has(journeyStages[index + 1].label) ? "bg-emerald-400" : "bg-slate-200"
+                    stages[index + 1].reachedAt ? "bg-emerald-400" : "bg-slate-200"
                   }`}
                 />
               ) : null}
@@ -168,7 +137,7 @@ export function ShipmentJourney({
               <span
                 className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${
                   reached
-                    ? current
+                    ? stage.isCurrent
                       ? "border-[#0D1282] bg-[#0D1282] text-white"
                       : "border-emerald-400 bg-emerald-400 text-white"
                     : "border-slate-200 bg-white text-slate-300"
@@ -182,7 +151,7 @@ export function ShipmentJourney({
                   {stage.label}
                 </p>
                 <p className="mt-0.5 text-[11px] text-slate-400">
-                  {reached ? formatDashboardDateTime(reachedAt.get(stage.label)!) : "Pending"}
+                  {reached ? formatDashboardDateTime(stage.reachedAt) : "Pending"}
                 </p>
               </div>
             </li>

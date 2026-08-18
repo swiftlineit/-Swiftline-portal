@@ -55,8 +55,8 @@ function toFormState(routeCharge: CountryRouteCharge | undefined): FormState {
  * values can be applied to Courier, Cargo, or both.
  *
  * These are per route, not per slab: a fuel percentage set here applies to every
- * weight band for that country and service. Keeping it beside the slabs — rather
- * than on a screen of its own — means an operator setting up a new destination
+ * weight band for that country and service. Keeping it beside the slabs- rather
+ * than on a screen of its own- means an operator setting up a new destination
  * sees both halves of what a shipment there will cost.
  */
 export default function RouteChargesForm({
@@ -236,7 +236,7 @@ export default function RouteChargesForm({
           The inputs are hidden rather than removed: the stored percentage and
           minimum are still submitted unchanged below, so a route's configuration
           survives untouched and restoring cover is a matter of showing these
-          again. Pricing ignores them regardless — see shipmentPricing.service.ts.
+          again. Pricing ignores them regardless- see shipmentPricing.service.ts.
         */}
         <ChargeInput
           label="Discount %"

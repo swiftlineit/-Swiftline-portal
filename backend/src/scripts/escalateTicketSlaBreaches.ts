@@ -41,7 +41,7 @@ async function main() {
   /**
    * A breach is: past due, never responded to, and still open.
    *
-   * `firstRespondedAt: null` is the whole test for "unanswered" — a ticket
+   * `firstRespondedAt: null` is the whole test for "unanswered"- a ticket
    * answered late is not breaching now, it breached and was dealt with, and
    * alerting on it would bury the ones still waiting.
    */
@@ -74,14 +74,14 @@ async function main() {
       ? `${account.company?.companyName ?? "Customer"} (${account.accountId})`
       : "Customer";
     const late = hoursLate(ticket.firstResponseDueAt, now);
-    const title = `SLA exceeded — ${ticket.ticketNumber}`;
+    const title = `SLA exceeded- ${ticket.ticketNumber}`;
     const message = `${accountLabel} has waited ${late}h past the ${ticket.priority.toLowerCase()} first-response deadline. Status: ${supportTicketStatusLabels[ticket.status]}.`;
 
     /**
      * One call, both channels.
      *
      * Email is a delivery channel on the notification here, not a parallel
-     * system — every notify* helper queues mail for the types the catalogue
+     * system- every notify* helper queues mail for the types the catalogue
      * enables. Queueing separately alongside this would collide on the same
      * idempotency key and let one write silently overwrite the other.
      */

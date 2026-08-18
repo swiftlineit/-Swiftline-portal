@@ -32,7 +32,7 @@ export type ShipmentListingFilter = {
    * Which carrier booking states belong in this list.
    *
    * Staff see every booking, so a shipment stuck awaiting reconciliation is
-   * visible here instead of only in the DPD labels panel — the two views
+   * visible here instead of only in the DPD labels panel- the two views
    * disagreeing about what exists is what hid such shipments before. Customers
    * see only shipments that completed.
    */
@@ -47,11 +47,11 @@ export type ShipmentListingFilter = {
  * The page is selected from `ShipmentDraft` before bookings, events, invoices
  * and branches are joined on, so only fields the draft itself holds can order
  * it. AWB, tracking status, weight and invoice are all assembled after the
- * page is chosen — sorting by them would order the twenty rows that happened to
+ * page is chosen- sorting by them would order the twenty rows that happened to
  * be fetched and read as a broken sort on every other page.
  *
  * Consignee and destination are absent for a subtler reason: both are shown as
- * a fallback — company name or contact name, country name or country code —
+ * a fallback- company name or contact name, country name or country code-
  * and the database can only order by one stored field at a time. Sorting by
  * `companyName` while the cell shows a contact name puts every row without a
  * company at the top in no visible order, which looks like a broken sort
@@ -77,7 +77,7 @@ function sortSpec(sort?: string): Record<string, 1 | -1> {
   // whenever a tracking event or amendment touched them, which reads as broken.
   if (!path) return { createdAt: -1, _id: -1 };
   // `_id` breaks ties so paging never repeats or skips a row when many
-  // shipments share a value — every consignee named the same, for instance.
+  // shipments share a value- every consignee named the same, for instance.
   return { [path]: direction === "asc" ? 1 : -1, _id: -1 };
 }
 

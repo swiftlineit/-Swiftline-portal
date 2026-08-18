@@ -10,7 +10,7 @@ export type ShipmentInvoiceParty = Record<string, string>;
  * clearance, handling, insurance and any discount.
  *
  * Freight is already itemised per box and GST is totalled separately, so both are
- * excluded here — listing them again would double them on the invoice.
+ * excluded here- listing them again would double them on the invoice.
  *
  * Invoices raised before route charges existed carry no `lines`. Their flat CSB-V
  * clearance charge is rebuilt from the stored amount so they print exactly as they

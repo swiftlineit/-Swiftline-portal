@@ -23,7 +23,7 @@ import {
  * `createDemoShipment.ts`.
  *
  * The carrier call is mocked, as it is there, but everything that makes this a
- * counter sale runs for real — the sentinel account, the ADMIN_DIRECT charge with
+ * counter sale runs for real- the sentinel account, the ADMIN_DIRECT charge with
  * no credit reservation, the booking snapshot that bills the person rather than
  * the sentinel, the paid invoice, and the counter payment record. That is the
  * point: it exercises the paths that differ from a business booking.

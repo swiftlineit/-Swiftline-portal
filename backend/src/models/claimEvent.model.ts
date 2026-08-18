@@ -71,7 +71,7 @@ const claimEventSchema = new mongoose.Schema<IClaimEvent>({
   reason: { type: String, trim: true, maxlength: 2000, default: "", immutable: true },
   visibility: { type: String, enum: claimEventVisibilityValues, default: "INTERNAL", required: true, immutable: true },
   // Never carries bank details. Account numbers appear nowhere in the timeline,
-  // in logs, in URLs, or in notifications — only masked values reach a reader.
+  // in logs, in URLs, or in notifications- only masked values reach a reader.
   metadata: { type: mongoose.Schema.Types.Mixed, default: {}, immutable: true },
   createdAt: { type: Date, default: Date.now, immutable: true, index: true }
 });

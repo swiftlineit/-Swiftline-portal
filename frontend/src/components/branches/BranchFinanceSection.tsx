@@ -57,7 +57,7 @@ function FinanceTile({
   tone?: string;
 }) {
   const display = amountMinor === undefined
-    ? value ?? "—"
+    ? value ?? "-"
     : formatCompactMoney(amountMinor, currency);
   const exact = amountMinor === undefined ? undefined : formatCreditMoney(amountMinor, currency);
 
@@ -260,7 +260,7 @@ export default function BranchFinanceSection({ branchId }: { branchId: string })
                           <p className="font-semibold text-slate-900">{payment.customerName || "Not recorded"}</p>
                           <p className="text-xs text-slate-500">{payment.customerMobile}</p>
                         </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">{payment.trackingNumber || "—"}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">{payment.trackingNumber || "-"}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-slate-600">{paymentMethodLabels[payment.method]}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${payment.direction === "COLLECTED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
@@ -301,8 +301,8 @@ export default function BranchFinanceSection({ branchId }: { branchId: string })
                 <tbody>
                   {summary.business.creditAccounts.length ? summary.business.creditAccounts.map((credit) => (
                     <tr key={credit.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-4 py-3 font-semibold text-slate-950">{credit.accountId || "—"}</td>
-                      <td className="px-4 py-3 text-slate-800">{credit.companyName || "—"}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-950">{credit.accountId || "-"}</td>
+                      <td className="px-4 py-3 text-slate-800">{credit.companyName || "-"}</td>
                       <td className="px-4 py-3"><span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">{titleCase(credit.status)}</span></td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-950">{formatCreditMoney(credit.approvedCreditLimitMinor, currency)}</td>
                       <td className="px-4 py-3 text-right text-slate-700">{formatCreditMoney(credit.usedCreditMinor, currency)}</td>

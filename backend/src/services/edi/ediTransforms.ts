@@ -27,7 +27,7 @@ export function titleCaseState(value: unknown): string {
 /**
  * yyyy-MM-dd → d/M/yyyy as text, without leading zeros (2026-07-17 → 17/7/2026).
  * A value that is not an ISO date is returned unchanged. Distinct from the manifest's
- * dd-MM-yyyy helper — do not interchange them.
+ * dd-MM-yyyy helper- do not interchange them.
  */
 export function ediDate(value: unknown): string {
   const text = ediText(value);

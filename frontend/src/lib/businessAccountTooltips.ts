@@ -3,7 +3,7 @@
 // never explained two different ways on two different steps.
 //
 // House style: at most two sentences. Say what the field means, what to enter,
-// and — where it is not obvious — why it is being asked for. Fields whose label
+// and- where it is not obvious- why it is being asked for. Fields whose label
 // already says everything (First Name, Company Name) deliberately have no entry
 // and show no icon; an icon that restates the label teaches users to ignore all
 // of them.
@@ -33,7 +33,7 @@ export const companyTooltips = {
   gstExemptReason: "State the legal basis for not holding a GSTIN, for example turnover below the registration threshold. An administrator reviews this before approving the account.",
 
   addressLine2: "Anything the address search cannot know: building name, floor, unit number or a nearby landmark. An address lookup never overwrites this.",
-  city: "Start typing to search. If your city is not listed, type it in full — the list does not cover every town.",
+  city: "Start typing to search. If your city is not listed, type it in full- the list does not cover every town.",
   addressCountry: "Country of the company's physical address. It sets the postal code format and the list of states that are accepted.",
   operatingCountries: "Every country you ship to or from. Select as many as apply; this shapes the rates and services offered to the account.",
   useCompanyAddressAsBillingAddress: "Untick to invoice a different address, such as a head office or an accountant. Invoices for this account are issued to whichever address applies.",
@@ -57,7 +57,7 @@ export const documentTooltips = {
   gstCertificate: "The GST registration certificate the GSTIN appears on. Optional, but it lets a reviewer verify the GSTIN without asking for it separately.",
   iecCertificate: "Importer Exporter Code issued by the DGFT. Optional for domestic accounts, and required before the account can clear international shipments.",
   otherCertificate: "Any other document supporting the application, such as a trade licence or an incorporation certificate.",
-  fileRules: "PDF, JPG or PNG, up to 5 MB. Upload a full, readable copy — a reviewer rejects partial or blurred scans."
+  fileRules: "PDF, JPG or PNG, up to 5 MB. Upload a full, readable copy- a reviewer rejects partial or blurred scans."
 } as const;
 
 export const reviewTooltips = {

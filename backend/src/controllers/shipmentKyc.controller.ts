@@ -68,7 +68,7 @@ async function discardStoredObject(storageKey: string | undefined) {
  * Stores an uploaded KYC document and returns the subdocument to persist.
  *
  * Grouped under the draft so that a shipment's KYC, labels, and invoice all sit
- * beneath one prefix — which is what lets account deletion and retention work on
+ * beneath one prefix- which is what lets account deletion and retention work on
  * a prefix rather than an enumerated file list.
  */
 async function storeKycDocument(input: {

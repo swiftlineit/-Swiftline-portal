@@ -6,8 +6,8 @@ import { listClientActivity } from "../services/clientActivity.service.js";
 /**
  * Account activity, for the people who own the account.
  *
- * Restricted to owners and admins. The feed names who did what — which
- * shipments a colleague created, which invoices they downloaded — and that is
+ * Restricted to owners and admins. The feed names who did what- which
+ * shipments a colleague created, which invoices they downloaded- and that is
  * management information, not something every booking user should read about
  * their co-workers.
  */

@@ -28,7 +28,7 @@ rateCardShareRouter.get("/:shareId/xlsx", downloadRateCardShareWorkbook);
 rateCardShareRouter.post("/:shareId/revoke", revokeRateCardShare);
 
 /**
- * Reached with no session at all — the link token is the whole credential, so
+ * Reached with no session at all- the link token is the whole credential, so
  * this router deliberately never calls attachUser. Mounted separately so it
  * cannot inherit the staff gate above by accident.
  */

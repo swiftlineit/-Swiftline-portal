@@ -58,7 +58,7 @@ export interface IShipmentEvent extends mongoose.Document {
   holdReason?: ShipmentHoldReason | null;
   note: string;
   /**
-   * Where the scan happened, as Operations typed it — "Delhi Hub",
+   * Where the scan happened, as Operations typed it- "Delhi Hub",
    * "Heathrow, London", "Dubai Customs".
    *
    * Optional on purpose. It is free text keyed in alongside the event, so most

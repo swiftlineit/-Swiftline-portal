@@ -64,7 +64,7 @@ export const shipmentIssueCategories: TicketCategory[] = [
 ];
 
 /**
- * Categories a compensation claim can follow from — narrower than the list
+ * Categories a compensation claim can follow from- narrower than the list
  * above. Needing an AWB and being owed money are different questions: a
  * delivery delay names a shipment but has nothing to compensate.
  */

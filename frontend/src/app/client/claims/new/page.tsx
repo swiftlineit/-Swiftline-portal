@@ -52,7 +52,7 @@ const steps = [
 ] as const;
 
 /**
- * PROVISIONAL declaration wording — Legal has not supplied the binding text.
+ * PROVISIONAL declaration wording- Legal has not supplied the binding text.
  *
  * Must stay in step with `claimDeclaration.ts` on the server, which stores this
  * against every claim as version "1.0-draft". If these two drift, the wording a
@@ -202,7 +202,7 @@ function NewClaimWizard() {
             ])
           )
         );
-        // Straight to "What happened" — the shipment and category are already
+        // Straight to "What happened"- the shipment and category are already
         // chosen, and making someone re-pick them would be busywork.
         setStep(2);
       } catch (caught) {
@@ -323,7 +323,7 @@ function NewClaimWizard() {
 
       <h1 className="text-2xl font-bold text-slate-900">Raise a claim</h1>
       <p className="mt-1 text-sm text-slate-500">
-        You can submit before every document is ready — the filing date is what matters, and we will
+        You can submit before every document is ready- the filing date is what matters, and we will
         ask for anything outstanding afterwards.
       </p>
 
@@ -353,7 +353,7 @@ function NewClaimWizard() {
         </div>
       ) : null}
 
-      {/* Step 1 — pick the shipment */}
+      {/* Step 1- pick the shipment */}
       {step === 0 ? (
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
           {accounts.length > 1 ? (
@@ -390,9 +390,9 @@ function NewClaimWizard() {
                 <option value="">Select a shipment</option>
                 {shipments.map((shipment) => (
                   <option key={shipment.shipmentDraftId} value={shipment.shipmentDraftId}>
-                    {shipment.trackingNumber || "No tracking number"} —{" "}
+                    {shipment.trackingNumber || "No tracking number"}-{" "}
                     {shipment.parcelCount} parcel{shipment.parcelCount === 1 ? "" : "s"}
-                    {shipment.bookedAt ? ` — booked ${formatDashboardDate(shipment.bookedAt)}` : ""}
+                    {shipment.bookedAt ? `- booked ${formatDashboardDate(shipment.bookedAt)}` : ""}
                   </option>
                 ))}
               </select>
@@ -435,7 +435,7 @@ function NewClaimWizard() {
         </section>
       ) : null}
 
-      {/* Step 2 — claim type */}
+      {/* Step 2- claim type */}
       {step === 1 ? (
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-600">
@@ -480,7 +480,7 @@ function NewClaimWizard() {
         </section>
       ) : null}
 
-      {/* Step 3 — what happened, and which items */}
+      {/* Step 3- what happened, and which items */}
       {step === 2 && snapshot ? (
         <div className="space-y-5">
           <ClaimShipmentPanel snapshot={snapshot} />
@@ -654,7 +654,7 @@ function NewClaimWizard() {
         </div>
       ) : null}
 
-      {/* Step 4 — evidence */}
+      {/* Step 4- evidence */}
       {step === 3 && detail ? (
         <div className="space-y-5">
           <ClaimEvidencePanel
@@ -691,7 +691,7 @@ function NewClaimWizard() {
         </div>
       ) : null}
 
-      {/* Step 5 — declaration */}
+      {/* Step 5- declaration */}
       {step === 4 ? (
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">Declaration</h2>
@@ -737,7 +737,7 @@ function NewClaimWizard() {
         </section>
       ) : null}
 
-      {/* Step 6 — review and submit */}
+      {/* Step 6- review and submit */}
       {step === 5 && detail ? (
         <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700">
@@ -748,7 +748,7 @@ function NewClaimWizard() {
             <div>
               <dt className="text-xs font-semibold uppercase text-slate-500">Shipment</dt>
               <dd className="text-sm font-medium text-slate-900">
-                {snapshot?.trackingNumber || "—"}
+                {snapshot?.trackingNumber || "-"}
               </dd>
             </div>
             <div>

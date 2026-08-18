@@ -6,7 +6,7 @@ import { formatDashboardDateTime } from "@/lib/dateFormat";
 /**
  * What the shipment behind a ticket actually is.
  *
- * Shown in two places — beside the AWB picker while a ticket is being written,
+ * Shown in two places- beside the AWB picker while a ticket is being written,
  * and on the ticket itself once it exists. Neither the customer describing the
  * problem nor the agent working it should have to open the shipment to answer
  * "where is it and what is it"; that lookup is the step this removes.
@@ -34,11 +34,11 @@ export default function TicketShipmentContext({
   className?: string;
 }) {
   const fields: Array<{ label: string; value: string }> = [
-    { label: "Origin", value: shipment.origin || "—" },
-    { label: "Destination", value: shipment.destination || "—" },
-    { label: "Consignee", value: shipment.consignee || "—" },
-    { label: "Booking date", value: shipment.bookedAt ? formatDashboardDateTime(shipment.bookedAt) : "—" },
-    { label: "Current status", value: shipment.statusLabel || "—" },
+    { label: "Origin", value: shipment.origin || "-" },
+    { label: "Destination", value: shipment.destination || "-" },
+    { label: "Consignee", value: shipment.consignee || "-" },
+    { label: "Booking date", value: shipment.bookedAt ? formatDashboardDateTime(shipment.bookedAt) : "-" },
+    { label: "Current status", value: shipment.statusLabel || "-" },
     {
       label: "Last scan",
       // Location is optional on an event, so a scan with no place recorded
@@ -51,7 +51,7 @@ export default function TicketShipmentContext({
         ].filter(Boolean).join(" · ")
         : "No scan recorded yet"
     },
-    { label: "Service", value: shipment.service || "—" }
+    { label: "Service", value: shipment.service || "-" }
   ];
 
   return (

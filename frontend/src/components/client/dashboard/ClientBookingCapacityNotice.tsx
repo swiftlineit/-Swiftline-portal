@@ -20,7 +20,7 @@ export default function ClientBookingCapacityNotice({
   permissions: CreditPermission[];
   wallet?: ClientPrepaidAccount;
 }) {
-  // Credit is still loading, or the section failed to load — say nothing rather
+  // Credit is still loading, or the section failed to load- say nothing rather
   // than warn about capacity we could not actually confirm.
   if (!credit) return null;
 

@@ -16,7 +16,7 @@ import { useDialog } from "@/lib/useDialog";
  * (`SESSION_IDLE_TIMEOUT_MINUTES` in userSession.service.ts). The server decides
  * whether a token still works; this decides what the person sees, and gives them
  * the warning a bare 401 never could. It ends the session for real rather than
- * only clearing the screen — `logout()` revokes it server-side, so walking away
+ * only clearing the screen- `logout()` revokes it server-side, so walking away
  * from an unlocked machine does not leave a usable session behind.
  */
 
@@ -27,7 +27,7 @@ const COUNTDOWN_MS = 60 * 1000;
  * Shared across tabs.
  *
  * Without this, a second tab left open in the background would reach its own
- * idle limit and sign the user out of the tab they were actively working in —
+ * idle limit and sign the user out of the tab they were actively working in-
  * the session is server-side, so one tab giving up ends it everywhere.
  */
 const ACTIVITY_KEY = "swiftline:last-activity";
@@ -55,7 +55,7 @@ function writeShared(key: string, value: number) {
   try {
     window.localStorage.setItem(key, String(value));
   } catch {
-    // See above — a tab that cannot share still times out correctly on its own.
+    // See above- a tab that cannot share still times out correctly on its own.
   }
 }
 

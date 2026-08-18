@@ -33,7 +33,7 @@ export type EdiColumn = {
   header: string;
   source: EdiColumnSource;
   type: "text" | "number";
-  // When true, the writer keeps this text value as-is instead of upper-casing it —
+  // When true, the writer keeps this text value as-is instead of upper-casing it-
   // used for the deliberately title-cased state and the "Aadhaar Number" label.
   preserveCase?: boolean;
   value: (row: ManifestDocumentParcelRow, ctx: EdiContext) => string | number;
@@ -55,7 +55,7 @@ const valueOf = (row: ManifestDocumentParcelRow) => ediValue(row.declaredValueMi
 
 /**
  * The one place the EDI's 36 columns, their order, and their sources are defined.
- * The writer only reads `header` and calls `value` — it never references a column by
+ * The writer only reads `header` and calls `value`- it never references a column by
  * index, so adding, removing, or reordering a column is a single edit here.
  */
 export const EDI_COLUMNS: readonly EdiColumn[] = [

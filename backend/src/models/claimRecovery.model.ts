@@ -83,7 +83,7 @@ const claimRecoverySchema = new mongoose.Schema<IClaimRecovery>(
 
 claimRecoverySchema.pre("validate", function validateRecoveryAmounts() {
   // A carrier can admit less than was claimed and pay less than it admitted, but
-  // neither figure can exceed the one above it — those would be data entry
+  // neither figure can exceed the one above it- those would be data entry
   // errors that quietly overstate what has been recovered.
   if (this.admittedAmountMinor > this.submittedAmountMinor) {
     this.invalidate("admittedAmountMinor", "Admitted amount cannot exceed the amount claimed.");

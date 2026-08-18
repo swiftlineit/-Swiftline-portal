@@ -18,7 +18,7 @@ import {
  * The Holiday & Cut-Off Calendar a client sees: branch and destination
  * holidays, customs closures, cut-off and flight closing times, weekend
  * delivery availability, peak season restrictions and live service
- * disruptions — all grouped by category by the shared read-only view.
+ * disruptions- all grouped by category by the shared read-only view.
  */
 export default function ClientOperationsCalendarPage() {
   const { user, loading: userLoading } = useClientUser();

@@ -9,7 +9,7 @@ import {
 /**
  * Surcharges, insurance and discount configured for one shipping route.
  *
- * A "route" is a destination country plus a service (Courier or Cargo) — the same
+ * A "route" is a destination country plus a service (Courier or Cargo)- the same
  * key the weight slabs in `countryRateCard.model.ts` are grouped by. The slabs are
  * stored one document per weight band, so these values deliberately live in their
  * own single document per route: an admin sets the fuel percentage once instead of

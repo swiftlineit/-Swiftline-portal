@@ -18,7 +18,7 @@ import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
  * database before installing `deploy/jobs` on it.
  *
  * The job worth checking is `close-billing`. It does not only close the current
- * period — it steps back three monthly periods to recover gaps, and each
+ * period- it steps back three monthly periods to recover gaps, and each
  * statement is dated to the period it covers rather than to today. On a database
  * carrying unbilled history that produces statements whose due dates are already
  * in the past, and because overdue restrictions are computed live from those due
@@ -77,7 +77,7 @@ async function run() {
     verdict(
       pendingEmail === 0,
       "nothing queued, so nothing will be sent",
-      "queued mail will be sent on the first run — check nothing here is stale before enabling"
+      "queued mail will be sent on the first run- check nothing here is stale before enabling"
     );
 
     // --- close-billing -------------------------------------------------------

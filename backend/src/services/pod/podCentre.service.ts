@@ -159,7 +159,7 @@ function dateCondition(filter: PodCentreFilter) {
  * The PODs behind a set of assignment ids, scoped to the caller's accounts.
  *
  * Takes the same account scope as the list so a crafted id cannot fetch a POD
- * belonging to somebody else — the scope is applied in the query, not checked
+ * belonging to somebody else- the scope is applied in the query, not checked
  * afterwards.
  */
 export async function loadClientPodsByIds(input: {

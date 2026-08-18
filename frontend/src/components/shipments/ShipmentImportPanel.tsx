@@ -174,7 +174,7 @@ export default function ShipmentImportPanel({
                     <span className="min-w-0 text-slate-700">
                       {issue.reason}
                       {issue.blocking ? (
-                        <span className="ml-1 text-xs font-semibold text-red-700">— blocks import</span>
+                        <span className="ml-1 text-xs font-semibold text-red-700">- blocks import</span>
                       ) : null}
                     </span>
                   </li>

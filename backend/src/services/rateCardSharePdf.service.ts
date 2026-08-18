@@ -106,7 +106,7 @@ export function createRateCardSharePdf(share: IRateCardShare, recipientLabel: st
 
   for (const group of groupShareRows(share.rows)) {
     // A country strip plus its header and first row must not be orphaned at the
-    // foot of a page — 90pt is that block's height.
+    // foot of a page- 90pt is that block's height.
     if (y + 90 > PAGE_BOTTOM) {
       doc.addPage();
       y = 56;

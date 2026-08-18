@@ -6,7 +6,7 @@ import type { ClaimAcceptanceState, ClaimDecisionOutcome, ClaimStatus } from "..
  *
  * There is deliberately no generic "set status" endpoint. Each transition is a
  * named command with its own preconditions, because the difference between
- * DECIDED and SETTLED is a payment leaving a bank account — not a dropdown.
+ * DECIDED and SETTLED is a payment leaving a bank account- not a dropdown.
  *
  * Written as pure functions with no database access so the rules can be tested
  * exhaustively without fixtures, and so a caller cannot accidentally bypass them
@@ -213,7 +213,7 @@ export type TransitionCheck =
 /**
  * Decides whether one transition may run.
  *
- * Returns a reason rather than throwing so callers can surface it to the user —
+ * Returns a reason rather than throwing so callers can surface it to the user-
  * "this claim has already been appealed once" is far more useful than a 409.
  */
 export function canTransition(
@@ -224,14 +224,14 @@ export function canTransition(
   /**
    * Two different questions share this function, and they need different rules.
    *
-   * *Can this move be made from here?* depends on the claim — its status, the
+   * *Can this move be made from here?* depends on the claim- its status, the
    * actor, whether an appeal window is still open. *Is this command valid?*
    * additionally depends on what the caller typed: a reason, a decision outcome.
    *
    * Asking the second question when offering a button is wrong, because the
    * caller has not typed anything yet. A decision has no outcome until a
    * reviewer picks one, so requiring an outcome to *offer* the decision control
-   * means it can never be offered — which is exactly what happened.
+   * means it can never be offered- which is exactly what happened.
    */
   const checkCommandPayload = !options.forAvailability;
   const rule = transitions[transition];
@@ -304,7 +304,7 @@ export function assertTransition(transition: ClaimTransition, context: Transitio
  * Evaluated without the command payload: a caller has typed no reason and picked
  * no outcome at the point a button is drawn. The state-dependent rules still
  * apply, so a closed appeal window or an unpaid settlement still hides its
- * control — only "you have not filled this in yet" is set aside.
+ * control- only "you have not filled this in yet" is set aside.
  */
 export function availableTransitions(context: TransitionContext): ClaimTransition[] {
   return claimTransitionValues.filter(

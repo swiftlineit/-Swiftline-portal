@@ -15,14 +15,14 @@ import path from "path";
  *
  * Grouping by owner rather than by date is deliberate. Documents are always
  * reached through a database record that holds the key, never by browsing, so a
- * date hierarchy would buy nothing — while an owner prefix lets retention,
+ * date hierarchy would buy nothing- while an owner prefix lets retention,
  * legal hold, and account deletion operate on a prefix instead of a file list.
  */
 
 /**
  * Extensions we are willing to put in a key, lowercased and without the dot.
  *
- * The extension is cosmetic — it decides nothing about how an object is served,
+ * The extension is cosmetic- it decides nothing about how an object is served,
  * because the content type comes from the database record. It exists so that a
  * key is recognisable in the S3 console and so a downloaded object opens in the
  * right application. Anything outside this set becomes `.bin`.
@@ -42,7 +42,7 @@ const allowedExtensions = new Set([
 /**
  * Derives a safe extension from a client-supplied filename.
  *
- * The original name never reaches the key — it is kept as database metadata
+ * The original name never reaches the key- it is kept as database metadata
  * only. Taking nothing but a whitelisted extension from it closes path
  * traversal, double-extension tricks, null bytes, and unicode homoglyphs in one
  * step, because there is no path for those characters to travel down.
@@ -56,7 +56,7 @@ export function safeExtension(originalName: string, fallback = "bin") {
  * Joins key segments with forward slashes regardless of host platform.
  *
  * `path.join` would produce backslashes on Windows, which S3 treats as ordinary
- * characters in an object name rather than as separators — the resulting object
+ * characters in an object name rather than as separators- the resulting object
  * would be stored under a literal backslash name and never found again.
  */
 function joinKey(...segments: string[]) {
@@ -165,7 +165,7 @@ export function profileImageKey(userId: string, originalName: string) {
  * Rejects anything that is not a key this module could have produced.
  *
  * Keys arrive from the database rather than from a request, so this guards
- * against a corrupted or hand-edited row rather than against a hostile caller —
+ * against a corrupted or hand-edited row rather than against a hostile caller-
  * but a key containing `..` would escape the storage root under the local
  * driver, so it is checked before every read regardless of origin.
  */

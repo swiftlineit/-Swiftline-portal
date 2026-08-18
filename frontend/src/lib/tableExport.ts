@@ -23,7 +23,7 @@ function fileNameFrom(header: string | null, fallback: string) {
  * Fetches an export and saves it.
  *
  * Throws with the server's message when the request fails, so the caller can
- * toast it — a silent no-op on a clicked Download button is the worst outcome.
+ * toast it- a silent no-op on a clicked Download button is the worst outcome.
  */
 export async function downloadTableExport(input: {
   /** The list endpoint path, without the format parameter. */

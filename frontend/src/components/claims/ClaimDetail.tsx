@@ -28,7 +28,7 @@ import { ClaimOutcomeNote, ClaimStatusBadge } from "./ClaimStatusBadge";
  * A single claim, as the client sees it.
  *
  * Which actions appear is driven by `availableActions` from the server rather
- * than by re-deriving the state machine here — two implementations of the same
+ * than by re-deriving the state machine here- two implementations of the same
  * rules would eventually disagree, and the server's is the one that counts.
  */
 export default function ClaimDetail({
@@ -82,7 +82,7 @@ export default function ClaimDetail({
     bankErrors.confirmAccountNumber = "This does not match the account number above.";
   }
   if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bank.ifsc.toUpperCase())) {
-    // Spelled out because the format is not guessable — four letters, a zero,
+    // Spelled out because the format is not guessable- four letters, a zero,
     // then six characters, e.g. HDFC0001234.
     bankErrors.ifsc = "An IFSC is 4 letters, a zero, then 6 characters. e.g. HDFC0001234";
   }
@@ -92,7 +92,7 @@ export default function ClaimDetail({
    *
    * The full-page loading state is shown only when there is nothing on screen
    * yet. Refreshing after an upload or an action keeps the current view in place
-   * — swapping the whole page for a spinner on every file added is disorienting,
+   *- swapping the whole page for a spinner on every file added is disorienting,
    * and loses the reader's scroll position.
    */
   const load = useCallback(async () => {
@@ -179,7 +179,7 @@ export default function ClaimDetail({
                 {claim.approvedAmountMinor ? (
                   <span className="text-sm text-slate-500">
                     {" "}
-                    — {formatClaimAmount(claim.approvedAmountMinor)}
+                   - {formatClaimAmount(claim.approvedAmountMinor)}
                     {claim.status === "PAYMENT_PROCESSING" ? ", awaiting payment" : ""}
                     {claim.status === "SETTLED" ? ", paid" : ""}
                   </span>

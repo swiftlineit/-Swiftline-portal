@@ -1,6 +1,6 @@
 # Claims Management Module
 
-Compensation claims for lost, damaged, short, or stolen shipments — filing
+Compensation claims for lost, damaged, short, or stolen shipments- filing
 through settlement, plus recovery from carriers.
 
 Status: **Phase 1 in progress.** Foundation (types, core model, state machine,
@@ -53,7 +53,7 @@ open the box. This is enforced in `claimFilingDeadline()` and covered by test.
 
 Late filings are **flagged for staff review, never auto-rejected**.
 
-> **Attention — carrier recovery windows are shorter than the client window.**
+> **Attention- carrier recovery windows are shorter than the client window.**
 > Swiftline's own deadline to claim against DPD or a partner is typically far
 > shorter than 35 days, and varies by mode and loss type. A client who files on
 > day 30 may therefore be owed a payout that can no longer be recovered from the
@@ -69,7 +69,7 @@ Late filings are **flagged for staff review, never auto-rejected**.
 
 Lifecycle status is separate from decision, acceptance, appeal, and recovery
 state. A claim can be decided, accepted, awaiting payment, and chasing a carrier
-at the same time — one field could not express that without a value per
+at the same time- one field could not express that without a value per
 combination.
 
 ```
@@ -90,7 +90,7 @@ Separate fields: `submissionStage`, `decisionOutcome`, `acceptanceState`,
 ### Rules the machine enforces
 
 - Every transition is a **named command** with its own preconditions. There is no
-  generic status-update endpoint — the difference between `DECIDED` and `SETTLED`
+  generic status-update endpoint- the difference between `DECIDED` and `SETTLED`
   is money leaving a bank account, not a dropdown.
 - Only a **confirmed payment** reaches `SETTLED`. Approval alone does not.
 - A client cannot run staff transitions; staff cannot accept a settlement on the
@@ -121,12 +121,12 @@ Three independent values, none derived from another:
 
 Enforced: approved ≤ requested, paid ≤ approved, none may be zero or negative.
 
-A requested amount **may exceed** the shipment's declared value — the client is
+A requested amount **may exceed** the shipment's declared value- the client is
 warned prominently but not blocked, and the reviewer sees both figures side by
 side. No insurance, liability, salvage, or declared-value formula ever adjusts
 the entered number.
 
-> **Attention — declared value carries no currency field.** `declaredGoodsValue`
+> **Attention- declared value carries no currency field.** `declaredGoodsValue`
 > on a shipment is a float with an implicit INR assumption, while claim amounts
 > are integer paise. The conversion happens at the comparison boundary. If
 > multi-currency shipments are ever introduced, this comparison becomes wrong and
@@ -141,13 +141,13 @@ referencing it live. A claim is a legal record: an amendment, a re-rate, or a
 corrected address six months later must not change what was claimed or what the
 reviewer saw.
 
-> **Attention — parcel items have no stable identity.** Items on a shipment are
+> **Attention- parcel items have no stable identity.** Items on a shipment are
 > stored with `_id: false`, so only their position identifies them, and an
 > amendment can reorder or replace them after booking. Affected-item references
 > are therefore a coordinate (`parcelSequence` + `itemIndex`) **into the frozen
 > snapshot, never into the live shipment**, with every value the reviewer needs
 > copied alongside. A live lookup would silently repoint what the client claimed
-> for. This is load-bearing — do not "optimise" it into a join.
+> for. This is load-bearing- do not "optimise" it into a join.
 
 ---
 
@@ -161,9 +161,9 @@ different risks.
 | Role | Can |
 |---|---|
 | Owner / Admin | Everything, including accept, appeal, bank details |
-| Operations | Create, edit, upload, message, withdraw — **not** accept or appeal |
+| Operations | Create, edit, upload, message, withdraw- **not** accept or appeal |
 | Finance | View, including financials |
-| Tracking only | View status only — no amounts, no bank data |
+| Tracking only | View status only- no amounts, no bank data |
 
 Accepting a settlement, appealing, and changing bank details bind the company to
 money, so they stay with the two roles that can bind it. An operations login is
@@ -175,12 +175,12 @@ far more widely shared than an owner's.
 |---|---|
 | Admin | Everything, all branches, including legal hold |
 | Operations | Full claim handling for assigned branches, including decide and pay |
-| Finance | View, verify beneficiary, pay, reconcile — **not** decide |
+| Finance | View, verify beneficiary, pay, reconcile- **not** decide |
 | Delivery | Read-only, assigned branches |
 | HR | No access |
 
 Branch scoping: admins see everything; everyone else sees only assigned branches.
-**An empty branch assignment means no access, not unrestricted access** — getting
+**An empty branch assignment means no access, not unrestricted access**- getting
 that default backwards is the classic way this check fails open, and it is
 covered by test.
 
@@ -192,7 +192,7 @@ Required documents change by claim category, and existing portal documents
 attach automatically so clients never re-upload what Swiftline already holds.
 
 Limits: PDF/JPG/PNG/WebP, 10 MB per file, 20 active documents per claim.
-Filenames are always server-generated UUIDs — the client's filename is kept as
+Filenames are always server-generated UUIDs- the client's filename is kept as
 metadata only, which closes path traversal and double-extension tricks at the
 source.
 
@@ -225,14 +225,14 @@ is then **recorded** in the portal with proof. No payout-provider integration.
 ## 9. Retention
 
 Eight years past the last final event. Legal hold blocks deletion during
-litigation, fraud investigation, dispute, appeal, or recovery — and outranks the
+litigation, fraud investigation, dispute, appeal, or recovery- and outranks the
 retention clock.
 
 Everything for one claim shares the `claims/{claimId}/` S3 prefix so hold and
 retention operate on a prefix rather than an enumerated file list that could
 drift.
 
-> **Attention — S3 lifecycle rules.** Any expiry rule added to the bucket for
+> **Attention- S3 lifecycle rules.** Any expiry rule added to the bucket for
 > cost control must exclude the `claims/` prefix, or it will quietly destroy
 > evidence under a legal retention duty.
 
@@ -242,12 +242,12 @@ drift.
 
 | Phase | Deliverable | State |
 |---|---|---|
-| 0 | Disable unfinished route insurance | **Done — backend** |
+| 0 | Disable unfinished route insurance | **Done- backend** |
 | 1 | Types, core model, state machine, permissions | **Done** |
 | 1b | Remaining models, claim numbering, policy/deadline engine | **Done** |
 | 2 | Eligibility, drafts, preliminary submission, client API | **Done** |
 | 3 | Evidence upload and dynamic checklist on S3 | **Done** |
-| 4 | Staff work queue, review workspace, assignment | **Done — API** |
+| 4 | Staff work queue, review workspace, assignment | **Done- API** |
 | 5 | Decisions, acceptance, appeal | **Done** |
 | 6 | Beneficiary, settlement, recovery | **Done** |
 | 7 | Notifications, reporting, security review, rollout | Not started |
@@ -257,14 +257,14 @@ claim UI exists yet: no `/client/claims` pages, no `/dashboard/claims` work
 queue, no navigation entries, no "Raise Claim" action on shipment details. Every
 endpoint below is live and callable, but nothing in the browser reaches them.
 
-Phase 0's frontend half is also outstanding — the pricing engine no longer
+Phase 0's frontend half is also outstanding- the pricing engine no longer
 produces an insurance charge, so no cost estimate, invoice, or summary can show
 one, but the insurance controls in the Route Charges form and rate-card views are
 still rendered and should be hidden.
 
 ### Endpoints
 
-Client — `/api/v1/client/claims`:
+Client- `/api/v1/client/claims`:
 
 ```
 GET    /                              list
@@ -283,7 +283,7 @@ POST   /:claimId/appeal               appeal a decision
 POST   /:claimId/beneficiary          submit bank details
 ```
 
-Staff — `/api/v1/claims`:
+Staff- `/api/v1/claims`:
 
 ```
 GET  /                                        work queue

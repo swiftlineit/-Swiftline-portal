@@ -17,7 +17,7 @@ import {
 /**
  * The evidence checklist, and the upload control for each line of it.
  *
- * Shows what is required, what has arrived, and what was refused — a client who
+ * Shows what is required, what has arrived, and what was refused- a client who
  * can only see "documents missing" has no way to act on it.
  */
 

@@ -4,8 +4,8 @@ import mongoose from "mongoose";
  * A document the customer supplies for a shipment that is already booked.
  *
  * Deliberately separate from the KYC documents on `ShipmentDraft`. Those are
- * part of the booking record — the customs declaration and the claim snapshot
- * both read them — so writing to them after booking would rewrite history that
+ * part of the booking record- the customs declaration and the claim snapshot
+ * both read them- so writing to them after booking would rewrite history that
  * other things have already relied on. Customs asking for a commercial invoice
  * on a held shipment is a new fact about that shipment, not a correction to how
  * it was booked, and it belongs in its own record.

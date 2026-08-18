@@ -5,7 +5,7 @@ import type { Readable } from "stream";
  *
  * Kept deliberately small. Every method a caller could reach for is a method
  * that has to behave identically on local disk and on S3, and the two have very
- * different primitives — so anything that cannot be expressed simply on both
+ * different primitives- so anything that cannot be expressed simply on both
  * belongs in the caller instead.
  */
 export interface StorageDriver {
@@ -43,7 +43,7 @@ export interface PutObjectInput {
   contentType: string;
   /**
    * Sent to S3 as object metadata and echoed back on download. Never used to
-   * build the key — the key's filename is always a server-generated UUID.
+   * build the key- the key's filename is always a server-generated UUID.
    */
   originalName?: string;
 }

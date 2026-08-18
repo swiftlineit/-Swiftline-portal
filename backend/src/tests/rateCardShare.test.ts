@@ -166,8 +166,8 @@ test("a share with a single addressee is named on the sheet", () => {
 });
 
 test("a share sent to more than one recipient does not name any of them on the sheet", () => {
-  // One document serves every recipient, so any second addressee — another
-  // account, an outside address, a WhatsApp contact — means the named customer
+  // One document serves every recipient, so any second addressee- another
+  // account, an outside address, a WhatsApp contact- means the named customer
   // would be printed on a sheet somebody else receives.
   const twoAccounts = makeShare({
     recipientPhones: [],

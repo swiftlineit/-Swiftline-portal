@@ -131,7 +131,7 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
 
 /**
  * Documents arrive as a binary body rather than JSON, so the browser is handed
- * an object URL instead of being navigated at the API — a plain link would drop
+ * an object URL instead of being navigated at the API- a plain link would drop
  * the Authorization header and come back a 401.
  */
 async function downloadBlob(response: Response, filename: string) {
@@ -232,7 +232,7 @@ export function formatRate(value: number, currency = "INR") {
 
 export function formatShareDate(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "-";
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 }
 

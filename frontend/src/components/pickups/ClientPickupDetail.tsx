@@ -41,7 +41,7 @@ export default function ClientPickupDetail({ pickupId, onClose, onUpdated }: { p
    * Moves the pickup to a new window.
    *
    * The server returns it to REQUESTED, so the panel re-renders as a pickup
-   * awaiting confirmation — which is what it now is.
+   * awaiting confirmation- which is what it now is.
    */
   async function reschedule() {
     if (!pickup || !newStartAt || !newEndAt) return;

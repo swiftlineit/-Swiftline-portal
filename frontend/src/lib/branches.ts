@@ -303,7 +303,7 @@ export async function updateBranchStatus(branchId: string, status: BranchStatus)
 /**
  * Removes a branch that was never activated.
  *
- * Draft branches only — an activated branch is closed instead, so its history
+ * Draft branches only- an activated branch is closed instead, so its history
  * survives. The server refuses the delete if anything still points at it.
  */
 export async function deleteBranchDraft(branchId: string) {
@@ -329,7 +329,7 @@ export function branchDocumentUrl(branchId: string, index: number) {
 }
 
 // These endpoints require a Bearer token, which a plain <img src> or <a href>
-// cannot send — so the bytes are fetched with auth and handed to the browser as
+// cannot send- so the bytes are fetched with auth and handed to the browser as
 // an object URL instead.
 export async function fetchBranchFileObjectUrl(fileUrl: string) {
   const response = await fetchWithAuth(apiUrl(fileUrl));

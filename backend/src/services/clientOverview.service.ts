@@ -126,7 +126,7 @@ function toAttentionItem(entry: ClientAction | ShipmentException): AttentionItem
   return {
     id: entry.id,
     kind: "EXCEPTION",
-    label: `${entry.awb || "Shipment"} — ${entry.label}`,
+    label: `${entry.awb || "Shipment"}- ${entry.label}`,
     detail: entry.problem,
     actionLabel: "View Details",
     href: entry.href,
@@ -241,7 +241,7 @@ export async function buildClientOverview(input: {
   // what they can do above what they can only watch.
   //
   // A shipment whose problem the customer can fix produces both an action and
-  // an exception. Only the action is listed — the exception says the same thing
+  // an exception. Only the action is listed- the exception says the same thing
   // without the button, so showing both filled this strip with each shipment
   // twice and pushed other shipments off it entirely.
   const shipmentsWithActions = new Set(

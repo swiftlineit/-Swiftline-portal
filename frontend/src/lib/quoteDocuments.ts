@@ -1,5 +1,5 @@
 // Export documents a customer declares on a live quote request. Frontend mirror
-// of the backend's quoteDocuments.service.ts — keep the two in step.
+// of the backend's quoteDocuments.service.ts- keep the two in step.
 //
 // Declarations only: nothing is uploaded at the quote stage. Which documents
 // apply, and therefore which must be declared, depends on the customs route.
@@ -37,7 +37,7 @@ export const quoteDocumentLabels: Record<QuoteDocumentCode, string> = {
 const csbIvDocumentCodes = new Set<QuoteDocumentCode>(["PAN", "AADHAR"]);
 
 /**
- * The documents that apply to a customs route. Every one of them is required —
+ * The documents that apply to a customs route. Every one of them is required-
  * the list *is* the requirement, so there is no optional tier. Returns an empty
  * list until a route is chosen, because nothing can be asked for before then.
  */

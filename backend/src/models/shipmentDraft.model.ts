@@ -167,7 +167,7 @@ export interface IShipmentDraft extends mongoose.Document {
    * INDIVIDUAL marks a walk-in shipment booked at the counter. Those drafts point
    * `businessAccountId` at the system sentinel rather than a real customer, and
    * the payer's identity lives in `consignorAddress`. Billing skips the credit
-   * system entirely — see `individualCustomer.service.ts`.
+   * system entirely- see `individualCustomer.service.ts`.
    */
   customerType: ShipmentCustomerType;
   branchId: mongoose.Types.ObjectId;
@@ -191,7 +191,7 @@ export interface IShipmentDraft extends mongoose.Document {
   csbType: CsbType;
   /**
    * Whether the customer bought optional transit cover. The premium is priced from
-   * the route configuration against the declared goods value — see
+   * the route configuration against the declared goods value- see
    * countryRouteCharge.model.ts. Off by default: cover is never added to a
    * shipment the customer did not ask for it on.
    */

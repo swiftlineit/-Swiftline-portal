@@ -2,7 +2,7 @@
  * Moves POD evidence and pickup proofs onto storage keys.
  *
  * These rows were written before `storage.service.ts` existed, when the model
- * held an absolute filesystem path — the very thing the current schema comment
+ * held an absolute filesystem path- the very thing the current schema comment
  * says was removed because it tied every file to one server's disk. The schema
  * was changed; the stored documents never were.
  *
@@ -12,7 +12,7 @@
  *
  * The file itself is left exactly where it is. Only the pointer is rewritten,
  * from an absolute path to the key the storage service understands, which is
- * why this is safe to run against live data — nothing is copied, moved or
+ * why this is safe to run against live data- nothing is copied, moved or
  * deleted.
  *
  * Dry run (default):

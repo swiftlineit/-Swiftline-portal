@@ -32,7 +32,7 @@ export type ShipmentFundingMode = "BUSINESS_ACCOUNT" | "COUNTER";
 
 export type ShipmentFundingPreview = {
   mode: ShipmentFundingMode;
-  /** What the shipment costs in total — the figure the customer is committing to. */
+  /** What the shipment costs in total- the figure the customer is committing to. */
   totalPayableMinor: number;
   /** Taken from the Customer Advance balance at booking. */
   advanceDeductionMinor: number;
@@ -51,7 +51,7 @@ export type ShipmentCostEstimate = {
   /**
    * Fingerprint of everything the price was calculated from. The booking call
    * sends it back, and a mismatch means rates or route charges moved while the
-   * customer was filling the form — see `assertPriceLockUnchanged`.
+   * customer was filling the form- see `assertPriceLockUnchanged`.
    */
   pricingHash: string;
   /** When the quoted price stops being honoured and must be recalculated. */
@@ -188,7 +188,7 @@ async function previewBusinessAccountFunding(input: {
  * This is the single source of the figures shown before booking. The booking path
  * prices the same draft through the same engine, so the estimate a customer
  * accepts and the amount they are charged can only differ if the underlying
- * configuration changed — which is precisely what `pricingHash` detects.
+ * configuration changed- which is precisely what `pricingHash` detects.
  */
 export async function buildShipmentCostEstimate(input: {
   draft: InstanceType<typeof ShipmentDraft>;
@@ -197,7 +197,7 @@ export async function buildShipmentCostEstimate(input: {
    *
    * The booking form prices as the customer types, before they save, so the panel
    * is never showing a total for a shipment they have already changed. Nothing is
-   * persisted here — the draft still has to be saved before it can be booked, and
+   * persisted here- the draft still has to be saved before it can be booked, and
    * the price lock is what ties the accepted figure to the saved state.
    */
   overrides?: Partial<ShipmentPricingInput>;

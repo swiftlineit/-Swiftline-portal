@@ -84,7 +84,7 @@ function sendManifestError(response: Response, error: unknown) {
  * stops guaranteeing it for individual shipments: every walk-in is booked against
  * the same system sentinel, so unrelated customers would pass it and end up on one
  * manifest headed with whichever name came first. Their identity lives on the
- * draft instead, so it is compared there — by mobile number, the field the counter
+ * draft instead, so it is compared there- by mobile number, the field the counter
  * always captures.
  */
 export function assertSameIndividualCustomer(drafts: IShipmentDraft[], reference: IShipmentDraft) {
@@ -151,7 +151,7 @@ async function loadManifestContext(draftId: mongoose.Types.ObjectId, userId: mon
       // Every walk-in shares the sentinel account, so filtering on it alone would
       // offer one customer's manifest the shipments of everyone else who used the
       // counter that day. Their identity lives on the draft, so it is matched
-      // there — the same rule `assertSameIndividualCustomer` enforces on submit.
+      // there- the same rule `assertSameIndividualCustomer` enforces on submit.
       ...(currentDraft.customerType === "INDIVIDUAL"
         ? {
             customerType: "INDIVIDUAL",

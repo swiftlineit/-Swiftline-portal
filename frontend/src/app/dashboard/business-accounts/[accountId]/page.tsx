@@ -626,7 +626,7 @@ export default function BusinessAccountDetailsPage() {
                 ],
                 [
                   "Created By",
-                  account.createdBy?.name || account.createdBy?.email || "—",
+                  account.createdBy?.name || account.createdBy?.email || "-",
                 ],
               ]}
             />
@@ -1084,7 +1084,7 @@ function GstBillingReviewPanel({
         </div>
         <div className="rounded-lg bg-[#EEEDED]/40 px-3.5 py-3">
           <dt className="text-xs font-semibold uppercase tracking-wide text-slate-400">Request reason</dt>
-          <dd className="mt-1 text-sm font-medium text-slate-800">{billing.requestReason || "—"}</dd>
+          <dd className="mt-1 text-sm font-medium text-slate-800">{billing.requestReason || "-"}</dd>
         </div>
         {billing.decisionReason ? (
           <div className="rounded-lg bg-[#EEEDED]/40 px-3.5 py-3 sm:col-span-2">

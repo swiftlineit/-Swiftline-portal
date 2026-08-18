@@ -3,7 +3,7 @@
 // which bills freight and 18% GST to the customer.
 //
 // The document is derived from the shipment on every request, so an amendment is
-// reflected automatically — there are no revisions and no version header.
+// reflected automatically- there are no revisions and no version header.
 
 import { apiUrl } from "@/lib/api";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";

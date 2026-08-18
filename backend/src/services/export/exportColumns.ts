@@ -151,7 +151,7 @@ type ClaimRow = {
  * The amounts are role-gated: `serializeClaim` omits them entirely for a member
  * without financial visibility. A spreadsheet is the easiest thing in the world
  * to forward, so the money columns are a separate list added only when the
- * caller was allowed to see them — rather than one list that quietly writes
+ * caller was allowed to see them- rather than one list that quietly writes
  * blanks and leaves the headings standing.
  */
 export const claimExportColumns: Array<ExportColumn<ClaimRow>> = [
@@ -180,7 +180,7 @@ export const claimExportColumns: Array<ExportColumn<ClaimRow>> = [
 /**
  * Who the claim belongs to and who is working it.
  *
- * Staff only, and not because a customer is forbidden the columns — their own
+ * Staff only, and not because a customer is forbidden the columns- their own
  * account and branch are the same on every row, so the columns would carry no
  * information and only make the file wider.
  */

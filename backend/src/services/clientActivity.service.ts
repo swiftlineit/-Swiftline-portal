@@ -5,12 +5,12 @@
  * read: carrier request failures, address validation calls, manifest scan
  * internals. Those are Swiftline's diagnostics. This exposes a curated set of
  * actions that mean something to the person paying the invoice, and nothing
- * else — an allowlist rather than a denylist, so a new internal action added
+ * else- an allowlist rather than a denylist, so a new internal action added
  * later cannot leak into a customer's view by default.
  *
  * Scoping is by entity, not by actor. A feed of "things my team did" would
- * miss the entry the brief actually asks for — Operations updating a shipment
- * — because that row is performed by Swiftline staff against the customer's
+ * miss the entry the brief actually asks for- Operations updating a shipment
+ *- because that row is performed by Swiftline staff against the customer's
  * shipment. The audit log carries no business account, so the account's own
  * entity ids are gathered first and the log is asked about those.
  */

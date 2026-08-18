@@ -14,7 +14,7 @@ import { checkEligibility, type ClaimEligibility } from "@/lib/claims";
  * would eventually disagree with the server that enforces it.
  *
  * Renders nothing at all while the answer is unknown or when the shipment was
- * never in a position to be claimed for — a permanently greyed-out button on
+ * never in a position to be claimed for- a permanently greyed-out button on
  * every shipment is noise.
  */
 export default function RaiseClaimButton({ shipmentDraftId }: { shipmentDraftId: string }) {

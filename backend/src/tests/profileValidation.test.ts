@@ -44,7 +44,7 @@ describe("profile edits reuse the business account rules", () => {
  * The staff form accepts "+91 87450 63206" and the record stores "+918745063206".
  * Before separators were stripped, the profile form refused both the readable
  * form and its own stored value, so a stale phone blocked every other edit on
- * that form — including fields the user had not touched.
+ * that form- including fields the user had not touched.
  */
 describe("profile phone rule", () => {
   it("accepts a number typed with separators", () => {

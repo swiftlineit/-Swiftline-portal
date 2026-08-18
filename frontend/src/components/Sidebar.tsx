@@ -79,11 +79,11 @@ export function filterNavigation(entries: SidebarNavEntry[]): SidebarNavEntry[] 
 }
 
 /**
- * Staff navigation, grouped by the job being done rather than listed flat — the
+ * Staff navigation, grouped by the job being done rather than listed flat- the
  * portal has outgrown a single column of twenty links.
  *
  * `roles` reuses the access bundles from `@/lib/roles`, which the matching page
- * also passes to `useAdminUser` — a link is never shown to a role the page would
+ * also passes to `useAdminUser`- a link is never shown to a role the page would
  * turn away. A group header is only chrome, so its own visibility follows from
  * whichever of its children survive that filter.
  */
@@ -276,14 +276,14 @@ export default function Sidebar({
       "flex min-h-0 flex-col overflow-hidden border-r border-slate-200 bg-white",
       // Below lg: an off-canvas panel that slides over the page.
       //
-      // `invisible` while closed keeps its links out of the tab order — a menu
+      // `invisible` while closed keeps its links out of the tab order- a menu
       // sitting off-screen must not be reachable by keyboard. Transitioning
       // visibility alongside transform is what stops that from cutting the
       // slide-out short: it flips only once the panel has finished moving.
       "fixed inset-y-0 left-0 z-50 w-72 transition-[transform,visibility] duration-300",
       mobileOpen ? "translate-x-0 visible" : "-translate-x-full invisible",
       // From lg: back to the in-flow rail. Always visible there, and no width
-      // utility other than the collapse pair below — two `lg:w-*` classes on one
+      // utility other than the collapse pair below- two `lg:w-*` classes on one
       // element resolve by stylesheet order, not by which was written last.
       "lg:static lg:z-auto lg:h-full lg:shrink-0 lg:visible lg:translate-x-0 lg:transition-all",
       sidebarOpen ? "lg:w-60" : "lg:w-20"

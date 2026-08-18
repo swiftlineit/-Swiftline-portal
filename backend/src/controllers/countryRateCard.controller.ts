@@ -31,7 +31,7 @@ const countryRatePayloadSchema = z.object({
 });
 
 // Surcharges, insurance and discount for a route (country + service). Stored once
-// per route rather than per weight slab — see countryRouteCharge.model.ts.
+// per route rather than per weight slab- see countryRouteCharge.model.ts.
 const routeChargePayloadSchema = z.object({
   band: z.enum(rateCardBandValues),
   countryCode: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Country code must be a two-letter ISO code"),
@@ -286,7 +286,7 @@ export async function deleteCountryRateCard(request: Request, response: Response
 }
 
 /**
- * Every configured route charge. Routes without a document are simply absent —
+ * Every configured route charge. Routes without a document are simply absent-
  * the rate card screen renders them as an empty, zero-charge form, which is what
  * the pricing engine treats them as.
  */

@@ -49,7 +49,7 @@ export type BusinessAccountMemberStatus = (typeof businessAccountMemberStatusVal
 /**
  * Named role groups, so a new role is added in one place.
  *
- * Before these existed the same list — owner, admin, operations — was written
+ * Before these existed the same list- owner, admin, operations- was written
  * out at eleven call sites. Adding `booking_user` and `claims_user` to the
  * enum would have compiled cleanly and left both roles unable to do the one
  * thing each was created for, because no compiler checks a string array.
@@ -92,8 +92,8 @@ export interface IBusinessAccountMember extends mongoose.Document {
   /**
    * Who the account asked Swiftline to give access to.
    *
-   * Only set while `status` is `pending_approval`. No user record exists yet —
-   * the login is created on approval — so the requested person is described
+   * Only set while `status` is `pending_approval`. No user record exists yet-
+   * the login is created on approval- so the requested person is described
    * here rather than by a `user` reference, and a declined request therefore
    * leaves no orphan account and reserves no email address.
    */

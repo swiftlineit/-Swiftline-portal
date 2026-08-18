@@ -3,7 +3,7 @@
 // The bundles below are consumed twice: the sidebar filters its links with them
 // and each page passes the same constant to `useAdminUser`. Sharing the constant
 // is what keeps a link from appearing for a role the page itself would bounce.
-// They mirror the `requireRole` guards on the matching backend routers — the
+// They mirror the `requireRole` guards on the matching backend routers- the
 // server remains the authority, this only decides what the UI offers.
 
 export const portalRoles = ["admin", "operations", "finance", "delivery", "hr", "client"] as const;
@@ -15,7 +15,7 @@ export type StaffRole = (typeof staffRoles)[number];
 
 /**
  * Every internal role a staff record may hold. Only an admin may grant `admin`,
- * so the forms offer this list to admins and `staffRoles` to HR — the server
+ * so the forms offer this list to admins and `staffRoles` to HR- the server
  * enforces the same rule regardless of what the UI sends.
  */
 export const internalRoles = ["admin", ...staffRoles] as const;
@@ -92,7 +92,7 @@ export const SHIPMENT_BILLING_AREA: readonly PortalRole[] = ["operations", "fina
 
 /**
  * Compensation claims. Operations runs them, finance pays and reconciles, and
- * delivery reads its own branches. HR is deliberately absent — the server's
+ * delivery reads its own branches. HR is deliberately absent- the server's
  * permission matrix grants it nothing here, so offering the link would only
  * lead to a page that refuses.
  */

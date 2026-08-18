@@ -6,7 +6,7 @@ import { objectExists } from "./storage.service.js";
  * POD evidence and pickup proofs were written when the model held an absolute
  * filesystem path. The schema moved to a storage key; the stored documents never
  * did. `migrateEvidenceStorageKeys.ts` backfills them, but the read path cannot
- * depend on that having been run — against production it has not, and a customer
+ * depend on that having been run- against production it has not, and a customer
  * looking at a delivered shipment should not see "POD evidence file was not
  * found" because a maintenance script is outstanding.
  *
@@ -19,7 +19,7 @@ import { objectExists } from "./storage.service.js";
  * The storage key for a legacy absolute path.
  *
  * A key is resolved by the driver relative to the storage root, so the key is
- * the part of the path after `private_uploads/` — `pod-evidence/<file>`. It is
+ * the part of the path after `private_uploads/`- `pod-evidence/<file>`. It is
  * emphatically *not* built from `storageModules.pod`: that constant is where new
  * uploads go, and these files were written before it existed.
  *
@@ -47,7 +47,7 @@ export function storageKeyFromLegacyPath(filePath: string): string | null {
  *
  * Tried in order: the stored key, then a key derived from the legacy path.
  * The stored key is probed rather than trusted because an earlier version of the
- * backfill wrote keys under the wrong prefix — those rows have a `storageKey`
+ * backfill wrote keys under the wrong prefix- those rows have a `storageKey`
  * that points at nothing, and preferring it blindly would keep them broken.
  *
  * Returns null when neither candidate resolves, so the caller can report a

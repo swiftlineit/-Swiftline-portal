@@ -85,7 +85,7 @@ export type ConsigneeContact = {
 /**
  * Form problems split by whether the user can defer them.
  *
- * `missing` is a field left blank — allowed in a saved draft, blocked at booking.
+ * `missing` is a field left blank- allowed in a saved draft, blocked at booking.
  * `invalid` is a field filled in wrongly, which is never storable: keeping it
  * would mean a draft reopens holding data the form itself rejects.
  */
@@ -185,13 +185,13 @@ export function getKycIssues(input: {
     });
   }
 
-  // Mirrors the server rule: required on CSB-V, optional on CSB-IV, but a value
-  // that has been entered must be a real Aadhaar number either way.
+  // Mirrors the server rule: the Aadhaar number identifies the sender and is
+  // required on every route, whatever the document checklist asks for.
   function appendAadhaarIssue(value: string, label?: string) {
     const scope = label ? `${label}: ` : "";
 
     if (!value.trim()) {
-      if (isCsbV) issues.push(`${scope}Aadhaar number is required`);
+      issues.push(`${scope}Aadhaar number is required`);
       return;
     }
     if (!isValidAadhaarNumber(value)) {

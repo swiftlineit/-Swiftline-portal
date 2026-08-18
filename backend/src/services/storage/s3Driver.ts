@@ -131,7 +131,7 @@ export const s3StorageDriver: StorageDriver = {
   async deleteObject(key: string): Promise<void> {
     // S3 treats deleting a missing key as success, which matches the local
     // driver's behaviour. With bucket versioning on, this writes a delete marker
-    // rather than destroying the object — the property the retention and legal
+    // rather than destroying the object- the property the retention and legal
     // hold rules depend on.
     await client().send(new DeleteObjectCommand({ Bucket: bucket(), Key: prefixed(key) }));
   },

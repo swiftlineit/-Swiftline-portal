@@ -1,4 +1,4 @@
-# Swiftline Client Portal — Spec Gap & Effort Report
+# Swiftline Client Portal- Spec Gap & Effort Report
 
 **Date:** 2026-08-05
 **Scope:** The 100-section "Complete Functional Requirements and Developer Specification" assessed against the code currently in `portal/`.
@@ -11,15 +11,15 @@ This report was produced by reading the actual codebase, not by estimating from 
 
 - **Backend** (`portal/backend/src`): 64 Mongoose models, 30 route files, 39 controllers, ~75 service modules, 10 middleware, 40 test files.
 - **Frontend** (`portal/frontend/src`): 70 Next.js App Router pages, split into `client/` (customer-facing) and `dashboard/` (Swiftline staff).
-- Keyword sweeps across both trees for every major spec concept (pickup, claims, insurance, dangerous goods, serviceability, TOTP, budget, SLA, holiday, carbon, feature flags, etc.) with hits manually verified — several apparent matches were false positives (e.g. "claim" resolves to JWT claims, "sla" to Tailwind `slate`/`translate`).
+- Keyword sweeps across both trees for every major spec concept (pickup, claims, insurance, dangerous goods, serviceability, TOTP, budget, SLA, holiday, carbon, feature flags, etc.) with hits manually verified- several apparent matches were false positives (e.g. "claim" resolves to JWT claims, "sla" to Tailwind `slate`/`translate`).
 
 **Status codes used below:**
 
 | Code | Meaning |
 |---|---|
 | ✅ | Built and functional; only polish/spec-detail work remains |
-| 🟡 | Partially built — real foundation exists, meaningful work remains |
-| ⬜ | Not started — no model, route, service or page exists |
+| 🟡 | Partially built- real foundation exists, meaningful work remains |
+| ⬜ | Not started- no model, route, service or page exists |
 
 **Estimates** are in developer-days (one day = one productive engineering day, not a calendar day). They cover backend + frontend + tests for that section, and exclude project management, design, and UAT except where noted.
 
@@ -45,9 +45,9 @@ This report was produced by reading the actual codebase, not by estimating from 
 | 4 developers + 1 QA + 1 designer | ~9-11 months |
 | 6 developers + 2 QA + 1 designer + 1 PM | ~7-8 months |
 
-Larger teams do not scale linearly — the figures above already include a coordination overhead allowance of roughly 25% above a naive division.
+Larger teams do not scale linearly- the figures above already include a coordination overhead allowance of roughly 25% above a naive division.
 
-**The honest summary:** roughly 20-25% of the specified system exists today, but the part that exists is the operationally hardest part (credit, billing, manifests, customs EDI, invoicing). The remaining 75% is broad rather than deep — many independent modules, most of which are self-contained and parallelisable.
+**The honest summary:** roughly 20-25% of the specified system exists today, but the part that exists is the operationally hardest part (credit, billing, manifests, customs EDI, invoicing). The remaining 75% is broad rather than deep- many independent modules, most of which are self-contained and parallelisable.
 
 ---
 
@@ -55,7 +55,7 @@ Larger teams do not scale linearly — the figures above already include a coord
 
 These are the strongest areas of the codebase and represent substantial completed value:
 
-**Credit Account (§11) — the most mature module in the system.**
+**Credit Account (§11)- the most mature module in the system.**
 `businessCreditAccount`, `creditAgreement` (+ PDF generation and counters), `creditBillingStatement` (+ PDF), `creditLedgerEntry`, `creditLimitHistory`, `creditPayment`, `creditBillingAdjustment`, `paymentTerms`. Services cover booking against credit, billing cycles, overdue handling, and reconciliation. Backed by 9 dedicated test files including integration tests for the full credit lifecycle.
 
 **Manifests & Operations (§16, §64, §66).**
@@ -99,7 +99,7 @@ Audit log model, user sessions, idempotency keys, email outbox with templates/pr
 | 16 | Manifest Management | ✅ | Complete, including scanning and EDI. Remaining: minor spec fields. | 2 |
 | 17 | Customs Centre | 🟡 | Per-shipment customs documents and KYC upload exist. Missing: the customs dashboard, document status workflow (under review / rejected / resubmission), customs query handling. | 8 |
 | 18 | **Claims Management** | ⬜ | **Nothing exists.** No claim model, workflow, or uploads. (Grep hits for "claim" are JWT claims.) | 12 |
-| 19 | **Returns & Reverse Logistics** | ⬜ | **Nothing exists.** `RETURNED` is a tracking event only — no return creation, return labels, or reverse pickup. | 10 |
+| 19 | **Returns & Reverse Logistics** | ⬜ | **Nothing exists.** `RETURNED` is a tracking event only- no return creation, return labels, or reverse pickup. | 10 |
 | 20 | Notification Centre | 🟡 | `portalNotification` + email outbox + preferences + suppression exist. Missing: SMS, WhatsApp and push channels; archive/mute; category filtering UI. | 6 |
 
 ### Sections 21-40
@@ -120,7 +120,7 @@ Audit log model, user sessions, idempotency keys, email outbox with templates/pr
 | 32 | Error Handling & Validation | 🟡 | Zod validation and a central error handler exist. Missing: the standardised 4-part error format (what/why/how to fix/who to contact) applied consistently. | 6 |
 | 33 | Document Management | 🟡 | Uploads work across KYC, invoices, staff and business documents. Missing: version history, expiry dates, approval status, rejection reasons, preview. | 6 |
 | 34 | Design & UX | 🟡 | Consistent shell, sidebar, toasts, UI component library. Missing: **dark mode entirely** (no `dark:` classes anywhere), breadcrumbs, sticky action bars, systematic empty/error states. | 8 |
-| 35 | Developer Technical Requirements | 🟡 | Cross-cutting; covered by the individual sections below and §99. | — |
+| 35 | Developer Technical Requirements | 🟡 | Cross-cutting; covered by the individual sections below and §99. |- |
 | 36 | **Serviceability Checker** | ⬜ | **Nothing exists.** No lane/postcode serviceability, remote-area or weight/dimension limit checking before quote or booking. | 8 |
 | 37 | Address Intelligence | ✅ | Strongest third-party integration area: Google Places, Google Address Validation, Ideal Postcodes, address mapping service, validation states on the draft. Remaining: duplicate detection, residential/commercial flag, map confirmation. | 3 |
 | 38 | Shipment Validation Engine | 🟡 | `shipmentValidation.service.ts` plus restricted-goods and consignor validation exist. Missing: several of the 17 specified pre-booking checks, and hard label-generation gating. | 5 |
@@ -132,21 +132,21 @@ Audit log model, user sessions, idempotency keys, email outbox with templates/pr
 | § | Module | Status | Assessment | Days |
 |---|---|---|---|---|
 | 41 | Shipment Cost Estimator | 🟡 | Pricing service produces breakdowns. Missing: the full pre-booking breakdown UI with all 12 line items. | 3 |
-| 42 | Post-Booking Weight Adjustment | 🟡 | `shipmentChargeVerification` model + service exist — good foundation. Missing: photo proof, customer dispute flow, dispute deadline, adjustment invoice. | 5 |
+| 42 | Post-Booking Weight Adjustment | 🟡 | `shipmentChargeVerification` model + service exist- good foundation. Missing: photo proof, customer dispute flow, dispute deadline, adjustment invoice. | 5 |
 | 43 | Shipment Amendment | ✅ | Model, controller, service, staff page, billing integration. | 1 |
 | 44 | Shipment Cancellation | ✅ | Model, service, fee invoices, document PDF, integration tests. | 1 |
 | 45 | **Delivery Preferences** | ⬜ | Nothing exists. | 5 |
 | 46 | **Delivery Exceptions** | ⬜ | Hold reasons exist on events, but no exception management or customer resolution actions. | 7 |
-| 47 | **Customs Duty & Tax Management** | ⬜ | Nothing exists — no duty estimation, duty invoice, payment link, or customs query handling. | 8 |
+| 47 | **Customs Duty & Tax Management** | ⬜ | Nothing exists- no duty estimation, duty invoice, payment link, or customs query handling. | 8 |
 | 48 | **DDP / DDU Selection** | ⬜ | Nothing exists. | 4 |
 | 49 | Restricted & Prohibited Checker | 🟡 | `restrictedGoods.service.ts` blocks at data entry, mirrored in frontend, with tests. Missing: customer-facing lookup by product/category/country/HS code and the licence/MSDS outcomes. | 4 |
-| 50 | **Dangerous Goods Workflow** | ⬜ | Nothing exists — no UN number, class, packing group, MSDS, or approval gate. | 10 |
+| 50 | **Dangerous Goods Workflow** | ⬜ | Nothing exists- no UN number, class, packing group, MSDS, or approval gate. | 10 |
 | 51 | **Insurance Management** | ⬜ | Nothing exists. | 8 |
 | 52 | Commercial Invoice Generator | ✅ | Customs invoice service with parser and workbook generation. Remaining: template saving, duplicate-from-previous. | 2 |
 | 53 | Packing List Generator | 🟡 | Parcel items data exists; no dedicated packing list document. | 3 |
-| 54 | **Document Expiry Management** | ⬜ | Nothing exists — no expiry tracking, no 30/15/7-day alerts, no booking block on expired mandatory documents. | 5 |
+| 54 | **Document Expiry Management** | ⬜ | Nothing exists- no expiry tracking, no 30/15/7-day alerts, no booking block on expired mandatory documents. | 5 |
 | 55 | Customer Onboarding Workflow | 🟡 | Business account creation, invitations and activation exist. Missing: the structured 11-step flow with completion percentage, GST/PAN/IEC verification steps. | 8 |
-| 56 | Digital Agreement & E-Signature | 🟡 | Credit agreement signing with PDF and counters is built — a real foundation. Missing: extension to the other 7 agreement types and full signature metadata capture. | 6 |
+| 56 | Digital Agreement & E-Signature | 🟡 | Credit agreement signing with PDF and counters is built- a real foundation. Missing: extension to the other 7 agreement types and full signature metadata capture. | 6 |
 | 57 | **Account Manager Section** | ⬜ | Nothing exists. | 3 |
 | 58 | **Escalation Matrix** | ⬜ | Nothing exists. | 5 |
 | 59 | **SLA Dashboard** | ⬜ | Nothing exists (all "sla" grep hits are Tailwind `slate`/`translate`). | 10 |
@@ -166,10 +166,10 @@ Audit log model, user sessions, idempotency keys, email outbox with templates/pr
 | 68 | Customer Reference Management | 🟡 | Customer reference exists on shipments. Missing: PO/SO/marketplace/department/cost-centre/project/custom fields and their propagation to reports and invoices. | 4 |
 | 69 | **Cost Centre & Department Billing** | ⬜ | Nothing exists. | 6 |
 | 70 | **Budget Control** | ⬜ | Nothing exists. | 7 |
-| 71 | **Shipment Scheduling** | ⬜ | Nothing exists — no future bookings, recurring shipments, or templates. | 8 |
-| 72 | **Bulk Shipment Upload** | ⬜ | Nothing exists. Note the spec's explicit requirement that one bad row must not reject the file — this drives a row-level validation and staging design. | 12 |
+| 71 | **Shipment Scheduling** | ⬜ | Nothing exists- no future bookings, recurring shipments, or templates. | 8 |
+| 72 | **Bulk Shipment Upload** | ⬜ | Nothing exists. Note the spec's explicit requirement that one bad row must not reject the file- this drives a row-level validation and staging design. | 12 |
 | 73 | **Bulk Tracking** | ⬜ | Nothing exists. | 5 |
-| 74 | **Bulk Document Download** | ⬜ | Nothing exists — no ZIP bundling. | 5 |
+| 74 | **Bulk Document Download** | ⬜ | Nothing exists- no ZIP bundling. | 5 |
 | 75 | Data Import & Export | 🟡 | Excel generation exists in several services (`xlsx` used for EDI, customs invoice, manifests, rate cards). Missing: general import/export framework, import history, scheduled exports. | 5 |
 | 76 | **Saved Views & Filters** | ⬜ | Nothing exists. | 5 |
 | 77 | **Dashboard Customization** | ⬜ | Nothing exists. | 8 |
@@ -187,8 +187,8 @@ Audit log model, user sessions, idempotency keys, email outbox with templates/pr
 | 84 | **System Monitoring** | ⬜ | Health route exists; no monitoring of the 10 specified failure classes, no alerting to technical staff. | 8 |
 | 85 | **Status Page** | ⬜ | Nothing exists. | 5 |
 | 86 | **Maintenance Notifications** | ⬜ | Nothing exists. | 3 |
-| 87 | Performance | 🟡 | `idempotencyKey` model exists — double-submit protection is partly addressed. Missing: systematic pagination/indexing review, loading indicators, safe retries, slow-network handling. | 8 |
-| 88 | **Accessibility** | ⬜ | Not systematically addressed — keyboard navigation, screen readers, contrast, form labels, alt text across 70 pages. | 10 |
+| 87 | Performance | 🟡 | `idempotencyKey` model exists- double-submit protection is partly addressed. Missing: systematic pagination/indexing review, loading indicators, safe retries, slow-network handling. | 8 |
+| 88 | **Accessibility** | ⬜ | Not systematically addressed- keyboard navigation, screen readers, contrast, form labels, alt text across 70 pages. | 10 |
 | 89 | Language & Currency | 🟡 | Multi-currency appears in rate/pricing code. Missing: i18n framework, Hindi and other languages, currency conversion with rate + date display. | 12 |
 | 90 | Time Zone Management | 🟡 | Timestamps stored. Missing: explicit branch/destination/user time zone display and scan-time localisation. | 5 |
 | 91 | **Customer Feedback** | ⬜ | Nothing exists. | 5 |
@@ -199,7 +199,7 @@ Audit log model, user sessions, idempotency keys, email outbox with templates/pr
 | 96 | Account Suspension & Restrictions | 🟡 | `userStatus` and member status enums support suspension. Missing: the 7 granular restriction modes and customer-facing reason/resolution display. | 5 |
 | 97 | Admin Configuration | 🟡 | DPD configuration and country rate cards are admin-configurable. Missing: no-code configuration for the other 13 listed areas (statuses, services, countries, carriers, surcharges, notifications, document requirements, credit rules, claim rules, permissions, pickup slots, holidays, error messages). | 15 |
 | 98 | **Feature Toggle System** | ⬜ | Nothing exists. | 6 |
-| 99 | Testing Requirements | 🟡 | 40 backend test files including integration suites for credit, manifests, cancellations, labels — a genuine asset. Missing: frontend tests entirely, plus security, load, browser, permission, notification and backup-restore testing. | 20 |
+| 99 | Testing Requirements | 🟡 | 40 backend test files including integration suites for credit, manifests, cancellations, labels- a genuine asset. Missing: frontend tests entirely, plus security, load, browser, permission, notification and backup-restore testing. | 20 |
 | 100 | Final Acceptance | ⬜ | Full UAT cycle, defect remediation, sign-off. | 15 |
 
 ---
@@ -228,25 +228,25 @@ Audit log model, user sessions, idempotency keys, email outbox with templates/pr
 
 Sequenced so that each phase ships something usable rather than leaving half-built modules.
 
-**Phase 1 — Close the operational loop (≈115 days)**
-Pickup Management (§9), Address Book (§10), Client Dashboard (§2), Shipment List completion (§4), POD (§5), Bulk Document Download (§74). Rationale: today a customer can book a shipment but cannot schedule its collection or reuse an address — these are the most conspicuous holes in an otherwise working booking flow.
+**Phase 1- Close the operational loop (≈115 days)**
+Pickup Management (§9), Address Book (§10), Client Dashboard (§2), Shipment List completion (§4), POD (§5), Bulk Document Download (§74). Rationale: today a customer can book a shipment but cannot schedule its collection or reuse an address- these are the most conspicuous holes in an otherwise working booking flow.
 
-**Phase 2 — Post-delivery and exceptions (≈95 days)**
+**Phase 2- Post-delivery and exceptions (≈95 days)**
 Claims (§18), Returns (§19), Delivery Exceptions (§46), Customs Centre (§17), Document Expiry (§54), Delivery Preferences (§45).
 
-**Phase 3 — Commercial and financial depth (≈95 days)**
+**Phase 3- Commercial and financial depth (≈95 days)**
 Rate Rule Engine (§39), Rate Card Management (§40), Insurance (§51), Duty & Tax (§47), DDP/DDU (§48), Cost Centre Billing (§69), Budget Control (§70).
 
-**Phase 4 — Scale and self-service (≈115 days)**
+**Phase 4- Scale and self-service (≈115 days)**
 Bulk Upload (§72), Bulk Tracking (§73), Scheduling & templates (§71), API & Integration Centre (§26), Approval Workflow (§24), full Role/Permission matrix (§23).
 
-**Phase 5 — Insight and governance (≈130 days)**
+**Phase 5- Insight and governance (≈130 days)**
 Reports & Analytics (§22), SLA Dashboard (§59), Saved Views (§76), Dashboard Customisation (§77), Admin Configuration (§97), Feature Toggles (§98), Audit UI (§30), Global Search (§31).
 
-**Phase 6 — Compliance, quality, launch (≈120 days)**
+**Phase 6- Compliance, quality, launch (≈120 days)**
 Auth hardening (§1), Accessibility (§88), i18n (§89), Dark mode & UX (§34), Privacy & Retention (§81-82), Backup/DR (§83), Monitoring & Status (§84-85), Performance (§87), full test suite (§99), UAT (§100).
 
-Dangerous Goods (§50), Consolidation (§62-63), AI (§27), Carbon (§94), Loyalty (§93) and NPS (§91-92) are genuinely optional against a first production release and can be deferred beyond this plan — deferring all of them removes roughly 65 days.
+Dangerous Goods (§50), Consolidation (§62-63), AI (§27), Carbon (§94), Loyalty (§93) and NPS (§91-92) are genuinely optional against a first production release and can be deferred beyond this plan- deferring all of them removes roughly 65 days.
 
 ---
 
@@ -258,22 +258,22 @@ Dangerous Goods (§50), Consolidation (§62-63), AI (§27), Carbon (§94), Loyal
 - The existing Express/Mongoose/Next.js architecture is retained; no rewrite.
 
 **Excluded from the 670 days**
-- UI/UX design work (wireframes, visual design). Budget separately — plausibly 40-60 designer-days.
+- UI/UX design work (wireframes, visual design). Budget separately- plausibly 40-60 designer-days.
 - Project management and business analysis.
 - Infrastructure provisioning, hosting and DevOps beyond §83-84.
 - The e-commerce connectors named in §26 (Shopify, WooCommerce, Magento, Amazon, eBay). Each is realistically 15-25 days on its own; the 20 days costed covers only the API/webhook/key platform.
 
 **Third-party dependencies that must be procured before the dependent work can start**
-- SMS gateway — blocks §1 (mobile OTP), §20, §78.
-- WhatsApp Business API provider — blocks §20, §78, §79.
-- Carrier APIs beyond the existing DPD integration — affects §7, §36, §39.
-- Duty/tax calculation provider — affects §47, §48.
-- Insurance underwriter integration — affects §51.
-- Push notification service — affects §20, §28.
+- SMS gateway- blocks §1 (mobile OTP), §20, §78.
+- WhatsApp Business API provider- blocks §20, §78, §79.
+- Carrier APIs beyond the existing DPD integration- affects §7, §36, §39.
+- Duty/tax calculation provider- affects §47, §48.
+- Insurance underwriter integration- affects §51.
+- Push notification service- affects §20, §28.
 
 **Principal risks**
 1. **Rate Rule Engine (§39)** is the highest-variance estimate. Twenty rate dimensions interacting with customer-specific, branch-specific and seasonal overrides can easily double from 12 days if the business rules are not pinned down in writing first.
-2. **The "everything connects" requirement** in the spec's closing instruction is not a module — it is a constraint on every module. Cross-module propagation (payment → booking capacity, weight adjustment → billing, claim settlement → finance) is where integration defects concentrate. The 15 days for UAT is likely a floor.
+2. **The "everything connects" requirement** in the spec's closing instruction is not a module- it is a constraint on every module. Cross-module propagation (payment → booking capacity, weight adjustment → billing, claim settlement → finance) is where integration defects concentrate. The 15 days for UAT is likely a floor.
 3. **Admin Configuration (§97)** asks for no-code configurability of 15 areas. Building genuine runtime configurability is substantially more expensive than the 15 days allowed if applied literally to all 15; the estimate assumes the highest-value subset.
 4. **Accessibility (§88) retrofitted** across 70 existing pages is more expensive than building it in. The 10-day figure assumes an audit plus fixes to the highest-traffic flows, not full WCAG AA certification across every page.
 
@@ -283,4 +283,4 @@ Dangerous Goods (§50), Consolidation (§62-63), AI (§27), Carbon (§94), Loyal
 
 Independent of the roadmap, the working tree currently has uncommitted modifications across at least 10 files (`app.ts`, several controllers, middleware, `package.json`). These should be committed or stashed before new work begins, so that feature branches start from a known baseline.
 
-The spec's own closing instruction also calls for a set of pre-development artifacts — module list, screen list, field list, button list, database design, API design, status flow, notification matrix, role and permission matrix, error-message list, audit-log design, testing plan, deployment plan, backup plan, security plan. Produced as a delta against what already exists rather than from scratch, that is approximately **10 days** of work and is included in the 680-day total.
+The spec's own closing instruction also calls for a set of pre-development artifacts- module list, screen list, field list, button list, database design, API design, status flow, notification matrix, role and permission matrix, error-message list, audit-log design, testing plan, deployment plan, backup plan, security plan. Produced as a delta against what already exists rather than from scratch, that is approximately **10 days** of work and is included in the 680-day total.

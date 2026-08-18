@@ -61,7 +61,7 @@ async function resolveLabelDocument(ref: IEmailAttachmentRef): Promise<ResolvedA
   const label = await LabelDocument.findById(ref.refId).lean().exec();
   if (!label) return null;
 
-  // A missing label must not fail the whole email — the invoice is the part the
+  // A missing label must not fail the whole email- the invoice is the part the
   // client actually needs for accounting.
   const content = await getObjectBuffer(label.storageKey).catch(() => null);
   if (!content) {
@@ -127,7 +127,7 @@ const resolvers: Partial<Record<EmailAttachmentKind, (ref: IEmailAttachmentRef) 
 /**
  * Resolves stored references into MIME parts, newest-value-first and within the
  * size budget. Attachments are ordered by the caller, so when the budget runs
- * out the trailing items are dropped — callers list the invoice before the
+ * out the trailing items are dropped- callers list the invoice before the
  * labels for exactly this reason.
  */
 export async function resolveAttachments(refs: IEmailAttachmentRef[]): Promise<AttachmentResolution> {

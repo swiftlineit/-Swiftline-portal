@@ -1,5 +1,5 @@
 // CSB (Courier Shipping Bill) category for an export shipment. Frontend mirror of
-// the backend's csbType.service.ts — the two live in separate packages, so keep
+// the backend's csbType.service.ts- the two live in separate packages, so keep
 // them in step by hand. The backend is authoritative for what is actually charged.
 //
 // CSB-V shipments attract a flat clearance charge applied ONCE per shipment (not
@@ -40,7 +40,7 @@ export function normalizeCsbType(value: unknown): CsbType {
 
 /**
  * The flat clearance charge for a shipment, in INR. Zero for CSB-IV.
- * Applied once per shipment — never per parcel and never per kg.
+ * Applied once per shipment- never per parcel and never per kg.
  */
 export function getCsbClearanceCharge(value: unknown): number {
   return normalizeCsbType(value) === "CSB_V" ? csbVClearanceCharge : 0;

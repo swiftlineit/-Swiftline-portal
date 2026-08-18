@@ -4,8 +4,8 @@ import { formatDashboardDate } from "@/lib/dateFormat";
 /**
  * The billing figures a customer opens this page to read.
  *
- * Split into two rows on purpose. The first is the facility — what was
- * granted, what is spent, what is left — and reads the same every day. The
+ * Split into two rows on purpose. The first is the facility- what was
+ * granted, what is spent, what is left- and reads the same every day. The
  * second is what is actually owed and when, which is the half that changes and
  * the half somebody is usually chasing.
  */

@@ -277,7 +277,7 @@ export default function CancellationReview({
               {isIndividual && (amounts?.refundMinor ?? 0) > 0 ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                   <p className="text-sm font-semibold text-amber-900">
-                    Refund Payment —{" "}
+                    Refund Payment-{" "}
                     {money.format((amounts?.refundMinor ?? 0) / 100)}
                   </p>
                   <p className="mt-1 text-sm text-amber-800">

@@ -21,7 +21,7 @@ export const claimCategoryValues = [
  * Where the claim sits in its handling pipeline.
  *
  * Ordinary delay, tracking enquiries, invoice disputes, cancellations, returns,
- * and customs disputes are deliberately absent — those belong to Help Desk, not
+ * and customs disputes are deliberately absent- those belong to Help Desk, not
  * to compensation.
  */
 export const claimStatusValues = [
@@ -43,7 +43,7 @@ export const claimStatusValues = [
   /**
    * The two halves of "with the carrier". Split because a client chasing a claim
    * wants to know whether it has actually reached the carrier yet or is merely
-   * queued to be sent — "submitted" and "being looked at" are different answers.
+   * queued to be sent- "submitted" and "being looked at" are different answers.
    */
   "SUBMITTED_TO_CARRIER",
   "CARRIER_REVIEWING",
@@ -51,7 +51,7 @@ export const claimStatusValues = [
   "PENDING_APPROVAL",
   /**
    * A decision exists. Whether it reads as Approved or Rejected comes from the
-   * decision outcome, not from a second status — see `claimStatusLabels`.
+   * decision outcome, not from a second status- see `claimStatusLabels`.
    */
   "DECIDED",
   "PAYMENT_PROCESSING",
@@ -63,7 +63,7 @@ export const claimStatusValues = [
 /**
  * Whether the evidence pack is complete.
  *
- * A client may file a preliminary notice before every document is ready — the
+ * A client may file a preliminary notice before every document is ready- the
  * filing deadline is short and gathering invoices is slow, so blocking the
  * notice on complete evidence would cost clients valid claims.
  */
@@ -148,7 +148,7 @@ export const terminalClaimStatusValues = ["CLOSED", "WITHDRAWN"] as const;
  * The stored value and the label are kept apart on purpose. `DECIDED` is one
  * state in the machine but reads as two different words to a client depending on
  * the decision outcome, and folding that into the enum would mean two statuses
- * that can never be reached by two different transitions — see `claimStatusLabel`.
+ * that can never be reached by two different transitions- see `claimStatusLabel`.
  */
 export const claimStatusLabels: Record<ClaimStatus, string> = {
   DRAFT: "Draft",
@@ -171,7 +171,7 @@ export const claimStatusLabels: Record<ClaimStatus, string> = {
  *
  * A decided claim reads as "Approved" or "Rejected" rather than "Decided": the
  * outcome is the part anyone actually wants, and a partial approval is still an
- * approval as far as the headline goes — the amount tells the rest of the story.
+ * approval as far as the headline goes- the amount tells the rest of the story.
  */
 export function claimStatusLabel(
   status: ClaimStatus,
@@ -196,7 +196,7 @@ export function isTerminalClaimStatus(status: ClaimStatus) {
  * Filing deadlines, in days.
  *
  * These are the defaults seeded into `ClaimPolicyRule`. They are not hard-coded
- * into the deadline calculation — a rule record can override them per carrier,
+ * into the deadline calculation- a rule record can override them per carrier,
  * route, or contract, which is the whole reason that model exists.
  */
 export const defaultClaimDeadlines = {
@@ -219,7 +219,7 @@ export const defaultClaimDeadlines = {
 
 /**
  * Once a shipment is delivered the delivery clock governs and the booking clock
- * stops applying — they are alternatives, not a pair to satisfy at once.
+ * stops applying- they are alternatives, not a pair to satisfy at once.
  * Applying both would expire a claim on a parcel delivered on day 34 before the
  * client had any chance to open it.
  */

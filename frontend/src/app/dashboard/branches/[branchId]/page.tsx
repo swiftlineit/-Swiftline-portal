@@ -110,7 +110,7 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
         {label}
       </p>
       <p className="mt-1 break-words text-sm font-medium text-slate-800">
-        {value || "—"}
+        {value || "-"}
       </p>
     </div>
   );
@@ -125,7 +125,7 @@ function SummaryTile({
 }) {
   // A numeric zero is a real value, so only null/undefined/"" fall back to the dash.
   const display =
-    value === null || value === undefined || value === "" ? "—" : value;
+    value === null || value === undefined || value === "" ? "-" : value;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

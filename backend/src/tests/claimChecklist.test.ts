@@ -5,7 +5,7 @@ import { claimCategoryValues } from "../models/claimTypes.js";
 
 /**
  * The checklist is what a client is judged against, so asking for the wrong
- * documents is not a cosmetic problem — it is the difference between a claim
+ * documents is not a cosmetic problem- it is the difference between a claim
  * settled in a week and one that dies in correspondence.
  */
 

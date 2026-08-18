@@ -4,7 +4,7 @@ import { ClaimCounter } from "../../models/claimCounter.model.js";
 /**
  * Allocates `CLM/26-27/00001`.
  *
- * Only called at preliminary submission, never at draft creation — an abandoned
+ * Only called at preliminary submission, never at draft creation- an abandoned
  * draft must not burn a number and leave a hole in the financial-year run.
  * Once allocated the number is immutable and is never reused, including after a
  * withdrawal or a rejection.

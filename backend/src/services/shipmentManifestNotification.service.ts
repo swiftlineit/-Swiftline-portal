@@ -17,7 +17,7 @@ function manifestHref(manifest: IShipmentManifest) {
 
 /**
  * Tells staff a client sealed a manifest: an in-portal notification plus an email
- * carrying the manifest PDF, both raised by the same call. Best effort — the
+ * carrying the manifest PDF, both raised by the same call. Best effort- the
  * manifest is already committed by the time this runs, so a failure here is
  * logged rather than thrown.
  */

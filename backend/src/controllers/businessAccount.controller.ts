@@ -77,7 +77,7 @@ const idempotencyScope = "business-account-create";
 import { getCountryCodeByName } from "../services/reference/portalCountries.js";
 
 const shipmentTypeSchema = z.enum(["international_cargo", "international_courier"]);
-const companyTypeSchema = z.enum(["pvt_ltd", "llp", "enterprise"]).or(z.literal(""));
+const companyTypeSchema = z.enum(["pvt_ltd", "llp", "enterprise", "proprietorship"]).or(z.literal(""));
 const registrationCountrySchema = z.enum([
   "United Kingdom",
   "United States",
@@ -413,7 +413,7 @@ const businessAccountBodySchema = z.object({
  * The shape the account builders accept.
  *
  * Taken from the draft schema rather than the strict one because it is the wider
- * of the two — a fully validated body is assignable to it, so one set of helpers
+ * of the two- a fully validated body is assignable to it, so one set of helpers
  * serves both the draft save and the real submission.
  */
 type BusinessAccountBody = z.infer<typeof businessAccountDraftBodySchema>;
@@ -721,7 +721,7 @@ function resolveRegistrationIdStorage(
 
 function buildAccountPayload(data: BusinessAccountBody, existingEncryptedRegistrationId = "") {
   // GST fields belong only to accounts that capture them. Dropping them
-  // otherwise stops a country switch — or a hand-rolled request — leaving GST
+  // otherwise stops a country switch- or a hand-rolled request- leaving GST
   // data stranded on an account that has no GST at all.
   const keepsGst = collectsGstin({
     registrationCountry: data.company.registrationCountry,
@@ -877,7 +877,7 @@ async function hasDuplicateBusinessIdentity(
   accountIdToExclude?: string
 ): Promise<string | null> {
   // An SSN or ITIN is stored only as its mask, so comparing it would flag two
-  // unrelated people who happen to share the last four digits as duplicates —
+  // unrelated people who happen to share the last four digits as duplicates-
   // and would be comparing masks, not numbers, in any case.
   const isSensitiveTaxId = data.company.registrationCountry === "United States"
     && isUsTaxIdType(data.company.registrationIdType)
@@ -937,8 +937,8 @@ export function getRequiredKycCheckKeys(
   const keys: BusinessKycCheckKey[] = ["contactDetails", "companyDetails", "aadhaarCard", "panCard"];
 
   // An account claiming exemption from GST registration carries an extra check,
-  // so it cannot reach "verified" — and therefore cannot be approved or
-  // activated — until an admin has cleared the exemption.
+  // so it cannot reach "verified"- and therefore cannot be approved or
+  // activated- until an admin has cleared the exemption.
   if (options.gstExempt) keys.push("gstExemption");
 
   for (const optionalKey of ["adCertificate", "msmeCertificate", "tanCertificate", "otherCertificate", "gstCertificate", "iecCertificate"] as DocumentType[]) {
@@ -1402,7 +1402,7 @@ export async function updateBusinessAccount(request: Request, response: Response
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
 
   // The encrypted tax ID is `select: false`, so it has to be asked for
-  // explicitly — an edit that leaves the masked field untouched needs it to
+  // explicitly- an edit that leaves the masked field untouched needs it to
   // write the same value back rather than blanking it.
   const account = await BusinessAccount
     .findOne({ accountId: request.params.accountId })
@@ -1934,7 +1934,7 @@ export async function updateBusinessAccountKycReview(request: Request, response:
       });
     }
 
-    // Only a settled outcome is worth telling the client about — intermediate
+    // Only a settled outcome is worth telling the client about- intermediate
     // per-document edits would otherwise generate noise on every save.
     if (
       nextReview.overallStatus !== account.kycReview?.overallStatus
@@ -1965,7 +1965,7 @@ export async function updateBusinessAccountKycReview(request: Request, response:
   }
 
   // Return the populated snapshot (matching the other endpoints) so the client
-  // keeps a fully-shaped account — notably a populated assignedBranch, which the
+  // keeps a fully-shaped account- notably a populated assignedBranch, which the
   // Users & Access panel depends on to unlock client-login creation.
   const updatedAccount = await getPopulatedBusinessAccount(account.accountId);
   return response.status(200).json({
@@ -2087,7 +2087,7 @@ export async function updateBusinessAccountGstBillingReview(request: Request, re
  * Removes a business account that was never submitted for review.
  *
  * Hard delete, unlike shipment drafts: a draft account has no branch, no
- * members, no credit, and no shipments — nothing downstream can reference it,
+ * members, no credit, and no shipments- nothing downstream can reference it,
  * and the checks below refuse the delete if anything does. Its uploaded KYC
  * documents go with it, since holding identity documents for an abandoned
  * application is exactly what should not happen.

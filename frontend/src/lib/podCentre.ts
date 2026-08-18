@@ -69,7 +69,7 @@ export function emailPods(assignmentIds: string[]) {
 /**
  * Downloads the merged POD document.
  *
- * With ids, exactly those; without, everything matching the current filters —
+ * With ids, exactly those; without, everything matching the current filters-
  * which is what "download all" means on a list somebody has just narrowed.
  */
 export async function downloadPodPdf(input: {

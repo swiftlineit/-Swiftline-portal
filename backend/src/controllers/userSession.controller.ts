@@ -2,7 +2,7 @@
  * Admin view and control of a user's sessions.
  *
  * The requirement asks for an administrator-controlled way to end an existing
- * session — for the case where someone is locked out of their own account by a
+ * session- for the case where someone is locked out of their own account by a
  * device they no longer have.
  */
 import type { Request, Response } from "express";

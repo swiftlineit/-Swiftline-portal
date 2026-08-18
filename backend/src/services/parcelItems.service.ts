@@ -4,9 +4,9 @@
 // customs needs an HSN code for each one. Those items live in `parcel.items`.
 //
 // `parcel.contentsDescription` is kept as the DERIVED single-line summary of those
-// items. Every downstream consumer — the customs EDI export, the operations
+// items. Every downstream consumer- the customs EDI export, the operations
 // manifest, the DPD carrier payload, shipment labels and the existing GST invoice
-// — keeps reading `contentsDescription` exactly as before, so none of those
+//- keeps reading `contentsDescription` exactly as before, so none of those
 // formats change. The per-item HSN codes are stored for the shipment (customs)
 // invoice that will be built on top of them later.
 
@@ -91,7 +91,7 @@ export function composeContentsDescription(items: ParcelItemInput[]): string {
 /**
  * Rebuilds a parcel's items from whatever is stored. Drafts created before items
  * existed carry only `contentsDescription`, so they surface as a single item with
- * an empty HSN code — no migration required.
+ * an empty HSN code- no migration required.
  */
 export function normalizeParcelItems(parcel: {
   items?: ParcelItemInput[] | null;

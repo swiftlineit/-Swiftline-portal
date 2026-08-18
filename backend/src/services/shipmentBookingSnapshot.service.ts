@@ -133,7 +133,7 @@ function redactConsignorAadhaar(consignor: IShipmentDraft["consignorAddress"] | 
 
 /**
  * The buyer recorded on the booking snapshot, which is what the shipment invoice
- * bills — it reads this block first and only falls back to the live account.
+ * bills- it reads this block first and only falls back to the live account.
  *
  * A walk-in is billed as themselves. Their draft points `businessAccountId` at
  * the system sentinel so the shipment chain has an account to reference, but the

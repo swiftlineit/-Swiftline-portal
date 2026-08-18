@@ -19,7 +19,7 @@ export type DeletableDraft = {
  * Delete-a-draft flow: confirm, delete, then offer undo on the success toast.
  *
  * The undo exists because deletion is soft on the server for exactly this
- * reason — the draft is recoverable for a short window, and the toast is the
+ * reason- the draft is recoverable for a short window, and the toast is the
  * only place that window is exposed. Give the toast a long autoClose so the
  * undo is realistically reachable.
  */
@@ -71,7 +71,7 @@ export function useDeleteShipmentDraft(input: {
 
       await onChanged();
     } catch (error) {
-      // Carries the server's reason — booked, manifested, on a pickup — which is
+      // Carries the server's reason- booked, manifested, on a pickup- which is
       // more useful than a generic failure, so it is shown as-is.
       toast.error(error instanceof Error ? error.message : "Unable to delete this shipment draft.");
       setPending(null);

@@ -30,7 +30,7 @@ import { useClientUser } from "@/lib/useClientUser";
  * Swiftline customer care, kept together so it is changed once.
  *
  * One number and one address are promoted; the rest sit behind a disclosure.
- * Three of each presented equally is not more helpful — it is a decision handed
+ * Three of each presented equally is not more helpful- it is a decision handed
  * to the customer. The director's address is deliberately absent: it was never
  * a support channel, and publishing it to every customer guarantees it becomes
  * one.

@@ -10,7 +10,7 @@ import { SupportTicket } from "../models/supportTicket.model.js";
 /**
  * One search box over everything a customer identifies work by.
  *
- * Customers do not think in entity types — they hold a number off an email or a
+ * Customers do not think in entity types- they hold a number off an email or a
  * label and want whatever it belongs to. So a single query runs across AWBs,
  * piece numbers, customer references, invoices, manifests, pickups, claims and
  * tickets at once, and the result says which kind of thing each hit is.
@@ -32,7 +32,7 @@ export type SearchResultKind = (typeof searchResultKindValues)[number];
 
 export type ClientSearchResult = {
   kind: SearchResultKind;
-  /** What matched, shown as the row's heading — usually the number typed. */
+  /** What matched, shown as the row's heading- usually the number typed. */
   title: string;
   /** Enough context to tell two similar hits apart. */
   subtitle: string;
@@ -63,7 +63,7 @@ export async function searchClientRecords(input: {
   /**
    * Omitted for a staff search, which spans accounts. Every client-facing
    * caller passes it, and the client route is the only thing that can reach
-   * this without one — see `searchStaffRecords` below.
+   * this without one- see `searchStaffRecords` below.
    */
   businessAccountId?: mongoose.Types.ObjectId;
   branchIds?: mongoose.Types.ObjectId[];
@@ -229,7 +229,7 @@ export async function searchClientRecords(input: {
     results.push({
       kind: "PICKUP",
       title: pickup.requestNumber,
-      subtitle: `Pickup — ${String(pickup.status).replaceAll("_", " ").toLowerCase()}`,
+      subtitle: `Pickup- ${String(pickup.status).replaceAll("_", " ").toLowerCase()}`,
       href: staff ? "/dashboard/pickups" : "/client/pickups",
       matchedOn: "Pickup reference",
     });
@@ -239,7 +239,7 @@ export async function searchClientRecords(input: {
     results.push({
       kind: "CLAIM",
       title: claim.claimNumber ?? "Claim",
-      subtitle: `Claim — ${String(claim.status).replaceAll("_", " ").toLowerCase()}`,
+      subtitle: `Claim- ${String(claim.status).replaceAll("_", " ").toLowerCase()}`,
       href: staff ? `/dashboard/claims/${String(claim._id)}` : `/client/claims/${String(claim._id)}`,
       matchedOn: "Claim number",
     });

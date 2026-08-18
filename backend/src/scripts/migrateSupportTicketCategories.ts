@@ -69,8 +69,8 @@ async function main() {
   const tickets = mongoose.connection.collection("supporttickets");
   let pending = 0;
   // Tickets that land in a category demanding an AWB while carrying none.
-  // Nothing breaks — the rule is enforced when a ticket is raised, not when one
-  // is read — but it is worth naming rather than leaving to be discovered.
+  // Nothing breaks- the rule is enforced when a ticket is raised, not when one
+  // is read- but it is worth naming rather than leaving to be discovered.
   const shipmentless: string[] = [];
 
   for (const [from, to] of Object.entries(categoryMap)) {
@@ -101,7 +101,7 @@ async function main() {
   console.log(
     pending
       ? apply ? `\nUpdated ${pending} ticket(s).` : `\n${pending} ticket(s) would be updated.`
-      : "\nNothing to migrate — every category is already current."
+      : "\nNothing to migrate- every category is already current."
   );
 
   await mongoose.disconnect();

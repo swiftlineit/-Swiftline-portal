@@ -35,7 +35,7 @@ async function resolveBranch(value: string) {
  * Refuses a draft opened in a branch the caller does not hold.
  *
  * Checked against the resolved branch rather than the requested value, because
- * `branchId` may arrive as either an id or a branch code — a guard reading the
+ * `branchId` may arrive as either an id or a branch code- a guard reading the
  * raw request body would reject every code-form call as malformed.
  * `null` means unrestricted, as it does throughout the branch middleware. It is
  * a required argument rather than an optional one so a new caller cannot open
@@ -49,7 +49,7 @@ function assertBranchAllowed(allowedBranchIds: string[] | null, branchId: mongoo
 }
 
 /**
- * Identity of a walk-in customer. Only the name is taken at the counter — every
+ * Identity of a walk-in customer. Only the name is taken at the counter- every
  * other field is filled in on the draft form and enforced before booking.
  */
 export type IndividualCustomerInput = {

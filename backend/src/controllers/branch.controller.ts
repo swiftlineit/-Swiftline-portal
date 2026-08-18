@@ -95,7 +95,7 @@ const branchPayloadSchema = z.object({
 
 type BranchPayload = z.infer<typeof branchPayloadSchema>;
 
-// Updates accept any subset of editable fields and never change status — lifecycle
+// Updates accept any subset of editable fields and never change status- lifecycle
 // transitions go through the dedicated status endpoint. Omitted fields are left
 // untouched, so a partial payload can no longer wipe operations arrays.
 const branchUpdateSchema = z.object({
@@ -640,7 +640,7 @@ export async function uploadBranchImages(request: Request, response: Response): 
  *
  * Scoped to a branch and an index rather than taking a storage key, because an
  * endpoint that accepted any key would let any authenticated staff member read
- * any document in the bucket — which is exactly what the old static mount over
+ * any document in the bucket- which is exactly what the old static mount over
  * `private_uploads` did.
  */
 export async function viewBranchImage(request: Request, response: Response): Promise<Response | void> {

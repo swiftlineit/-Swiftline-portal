@@ -7,8 +7,8 @@ import { canAccessCreditFinancials } from "../services/creditAccount.service.js"
 /**
  * What one client request is allowed to read.
  *
- * Shared because every client-wide surface — the dashboard, exceptions, actions,
- * global search — has to answer the same question, and answering it in four
+ * Shared because every client-wide surface- the dashboard, exceptions, actions,
+ * global search- has to answer the same question, and answering it in four
  * places is how one of them ends up disagreeing. Branch scoping matters as much
  * as account scoping: a member restricted to one branch must not meet another
  * branch's shipments through a search box.

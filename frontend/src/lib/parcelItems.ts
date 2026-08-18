@@ -1,5 +1,5 @@
 // Per-parcel content items and their HSN codes. Frontend mirror of the backend's
-// parcelItems.service.ts — keep the two in step by hand.
+// parcelItems.service.ts- keep the two in step by hand.
 //
 // A parcel holds one or more distinct goods, each needing an HSN code for customs.
 // `contentsDescription` remains the derived single-line summary that the EDI

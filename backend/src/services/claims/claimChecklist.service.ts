@@ -60,7 +60,7 @@ export function requiredDocumentsFor(
   category: ClaimCategory,
   policyOverride?: ClaimDocumentCategory[],
 ) {
-  // A policy rule can replace the list wholesale — a negotiated contract may
+  // A policy rule can replace the list wholesale- a negotiated contract may
   // waive the packing list, or a route may demand a carrier exception report.
   if (policyOverride && policyOverride.length > 0)
     return [...new Set(policyOverride)];
@@ -200,7 +200,7 @@ export async function buildClaimChecklist(input: {
 
   // A rejected document counts as missing: it is present but cannot be relied on,
   // and treating it as satisfied would let a claim reach review on evidence a
-  // reviewer has already refused. A waived one does not — that is the whole
+  // reviewer has already refused. A waived one does not- that is the whole
   // point of waiving it.
   const outstanding = items.filter(
     (item) =>

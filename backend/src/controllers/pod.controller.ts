@@ -329,7 +329,7 @@ async function sendEvidence(response: Response, revision: any, evidenceId: strin
   if (!evidence) fail(404, "POD evidence was not found.");
   // Resolved rather than read straight from `storageKey`. Evidence captured
   // before storage keys existed still holds an absolute path, and rows written
-  // by an early version of the backfill hold a key under the wrong prefix —
+  // by an early version of the backfill hold a key under the wrong prefix-
   // both of which surfaced to the customer as a missing file.
   const key = await resolveEvidenceKey(evidence);
   if (!key) fail(404, "POD evidence file was not found.");
@@ -394,7 +394,7 @@ export async function listClientPodCentre(request: Request, response: Response, 
 
 /**
  * One merged PDF for the selected PODs, or for everything matching the filters
- * when nothing is selected — which is what "bulk download" means on a list the
+ * when nothing is selected- which is what "bulk download" means on a list the
  * customer has just filtered.
  */
 export async function downloadClientPodPdf(request: Request, response: Response, next: NextFunction) {
@@ -454,7 +454,7 @@ export async function emailClientPod(request: Request, response: Response, next:
 
     await notifyPortalUsers(recipients.map((member) => member.user as mongoose.Types.ObjectId), {
       type: "POD_AVAILABLE",
-      title: pods.length === 1 ? `Proof of delivery — ${pods[0]?.awb}` : `Proof of delivery — ${pods.length} shipments`,
+      title: pods.length === 1 ? `Proof of delivery- ${pods[0]?.awb}` : `Proof of delivery- ${pods.length} shipments`,
       message: pods.map((pod) => `${pod.awb || pod.carrierReference} received by ${pod.recipientName || "recipient"}`).join("; "),
       href: "/client/pods",
       // Keyed on the selection so pressing the button twice does not send twice.

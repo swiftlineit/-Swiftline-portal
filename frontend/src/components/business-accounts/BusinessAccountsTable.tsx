@@ -64,11 +64,11 @@ function formatDeposit(account: BusinessAccount) {
   if (account.depositStatus === "required") return "Required";
   if (account.depositStatus === "received") return "Received";
   if (account.depositStatus === "not_required") return "Not required";
-  return "—";
+  return "-";
 }
 
 function formatKycStatus(account: BusinessAccount) {
-  return account.kycReview?.overallStatus ? formatAccountStatus(account.kycReview.overallStatus) : "—";
+  return account.kycReview?.overallStatus ? formatAccountStatus(account.kycReview.overallStatus) : "-";
 }
 
 // Only checks flagged as information_required carry a reason worth surfacing.
@@ -133,7 +133,7 @@ export function BusinessAccountsTable({
                 <td className="px-4 py-3.5">
                   {!creditByBusinessId ? (
                     // Caller did not load credit, so claiming "No credit" would lie.
-                    <span className="text-slate-400">—</span>
+                    <span className="text-slate-400">-</span>
                   ) : credit?.approvedCreditLimitMinor ? (
                     // What is left to spend, not the approved limit: an exhausted
                     // facility should read zero rather than look fully available.
@@ -149,7 +149,7 @@ export function BusinessAccountsTable({
                       {formatMinorMoney(credit.invoicedOutstandingMinor ?? 0)}
                     </span>
                   ) : (
-                    <span className="text-slate-400">—</span>
+                    <span className="text-slate-400">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3.5">

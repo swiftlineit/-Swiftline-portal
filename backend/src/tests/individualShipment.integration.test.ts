@@ -331,7 +331,7 @@ describe("counter payment and billing", () => {
 
   test("the counter allocation issues the invoice as fully paid", async () => {
     // A counter sale is settled before booking, so nothing may be left outstanding
-    // on credit — that is what makes the invoice PAID and keeps it out of the
+    // on credit- that is what makes the invoice PAID and keeps it out of the
     // billing cycle, which only ever picks up invoices with credit owed.
     const allocation = resolveShipmentInvoicePaymentAllocation({
       totalAmountMinor: 125000,

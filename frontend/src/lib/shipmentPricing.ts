@@ -6,7 +6,7 @@ import { ShipmentServiceType } from "@/lib/dpdLabels";
  * The arithmetic that used to live here has moved to the server
  * (`shipmentPricing.service.ts`), reached through `shipmentCostEstimate.ts`. A
  * customer must be charged the figure they were shown, and a second
- * implementation in the browser is the one thing that can make those differ — so
+ * implementation in the browser is the one thing that can make those differ- so
  * there is deliberately no pricing calculation left in this file.
  */
 
@@ -15,7 +15,7 @@ export function getVolumetricDivisor(serviceType: ShipmentServiceType) {
 }
 
 /**
- * The largest parcel Swiftline carries, per side — 100 x 60 x 70 cm, the 230 cm
+ * The largest parcel Swiftline carries, per side- 100 x 60 x 70 cm, the 230 cm
  * girth the network is built around.
  *
  * Maximum weight is deliberately absent: it comes from the matched rate card's
@@ -25,13 +25,43 @@ export function getVolumetricDivisor(serviceType: ShipmentServiceType) {
  * KEEP IN SYNC with the server, which is the authority (separate package, cannot
  * share a module): portal/backend/src/services/shipmentValidation.service.ts
  */
-export const maxParcelDimensionsCm = {
+export const standardParcelDimensionsCm = {
   lengthCm: 100,
   widthCm: 60,
   heightCm: 70
 } as const;
 
-export type ParcelDimensionField = keyof typeof maxParcelDimensionsCm;
+/** "100 x 60 x 70 cm", for the advisory note. */
+export const standardParcelDimensionsLabel = [
+  standardParcelDimensionsCm.lengthCm,
+  standardParcelDimensionsCm.widthCm,
+  standardParcelDimensionsCm.heightCm
+].join(" x ") + " cm";
+
+/**
+ * Whether a box is larger than the standard parcel envelope.
+ *
+ * Advisory only- oversized parcels are accepted and priced, their volumetric
+ * weight carrying the extra cost. This drives a note so the sender is told
+ * before booking rather than surprised by the charge afterwards.
+ *
+ * Compared side by side rather than sorted: the note is a heads-up, and warning
+ * on a box that would fit rotated is harmless where refusing it would not be.
+ */
+export function exceedsStandardParcelSize(parcel: {
+  lengthCm: string | number;
+  widthCm: string | number;
+  heightCm: string | number;
+}) {
+  const over = (value: string | number, limit: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > limit;
+  };
+
+  return over(parcel.lengthCm, standardParcelDimensionsCm.lengthCm)
+    || over(parcel.widthCm, standardParcelDimensionsCm.widthCm)
+    || over(parcel.heightCm, standardParcelDimensionsCm.heightCm);
+}
 
 /**
  * How volumetric weight is worked out, for the hint shown wherever it appears.

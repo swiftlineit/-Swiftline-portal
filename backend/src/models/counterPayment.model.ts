@@ -4,7 +4,7 @@ import mongoose from "mongoose";
  * Money collected from, or refunded to, a walk-in customer for an individual
  * shipment. Those customers pay into the company's own accounts rather than
  * through the portal, so this is the portal's record of a movement that happened
- * elsewhere — it is evidence, not a payment instrument.
+ * elsewhere- it is evidence, not a payment instrument.
  *
  * Deliberately separate from `CreditPayment`, which supports the same methods but
  * is bound to a `BusinessCreditAccount` and drives credit balances. Individual

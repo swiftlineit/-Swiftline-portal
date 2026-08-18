@@ -46,7 +46,7 @@ export class ClaimDecisionError extends Error {
  * Issues a decision.
  *
  * The approved amount is whatever a reviewer typed. Nothing here derives it from
- * declared value, insurance, or liability limits — a human weighs the evidence
+ * declared value, insurance, or liability limits- a human weighs the evidence
  * and the portal records the number.
  */
 export async function decideClaim(input: {
@@ -115,7 +115,7 @@ export async function decideClaim(input: {
       claim.decisionOutcome = input.outcome;
       claim.approvedAmountMinor = input.approvedAmountMinor;
       claim.decidedAt = now;
-      // A rejection has nothing to accept, so acceptance never becomes pending —
+      // A rejection has nothing to accept, so acceptance never becomes pending-
       // the client's route from here is an appeal, not a settlement.
       claim.acceptanceState =
         input.outcome === "REJECTED" ? "NOT_REQUIRED" : "PENDING";
@@ -221,7 +221,7 @@ export async function acceptSettlement(input: {
   return claim;
 }
 
-/** The client appeals. One appeal, inside the window — both enforced upstream. */
+/** The client appeals. One appeal, inside the window- both enforced upstream. */
 export async function submitAppeal(input: {
   claimId: string;
   userId: string;
@@ -456,7 +456,7 @@ export async function verifyBeneficiary(input: {
  * Records a completed bank payment, moving the claim to SETTLED.
  *
  * The portal does not move money. The transfer happens through Swiftline's own
- * banking process and is recorded here with its reference and proof — which is
+ * banking process and is recorded here with its reference and proof- which is
  * why proof is mandatory rather than encouraged.
  */
 export async function recordSettlement(input: {
@@ -474,7 +474,7 @@ export async function recordSettlement(input: {
   if (!claim) throw new ClaimDecisionError("Claim not found.", 404);
 
   // Replaying the same key returns the original payment rather than creating a
-  // second one. Permanent, unlike the shared 24-hour idempotency store — a
+  // second one. Permanent, unlike the shared 24-hour idempotency store- a
   // duplicate payout a day later is still a duplicate payout.
   const existing = await ClaimSettlement.findOne({
     idempotencyKey: input.idempotencyKey,
@@ -514,7 +514,7 @@ export async function recordSettlement(input: {
    * exists" as "this claim is paid" stranded exactly that case: ₹100 recorded
    * against a ₹1,000 award, with no way to pay the rest.
    *
-   * Reversed and failed payments are excluded — money that came back is not
+   * Reversed and failed payments are excluded- money that came back is not
    * money the client has.
    */
   const priorPayments = await ClaimSettlement.find({
@@ -557,7 +557,7 @@ export async function recordSettlement(input: {
       hasConfirmedPayment: true,
     });
   } else if (claim.status !== "PAYMENT_PROCESSING") {
-    // Part payments do not move the claim, so the transition rules never run —
+    // Part payments do not move the claim, so the transition rules never run-
     // which means the status has to be checked here instead.
     throw new ClaimDecisionError(
       "A payment can only be recorded once the client has accepted the settlement.",

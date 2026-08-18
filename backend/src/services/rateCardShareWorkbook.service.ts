@@ -33,7 +33,7 @@ function outline(cell: ExcelJS.Cell) {
  * Two sheets: "Rate Card" carries the tariff a customer will filter and sort,
  * and "Terms" carries the same commercial terms the PDF prints. The rate sheet
  * deliberately stays a flat table with one header row so Excel's own filter,
- * sort and pivot tools work on it — a merged, decorated layout would look
+ * sort and pivot tools work on it- a merged, decorated layout would look
  * better and be useless.
  */
 export async function buildRateCardShareWorkbook(share: IRateCardShare, recipientLabel: string): Promise<Buffer> {
@@ -127,7 +127,7 @@ export async function buildRateCardShareWorkbook(share: IRateCardShare, recipien
   termsTitle.height = 24;
   termsTitle.getCell(2).font = { bold: true, size: 13, color: { argb: BRAND } };
 
-  const reference = termsSheet.addRow(["", `${share.shareNumber} — valid ${date(share.terms.validFrom)} to ${date(share.terms.validUntil)}`]);
+  const reference = termsSheet.addRow(["", `${share.shareNumber}- valid ${date(share.terms.validFrom)} to ${date(share.terms.validUntil)}`]);
   reference.getCell(2).font = { size: 9, color: { argb: MUTED } };
   termsSheet.addRow([]);
 

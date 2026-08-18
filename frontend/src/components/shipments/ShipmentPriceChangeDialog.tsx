@@ -62,7 +62,7 @@ function getChangedLines(previous: ShipmentPricing | null, current: ShipmentPric
  * Asks for explicit consent to a price that changed after it was quoted.
  *
  * Booking is blocked server-side until the new price is accepted, so this dialog
- * is the only way forward — a customer is never charged a figure they did not
+ * is the only way forward- a customer is never charged a figure they did not
  * confirm, and they are told exactly which charge moved and by how much.
  */
 export default function ShipmentPriceChangeDialog({

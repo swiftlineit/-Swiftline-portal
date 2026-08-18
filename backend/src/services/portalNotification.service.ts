@@ -21,7 +21,7 @@ type NotificationEmailOptions = {
   payload?: Record<string, unknown>;
   attachmentRefs?: IEmailAttachmentRef[];
   /**
-   * Addresses with no portal user behind them — a shared operations inbox, for
+   * Addresses with no portal user behind them- a shared operations inbox, for
    * example. They receive the email but get no in-app notification.
    */
   extraRecipients?: EmailRecipient[];

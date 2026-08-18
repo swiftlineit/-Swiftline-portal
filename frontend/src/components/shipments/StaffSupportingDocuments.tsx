@@ -11,7 +11,7 @@ import { formatDashboardDateTime } from "@/lib/dateFormat";
  *
  * The counterpart to the client's upload panel. It exists because a document
  * that arrives with a notification and nowhere to open it is not a delivered
- * document — the operator clearing the hold needs the file itself.
+ * document- the operator clearing the hold needs the file itself.
  */
 
 type SupportingDocument = {
@@ -151,8 +151,8 @@ export default function StaffSupportingDocuments({
                 {formatDashboardDateTime(document_.uploadedAt)}
                 {document_.uploadedBy ? ` · ${document_.uploadedBy}` : ""}
               </p>
-              {/* The customer's note is usually the whole point — "this is the
-                  invoice customs asked for" — so it is shown, not hidden. */}
+              {/* The customer's note is usually the whole point- "this is the
+                  invoice customs asked for"- so it is shown, not hidden. */}
               {document_.note ? (
                 <p className="mt-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
                   “{document_.note}”

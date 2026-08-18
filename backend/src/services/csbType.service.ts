@@ -22,7 +22,7 @@ export const csbTypeLabels: Record<CsbType, string> = {
  * Normalizes any stored/incoming value to a CSB type.
  *
  * Shipments created before CSB selection existed have no value stored. They are
- * treated as CSB-IV so their pricing stays exactly as it was originally booked —
+ * treated as CSB-IV so their pricing stays exactly as it was originally booked-
  * repricing an old invoice or amendment must never introduce a new charge.
  */
 export function normalizeCsbType(value: unknown): CsbType {

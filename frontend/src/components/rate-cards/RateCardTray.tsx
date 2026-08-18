@@ -81,7 +81,7 @@ export default function RateCardTray() {
   }, []);
 
   // Load off the render pass, then greet the client with the newest live rate
-  // card they have never seen. Only the newest — a backlog of five would
+  // card they have never seen. Only the newest- a backlog of five would
   // otherwise stack five modals on top of each other.
   useEffect(() => {
     let active = true;

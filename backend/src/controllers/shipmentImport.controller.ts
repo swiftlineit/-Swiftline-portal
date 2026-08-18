@@ -102,7 +102,7 @@ function serializeEntry(entry: {
  * The reasons rows failed, tallied across the batch.
  *
  * The per-row messages were already there; what was missing is the answer to
- * "what is wrong with this file" — which is a count per reason, not a hundred
+ * "what is wrong with this file"- which is a count per reason, not a hundred
  * rows to read. A parcel prefix is stripped so the same fault on three parcels
  * of one shipment counts as that fault three times rather than as three
  * different problems.

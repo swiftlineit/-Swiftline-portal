@@ -67,7 +67,7 @@ export function ShipmentTextField({
   maxLength?: number;
   /**
    * Numeric ceiling. The value is refused outright rather than flagged after the
-   * fact — `max` alone only drives the spinner and native validity, and still
+   * fact- `max` alone only drives the spinner and native validity, and still
    * lets an over-limit number be typed.
    */
   max?: number;

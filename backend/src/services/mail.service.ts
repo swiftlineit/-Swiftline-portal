@@ -40,8 +40,8 @@ export type MailDeliveryResult = {
 };
 
 /**
- * Each of these messages carries a single-use secret — in a link, or as a code
- * in the body — so the secret is what identifies the message. Re-issuing an
+ * Each of these messages carries a single-use secret- in a link, or as a code
+ * in the body- so the secret is what identifies the message. Re-issuing an
  * invitation mints a new token and therefore a new email, while a duplicate
  * submit of the same token reuses the queued row instead of sending twice.
  *
@@ -118,7 +118,7 @@ export async function sendClientInvitationEmail(input: ClientInvitationEmailInpu
  * always produce a new message, while a duplicate submit of the *same* code
  * still collapses onto one queue row.
  *
- * The context deliberately omits the code — sign-in secrets do not belong in
+ * The context deliberately omits the code- sign-in secrets do not belong in
  * application logs.
  */
 export async function sendLoginOtpEmail(input: LoginOtpEmailInput): Promise<MailDeliveryResult> {

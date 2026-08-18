@@ -10,7 +10,7 @@ import { endSessions } from "./userSession.service.js";
 
 /**
  * A login carries two statuses: `userStatus` on the user, and the per-context
- * status on whatever record grants them access — a driver profile, a business
+ * status on whatever record grants them access- a driver profile, a business
  * account membership. Only the first decides whether they can sign in; the second
  * is what the Delivery Team and Client Access pages actually display.
  *

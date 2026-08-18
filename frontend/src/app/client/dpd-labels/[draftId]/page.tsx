@@ -6,7 +6,7 @@ import { ChangeEvent, type ReactNode, useCallback, useDeferredValue, useEffect, 
 import { FiArrowLeft, FiMapPin, FiSave, FiSearch, FiTruck,FiPackage } from "react-icons/fi";
 import { FaRegWindowClose, FaWeight } from "react-icons/fa";
 import { toast } from "react-toastify";
-import { maxParcelDimensionsCm } from "@/lib/shipmentPricing";
+import { exceedsStandardParcelSize, standardParcelDimensionsLabel } from "@/lib/shipmentPricing";
 import {
   ClientDashboardLoading,
   ClientShellUser
@@ -282,17 +282,11 @@ function getReviewIssueDetail(
     } else if (!Number.isFinite(weight) || weight <= 0) {
       invalid.push(`${label}: weight must be greater than zero`);
     }
-    for (const [field, value, maximum] of [
-      ["length", parcel.lengthCm, maxParcelDimensionsCm.lengthCm],
-      ["width", parcel.widthCm, maxParcelDimensionsCm.widthCm],
-      ["height", parcel.heightCm, maxParcelDimensionsCm.heightCm]
-    ] as const) {
+    for (const [field, value] of [["length", parcel.lengthCm], ["width", parcel.widthCm], ["height", parcel.heightCm]]) {
       if (!value.trim()) {
         missing.push(`${label}: ${field} is required`);
       } else if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
         invalid.push(`${label}: ${field} must be greater than zero`);
-      } else if (Number(value) > maximum) {
-        invalid.push(`${label}: ${field} cannot exceed ${maximum} cm`);
       }
     }
     if (!parcel.shipmentContentType) missing.push(`${label}: shipment content type is required`);
@@ -394,8 +388,8 @@ export default function ClientDpdDraftReviewPage() {
   const [predictions, setPredictions] = useState<AddressPrediction[]>([]);
   const [loading, setLoading] = useState(true);
   // Which action is in flight, not merely whether one is. Every action button
-  // locks while any of them runs — booking is irreversible, so a second click
-  // anywhere must not land — but only the one that was clicked shows progress.
+  // locks while any of them runs- booking is irreversible, so a second click
+  // anywhere must not land- but only the one that was clicked shows progress.
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const busy = pendingAction !== null;
   const [addressBusy, setAddressBusy] = useState(false);
@@ -915,7 +909,7 @@ export default function ClientDpdDraftReviewPage() {
   /**
    * Stores whatever the form currently holds.
    *
-   * Blank fields are kept as-is — that is the point of a draft, and booking
+   * Blank fields are kept as-is- that is the point of a draft, and booking
    * still refuses to proceed without them. Fields filled in wrongly are refused,
    * because a draft holding data the form rejects cannot be reopened cleanly.
    *
@@ -1363,9 +1357,16 @@ export default function ClientDpdDraftReviewPage() {
                       </div>
                       <div className="grid gap-4 p-3 md:grid-cols-4">
                         <ShipmentTextField label="Actual Weight KG" required type="number" inputMode="decimal" max={costEstimate?.pricing.routeMaxBoxKg ?? undefined} value={parcel.weightKg} onChange={handleParcelChange(index, "weightKg")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "weight"])} revealError={submitAttempted} />
-                        <ShipmentTextField label="Length CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.lengthCm} value={parcel.lengthCm} onChange={handleParcelChange(index, "lengthCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "length"])} revealError={submitAttempted} />
-                        <ShipmentTextField label="Width CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.widthCm} value={parcel.widthCm} onChange={handleParcelChange(index, "widthCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "width"])} revealError={submitAttempted} />
-                        <ShipmentTextField label="Height CM" required type="number" inputMode="decimal" max={maxParcelDimensionsCm.heightCm} value={parcel.heightCm} onChange={handleParcelChange(index, "heightCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "height"])} revealError={submitAttempted} />
+                        <ShipmentTextField label="Length CM" required type="number" inputMode="decimal" value={parcel.lengthCm} onChange={handleParcelChange(index, "lengthCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "length"])} revealError={submitAttempted} />
+                        <ShipmentTextField label="Width CM" required type="number" inputMode="decimal" value={parcel.widthCm} onChange={handleParcelChange(index, "widthCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "width"])} revealError={submitAttempted} />
+                        <ShipmentTextField label="Height CM" required type="number" inputMode="decimal" value={parcel.heightCm} onChange={handleParcelChange(index, "heightCm")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "height"])} revealError={submitAttempted} />
+                        {/* Oversized parcels are accepted, not refused- the sender is told what
+                            it will cost before they commit. */}
+                        {exceedsStandardParcelSize(parcel) ? (
+                          <p className="md:col-span-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                            These dimensions exceed the standard parcel size of {standardParcelDimensionsLabel}. This box will be charged on its volumetric weight, so additional charges apply.
+                          </p>
+                        ) : null}
                         <ShipmentSelectField label="Content Type" required value={parcel.shipmentContentType} onChange={handleParcelChange(index, "shipmentContentType")} error={findIssue(currentReviewIssues, [`parcel ${index + 1}`, "content type"])} revealError={submitAttempted}>
                             {shipmentContentTypeOptions.map((option) => (
                               <option key={option.value} value={option.value}>

@@ -2,8 +2,8 @@
  * Regenerates the compact geography files the portal serves, from the 45 MB
  * countries+states+cities dataset.
  *
- * The source carries far more than the forms need — timezones, translations,
- * GDP, currency symbols — and is far too large to parse on every boot or to
+ * The source carries far more than the forms need- timezones, translations,
+ * GDP, currency symbols- and is far too large to parse on every boot or to
  * ship to a browser. This reduces it to names and codes, split so a request
  * only ever loads one country's states or one state's cities.
  *
@@ -49,12 +49,12 @@ function isUpToDate() {
 function main() {
   if (!fs.existsSync(sourcePath)) {
     // Only this script needs the source. If you are seeing this, you are trying
-    // to regenerate without it — the committed files under data/reference are
+    // to regenerate without it- the committed files under data/reference are
     // what the app actually reads, and they are already there.
     throw new Error(
       `Geography dataset not found at ${sourcePath}.\n`
       + "It is git-ignored on purpose. Download or copy it there to regenerate;\n"
-      + "the app itself does not need it — data/reference is committed."
+      + "the app itself does not need it- data/reference is committed."
     );
   }
 

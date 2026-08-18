@@ -7,7 +7,7 @@ import { Claim } from "../models/claim.model.js";
  *
  * `claimNumber` was first declared `unique: true, sparse: true`. Sparse only
  * skips documents where the field is *absent*, and a draft carries an explicit
- * `claimNumber: null` — so every draft collided with every other draft on the
+ * `claimNumber: null`- so every draft collided with every other draft on the
  * null value, and the second draft anywhere in the system failed to save.
  *
  * The model now declares a partial unique index filtered on the field actually
@@ -41,7 +41,7 @@ async function migrateClaimIndexes() {
     }
 
     if (stale.length === 0) {
-      console.log("No stale claimNumber index found — nothing to drop.");
+      console.log("No stale claimNumber index found- nothing to drop.");
     }
 
     // Builds whatever the model declares and is missing, including the partial

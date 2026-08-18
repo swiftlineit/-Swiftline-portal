@@ -71,7 +71,7 @@ before(async () => {
 
 after(async () => {
   // Labels are stored through the storage service, so they are removed through
-  // it too — the test does not need to know which driver is active.
+  // it too- the test does not need to know which driver is active.
   for (const key of generatedKeys) {
     await deleteObject(key).catch(() => undefined);
   }
@@ -299,7 +299,7 @@ describe("Swiftline tracking sequence", () => {
     assert.ok(result.labels.some((label) => label.parcelNumber.startsWith("SLC")));
   });
 
-  test("books two parcels once and keeps charge, invoice and all four labels aligned", async () => {
+  test("books two parcels once and keeps charge, invoice and both labels aligned", async () => {
     const userId = new mongoose.Types.ObjectId();
     const branch = await Branch.create({
       name: "Shipment Booking Test Branch",
@@ -431,9 +431,15 @@ describe("Swiftline tracking sequence", () => {
     };
     assert.deepEqual(snapshot.parcels.map((parcel) => parcel.actualWeightKg), [7, 11]);
     assert.equal(snapshot.payment.totalAmountMinor, first.shipmentInvoice.totalAmountMinor);
+    // One Swiftline label per parcel. No carrier label is produced, so
+    // carrierParcelNumber stays blank on the snapshot and contributes nothing.
     assert.deepEqual(
       first.labels.map((label) => label.parcelNumber).sort(),
-      snapshot.parcels.flatMap((parcel) => [parcel.carrierParcelNumber, parcel.swiftlineParcelNumber]).sort()
+      snapshot.parcels.map((parcel) => parcel.swiftlineParcelNumber).sort()
+    );
+    assert.ok(
+      snapshot.parcels.every((parcel) => parcel.carrierParcelNumber === ""),
+      "no carrier books these shipments, so no parcel carries a carrier number"
     );
 
     const second = await createLabelForShipmentDraft(String(draft._id), userId, {
@@ -445,7 +451,9 @@ describe("Swiftline tracking sequence", () => {
     assert.equal(second.shipmentInvoice.invoiceNumber, first.shipmentInvoice.invoiceNumber);
     assert.equal(await DpdShipment.countDocuments({ shipmentDraftId: draft._id }), 1);
     assert.equal(await ShipmentInvoice.countDocuments({ shipmentDraftId: draft._id }), 1);
-    assert.equal(await LabelDocument.countDocuments({ dpdShipmentId: first.dpdShipment._id }), 4);
+    // Two parcels, one Swiftline label each- re-booking reuses them rather than
+    // producing a second set.
+    assert.equal(await LabelDocument.countDocuments({ dpdShipmentId: first.dpdShipment._id }), 2);
 
     const lockedDraft = await ShipmentDraft.findById(draft._id).orFail().lean().exec();
     assert.equal(lockedDraft.bookingState, "BOOKED");
