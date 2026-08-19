@@ -835,7 +835,7 @@ function ConfirmationValue({ label, value, emphasis = false }: { label: string; 
   return (
     <div className={`min-w-0 border-b border-slate-200 px-5 py-4 sm:border-r xl:border-b-0 `}>
       <dt className={`text-xs font-semibold uppercase `}>{label}</dt>
-      <dd className="mt-2 break-words font-semibold">{value}</dd>
+      <dd className="mt-2 wrap-break-words font-semibold">{value}</dd>
     </div>
   );
 }

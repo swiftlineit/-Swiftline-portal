@@ -108,7 +108,7 @@ export default function PublicTrackingForm({
 
               <FiArrowRight
                 aria-hidden="true"
-                className="h-4 w-4 text-[#d71920] transition-transform duration-200 group-hover:translate-x-0.5 sm:h-[18px] sm:w-[18px]"
+                className="h-4 w-4 text-[#d71920] transition-transform duration-200 group-hover:translate-x-0.5 sm:h-4.5 sm:w-4.5"
               />
             </>
           )}

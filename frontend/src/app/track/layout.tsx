@@ -40,7 +40,7 @@ export default function PublicTrackLayout({
           <div className="flex min-w-0 items-center justify-end gap-2 sm:gap-4">
             {/* Contact */}
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-              <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0D1282]/[0.06] text-[#0D1282] sm:flex">
+              <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0D1282]/6 text-[#0D1282] sm:flex">
                 <FiHeadphones className="h-4.25 w-4.25" />
               </span>
 

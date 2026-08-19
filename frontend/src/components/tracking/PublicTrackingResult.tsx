@@ -53,7 +53,7 @@ export default function PublicTrackingResult({
         <BackLink />
 
         <section className="relative mt-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
-          <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#d71920] via-[#d71920] to-[#0D1282]" />
+          <div className="absolute inset-x-0 top-0 h-0.75 bg-linear-to-r from-[#d71920] via-[#d71920] to-[#0D1282]" />
 
           <div className="relative px-5 py-10 text-center sm:px-10 sm:py-14 lg:px-16">
             <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-[#d71920]">
@@ -64,7 +64,7 @@ export default function PublicTrackingResult({
               Tracking unavailable
             </p>
 
-            <h1 className="mx-auto mt-3 max-w-2xl break-words text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+            <h1 className="mx-auto mt-3 max-w-2xl wrap-break-words text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
               We could not find {requestedNumber}
             </h1>
 
@@ -200,10 +200,10 @@ function statusChipClass(status: string) {
 function TrackingHeader({ tracking }: { tracking: PublicTracking }) {
   return (
     <section className="relative overflow-hidden rounded-3xl bg-[#07113f] text-white shadow-[0_24px_70px_rgba(7,17,63,0.16)]">
-      <div className="absolute inset-x-0 top-0 h-[3px] bg-[#d71920]" />
+      <div className="absolute inset-x-0 top-0 h-0.75 bg-[#d71920]" />
 
-      <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/[0.04] blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-24 left-1/4 h-60 w-60 rounded-full bg-[#d71920]/[0.06] blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/4 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-24 left-1/4 h-60 w-60 rounded-full bg-[#d71920]/6 blur-3xl" />
 
       <div className="relative p-5 sm:p-7 lg:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
@@ -349,14 +349,14 @@ function SummaryCard({
   return (
     <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5">
       {accent ? (
-        <span className="absolute inset-y-0 left-0 w-[3px] bg-[#d71920]" />
+        <span className="absolute inset-y-0 left-0 w-0.75 bg-[#d71920]" />
       ) : null}
 
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
         {label}
       </p>
 
-      <p className="mt-2 break-words text-base font-semibold text-slate-950">
+      <p className="mt-2 wrap-break-words text-base font-semibold text-slate-950">
         {value}
       </p>
 
@@ -429,12 +429,12 @@ function JourneyRail({ tracking }: { tracking: PublicTracking }) {
             return (
               <li
                 key={stage.label}
-                className="relative flex flex-1 gap-4 pb-6 last:pb-0 md:min-w-[120px] md:flex-col md:gap-3 md:pb-0"
+                className="relative flex flex-1 gap-4 pb-6 last:pb-0 md:min-w-30 md:flex-col md:gap-3 md:pb-0"
               >
                 {index < stages.length - 1 ? (
                   <span
                     aria-hidden="true"
-                    className={`absolute left-[13px] top-7 h-[calc(100%-4px)] w-px md:left-7 md:top-[13px] md:h-px md:w-[calc(100%-28px)] ${
+                    className={`absolute left-3.5 top-7 h-[calc(100%-4px)] w-px md:left-7 md:top-3.5  md:h-px md:w-[calc(100%-28px)] ${
                       stages[index + 1].reachedAt
                         ? "bg-emerald-400"
                         : "bg-slate-200"
@@ -587,7 +587,7 @@ function EstimateCard({
 }) {
   if (!estimate) {
     return (
-      <section className="flex min-h-[190px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+      <section className="flex min-h-47.5 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
           <FiClock className="h-4 w-4" />
         </div>
@@ -713,7 +713,7 @@ function FactsGrid({ tracking }: { tracking: PublicTracking }) {
               {fact.label}
             </p>
 
-            <p className="mt-2 break-words text-sm font-medium leading-6 text-slate-900">
+            <p className="mt-2 wrap-break-words text-sm font-medium leading-6 text-slate-900">
               {fact.value}
             </p>
           </div>
@@ -758,7 +758,7 @@ function Timeline({ tracking }: { tracking: PublicTracking }) {
                   className="relative grid grid-cols-[36px_minmax(0,1fr)] gap-3 pb-8 last:pb-0 sm:grid-cols-[44px_minmax(0,1fr)] sm:gap-4"
                 >
                   {index < events.length - 1 ? (
-                    <span className="absolute left-[17px] top-9 h-[calc(100%-20px)] w-px bg-slate-200 sm:left-[21px]" />
+                    <span className="absolute left-4.25 top-9 h-[calc(100%-20px)] w-px bg-slate-200 sm:left-5.25" />
                   ) : null}
 
                   <div className="relative z-10">
@@ -781,7 +781,7 @@ function Timeline({ tracking }: { tracking: PublicTracking }) {
                     className={[
                       "min-w-0 rounded-2xl border p-4 sm:p-5",
                       isLatest
-                        ? "border-[#0D1282]/15 bg-[#0D1282]/[0.025]"
+                        ? "border-[#0D1282]/15 bg-[#0D1282]/25"
                         : "border-slate-100 bg-slate-50/50",
                     ].join(" ")}
                   >

@@ -1,6 +1,13 @@
 "use client";
 
-import { ReactNode, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   FiActivity,
   FiAlertTriangle,
@@ -27,7 +34,10 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { IconType } from "react-icons";
-import Sidebar, { filterNavigation, type SidebarNavEntry } from "@/components/Sidebar";
+import Sidebar, {
+  filterNavigation,
+  type SidebarNavEntry,
+} from "@/components/Sidebar";
 import { logout } from "@/lib/auth";
 import SessionTimeoutGuard from "@/components/SessionTimeoutGuard";
 import DeepLinkTarget from "@/components/DeepLinkTarget";
@@ -50,7 +60,13 @@ export type ClientShellUser = {
  * Client navigation, grouped by what the customer came to do. `access` names the
  * permission a link waits on; the rest are open to every member of an account.
  */
-type ClientAccess = "financial" | "quote" | "quoteRequest" | "booking" | "addressBook" | "accountAdmin";
+type ClientAccess =
+  | "financial"
+  | "quote"
+  | "quoteRequest"
+  | "booking"
+  | "addressBook"
+  | "accountAdmin";
 
 /**
  * Grouped by the job the customer came to do.
@@ -64,7 +80,12 @@ const clientNavigation: Array<
   | {
       label: string;
       icon: IconType;
-      items: Array<{ label: string; href: string; icon: IconType; access?: ClientAccess }>;
+      items: Array<{
+        label: string;
+        href: string;
+        icon: IconType;
+        access?: ClientAccess;
+      }>;
     }
 > = [
   { label: "Dashboard", href: "/client/dashboard", icon: FiGrid },
@@ -72,8 +93,18 @@ const clientNavigation: Array<
     label: "Shipments",
     icon: FiPackage,
     items: [
-      { label: "Create Shipment", href: "/client/dpd-labels", icon: FiPlusSquare, access: "booking" },
-      { label: "Address Book", href: "/client/address-book", icon: FiMapPin, access: "addressBook" },
+      {
+        label: "Create Shipment",
+        href: "/client/dpd-labels",
+        icon: FiPlusSquare,
+        access: "booking",
+      },
+      {
+        label: "Address Book",
+        href: "/client/address-book",
+        icon: FiMapPin,
+        access: "addressBook",
+      },
       { label: "My Shipments", href: "/client/shipments", icon: FiPackage },
       { label: "Tracking", href: "/client/tracking", icon: FiMapPin },
     ],
@@ -85,15 +116,27 @@ const clientNavigation: Array<
       { label: "Pickup Management", href: "/client/pickups", icon: FiTruck },
       { label: "Manifests", href: "/client/manifests", icon: FiArchive },
       { label: "POD Centre", href: "/client/pods", icon: FiCheckSquare },
-      { label: "Exceptions", href: "/client/exceptions", icon: FiAlertTriangle },
-      { label: "Action Required", href: "/client/actions", icon: FiCheckSquare },
+      {
+        label: "Exceptions",
+        href: "/client/exceptions",
+        icon: FiAlertTriangle,
+      },
+      {
+        label: "Action Required",
+        href: "/client/actions",
+        icon: FiCheckSquare,
+      },
     ],
   },
   {
     label: "Documents & Compliance",
     icon: FiFileText,
     items: [
-      { label: "Documents Centre", href: "/client/documents", icon: FiFileText },
+      {
+        label: "Documents Centre",
+        href: "/client/documents",
+        icon: FiFileText,
+      },
       { label: "Customs & KYC", href: "/client/customs", icon: FiShield },
     ],
   },
@@ -101,19 +144,47 @@ const clientNavigation: Array<
     label: "Quotes & Rates",
     icon: FiClipboard,
     items: [
-      { label: "Get Live Quote", href: "/client/get-quote", icon: FiClipboard, access: "quoteRequest" },
-      { label: "My Quotes", href: "/client/quotes", icon: FiFileText, access: "quote" },
+      {
+        label: "Get Live Quote",
+        href: "/client/get-quote",
+        icon: FiClipboard,
+        access: "quoteRequest",
+      },
+      {
+        label: "My Quotes",
+        href: "/client/quotes",
+        icon: FiFileText,
+        access: "quote",
+      },
       { label: "Your Rate Card", href: "/client/rate-card", icon: FiTag },
-      { label: "Serviceability Checker", href: "/client/serviceability", icon: FiSearch },
+      {
+        label: "Serviceability Checker",
+        href: "/client/serviceability",
+        icon: FiSearch,
+      },
     ],
   },
   {
     label: "Billing",
     icon: BsCurrencyRupee,
     items: [
-      { label: "Credit Account", href: "/client/credit", icon: BsCurrencyRupee },
-      { label: "Credit Reports", href: "/client/credit/statements", icon: FiFileText, access: "financial" },
-      { label: "Top-up & Payments", href: "/client/payments", icon: FiCreditCard, access: "financial" },
+      {
+        label: "Credit Account",
+        href: "/client/credit",
+        icon: BsCurrencyRupee,
+      },
+      {
+        label: "Credit Reports",
+        href: "/client/credit/statements",
+        icon: FiFileText,
+        access: "financial",
+      },
+      {
+        label: "Top-up & Payments",
+        href: "/client/payments",
+        icon: FiCreditCard,
+        access: "financial",
+      },
     ],
   },
   {
@@ -132,9 +203,23 @@ const clientNavigation: Array<
     items: [
       { label: "My Profile", href: "/client/profile", icon: FiUser },
       // Owners and admins only; the endpoint enforces it too.
-      { label: "Team Members", href: "/client/team", icon: FiUsers, access: "accountAdmin" },
-      { label: "Activity", href: "/client/activity", icon: FiActivity, access: "accountAdmin" },
-      { label: "Holiday & Cut-Off Calendar", href: "/client/operations-calendar", icon: FiCalendar },
+      {
+        label: "Team Members",
+        href: "/client/team",
+        icon: FiUsers,
+        access: "accountAdmin",
+      },
+      {
+        label: "Activity",
+        href: "/client/activity",
+        icon: FiActivity,
+        access: "accountAdmin",
+      },
+      {
+        label: "Holiday & Cut-Off Calendar",
+        href: "/client/operations-calendar",
+        icon: FiCalendar,
+      },
     ],
   },
 ];
@@ -164,58 +249,125 @@ export function ClientDashboardShell({
   // to drag it out of the way of anything it is covering. Offsets live in state
   // so the pill stays put across re-renders; a reload simply returns it home.
   const whatsappRef = useRef<HTMLAnchorElement>(null);
-  const [chatPosition, setChatPosition] = useState({ right: 20, bottom: 20 });
   const dragState = useRef<{
     pointerId: number;
+    startPointerX: number;
+    startPointerY: number;
     startX: number;
     startY: number;
-    baseRight: number;
-    baseBottom: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
     moved: boolean;
   } | null>(null);
+  const dragFrame = useRef<number | null>(null);
   // A drag ends with a click event; that one must not open WhatsApp.
   const suppressChatClick = useRef(false);
 
-  function handleChatPointerDown(event: ReactPointerEvent<HTMLAnchorElement>) {
+  function applyChatPosition(x: number, y: number) {
     const element = whatsappRef.current;
     if (!element) return;
-    dragState.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      baseRight: chatPosition.right,
-      baseBottom: chatPosition.bottom,
-      moved: false,
-    };
-    // Keep receiving the pointer even when the cursor leaves the pill, so a
-    // fast drag does not drop it mid-motion.
-    element.setPointerCapture(event.pointerId);
+
+    element.style.transform = `translate3d(${x}px, ${y}px, 0)`;
   }
 
-  function handleChatPointerMove(event: ReactPointerEvent<HTMLAnchorElement>) {
+  function handleChatWindowPointerMove(event: PointerEvent) {
     const drag = dragState.current;
-    const element = whatsappRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !element) return;
-    const dx = event.clientX - drag.startX;
-    const dy = event.clientY - drag.startY;
-    // Tiny jitters are taps, not moves- only a real drag is flagged.
-    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) drag.moved = true;
-    const bounds = element.getBoundingClientRect();
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+
+    const dx = event.clientX - drag.startPointerX;
+    const dy = event.clientY - drag.startPointerY;
     const margin = 8;
-    // Keep the pill fully on screen; it must never be pushed out of reach.
-    const maxRight = Math.max(margin, window.innerWidth - bounds.width - margin);
-    const maxBottom = Math.max(margin, window.innerHeight - bounds.height - margin);
-    setChatPosition({
-      right: Math.min(Math.max(drag.baseRight - dx, margin), maxRight),
-      bottom: Math.min(Math.max(drag.baseBottom + dy, margin), maxBottom),
+
+    const maxX = Math.max(margin, window.innerWidth - drag.width - margin);
+    const maxY = Math.max(margin, window.innerHeight - drag.height - margin);
+
+    drag.x = Math.min(Math.max(drag.startX + dx, margin), maxX);
+    drag.y = Math.min(Math.max(drag.startY + dy, margin), maxY);
+
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+      drag.moved = true;
+    }
+
+    if (dragFrame.current !== null) return;
+
+    dragFrame.current = window.requestAnimationFrame(() => {
+      const currentDrag = dragState.current;
+
+      if (currentDrag) {
+        applyChatPosition(currentDrag.x, currentDrag.y);
+      }
+
+      dragFrame.current = null;
     });
   }
 
-  function handleChatPointerEnd(event: ReactPointerEvent<HTMLAnchorElement>) {
+  function finishChatDrag(event: PointerEvent) {
     const drag = dragState.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    if (drag.moved) suppressChatClick.current = true;
+
+    if (dragFrame.current !== null) {
+      window.cancelAnimationFrame(dragFrame.current);
+      dragFrame.current = null;
+    }
+
+    applyChatPosition(drag.x, drag.y);
+
+    if (drag.moved) {
+      suppressChatClick.current = true;
+    }
+
     dragState.current = null;
+
+    window.removeEventListener("pointermove", handleChatWindowPointerMove);
+    window.removeEventListener("pointerup", finishChatDrag);
+    window.removeEventListener("pointercancel", finishChatDrag);
+  }
+
+  function handleChatPointerDown(event: ReactPointerEvent<HTMLAnchorElement>) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    const element = whatsappRef.current;
+    if (!element) return;
+
+    // Stop the browser's native anchor/image drag behaviour from competing with
+    // the floating-button drag.
+    event.preventDefault();
+
+    const bounds = element.getBoundingClientRect();
+
+    dragState.current = {
+      pointerId: event.pointerId,
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startX: bounds.left,
+      startY: bounds.top,
+      x: bounds.left,
+      y: bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+      moved: false,
+    };
+
+    // From this point the button is positioned from the viewport's top-left.
+    // Only the transform changes during dragging, so no layout is triggered.
+    element.style.left = "0px";
+    element.style.top = "0px";
+    element.style.right = "auto";
+    element.style.bottom = "auto";
+    element.style.transition = "none";
+    applyChatPosition(bounds.left, bounds.top);
+
+    // Listen on the window rather than the anchor itself. This lets the pointer
+    // travel anywhere on screen without losing drag events.
+    window.addEventListener("pointermove", handleChatWindowPointerMove, {
+      passive: false,
+    });
+    window.addEventListener("pointerup", finishChatDrag);
+    window.addEventListener("pointercancel", finishChatDrag);
   }
 
   useEffect(() => {
@@ -259,8 +411,10 @@ export function ClientDashboardShell({
 
     void getClientDashboard()
       .then((dashboard) => {
-        const searchable = dashboard.accounts.find((item) => item.dashboardAccess.state === "READY")
-          ?? dashboard.accounts[0];
+        const searchable =
+          dashboard.accounts.find(
+            (item) => item.dashboardAccess.state === "READY",
+          ) ?? dashboard.accounts[0];
         if (active) setSearchAccountId(searchable?.account.id ?? "");
 
         resolve(
@@ -298,8 +452,9 @@ export function ClientDashboardShell({
           ),
           dashboard.accounts.some(
             (item) =>
-              ["account_owner", "account_admin", "operations"].includes(item.membership.role)
-              && item.dashboardAccess.state === "READY",
+              ["account_owner", "account_admin", "operations"].includes(
+                item.membership.role,
+              ) && item.dashboardAccess.state === "READY",
           ),
           // Activity names who did what, which is management information-
           // owners and admins only, matching what the endpoint enforces.
@@ -347,7 +502,9 @@ export function ClientDashboardShell({
             {/* From `lg` the search bar lives inline; below it moves to its own
                 row, where a full-width field is usable on a phone. */}
             <div className="hidden min-w-0 flex-1 lg:block">
-              {searchAccountId ? <GlobalSearch businessAccountId={searchAccountId} /> : null}
+              {searchAccountId ? (
+                <GlobalSearch businessAccountId={searchAccountId} />
+              ) : null}
             </div>
             <div className="min-w-0 flex-1 lg:hidden" />
 
@@ -446,10 +603,9 @@ export function ClientDashboardShell({
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Contact support on WhatsApp"
+        draggable={false}
+        onDragStart={(event) => event.preventDefault()}
         onPointerDown={handleChatPointerDown}
-        onPointerMove={handleChatPointerMove}
-        onPointerUp={handleChatPointerEnd}
-        onPointerCancel={handleChatPointerEnd}
         onClick={(event) => {
           if (suppressChatClick.current) {
             event.preventDefault();
@@ -458,11 +614,11 @@ export function ClientDashboardShell({
         }}
         // Below the nav drawer (z-50) and its backdrop (z-40), so an open menu
         // covers it instead of leaving it floating over the overlay.
-        className="fixed bottom-5 right-5 z-30 flex cursor-grab select-none touch-none items-center gap-1 rounded-full bg-[#25D366] px-3 py-2 text-xs font-semibold text-white shadow transition-[background-color,transform] hover:scale-105 hover:bg-[#1ea952] active:cursor-grabbing"
-        style={{ right: chatPosition.right, bottom: chatPosition.bottom }}
+        className="fixed bottom-5 right-5 z-30 flex cursor-grab select-none touch-none items-center gap-1 rounded-full bg-[#25D366] px-3 py-2 text-xs font-semibold text-white shadow hover:bg-[#1ea952] active:cursor-grabbing"
+        style={{ willChange: "transform" }}
       >
         <BsWhatsapp className="h-3 w-3" />
-        <span className="hidden sm:inline">  Support</span>
+        <span className="hidden sm:inline"> Support</span>
       </a>
     </div>
   );
