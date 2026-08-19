@@ -180,6 +180,7 @@ export default function AdminShipmentDetailsPage() {
   const [history, setHistory] = useState<DpdShipmentHistoryItem | null>(null);
   const [cancellation, setCancellation] = useState<ShipmentCancellation | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [shipmentLoading, setShipmentLoading] = useState(true);
   const [actionFeedback, setActionFeedback] = useState<{ message: string; tone: "warning" | "error" } | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionMode, setActionMode] = useState<"hold" | "release" | "status" | null>(null);
@@ -229,6 +230,7 @@ export default function AdminShipmentDetailsPage() {
   const loadShipment = useCallback(async () => {
     if (!params.draftId) return;
 
+    setShipmentLoading(true);
     setLoadError("");
 
     try {
@@ -244,6 +246,8 @@ export default function AdminShipmentDetailsPage() {
       setCancellation(cancellationData.cancellation);
     } catch (caughtError) {
       setLoadError(caughtError instanceof Error ? caughtError.message : "Unable to load shipment.");
+    } finally {
+      setShipmentLoading(false);
     }
   }, [params.draftId]);
 
@@ -438,10 +442,28 @@ export default function AdminShipmentDetailsPage() {
           </div>
         </div>
 
-        {loadError ? (
-          <section className="border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700">{loadError}</section>
+        {shipmentLoading ? (
+          <section className="flex min-h-[60vh] items-center justify-center">
+            <div className="text-center">
+              <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-900" />
+              <p className="text-sm font-semibold text-slate-600">Loading shipment details...</p>
+            </div>
+          </section>
+        ) : loadError ? (
+          <section className="flex min-h-[60vh] items-center justify-center px-4">
+            <div
+              role="alert"
+              className="max-w-md rounded-xl border border-red-200 bg-red-50 px-6 py-5 text-center text-sm font-semibold text-red-700"
+            >
+              {loadError}
+            </div>
+          </section>
         ) : !draft ? (
-          <section className="border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-600">Shipment not found.</section>
+          <section className="flex min-h-[60vh] items-center justify-center px-4">
+            <div className="max-w-md rounded-xl border border-slate-200 bg-white px-6 py-5 text-center text-sm font-semibold text-slate-600">
+              Shipment not found.
+            </div>
+          </section>
         ) : (
           <>
             {actionFeedback ? (

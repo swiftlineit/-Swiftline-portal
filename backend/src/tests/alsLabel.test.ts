@@ -23,10 +23,25 @@ import {
 
 const originalFetch = globalThis.fetch;
 
-// Pinned on rather than read from the developer's .env, so the suite proves the
-// same thing on every machine. The one case that needs it off toggles it itself.
+// The whole ALS configuration is pinned rather than read from the developer's
+// .env, so the suite proves the same thing on every machine. Reading it for real
+// made these tests fail the moment someone commented out a credential after a
+// live test — a false alarm that says nothing about the code. The one case that
+// needs the integration switched off toggles it itself.
+//
+// These are deliberately not real credentials: every request is stubbed, and a
+// value that worked would make an accidental live call possible.
 before(() => {
-  (env as { ALS_ENABLED: boolean }).ALS_ENABLED = true;
+  Object.assign(env, {
+    ALS_ENABLED: true,
+    ALS_API_BASE_URL: "https://als.test.invalid",
+    ALS_COMPANY_ID: 1,
+    ALS_API_EMAIL: "test@swiftline.invalid",
+    ALS_API_PASSWORD: "stubbed-not-a-real-password",
+    ALS_SERVICE_CODE: "DPD UK NEXTDAY",
+    ALS_INR_PER_GBP: 105,
+    ALS_REQUEST_TIMEOUT_MS: 30000
+  });
 });
 
 afterEach(() => {
@@ -171,7 +186,37 @@ describe("ALS create_docket payload", () => {
 
     assert.equal(snapshot.consignee_email, "[redacted-email]");
     assert.equal(snapshot.shipper_contact_no, "[redacted-phone]");
-    assert.equal(snapshot.shipper_gstin_no, "[redacted-id]");
+    // Empty rather than redacted: Swiftline sends no tax identity at all now
+    // that the shipper is fixed, so there is nothing left to hide.
+    assert.equal(snapshot.shipper_gstin_no, "");
+  });
+
+  test("sends Swiftline as the shipper, never the customer consigning the goods", () => {
+    const payload = buildAlsCreateDocketPayload({ draft: draftFixture(), ...payloadInput });
+
+    // ALS overwrites the account consignor with whatever a booking sends, so
+    // these are pinned: changing them changes what the carrier holds on file.
+    assert.equal(payload.shipper_company_name, "Swiftline Cargo & Express Logistics Pvt Ltd");
+    assert.equal(payload.shipper_name, "Ravi Yadav");
+    assert.equal(payload.shipper_contact_no, "7027116600");
+    assert.equal(payload.shipper_email, "info@swiftlincargo.co.uk");
+    assert.equal(payload.shipper_address_line_1, "Second Floor, Krishna Complex");
+    assert.equal(payload.shipper_address_line_2, "Sector-10, Near 33 KVS Station");
+    assert.equal(payload.shipper_address_line_3, "Uttam Nagar, Rewari, Haryana 123401");
+    assert.equal(payload.shipper_city, "Rewari");
+    assert.equal(payload.shipper_state, "Haryana");
+    assert.equal(payload.shipper_zip_code, "123401");
+    assert.equal(payload.shipper_country, "IN");
+    assert.equal(payload.shipper_gstin_type, "");
+    assert.equal(payload.shipper_gstin_no, "");
+
+    // The stronger claim: nothing identifying the real consignor reaches ALS at
+    // all. The fixture consignor is Northline Exports / Priya Raman, whose
+    // Aadhaar and email used to be sent as the shipper tax id and contact.
+    const serialized = JSON.stringify(payload);
+    for (const leaked of ["Northline", "Priya", "priya@northline.example", "234567890124", "110001", "Connaught"]) {
+      assert.ok(!serialized.includes(leaked), `consignor detail leaked to ALS: ${leaked}`);
+    }
   });
 });
 

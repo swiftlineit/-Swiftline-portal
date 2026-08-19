@@ -86,6 +86,7 @@
     "test:sessions:revocation": "tsx --test src/tests/sessionRevocation.integration.test.ts",
     "test:auth-rate-limit": "tsx --test src/tests/authRateLimit.test.ts",
     "test:shipment-status": "tsx --test src/tests/shipmentStatusSequence.test.ts",
+    "test:shipment-status:bulk": "tsx --test src/tests/bulkShipmentStatus.test.ts",
     "test:storage": "tsx --test src/tests/storage.test.ts",
     "test:claims:integration": "tsx --test src/tests/claim.integration.test.ts",
     "test:claims": "tsx --test src/tests/claimStateMachine.test.ts src/tests/claimPermissions.test.ts src/tests/claimModels.test.ts src/tests/claimSnapshot.test.ts src/tests/claimChecklist.test.ts src/tests/claimNotifications.test.ts src/tests/claimWorkflowReachability.test.ts",

@@ -63,13 +63,47 @@ const kycDocumentsFixture = {
   pan: kycDocumentFixture("pan", "PAN Card")
 };
 
+/**
+ * Refuses any request to the carrier for the duration of this suite.
+ *
+ * Every booking here passes `skipDpdLabel: true`, because ALS has no sandbox and
+ * a request would be a real, chargeable DPD consignment. That has always been a
+ * promise in a comment; this makes it structural. A regression that let a
+ * booking reach ALS would otherwise pass silently on a developer machine with
+ * working credentials — and bill the company for it.
+ */
+const attemptedCarrierCalls: string[] = [];
+// Bound, because it is called back through a local reference rather than as a
+// method of globalThis.
+const realFetch = globalThis.fetch.bind(globalThis);
+
+function isCarrierUrl(url: string) {
+  const raw = (env.ALS_API_BASE_URL ?? "").trim();
+  const base = raw.endsWith("/") ? raw.slice(0, -1) : raw;
+  return (base !== "" && url.startsWith(base)) || url.includes("airportlinkservices");
+}
+
 before(async () => {
+  globalThis.fetch = (async (input: Parameters<typeof realFetch>[0], init?: Parameters<typeof realFetch>[1]) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (isCarrierUrl(url)) {
+      attemptedCarrierCalls.push(url);
+      throw new Error(`A test tried to reach the carrier: ${url}`);
+    }
+    return realFetch(input, init);
+  }) as typeof globalThis.fetch;
+
   await mongoose.connect(env.MONGODB_URI, { dbName: databaseName, family: 4, retryWrites: false });
   assert.equal(mongoose.connection.name, databaseName);
   await SwiftlineStationCounter.init();
 });
 
 after(async () => {
+  globalThis.fetch = realFetch;
+  // Reported as a failure rather than only thrown at the call site, so a booking
+  // that swallows carrier errors cannot hide the attempt.
+  assert.deepEqual(attemptedCarrierCalls, [], "no test may call the live carrier");
+
   // Labels are stored through the storage service, so they are removed through
   // it too- the test does not need to know which driver is active.
   for (const key of generatedKeys) {

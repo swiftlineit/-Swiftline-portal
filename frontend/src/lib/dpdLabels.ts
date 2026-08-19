@@ -5,6 +5,23 @@ import type { CsbType } from "@/lib/csbType";
 import { toDpdLabelUnavailableError, toPriceChangedError } from "@/lib/shipmentCostEstimate";
 import type { TrackingAttention, TrackingSummary } from "@/lib/shipmentTracking";
 
+/**
+ * Destinations a DPD carrier label is produced for.
+ *
+ * Mirrors `dpdLabelCountryCodes` in backend/src/services/als/alsPayload.service.ts,
+ * which is what actually decides whether ALS is called. This copy governs only
+ * what the booking panel offers, so a drift between the two shows up as a button
+ * that is present or absent when it should not be — never as a wrong booking.
+ *
+ * The country selector stores the ISO code "GB"; "UK" is accepted alongside it
+ * because imported and hand-keyed addresses use the two interchangeably.
+ */
+const dpdLabelCountryCodes = new Set(["GB", "UK"]);
+
+export function isDpdLabelDestination(countryCode: string | undefined | null) {
+  return dpdLabelCountryCodes.has((countryCode ?? "").trim().toUpperCase());
+}
+
 export type ShipmentAddress = {
   companyName?: string;
   contactName?: string;
@@ -986,6 +1003,46 @@ export async function updateDpdShipmentOperationalStatus(input: {
     message: string;
     event: ShipmentEvent;
   }>(response);
+}
+
+export type BulkShipmentStatusSkip = {
+  shipmentDraftId: string;
+  swiftlineTrackingNumber?: string;
+  reason: string;
+  missingStatuses?: ShipmentOperationalStatus[];
+};
+
+export type BulkShipmentStatusResult = {
+  success: true;
+  message: string;
+  updatedCount: number;
+  skipped: BulkShipmentStatusSkip[];
+};
+
+/**
+ * Records one operational status across many shipments at once. The server holds
+ * every shipment to the same sequential rule as the single update, so shipments
+ * that cannot take the status yet are skipped and reported rather than blocking
+ * the eligible ones- the same-day, same-flight batch moves together.
+ */
+export async function bulkUpdateDpdShipmentOperationalStatus(input: {
+  shipmentDraftIds: string[];
+  status: ShipmentOperationalStatus;
+  note?: string;
+  location?: string;
+}) {
+  const response = await fetchWithAuth(apiUrl("/api/v1/dpd-shipments/bulk-status"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      shipmentDraftIds: input.shipmentDraftIds,
+      status: input.status,
+      note: input.note ?? "",
+      location: input.location ?? ""
+    })
+  });
+
+  return parseApiResponse<BulkShipmentStatusResult>(response);
 }
 
 export async function getShipmentChargeVerification(dpdShipmentId: string) {

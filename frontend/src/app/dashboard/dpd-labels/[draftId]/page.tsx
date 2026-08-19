@@ -71,6 +71,7 @@ import {
   getDpdLabelAccessUrl,
   getPlaceAddress,
   getShipmentDraft,
+  isDpdLabelDestination,
   listDpdShipments,
   openShipmentKycDocument,
   openShipmentParcelKycDocument,
@@ -427,7 +428,8 @@ export default function DpdLabelDraftPage() {
    * The DPD label failure currently being offered a way past.
    *
    * Set only when the server confirmed nothing was booked, which is what makes
-   * it safe to show a button that books without the carrier label.
+   * it safe to offer a booking that skips the carrier label. Empty is the normal
+   * state: the button below can also be shown without any failure at all.
    */
   const [dpdLabelError, setDpdLabelError] = useState("");
   const busy = pendingAction !== null;
@@ -469,6 +471,11 @@ export default function DpdLabelDraftPage() {
       addressForm.postcode !== (address.postcode ?? "")
     );
   }, [addressForm, draft]);
+
+  // Whether this shipment gets a DPD carrier label at all. The server decides
+  // this for itself from the same country code; here it only governs whether the
+  // operator is offered a way to book without one.
+  const dpdLabelDestination = isDpdLabelDestination(addressForm.countryCode);
 
   // Priced by the server, not here. The booking charges whatever this returns, so
   // there is deliberately no second implementation in the browser to drift from it.
@@ -974,7 +981,8 @@ export default function DpdLabelDraftPage() {
  async function handleCreateLabel(
   // Supplied when re-booking after a changed price was accepted.
   acceptedPricingHash = costEstimate?.pricingHash,
-  // Set by the fallback button only, after DPD has already refused once.
+  // Set by the "without DPD label" button, which stands alongside the primary
+  // action on a United Kingdom shipment and also appears once DPD has refused.
   skipDpdLabel = false
 ) {
   if (!draft) return;
@@ -1555,10 +1563,12 @@ export default function DpdLabelDraftPage() {
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
                 {pendingAction === "BOOKING" ? "Creating..." : "Create Shipment"}
               </button>
-              {/* Offered only after DPD has refused, because only then is it certain
-                  nothing was booked. Booking without the carrier label is a decision
-                  someone has to take deliberately. */}
-              {dpdLabelError ? (
+              {/* Staff-only by virtue of the page: admin and operations are the only
+                  roles that reach it, and the server guards the booking route with the
+                  same pair. Shown wherever a DPD label would be produced, so the
+                  operator can decline one deliberately, and kept on any destination
+                  where DPD has already refused. */}
+              {dpdLabelDestination || dpdLabelError ? (
                 <button
                   type="button"
                   onClick={() => void handleCreateLabel(undefined, true)}

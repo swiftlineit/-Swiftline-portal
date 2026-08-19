@@ -10,7 +10,8 @@ import {
   reconcileDpdShipmentDocuments,
   releaseDpdShipment,
   resetDevelopmentShipmentBooking,
-  updateDpdShipmentOperationalStatus
+  updateDpdShipmentOperationalStatus,
+  bulkUpdateDpdShipmentOperationalStatus
 } from "../controllers/dpdShipment.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 import { downloadShipmentInvoicePdf, getShipmentInvoice } from "../controllers/shipmentInvoice.controller.js";
@@ -42,6 +43,7 @@ const requireFinance = requireRole("admin", "finance");
 const requireBilling = requireRole("admin", "operations", "finance");
 
 dpdShipmentRouter.get("/", listDpdShipments);
+dpdShipmentRouter.post("/bulk-status", requireOperations, bulkUpdateDpdShipmentOperationalStatus);
 dpdShipmentRouter.get("/drafts/:draftId/invoice", requireBilling, getShipmentInvoice);
 dpdShipmentRouter.get("/drafts/:draftId/invoice/pdf", requireBilling, downloadShipmentInvoicePdf);
 // Customs ("shipment") invoice: the goods declaration, separate from the GST invoice above.

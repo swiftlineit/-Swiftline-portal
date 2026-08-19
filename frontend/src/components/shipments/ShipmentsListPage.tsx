@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiArchive, FiChevronDown, FiExternalLink, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiX } from "react-icons/fi";
+import { FiArchive, FiArrowDown, FiExternalLink, FiFileText, FiPlus, FiSearch, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
@@ -13,6 +13,13 @@ import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatCsbType } from "@/lib/csbType";
 import { createBulkShipmentManifest, manifestsHref } from "@/lib/shipmentManifests";
 import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
+import {
+  bulkUpdateDpdShipmentOperationalStatus,
+  shipmentOperationalStatusOptions,
+  type BulkShipmentStatusResult,
+  type ShipmentOperationalStatus
+} from "@/lib/dpdLabels";
+import { listBusinessAccounts, type BusinessAccount } from "@/lib/businessAccounts";
 import {
   listShipments,
   shipmentDetailsHref,
@@ -35,10 +42,32 @@ function formatMoney(shipment: ShipmentListItem) {
   }).format(shipment.shipmentInvoice.chargeableAmountMinor / 100);
 }
 
+function getAccountLabel(account: BusinessAccount) {
+  return `${account.accountId} - ${account.company.companyName || account.contact.email}`;
+}
+
+/**
+ * A shipment the operations user may push forward from the list. It must be a
+ * completed booking, and it must not be on hold or cancelled- both are current
+ * states, which is exactly what the list's `status` field holds (the newest
+ * customer-visible event). Manifests and holds never block this, so the same-
+ * day, same-flight shipments the bulk update exists for stay selectable.
+ */
+function isStatusUpdateEligible(shipment: ShipmentListItem) {
+  return shipment.bookingStatus === "LABEL_RECEIVED"
+    && shipment.status !== "ON_HOLD"
+    && shipment.status !== "SHIPMENT_CANCELLED";
+}
+
 /**
  * The Shipments listing shared by the staff and client portals. It shows the same
  * columns as the Recent Shipments table on the Create Shipment page, plus a
- * selection column that feeds the bulk manifest action.
+ * selection column that feeds the bulk actions.
+ *
+ * Staff see two bulk actions. "Create Manifest" groups bookings into one
+ * handover document. "Update Status" records the same operational status across
+ * every selected shipment at once- the case where a day's bookings fly together
+ * and move through the same stages together.
  */
 export default function ShipmentsListPage({ audience }: { audience: ShipmentAudience }) {
   const [shipments, setShipments] = useState<ShipmentListItem[]>([]);
@@ -46,8 +75,19 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
   // Keyed by shipment id so a selection survives moving to another page - only
   // the rows on the page that was just (re)loaded are ever touched below.
   const [selected, setSelected] = useState<Map<string, ShipmentListItem>>(new Map());
-  const [manifestFlowActive, setManifestFlowActive] = useState(false);
+  // Which bulk action the selection bar is serving, if any. Holds the two flows
+  // apart: the manifest checks account/branch, the status update does not.
+  const [activeFlow, setActiveFlow] = useState<"manifest" | "status" | null>(null);
   const [status, setStatus] = useState("");
+  // Business-account filter, staff only. Clients are already scoped to the
+  // accounts they belong to, so the dropdown would only ever offer one row.
+  const [businessAccountId, setBusinessAccountId] = useState("");
+  const [accounts, setAccounts] = useState<BusinessAccount[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
+  const [bulkStatusNote, setBulkStatusNote] = useState("");
+  const [bulkStatusLocation, setBulkStatusLocation] = useState("");
+  const [bulkStatusBusy, setBulkStatusBusy] = useState(false);
+  const [bulkStatusResult, setBulkStatusResult] = useState<BulkShipmentStatusResult | null>(null);
   /**
    * What is typed, and what has actually been searched for.
    *
@@ -99,7 +139,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     setLoading(true);
     setError("");
     try {
-      const data = await listShipments(audience, { page, status, search, dateRange, sort });
+      const data = await listShipments(audience, { page, status, search, dateRange, businessAccountId, sort });
       setShipments(data.shipments);
       setPagination(data.pagination);
       // Refresh or drop only the selections that belong to this page - a shipment
@@ -110,7 +150,8 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
         const next = new Map(current);
         for (const shipment of data.shipments) {
           if (!next.has(shipment.id)) continue;
-          if (shipment.manifestEligible) next.set(shipment.id, shipment);
+          const stillSelectable = shipment.manifestEligible || (audience === "admin" && isStatusUpdateEligible(shipment));
+          if (stillSelectable) next.set(shipment.id, shipment);
           else next.delete(shipment.id);
         }
         return next;
@@ -120,7 +161,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     } finally {
       setLoading(false);
     }
-  }, [audience, dateRange, page, search, sort, status]);
+  }, [audience, businessAccountId, dateRange, page, search, sort, status]);
 
   // Deferred so the fetch's setState lands after the first paint rather than
   // cascading a render, matching the other listing screens.
@@ -128,6 +169,17 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  // The account list powers the staff filter. All accounts are shown, not just
+  // active ones, so a suspended account's historical shipments stay findable.
+  useEffect(() => {
+    if (audience !== "admin") return;
+    let mounted = true;
+    listBusinessAccounts()
+      .then((data) => { if (mounted) setAccounts(data.accounts); })
+      .catch(() => { /* the filter stays empty; the table still loads */ });
+    return () => { mounted = false; };
+  }, [audience]);
 
   // Applies the typed term once typing settles, and returns to page one- the
   // page you were on rarely exists in a narrower result set.
@@ -143,18 +195,26 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  const selectable = useMemo(() => shipments.filter((shipment) => shipment.manifestEligible), [shipments]);
+  // Staff may select anything they could act on; a client's rows are still
+  // gated on manifest eligibility because the manifest is their only action.
+  const selectable = useMemo(() => shipments.filter((shipment) => (
+    audience === "admin" ? shipment.manifestEligible || isStatusUpdateEligible(shipment) : shipment.manifestEligible
+  )), [audience, shipments]);
   const selectedList = useMemo(() => [...selected.values()], [selected]);
-  const totals = useMemo(() => ({
-    pieces: selectedList.reduce((sum, shipment) => sum + shipment.pieces, 0),
-    weightKg: selectedList.reduce((sum, shipment) => sum + shipment.weightKg, 0)
-  }), [selectedList]);
+  // Each flow works from the subset of the selection it can actually act on, so
+  // a mixed selection never sends an ineligible row to the other flow's API.
+  const manifestSelection = useMemo(() => selectedList.filter((shipment) => shipment.manifestEligible), [selectedList]);
+  const statusSelection = useMemo(() => selectedList.filter(isStatusUpdateEligible), [selectedList]);
+  const manifestTotals = useMemo(() => ({
+    pieces: manifestSelection.reduce((sum, shipment) => sum + shipment.pieces, 0),
+    weightKg: manifestSelection.reduce((sum, shipment) => sum + shipment.weightKg, 0)
+  }), [manifestSelection]);
 
   // A manifest covers one business account and branch, so a mixed selection
   // cannot become one document.
-  const mixedSelection = selectedList.length > 1 && selectedList.some((shipment) =>
-    shipment.businessAccountId !== selectedList[0]?.businessAccountId
-    || shipment.branchId !== selectedList[0]?.branchId);
+  const mixedSelection = manifestSelection.length > 1 && manifestSelection.some((shipment) =>
+    shipment.businessAccountId !== manifestSelection[0]?.businessAccountId
+    || shipment.branchId !== manifestSelection[0]?.branchId);
   const allSelected = selectable.length > 0 && selectable.every((shipment) => selected.has(shipment.id));
 
   // Selects/deselects only the current page's eligible rows, leaving any
@@ -181,21 +241,52 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
   }
 
   async function handleCreate(values: ManifestDialogValues) {
+    const shipmentDraftIds = manifestSelection.map((shipment) => shipment.id);
+    if (!shipmentDraftIds.length) {
+      toast.error("Select at least one shipment that is eligible for a manifest.");
+      return;
+    }
     setCreating(true);
     try {
-      const shipmentDraftIds = [...selected.keys()];
       const result = await createBulkShipmentManifest({ shipmentDraftIds, ...values }, audience);
       toast.success(`Manifest ${result.manifest.manifestNumber} generated with ${shipmentDraftIds.length} `
         + `${shipmentDraftIds.length === 1 ? "shipment" : "shipments"}.`);
       setLastManifestNumber(result.manifest.manifestNumber);
       setDialogOpen(false);
       setSelected(new Map());
-      setManifestFlowActive(false);
+      setActiveFlow(null);
       await load();
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : "Manifest could not be generated.");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleBulkStatusUpdate() {
+    const shipmentDraftIds = statusSelection.map((shipment) => shipment.id);
+    if (!shipmentDraftIds.length) return;
+
+    setBulkStatusBusy(true);
+    setError("");
+    try {
+      const result = await bulkUpdateDpdShipmentOperationalStatus({
+        shipmentDraftIds,
+        status: bulkStatus,
+        note: bulkStatusNote || "Bulk status update by Swiftline Operations",
+        location: bulkStatusLocation
+      });
+      setBulkStatusResult(result);
+      toast.success(result.message);
+      setActiveFlow(null);
+      setBulkStatusNote("");
+      setBulkStatusLocation("");
+      setSelected(new Map());
+      await load();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "The bulk status update could not be completed.");
+    } finally {
+      setBulkStatusBusy(false);
     }
   }
 
@@ -207,7 +298,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
           <p className="mt-1 text-sm text-slate-500">
             {audience === "client"
               ? "Your booked shipments. Select one or more to generate a manifest."
-              : "All booked shipments across business accounts."}
+              : "All booked shipments across business accounts. Select one or more to update their status at once."}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -241,26 +332,47 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
             onChange={(value) => { setDateRange(value); setPage(1); }}
           />
 
+          {audience === "admin" ? (
+            <label className="block">
+              <span className="sr-only">Filter by business account</span>
+              <div className="relative mt-2">
+                <select
+                  value={businessAccountId}
+                  onChange={(event) => { setBusinessAccountId(event.target.value); setPage(1); }}
+                  className="h-10 w-64 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="">All Business Accounts</option>
+                  {accounts.map((account) => (
+                    <option key={account._id} value={account._id}>{getAccountLabel(account)}</option>
+                  ))}
+                </select>
+                <FiArrowDown
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                />
+              </div>
+            </label>
+          ) : null}
+
           <label className="block">
-            {/* <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</span> */}
             <div className="relative mt-2">
               <select
                 value={status}
                 onChange={(event) => { setStatus(event.target.value); setPage(1); }}
-                className="h-10 w-56 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
+                className="h-10 w-56 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
               >
                 <option value="">All Status</option>
                 {shipmentStatusOptions.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
-              <FiChevronDown
+              <FiArrowDown
                 aria-hidden="true"
-                className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
               />
             </div>
           </label>
-       
+
           <Link
             href={manifestsHref(audience)}
             className="inline-flex h-10 items-center gap-2 rounded-4xl border border-[#0D1282] bg-white px-4 text-sm font-semibold text-[#0D1282] hover:bg-[#0D1282]/5"
@@ -270,9 +382,9 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
           </Link>
           <button
             type="button"
-            onClick={() => setManifestFlowActive((current) => !current)}
+            onClick={() => setActiveFlow((current) => current === "manifest" ? null : "manifest")}
             className={`inline-flex h-10 items-center gap-2 rounded-4xl border px-4 text-sm font-semibold ${
-              manifestFlowActive
+              activeFlow === "manifest"
                 ? "border-[#0D1282] bg-[#0D1282]/5 text-[#0D1282]"
                 : "border-[#0D1282] bg-white text-[#0D1282] hover:bg-[#0D1282]/5"
             }`}
@@ -280,6 +392,20 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
             <FiArchive aria-hidden="true" className="h-4 w-4" />
             Create Manifest
           </button>
+          {audience === "admin" ? (
+            <button
+              type="button"
+              onClick={() => setActiveFlow((current) => current === "status" ? null : "status")}
+              className={`inline-flex h-10 items-center gap-2 rounded-4xl border px-4 text-sm font-semibold ${
+                activeFlow === "status"
+                  ? "border-[#0D1282] bg-[#0D1282]/5 text-[#0D1282]"
+                  : "border-[#0D1282] bg-white text-[#0D1282] hover:bg-[#0D1282]/5"
+              }`}
+            >
+              <FiArrowDown aria-hidden="true" className="h-4 w-4" />
+              Update Status
+            </button>
+          ) : null}
           <Link
             href={createShipmentHref}
             className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90"
@@ -311,15 +437,53 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
         </div>
       ) : null}
 
-      {manifestFlowActive ? (
+      {bulkStatusResult ? (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-emerald-800">{bulkStatusResult.message}</p>
+            <button
+              type="button"
+              onClick={() => setBulkStatusResult(null)}
+              className="h-8 rounded-lg border border-emerald-300 bg-white px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+            >
+              Dismiss
+            </button>
+          </div>
+          {bulkStatusResult.skipped.length ? (
+            <div className="mt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                Skipped - resolve these before updating again
+              </p>
+              <ul className="mt-1 max-h-44 space-y-1 overflow-y-auto text-sm text-slate-700">
+                {bulkStatusResult.skipped.map((skip) => (
+                  <li key={skip.shipmentDraftId} className="flex flex-wrap gap-x-2">
+                    <span className="font-semibold text-slate-900">
+                      {skip.swiftlineTrackingNumber || skip.shipmentDraftId}
+                    </span>
+                    <span className="text-slate-600">{skip.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {activeFlow === "manifest" ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#0D1282]/25 bg-[#0D1282]/5 px-4 py-3">
-          {selectedList.length ? (
+          {manifestSelection.length ? (
             <>
               <div>
                 <p className="text-sm font-semibold text-[#0D1282]">
-                  {selectedList.length} {selectedList.length === 1 ? "shipment" : "shipments"} selected
-                  {" · "}{totals.pieces} pcs · {totals.weightKg.toFixed(2)} kg
+                  {manifestSelection.length} {manifestSelection.length === 1 ? "shipment" : "shipments"} selected
+                  {" · "}{manifestTotals.pieces} pcs · {manifestTotals.weightKg.toFixed(2)} kg
                 </p>
+                {selectedList.length > manifestSelection.length ? (
+                  <p className="mt-1 text-xs font-semibold text-slate-600">
+                    {selectedList.length - manifestSelection.length} selected {selectedList.length - manifestSelection.length === 1 ? "shipment is" : "shipments are"} not
+                    manifest-eligible and will be left out.
+                  </p>
+                ) : null}
                 {mixedSelection ? (
                   <p className="mt-1 text-xs font-semibold text-amber-700">
                     A manifest covers one business account and branch. Narrow the selection to continue.
@@ -337,7 +501,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                 <button
                   type="button"
                   onClick={() => setDialogOpen(true)}
-                  disabled={mixedSelection}
+                  disabled={mixedSelection || !manifestSelection.length}
                   className="h-9 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   Create Manifest
@@ -352,12 +516,112 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
         </div>
       ) : null}
 
+      {activeFlow === "status" ? (
+        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-[#0D1282]/25 bg-[#0D1282]/5 px-4 py-3">
+          {statusSelection.length ? (
+            <>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-[#0D1282]">
+                  Update {statusSelection.length} {statusSelection.length === 1 ? "shipment" : "shipments"} to a new status.
+                </p>
+                {selectedList.length > statusSelection.length ? (
+                  <p className="mt-1 text-xs font-semibold text-slate-600">
+                    {selectedList.length - statusSelection.length} selected {selectedList.length - statusSelection.length === 1 ? "shipment is" : "shipments are"} not
+                    eligible (not booked, on hold or cancelled) and will be skipped.
+                  </p>
+                ) : null}
+              </div>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">New Status</span>
+                <div className="relative mt-1">
+                  <select
+                    value={bulkStatus}
+                    onChange={(event) => setBulkStatus(event.target.value as ShipmentOperationalStatus)}
+                    className="h-10 w-56 appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
+                  >
+                    {shipmentOperationalStatusOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <FiArrowDown
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                  />
+                </div>
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Note <span className="font-normal normal-case text-slate-400">(optional)</span>
+                </span>
+                <input
+                  value={bulkStatusNote}
+                  onChange={(event) => setBulkStatusNote(event.target.value)}
+                  placeholder="Shared note for these shipments"
+                  className="mt-1 h-10 w-56 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Location <span className="font-normal normal-case text-slate-400">(optional)</span>
+                </span>
+                <input
+                  value={bulkStatusLocation}
+                  onChange={(event) => setBulkStatusLocation(event.target.value)}
+                  maxLength={120}
+                  placeholder="Delhi Hub"
+                  title="Where this scan happened. Shown to the customer as the shipment's current location."
+                  className="mt-1 h-10 w-56 rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-blue-100"
+                />
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleBulkStatusUpdate}
+                  disabled={bulkStatusBusy}
+                  className="h-10 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  {bulkStatusBusy ? "Updating..." : "Update Status"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveFlow(null);
+                    setBulkStatusNote("");
+                    setBulkStatusLocation("");
+                  }}
+                  className="h-10 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="min-w-0 flex-1 text-sm font-semibold text-[#0D1282]">
+                Select shipments below using the checkboxes, then update their status at once.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveFlow(null);
+                  setBulkStatusNote("");
+                  setBulkStatusLocation("");
+                }}
+                className="h-9 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
+              >
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+
       {/* Export carries the same filters as the table, built from one helper so
           a downloaded file can never disagree with what is on screen. */}
       <div className="mb-3">
         <TableToolbar
           exportPath={shipmentListPath(audience)}
-          exportParams={shipmentListParams({ status, search, dateRange, sort })}
+          exportParams={shipmentListParams({ status, search, dateRange, businessAccountId, sort })}
           exportName="shipments"
           rowCount={pagination.total}
           columns={columnOptions}
@@ -411,7 +675,7 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
                       type="checkbox"
                       checked={selected.has(shipment.id)}
                       onChange={() => toggleOne(shipment)}
-                      disabled={!shipment.manifestEligible}
+                      disabled={!shipment.manifestEligible && !(audience === "admin" && isStatusUpdateEligible(shipment))}
                       aria-label={`Select shipment ${shipment.swiftlineTrackingNumber || shipment.id}`}
                       className="h-4 w-4 accent-[#0D1282] disabled:opacity-40"
                     />
@@ -550,13 +814,13 @@ export default function ShipmentsListPage({ audience }: { audience: ShipmentAudi
 
       {dialogOpen ? (
         <CreateManifestDialog
-          shipmentCount={selectedList.length}
-          totalPieces={totals.pieces}
-          totalWeightKg={totals.weightKg}
+          shipmentCount={manifestSelection.length}
+          totalPieces={manifestTotals.pieces}
+          totalWeightKg={manifestTotals.weightKg}
           busy={creating}
           defaults={{
-            origin: (selectedList[0]?.branch.city || selectedList[0]?.branch.name || "").toUpperCase(),
-            destination: (selectedList[0]?.destinationCountry || "").toUpperCase(),
+            origin: (manifestSelection[0]?.branch.city || manifestSelection[0]?.branch.name || "").toUpperCase(),
+            destination: (manifestSelection[0]?.destinationCountry || "").toUpperCase(),
             coloader: "",
             paymentType: ""
           }}

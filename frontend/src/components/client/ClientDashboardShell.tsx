@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   FiActivity,
   FiAlertTriangle,
@@ -159,6 +159,64 @@ export function ClientDashboardShell({
   // no extra request. Search stays hidden until it resolves- a box that
   // returns nothing because it does not know the account is worse than none.
   const [searchAccountId, setSearchAccountId] = useState("");
+
+  // The WhatsApp support pill floats over the content, so a user should be able
+  // to drag it out of the way of anything it is covering. Offsets live in state
+  // so the pill stays put across re-renders; a reload simply returns it home.
+  const whatsappRef = useRef<HTMLAnchorElement>(null);
+  const [chatPosition, setChatPosition] = useState({ right: 20, bottom: 20 });
+  const dragState = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    baseRight: number;
+    baseBottom: number;
+    moved: boolean;
+  } | null>(null);
+  // A drag ends with a click event; that one must not open WhatsApp.
+  const suppressChatClick = useRef(false);
+
+  function handleChatPointerDown(event: ReactPointerEvent<HTMLAnchorElement>) {
+    const element = whatsappRef.current;
+    if (!element) return;
+    dragState.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      baseRight: chatPosition.right,
+      baseBottom: chatPosition.bottom,
+      moved: false,
+    };
+    // Keep receiving the pointer even when the cursor leaves the pill, so a
+    // fast drag does not drop it mid-motion.
+    element.setPointerCapture(event.pointerId);
+  }
+
+  function handleChatPointerMove(event: ReactPointerEvent<HTMLAnchorElement>) {
+    const drag = dragState.current;
+    const element = whatsappRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !element) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    // Tiny jitters are taps, not moves- only a real drag is flagged.
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) drag.moved = true;
+    const bounds = element.getBoundingClientRect();
+    const margin = 8;
+    // Keep the pill fully on screen; it must never be pushed out of reach.
+    const maxRight = Math.max(margin, window.innerWidth - bounds.width - margin);
+    const maxBottom = Math.max(margin, window.innerHeight - bounds.height - margin);
+    setChatPosition({
+      right: Math.min(Math.max(drag.baseRight - dx, margin), maxRight),
+      bottom: Math.min(Math.max(drag.baseBottom + dy, margin), maxBottom),
+    });
+  }
+
+  function handleChatPointerEnd(event: ReactPointerEvent<HTMLAnchorElement>) {
+    const drag = dragState.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.moved) suppressChatClick.current = true;
+    dragState.current = null;
+  }
 
   useEffect(() => {
     let active = true;
@@ -383,16 +441,28 @@ export function ClientDashboardShell({
       <UnsavedChangesDialog />
 
       <a
+        ref={whatsappRef}
         href="https://wa.me/917027606600"
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Contact support on WhatsApp"
+        onPointerDown={handleChatPointerDown}
+        onPointerMove={handleChatPointerMove}
+        onPointerUp={handleChatPointerEnd}
+        onPointerCancel={handleChatPointerEnd}
+        onClick={(event) => {
+          if (suppressChatClick.current) {
+            event.preventDefault();
+            suppressChatClick.current = false;
+          }
+        }}
         // Below the nav drawer (z-50) and its backdrop (z-40), so an open menu
         // covers it instead of leaving it floating over the overlay.
-        className="fixed bottom-5 right-5 z-30 flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow transition hover:scale-105 hover:bg-[#1ea952]"
+        className="fixed bottom-5 right-5 z-30 flex cursor-grab select-none touch-none items-center gap-1 rounded-full bg-[#25D366] px-3 py-2 text-xs font-semibold text-white shadow transition-[background-color,transform] hover:scale-105 hover:bg-[#1ea952] active:cursor-grabbing"
+        style={{ right: chatPosition.right, bottom: chatPosition.bottom }}
       >
-        <BsWhatsapp className="h-5 w-5" />
-        <span className="hidden sm:inline"> WhatsApp Support</span>
+        <BsWhatsapp className="h-3 w-3" />
+        <span className="hidden sm:inline">  Support</span>
       </a>
     </div>
   );

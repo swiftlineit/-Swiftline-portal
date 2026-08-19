@@ -294,7 +294,7 @@ export default function ClientShipmentDetailsPage() {
     }
   }
 
-  if (loading || !user) return <ClientDashboardLoading />;
+  if (!loading && !user) return <ClientDashboardLoading />;
 
   return (
       <div className="mx-auto max-w-8xl space-y-6">
@@ -324,10 +324,28 @@ export default function ClientShipmentDetailsPage() {
           </div>
         </div>
 
-        {error ? (
-          <section className="border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700">{error}</section>
+        {loading ? (
+          <section className="flex min-h-[60vh] items-center justify-center">
+            <div className="text-center">
+              <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-900" />
+              <p className="text-sm font-semibold text-slate-600">Loading shipment details...</p>
+            </div>
+          </section>
+        ) : error ? (
+          <section className="flex min-h-[60vh] items-center justify-center px-4">
+            <div
+              role="alert"
+              className="max-w-md rounded-xl border border-red-200 bg-red-50 px-6 py-5 text-center text-sm font-semibold text-red-700"
+            >
+              {error}
+            </div>
+          </section>
         ) : !shipment ? (
-          <section className="border border-slate-200 bg-white p-5 text-sm font-semibold text-slate-600">Shipment not found.</section>
+          <section className="flex min-h-[60vh] items-center justify-center px-4">
+            <div className="max-w-md rounded-xl border border-slate-200 bg-white px-6 py-5 text-center text-sm font-semibold text-slate-600">
+              Shipment not found.
+            </div>
+          </section>
         ) : (
           <>
             {shipment.dpdShipment?.status === "DPD_CREATED" || shipment.dpdShipment?.status === "DPD_STATUS_UNKNOWN" ? (

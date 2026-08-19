@@ -1,7 +1,6 @@
 import type {
   IShipmentDraft,
   ShipmentAddressSnapshot,
-  ShipmentConsignorSnapshot,
   ShipmentParcel
 } from "../../models/shipmentDraft.model.js";
 import {
@@ -215,35 +214,53 @@ function consigneeAddress(draft: IShipmentDraft): ShipmentAddressSnapshot {
   return draft.consigneeValidatedAddress ?? draft.consigneeEnteredAddress;
 }
 
-function shipperFields(shipper: ShipmentConsignorSnapshot | undefined) {
-  if (!shipper) throw new AlsPayloadError("Consignor details are required for the DPD label.");
+type AlsShipperFields = Pick<
+  AlsCreateDocketPayload,
+  | "shipper_name"
+  | "shipper_company_name"
+  | "shipper_contact_no"
+  | "shipper_email"
+  | "shipper_address_line_1"
+  | "shipper_address_line_2"
+  | "shipper_address_line_3"
+  | "shipper_city"
+  | "shipper_state"
+  | "shipper_country"
+  | "shipper_zip_code"
+  | "shipper_gstin_type"
+  | "shipper_gstin_no"
+>;
 
-  const contactName = required(shipper.contactName || shipper.companyName, "Shipper name");
-  const companyName = required(shipper.companyName || shipper.contactName, "Shipper company name");
-  const city = required(shipper.townOrCity, "Shipper city");
-  // Sent as the shipper's tax identity when present. The spec marks these
-  // required, but a live booking was accepted with both empty.
-  const aadhaar = (shipper.aadhaarNumber ?? "").replace(/\D/g, "");
-
-  return {
-    shipper_name: truncate(contactName, 120),
-    shipper_company_name: truncate(companyName, 120),
-    shipper_contact_no: required(
-      digitsOnly(shipper.mobileCountryCode, shipper.mobileNumber),
-      "Shipper phone number"
-    ),
-    shipper_email: truncate(required(shipper.email, "Shipper email"), 160),
-    shipper_address_line_1: truncate(required(shipper.addressLine1, "Shipper address line 1"), 120),
-    shipper_address_line_2: truncate(shipper.addressLine2 || city, 120),
-    shipper_address_line_3: "",
-    shipper_city: truncate(city, 80),
-    shipper_state: truncate(shipper.county || city, 80),
-    shipper_country: "IN" as const,
-    shipper_zip_code: truncate(required(shipper.postcode, "Shipper postcode"), 20),
-    shipper_gstin_type: aadhaar ? "Aadhaar Number" : "",
-    shipper_gstin_no: aadhaar
-  };
-}
+/**
+ * The shipper Swiftline is recorded as on every ALS booking.
+ *
+ * ALS keeps a consignor on the portal account, and create_docket overwrites it
+ * with whatever the request carries: one booking sent with a customer's own
+ * consignor replaced the account's details with theirs. Sending the same block
+ * every time keeps the carrier's record stable no matter who is shipping.
+ *
+ * This is the only place the shipper is decided. The customer's real consignor
+ * is untouched everywhere else — the Swiftline label, EDI export, manifests, the
+ * customs invoice and the GST invoice all read `draft.consignorAddress`.
+ */
+const swiftlineShipper: AlsShipperFields = {
+  shipper_name: "Ravi Yadav",
+  shipper_company_name: "Swiftline Cargo & Express Logistics Pvt Ltd",
+  shipper_contact_no: "7027116600",
+  shipper_email: "info@swiftlincargo.co.uk",
+  shipper_address_line_1: "Second Floor, Krishna Complex",
+  shipper_address_line_2: "Sector-10, Near 33 KVS Station",
+  shipper_address_line_3: "Uttam Nagar, Rewari, Haryana 123401",
+  shipper_city: "Rewari",
+  shipper_state: "Haryana",
+  shipper_country: "IN",
+  shipper_zip_code: "123401",
+  // Swiftline files no tax identity with ALS. A live booking was accepted with
+  // both empty, and keeping them empty is what stops a customer's Aadhaar number
+  // reaching the carrier as somebody else's tax id.
+  shipper_gstin_type: "",
+  shipper_gstin_no: ""
+};
 
 function consigneeFields(consignee: ShipmentAddressSnapshot) {
   const contactName = required(consignee.contactName || consignee.companyName, "Consignee name");
@@ -329,7 +346,7 @@ export function buildAlsCreateDocketPayload(input: {
     // The spec says FOB; the booking that succeeded used CFR.
     terms_of_trade: "CFR",
     free_form_note_master_code: 0,
-    ...shipperFields(draft.consignorAddress),
+    ...swiftlineShipper,
     ...consigneeFields(consignee),
     docket_items: draft.parcelList.map((parcel, index) => {
       if (!parcel.lengthCm || !parcel.widthCm || !parcel.heightCm) {

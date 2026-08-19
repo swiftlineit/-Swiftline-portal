@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
-  FiChevronDown,
+  FiArrowDown,
   FiDownload,
   FiExternalLink,
   FiFileText,
@@ -26,6 +26,8 @@ import {
   ShipmentOperationalStatus,
   createManualShipmentDraft,
   downloadDpdLabel,
+  findMissingStatusPrerequisites,
+  firstAllowedOperationalStatus,
   holdDpdShipment,
   listDpdShipments,
   releaseDpdShipment,
@@ -116,6 +118,28 @@ export default function DpdLabelsPage() {
   const [nextStatus, setNextStatus] =
     useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [actionNote, setActionNote] = useState("");
+
+  /**
+   * Every status the shipment in the action row has recorded, which decides how
+   * far up the ladder it may go next- the same rule as the detail page. See
+   * findMissingStatusPrerequisites.
+   */
+  const recordedStatuses = useMemo(
+    () => shipmentAction?.mode === "status"
+      ? (shipmentAction.shipment.events ?? []).map((event) => event.status)
+      : [],
+    [shipmentAction],
+  );
+  const statusChoices = useMemo(
+    () => shipmentOperationalStatusOptions.map((option) => ({
+      ...option,
+      missing: findMissingStatusPrerequisites(option.value, recordedStatuses),
+    })),
+    [recordedStatuses],
+  );
+  const blockedStatus = statusChoices.find(
+    (option) => option.value === nextStatus,
+  );
 
   const activeAccounts = useMemo(
     () => accounts.filter((account) => account.status === "active"),
@@ -437,9 +461,9 @@ export default function DpdLabelsPage() {
                       </option>
                     ))}
                   </select>
-                  <FiChevronDown
+                  <FiArrowDown
                     aria-hidden="true"
-                    className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                    className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
                   />
                 </div>
               </label>
@@ -479,9 +503,9 @@ export default function DpdLabelsPage() {
                     </option>
                   ))}
                 </select>
-                <FiChevronDown
+                <FiArrowDown
                   aria-hidden="true"
-                  className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
                 />
               </div>
             </label>
@@ -579,40 +603,72 @@ export default function DpdLabelsPage() {
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Hold Reason
                   </span>
-                  <select
-                    value={holdReason}
-                    onChange={(event) =>
-                      setHoldReason(event.target.value as ShipmentHoldReason)
-                    }
-                    className="mt-2 h-10 w-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
-                  >
-                    {shipmentHoldReasonOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative mt-2">
+                    <select
+                      value={holdReason}
+                      onChange={(event) =>
+                        setHoldReason(event.target.value as ShipmentHoldReason)
+                      }
+                      className="h-10 w-full appearance-none border border-slate-300 bg-white px-3 pr-10 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
+                    >
+                      {shipmentHoldReasonOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <FiArrowDown
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                    />
+                  </div>
                 </label>
               ) : shipmentAction.mode === "status" ? (
                 <label>
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Next Status
                   </span>
-                  <select
-                    value={nextStatus}
-                    onChange={(event) =>
-                      setNextStatus(
-                        event.target.value as ShipmentOperationalStatus,
-                      )
-                    }
-                    className="mt-2 h-10 w-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
-                  >
-                    {shipmentOperationalStatusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative mt-2">
+                    <select
+                      value={nextStatus}
+                      onChange={(event) =>
+                        setNextStatus(
+                          event.target.value as ShipmentOperationalStatus,
+                        )
+                      }
+                      className="h-10 w-full appearance-none border border-slate-300 bg-white px-3 pr-10 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
+                    >
+                      {statusChoices.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          // A stage the shipment has not reached yet. Shown rather
+                          // than hidden so the whole journey stays visible and the
+                          // outstanding step explains itself.
+                          disabled={option.missing.length > 0}
+                        >
+                          {option.label}
+                          {option.missing.length ? "- not yet reached" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <FiArrowDown
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                    />
+                  </div>
+                  {/* Says which step is outstanding before anything is submitted,
+                      rather than leaving the server to explain it afterwards. */}
+                  {blockedStatus?.missing.length ? (
+                    <p className="mt-2 text-xs font-medium leading-5 text-amber-700">
+                      Record{" "}
+                      {blockedStatus.missing
+                        .map((status) => shipmentOperationalStatusOptions.find((option) => option.value === status)?.label ?? status)
+                        .join(", ")}{" "}
+                      before {blockedStatus.label.toLowerCase()} becomes available. Shipment progress is
+                      recorded in order.
+                    </p>
+                  ) : null}
                 </label>
               ) : (
                 <div>
@@ -652,7 +708,9 @@ export default function DpdLabelsPage() {
                   disabled={
                     busy ||
                     (shipmentAction.mode !== "status" &&
-                      actionNote.trim().length < 3)
+                      actionNote.trim().length < 3) ||
+                    (shipmentAction.mode === "status" &&
+                      Boolean(blockedStatus?.missing.length))
                   }
                   className="h-10 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
@@ -837,6 +895,13 @@ export default function DpdLabelsPage() {
                                   mode: "status",
                                   shipment: item,
                                 });
+                                // Opens on the earliest stage this shipment may
+                                // record, never on a status the row already has.
+                                setNextStatus(
+                                  firstAllowedOperationalStatus(
+                                    (item.events ?? []).map((event) => event.status),
+                                  ),
+                                );
                                 setActionNote("");
                               }}
                               className="font-semibold text-blue-900 hover:text-blue-700"

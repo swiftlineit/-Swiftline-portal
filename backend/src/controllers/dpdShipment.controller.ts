@@ -38,6 +38,7 @@ import {
   findMissingPrerequisites,
   formatShipmentEventLabel
 } from "../services/shipmentStatusSequence.service.js";
+import { bulkRecordOperationalStatus } from "../services/bulkShipmentStatus.service.js";
 import {
   DpdLabelUnavailableError,
   DpdShipmentServiceError,
@@ -69,6 +70,15 @@ const releaseShipmentSchema = z.object({
 });
 
 const updateShipmentStatusSchema = z.object({
+  status: z.enum(shipmentOperationalStatusValues),
+  note: z.string().trim().max(500).optional().default(""),
+  location: eventLocationSchema
+});
+
+const bulkStatusUpdateSchema = z.object({
+  shipmentDraftIds: z.array(
+    z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Select valid shipments.")
+  ).min(1, "Select at least one shipment.").max(200, "A bulk update can cover up to 200 shipments."),
   status: z.enum(shipmentOperationalStatusValues),
   note: z.string().trim().max(500).optional().default(""),
   location: eventLocationSchema
@@ -1074,6 +1084,39 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
     message: "Shipment status updated.",
     event: serializeShipmentEvent(event)
   });
+}
+
+export async function bulkUpdateDpdShipmentOperationalStatus(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = bulkStatusUpdateSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: "Shipment status is invalid.",
+      errors: parsed.error.format()
+    });
+  }
+
+  try {
+    const result = await bulkRecordOperationalStatus({
+      shipmentDraftIds: parsed.data.shipmentDraftIds,
+      status: parsed.data.status,
+      note: parsed.data.note,
+      location: parsed.data.location,
+      userId
+    });
+
+    const statusLabel = formatShipmentEventLabel(parsed.data.status);
+    const message = result.updatedCount
+      ? `${result.updatedCount} ${result.updatedCount === 1 ? "shipment was" : "shipments were"} updated to ${statusLabel}.`
+      : `No shipments could be updated to ${statusLabel}.`;
+
+    return response.status(200).json({ success: true, message, ...result });
+  } catch (error) {
+    return response.status(500).json({ success: false, message: "The bulk status update could not be completed." });
+  }
 }
 
 export async function downloadDpdLabel(request: Request, response: Response): Promise<Response | void> {
