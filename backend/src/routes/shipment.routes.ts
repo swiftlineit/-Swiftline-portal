@@ -1,5 +1,8 @@
 import { Router } from "express";
-import { listAdminBookedShipments } from "../controllers/shipmentListing.controller.js";
+import {
+  deleteBookedShipmentHandler,
+  listAdminBookedShipments
+} from "../controllers/shipmentListing.controller.js";
 import {
   downloadStaffShipmentDocument,
   listStaffShipmentDocuments,
@@ -19,3 +22,6 @@ shipmentRouter.get("/search", searchStaff);
 shipmentRouter.get("/:draftId/documents", listStaffShipmentDocuments);
 shipmentRouter.get("/:draftId/documents/:documentId", downloadStaffShipmentDocument);
 shipmentRouter.get("/", listAdminBookedShipments);
+// Narrower than the router-wide floor: operations and delivery work this list
+// every day, but taking a booked shipment off it is an admin decision.
+shipmentRouter.delete("/:draftId", requireRole("admin"), deleteBookedShipmentHandler);

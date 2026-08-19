@@ -32,7 +32,15 @@ function numberValue(record: Record<string, unknown>, key: string) {
   return Number.isFinite(value) ? value : 0;
 }
 
-const columns = [42, 220, 285, 350, 415, 480, 549];
+// The description column carries free-text box contents, so it takes the extra
+// width the numeric columns do not need. The rest are sized against their widest
+// content at 7pt: "Chargeable KG" as a header (50.5pt) and a lakh-scale amount
+// such as "INR 12,34,567.00" (54.9pt), both of which must stay on one line.
+const columns = [42, 249, 305, 367, 429, 483, 549];
+
+function cellWidth(index: number) {
+  return columns[index + 1]! - columns[index]! - 8;
+}
 
 function dimensions(record: Record<string, unknown>) {
   const length = numberValue(record, "lengthCm");
@@ -53,8 +61,16 @@ function drawColumnSeparators(doc: PDFKit.PDFDocument, y: number, height: number
   for (const x of columns.slice(1, -1)) doc.moveTo(x, y).lineTo(x, y + height).stroke();
 }
 
-function drawLabelValue(doc: PDFKit.PDFDocument, label: string, value: string, x: number, y: number, width: number) {
-  doc.rect(x, y, width, 48).lineWidth(0.8).strokeColor("#cbd5e1").stroke();
+// A long destination ("WOLVERHAMPTON, UNITED KINGDOM") wraps onto two or three
+// lines and used to run past the fixed 48pt border, so the box is measured first
+// and the whole row is drawn at the tallest result.
+function measureLabelValueHeight(doc: PDFKit.PDFDocument, value: string, width: number) {
+  const valueHeight = doc.font("Helvetica-Bold").fontSize(8.5).heightOfString(value, { width: width - 16, lineGap: 2 });
+  return Math.max(48, 24 + valueHeight + 10);
+}
+
+function drawLabelValue(doc: PDFKit.PDFDocument, label: string, value: string, x: number, y: number, width: number, height: number) {
+  doc.rect(x, y, width, height).lineWidth(0.8).strokeColor("#cbd5e1").stroke();
   doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text(label.toUpperCase(), x + 8, y + 9, { width: width - 16 });
   doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#0f172a").text(value, x + 8, y + 24, { width: width - 16, lineGap: 2 });
 }
@@ -149,25 +165,45 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   drawPartyBox(doc, "Bill To / Customer", customer, 302, partyY, 247, partyHeight, false);
 
   const detailY = partyY + partyHeight + 16;
-  drawLabelValue(doc, "Origin", textValue(shipment, "origin"), 42, detailY, 120);
-  drawLabelValue(doc, "Destination", textValue(shipment, "destination"), 169, detailY, 120);
-  drawLabelValue(doc, "Currency", invoice.currency, 296, detailY, 120);
-  drawLabelValue(doc, "Boxes", String(parcels.length), 423, detailY, 126);
+  const detailBoxes = [
+    { label: "Origin", value: textValue(shipment, "origin"), x: 42, width: 120 },
+    { label: "Destination", value: textValue(shipment, "destination"), x: 169, width: 120 },
+    { label: "Currency", value: invoice.currency, x: 296, width: 120 },
+    { label: "Boxes", value: String(parcels.length), x: 423, width: 126 }
+  ];
+  const detailHeight = Math.max(...detailBoxes.map((box) => measureLabelValueHeight(doc, box.value, box.width)));
+  for (const box of detailBoxes) drawLabelValue(doc, box.label, box.value, box.x, detailY, box.width, detailHeight);
 
-  let y = detailY + 64;
+  let y = detailY + detailHeight + 16;
   doc.rect(42, y, 507, 25).fill("#0f2f5f");
   drawColumnSeparators(doc, y, 25, "#ffffff");
   const headers = ["Description", "Actual KG", "Volumetric KG", "Chargeable KG", "Rate/KG", "Amount"];
   doc.font("Helvetica-Bold").fontSize(7).fillColor("#ffffff");
   headers.forEach((header, index) => doc.text(header, columns[index]! + 4, y + 9, {
-    width: columns[index + 1]! - columns[index]! - 8,
+    width: cellWidth(index),
     align: "center"
   }));
   y += 25;
 
   for (const [index, parcel] of parcels.entries()) {
-    const boxHeight = 50;
-    if (y + boxHeight > 640) {
+    const values = [
+      textValue(parcel, "contentsDescription").toUpperCase(),
+      numberValue(parcel, "actualWeightKg").toFixed(3),
+      numberValue(parcel, "volumetricWeightKg").toFixed(3),
+      numberValue(parcel, "chargeableWeightKg").toFixed(3),
+      money(Math.round(numberValue(parcel, "chargesPerKg") * 100), invoice.currency),
+      money(Math.round(numberValue(parcel, "baseAmount") * 100), invoice.currency)
+    ];
+    // A long contents list must never be cut off, so the row grows to whatever the
+    // wrapped cells need instead of clipping at a fixed 28pt, and each cell is
+    // centred against the row it ends up in.
+    doc.font("Helvetica").fontSize(7);
+    const cellHeights = values.map((value, valueIndex) => doc.heightOfString(value, {
+      width: cellWidth(valueIndex),
+      align: "center"
+    }));
+    const rowHeight = Math.max(28, Math.max(...cellHeights) + 16);
+    if (y + 22 + rowHeight > 640) {
       doc.addPage();
       y = 48;
     }
@@ -181,22 +217,14 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
     );
     y += 22;
     doc.lineWidth(0.75);
-    doc.rect(42, y, 507, 28).fillAndStroke("#ffffff", "#0f172a");
-    drawColumnSeparators(doc, y, 28, "#0f172a");
-    const values = [
-      textValue(parcel, "contentsDescription").toUpperCase(),
-      numberValue(parcel, "actualWeightKg").toFixed(3),
-      numberValue(parcel, "volumetricWeightKg").toFixed(3),
-      numberValue(parcel, "chargeableWeightKg").toFixed(3),
-      money(Math.round(numberValue(parcel, "chargesPerKg") * 100), invoice.currency),
-      money(Math.round(numberValue(parcel, "baseAmount") * 100), invoice.currency)
-    ];
+    doc.rect(42, y, 507, rowHeight).fillAndStroke("#ffffff", "#0f172a");
+    drawColumnSeparators(doc, y, rowHeight, "#0f172a");
     doc.font("Helvetica").fontSize(7).fillColor("#0f172a");
-    values.forEach((value, valueIndex) => doc.text(value, columns[valueIndex]! + 4, y + 8, {
-      width: columns[valueIndex + 1]! - columns[valueIndex]! - 8,
+    values.forEach((value, valueIndex) => doc.text(value, columns[valueIndex]! + 4, y + (rowHeight - cellHeights[valueIndex]!) / 2, {
+      width: cellWidth(valueIndex),
       align: "center"
     }));
-    y += 28;
+    y += rowHeight;
   }
 
   // Charges that apply to the whole shipment rather than to one box: surcharges,
@@ -204,31 +232,48 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   // line under the per-box rows, so the rows above plus these always add up to the
   // taxable value printed below.
   for (const line of getShipmentLevelInvoiceLines(pricingSnapshot)) {
-    if (y + 28 > 640) {
+    const label = line.label.toUpperCase();
+    const amount = `${line.kind === "DEDUCTION" ? "-" : ""}${money(line.amountMinor, invoice.currency)}`;
+    const labelWidth = columns[4]! - columns[0]! - 8;
+    const amountWidth = cellWidth(5);
+    const labelHeight = doc.font("Helvetica-Bold").fontSize(7).heightOfString(label, { width: labelWidth });
+    const amountHeight = doc.font("Helvetica").fontSize(7).heightOfString(amount, { width: amountWidth, align: "center" });
+    const rowHeight = Math.max(28, Math.max(labelHeight, amountHeight) + 16);
+    if (y + rowHeight > 640) {
       doc.addPage();
       y = 48;
     }
     doc.lineWidth(0.75);
-    doc.rect(42, y, 507, 28).fillAndStroke("#ffffff", "#0f172a");
-    doc.lineWidth(0.5).strokeColor("#0f172a").moveTo(columns[5]!, y).lineTo(columns[5]!, y + 28).stroke();
+    doc.rect(42, y, 507, rowHeight).fillAndStroke("#ffffff", "#0f172a");
+    doc.lineWidth(0.5).strokeColor("#0f172a").moveTo(columns[5]!, y).lineTo(columns[5]!, y + rowHeight).stroke();
     doc.font("Helvetica-Bold").fontSize(7).fillColor("#0f172a").text(
-      line.label.toUpperCase(),
+      label,
       columns[0]! + 4,
-      y + 8,
-      { width: columns[4]! - columns[0]! - 8, align: "left" }
+      y + (rowHeight - labelHeight) / 2,
+      { width: labelWidth, align: "left" }
     );
     doc.font("Helvetica").fontSize(7).text(
-      `${line.kind === "DEDUCTION" ? "-" : ""}${money(line.amountMinor, invoice.currency)}`,
+      amount,
       columns[5]! + 4,
-      y + 8,
-      { width: columns[6]! - columns[5]! - 8, align: "center" }
+      y + (rowHeight - amountHeight) / 2,
+      { width: amountWidth, align: "center" }
     );
-    y += 28;
+    y += rowHeight;
   }
 
   y += 16;
+  const deliveryAddress = textValue(shipment, "deliveryAddress");
+  const deliveryAddressHeight = doc.font("Helvetica").fontSize(8).heightOfString(deliveryAddress, { width: 280 });
+  // The tax summary sits to the right of the address and the amount-in-words box
+  // sits under both, so the tail clears whichever column runs longer and moves to
+  // a fresh page when it would otherwise reach the page footer.
+  const wordsOffset = Math.max(92, 28 + deliveryAddressHeight);
+  if (y + wordsOffset + 103 > 790) {
+    doc.addPage();
+    y = 48;
+  }
   doc.font("Helvetica-Bold").fontSize(8).fillColor("#64748b").text("DELIVERY ADDRESS", 42, y);
-  doc.font("Helvetica").fontSize(8).fillColor("#0f172a").text(textValue(shipment, "deliveryAddress"), 42, y + 14, { width: 280, height: 48 });
+  doc.font("Helvetica").fontSize(8).fillColor("#0f172a").text(deliveryAddress, 42, y + 14, { width: 280 });
 
   drawTaxRow(doc, "Taxable Value", invoice.taxableValueMinor, y, invoice.currency);
   if (invoice.taxType === "CGST_SGST") {
@@ -239,7 +284,7 @@ export function createShipmentInvoicePdf(invoice: ShipmentInvoiceDocument) {
   }
   drawTaxRow(doc, "Total Chargeable", invoice.totalAmountMinor, y + 58, invoice.currency, true);
 
-  const wordsY = y + 92;
+  const wordsY = y + wordsOffset;
   doc.lineWidth(1).rect(42, wordsY, 507, 44).strokeColor("#cbd5e1").stroke();
   doc.font("Helvetica-Bold").fontSize(8).fillColor("#0f172a").text("Amount in words", 52, wordsY + 8);
   doc.font("Helvetica").fontSize(8).text(amountMinorToWords(invoice.totalAmountMinor, invoice.currency), 52, wordsY + 21, { width: 487 });

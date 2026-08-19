@@ -2,6 +2,10 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
+import { DpdShipment } from "../models/dpdShipment.model.js";
+import { ShipmentDraft } from "../models/shipmentDraft.model.js";
+import { deleteBookedShipment } from "../services/shipmentDraftDeletion.service.js";
+import { ShipmentDraftPolicyError } from "../services/shipmentDraftPolicy.service.js";
 import {
   allShipmentStatuses,
   bookedShipmentStatuses,
@@ -84,6 +88,55 @@ export async function listAdminBookedShipments(request: Request, response: Respo
 
   if (format) return sendShipmentExport(request, response, format, result.shipments, "Swiftline staff");
   return response.status(200).json({ success: true, ...result });
+}
+
+/**
+ * Removes a booked shipment from the staff and client lists. Admin only.
+ *
+ * Scoped to shipments that actually reached the carrier, which is exactly what
+ * this router lists. An unbooked draft is sent back to the drafts endpoint
+ * instead, so it keeps going through the deletion blockers there rather than
+ * round the side of them.
+ */
+export async function deleteBookedShipmentHandler(request: Request, response: Response) {
+  const userId = getUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const draftId = typeof request.params.draftId === "string" ? request.params.draftId : "";
+  if (!mongoose.Types.ObjectId.isValid(draftId)) {
+    return response.status(404).json({ success: false, message: "Shipment not found." });
+  }
+
+  const draft = await ShipmentDraft.findOne({ _id: draftId, deletedAt: null }).exec();
+  if (!draft) return response.status(404).json({ success: false, message: "Shipment not found." });
+
+  const booked = await DpdShipment.exists({ shipmentDraftId: draft._id });
+  if (!booked) {
+    return response.status(409).json({
+      success: false,
+      message: "This shipment has not been booked with the carrier. Delete it from the shipment drafts list instead."
+    });
+  }
+
+  const portalRole = (request as Request & { user?: { role?: unknown } }).user?.role;
+  try {
+    await deleteBookedShipment({
+      draft,
+      userId,
+      portalRole: typeof portalRole === "string" ? portalRole : ""
+    });
+  } catch (error) {
+    if (error instanceof ShipmentDraftPolicyError) {
+      return response.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    throw error;
+  }
+
+  return response.status(200).json({
+    success: true,
+    message: "Shipment deleted.",
+    shipmentDraftId: draftId
+  });
 }
 
 export async function listClientBookedShipments(request: Request, response: Response) {

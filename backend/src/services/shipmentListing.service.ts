@@ -115,7 +115,10 @@ function joinPlace(values: Array<string | undefined>) {
  * returned labels, which is also the point a shipment becomes manifestable.
  */
 export async function listBookedShipments(filter: ShipmentListingFilter) {
-  const draftFilter: Record<string, unknown> = {};
+  // A deleted shipment leaves its DpdShipment behind, so the carrier lookup
+  // below still finds it. The draft is what decides whether it is still live,
+  // and both audiences and the exports read this same filter.
+  const draftFilter: Record<string, unknown> = { deletedAt: null };
   if (filter.businessAccountIds) draftFilter.businessAccountId = { $in: filter.businessAccountIds };
   if (filter.branchIds) draftFilter.branchId = { $in: filter.branchIds };
   const createdAt = dateRangeCondition(filter.dateFrom, filter.dateTo);

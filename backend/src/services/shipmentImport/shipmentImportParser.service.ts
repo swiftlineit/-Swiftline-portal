@@ -1,5 +1,10 @@
 import ExcelJS from "exceljs";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
+import {
+  AgentInvoiceParseError,
+  isAgentInvoiceWorkbook,
+  parseAgentInvoiceWorkbook
+} from "./agentInvoiceParser.service.js";
 import { isValidHsnCode } from "../parcelItems.service.js";
 import { getCountryCodeByName } from "../reference/portalCountries.js";
 import type { CsbType } from "../csbType.service.js";
@@ -46,6 +51,8 @@ export type ParsedShipmentImport = {
   declarationNote: string;
   consignor: {
     companyName: string; contactName: string; email: string; mobileNumber: string;
+    // Only the agent invoice format carries one; the template has no such column.
+    aadhaarNumber?: string;
     addressLine1: string; addressLine2: string; townOrCity: string; county: string;
     postcode: string; pickupInstructions: string;
   };
@@ -111,14 +118,25 @@ export class ShipmentImportParseError extends Error {
   }
 }
 
-export async function parseShipmentImportWorkbook(contents: Buffer): Promise<ParsedShipmentImport> {
+async function loadWorkbook(contents: Buffer, message: string) {
   const workbook = new ExcelJS.Workbook();
   try {
     await workbook.xlsx.load(contents as unknown as ArrayBuffer);
   } catch {
-    throw new ShipmentImportParseError(["The file could not be opened. Upload the Swiftline Shipment Import .xlsx template."]);
+    throw new ShipmentImportParseError([message]);
   }
+  return workbook;
+}
 
+export async function parseShipmentImportWorkbook(contents: Buffer): Promise<ParsedShipmentImport> {
+  const workbook = await loadWorkbook(
+    contents,
+    "The file could not be opened. Upload the Swiftline Shipment Import .xlsx template."
+  );
+  return parseTemplateWorkbook(workbook);
+}
+
+function parseTemplateWorkbook(workbook: ExcelJS.Workbook): ParsedShipmentImport {
   const shipmentSheet = workbook.getWorksheet(shipmentImportSheetNames.shipment);
   const parcelSheet = workbook.getWorksheet(shipmentImportSheetNames.parcels);
   const itemSheet = workbook.getWorksheet(shipmentImportSheetNames.items);
@@ -290,4 +308,52 @@ export async function parseShipmentImportWorkbook(contents: Buffer): Promise<Par
     warnings: [...new Set(warnings)],
     errors: [...new Set(errors)]
   };
+}
+
+function hasTemplateSheets(workbook: ExcelJS.Workbook) {
+  return Boolean(
+    workbook.getWorksheet(shipmentImportSheetNames.shipment)
+    || workbook.getWorksheet(shipmentImportSheetNames.parcels)
+    || workbook.getWorksheet(shipmentImportSheetNames.items)
+  );
+}
+
+/**
+ * Reads one uploaded workbook in whichever format it turns out to be.
+ *
+ * The template is tried first and on exactly the terms it always had: a file
+ * carrying any of its three worksheets goes down the template path and reaches
+ * the same errors it did before this second format existed. Only a file with
+ * none of them is offered to the agent invoice reader, so nothing a template
+ * upload does can change.
+ *
+ * `allowAgentInvoice` is off for clients. The invoice format is staff-only, and
+ * the check lives here rather than on the route so it holds for every caller.
+ */
+export async function parseShipmentImportUpload(
+  contents: Buffer,
+  options: { allowAgentInvoice: boolean }
+): Promise<ParsedShipmentImport> {
+  const unreadableMessage = options.allowAgentInvoice
+    ? "The file could not be opened. Upload the Swiftline Shipment Import .xlsx template or an agent invoice .xlsx."
+    : "The file could not be opened. Upload the Swiftline Shipment Import .xlsx template.";
+  const workbook = await loadWorkbook(contents, unreadableMessage);
+
+  if (hasTemplateSheets(workbook)) return parseTemplateWorkbook(workbook);
+
+  if (options.allowAgentInvoice && isAgentInvoiceWorkbook(workbook)) {
+    try {
+      return parseAgentInvoiceWorkbook(workbook);
+    } catch (error) {
+      // Re-thrown as the import error the controller already knows how to
+      // record, so an invoice fault reads like any other import fault.
+      throw error instanceof AgentInvoiceParseError
+        ? new ShipmentImportParseError(error.issues)
+        : error;
+    }
+  }
+
+  // Falls through to the template reader so an upload that is neither format
+  // still gets the "which worksheets are missing" message it always got.
+  return parseTemplateWorkbook(workbook);
 }

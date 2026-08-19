@@ -15,9 +15,10 @@ import {
 export const shipmentDraftRestoreWindowMs = 15 * 60 * 1000;
 
 async function writeDeletionAudit(
-  action: "SHIPMENT_DRAFT_DELETED" | "SHIPMENT_DRAFT_RESTORED",
+  action: "SHIPMENT_DRAFT_DELETED" | "SHIPMENT_DRAFT_RESTORED" | "BOOKED_SHIPMENT_DELETED",
   draft: IShipmentDraft,
-  userId: mongoose.Types.ObjectId
+  userId: mongoose.Types.ObjectId,
+  extra: Record<string, unknown> = {}
 ) {
   await AuditLog.create({
     action,
@@ -32,7 +33,8 @@ async function writeDeletionAudit(
       shipmentImportEntryId: draft.shipmentImportEntryId,
       customerType: draft.customerType,
       consigneeName: draft.consigneeEnteredAddress?.contactName ?? "",
-      parcelCount: draft.parcelList?.length ?? 0
+      parcelCount: draft.parcelList?.length ?? 0,
+      ...extra
     }
   });
 }
@@ -67,6 +69,53 @@ export async function deleteShipmentDraft(input: {
   }
 
   await writeDeletionAudit("SHIPMENT_DRAFT_DELETED", deleted, input.userId);
+  return deleted;
+}
+
+/**
+ * Soft-deletes a shipment the carrier has already been given, admin only.
+ *
+ * This deliberately skips `assertShipmentDraftDeletable`. That guard refuses any
+ * draft with a carrier booking, an invoice, a manifest, a pickup or a live
+ * reservation- and every shipment this serves has a carrier booking by
+ * definition, so it would refuse all of them. What the guard exists to protect
+ * is preserved by other means: nothing is destroyed here. The DpdShipment, the
+ * tax invoice with its statutory number, manifests, pickups and reservations are
+ * all left exactly as they were, so no record is orphaned and the removal can be
+ * undone with `restoreShipmentDraft`. Only the draft stops being live, which is
+ * what takes the row out of the shipment lists.
+ *
+ * Cancellation remains the route that unwinds a shipment's money and tells the
+ * customer; this only takes a row off the board.
+ */
+export async function deleteBookedShipment(input: {
+  draft: IShipmentDraft;
+  userId: mongoose.Types.ObjectId;
+  portalRole: string;
+}) {
+  // Checked here as well as on the route so the rule travels with the operation
+  // rather than living only in the router that happens to expose it today.
+  if (input.portalRole !== "admin") {
+    throw new ShipmentDraftPolicyError("Only an administrator may delete a booked shipment.", 403);
+  }
+
+  // Conditional on the shipment still being live so two concurrent deletes
+  // cannot both report success and write two audit rows.
+  const deleted = await ShipmentDraft.findOneAndUpdate(
+    { _id: input.draft._id, deletedAt: null },
+    { $set: { deletedAt: new Date(), deletedBy: input.userId } },
+    { returnDocument: "after" }
+  ).exec();
+
+  if (!deleted) {
+    throw new ShipmentDraftPolicyError("This shipment has already been deleted.", 409);
+  }
+
+  await writeDeletionAudit("BOOKED_SHIPMENT_DELETED", deleted, input.userId, {
+    // The identifier an auditor will have in hand when asking why a shipment
+    // vanished from the list.
+    allocatedTrackingNumber: deleted.allocatedTrackingNumber
+  });
   return deleted;
 }
 

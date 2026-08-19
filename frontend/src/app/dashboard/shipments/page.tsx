@@ -10,6 +10,6 @@ export default function AdminShipmentsPage() {
   if (loading || !user) return <DashboardLoading />;
 
   return (
-    <ShipmentsListPage audience="admin" />
+    <ShipmentsListPage audience="admin" role={user.role} />
   );
 }

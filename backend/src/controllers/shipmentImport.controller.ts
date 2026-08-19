@@ -10,7 +10,7 @@ import { ShipmentImportBatch } from "../models/shipmentImportBatch.model.js";
 import { ShipmentImportEntry } from "../models/shipmentImportEntry.model.js";
 import { canAccessBranch } from "../middleware/branchAccess.middleware.js";
 import {
-  parseShipmentImportWorkbook,
+  parseShipmentImportUpload,
   ShipmentImportParseError,
   type ParsedShipmentImport
 } from "../services/shipmentImport/shipmentImportParser.service.js";
@@ -34,6 +34,16 @@ type AuthenticatedUser = { _id?: unknown; role?: string };
 
 function authenticatedUser(request: Request) {
   return (request as Request & { user?: AuthenticatedUser }).user;
+}
+
+/**
+ * The agent invoice format is staff-only for now. Client uploads keep taking
+ * the template path alone, so an invoice file sent by a client is refused with
+ * the same "worksheets missing" message any other non-template file gets.
+ */
+const agentInvoiceRoles = new Set(["admin", "operations"]);
+function allowsAgentInvoice(request: Request) {
+  return agentInvoiceRoles.has(String(authenticatedUser(request)?.role ?? ""));
 }
 
 function authenticatedUserId(request: Request) {
@@ -229,7 +239,9 @@ export async function createShipmentImportBatch(request: Request, response: Resp
       let warnings: string[] = [];
       let errors: string[] = [];
       try {
-        parsedData = await parseShipmentImportWorkbook(file.buffer);
+        parsedData = await parseShipmentImportUpload(file.buffer, {
+          allowAgentInvoice: allowsAgentInvoice(request)
+        });
         warnings = parsedData.warnings;
         errors = parsedData.errors;
       } catch (error) {

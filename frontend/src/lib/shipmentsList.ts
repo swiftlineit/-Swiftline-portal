@@ -185,6 +185,22 @@ export async function listShipments(audience: ShipmentAudience, input: {
   }>(`${base}?${params.toString()}`);
 }
 
+/**
+ * Takes a booked shipment off the shipment lists. Admin only; the server
+ * refuses every other role.
+ *
+ * The delete is soft. The carrier booking, the tax invoice and its number, any
+ * manifest, and the audit trail all stay where they are- this hides the
+ * shipment rather than destroying anything, and it does not unwind the money.
+ * Cancelling a shipment is still a separate action.
+ */
+export async function deleteBookedShipment(shipmentId: string) {
+  return requestJson<{ success: true; message: string }>(
+    `/api/v1/shipments/${shipmentId}`,
+    { method: "DELETE" }
+  );
+}
+
 export function shipmentDetailsHref(audience: ShipmentAudience, shipmentId: string) {
   return audience === "client" ? `/client/shipments/${shipmentId}` : `/dashboard/shipments/${shipmentId}`;
 }
