@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { FiCheck, FiEdit2, FiEye, FiFileText, FiRefreshCw, FiX } from "react-icons/fi";
+import { FiCheck, FiEye, FiFileText, FiRefreshCw, FiX } from "react-icons/fi";
 import { GrDocumentConfig } from "react-icons/gr";
+import { toast } from "react-toastify";
 
 import { DashboardLoading } from "@/components/DashboardShell";
 import CreditAgreementPreviewDialog from "@/components/credit/CreditAgreementPreviewDialog";
 import CreditApprovalDialog from "@/components/credit/CreditApprovalDialog";
+import CreditRowActions from "@/components/credit/CreditRowActions";
 import CreditStatusBadge from "@/components/credit/CreditStatusBadge";
 import {
   createAdminCreditAgreementDraft,
@@ -49,8 +50,6 @@ export default function AdminCreditAccountsPage() {
   const [selected, setSelected] = useState<CreditAccount | null>(null);
   const [previewAgreement, setPreviewAgreement] = useState<CreditAgreement | null>(null);
   const [busyId, setBusyId] = useState("");
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [dataLoading, setDataLoading] = useState(true);
 
   const latestAgreementByBusiness = useMemo(() => {
@@ -63,7 +62,6 @@ export default function AdminCreditAccountsPage() {
 
   async function loadData() {
     setDataLoading(true);
-    setError("");
     try {
       const [creditResult, agreementResult] = await Promise.all([
         listAdminCreditAccounts(status),
@@ -72,7 +70,7 @@ export default function AdminCreditAccountsPage() {
       setAccounts(creditResult.creditAccounts);
       setAgreements(agreementResult.agreements);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to load credit accounts.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to load credit accounts.");
     } finally {
       setDataLoading(false);
     }
@@ -88,7 +86,7 @@ export default function AdminCreditAccountsPage() {
         setAgreements(agreementResult.agreements);
       })
       .catch((caughtError: unknown) => {
-        if (active) setError(caughtError instanceof Error ? caughtError.message : "Unable to load credit accounts.");
+        if (active) toast.error(caughtError instanceof Error ? caughtError.message : "Unable to load credit accounts.");
       })
       .finally(() => {
         if (active) setDataLoading(false);
@@ -98,20 +96,20 @@ export default function AdminCreditAccountsPage() {
 
   async function saved(notice: string) {
     setSelected(null);
-    setMessage(notice);
+    toast.success(notice);
     await loadData();
   }
 
   async function activate(account: CreditAccount) {
     setBusyId(account.businessAccountId);
-    setError("");
-    setMessage("");
     try {
       const result = await activateCreditAccount(account.businessAccountId);
-      setMessage(result.message);
+      // Fired on the response, before the refetch: awaiting the reload first
+      // is what made these appear seconds after the click.
+      toast.success(result.message);
       await loadData();
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to activate credit.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to activate credit.");
     } finally {
       setBusyId("");
     }
@@ -121,14 +119,12 @@ export default function AdminCreditAccountsPage() {
     const reason = window.prompt("Reason for rejecting this credit request:")?.trim();
     if (!reason) return;
     setBusyId(account.businessAccountId);
-    setError("");
-    setMessage("");
     try {
       const result = await rejectCreditAccount(account.businessAccountId, reason);
-      setMessage(result.message);
+      toast.success(result.message);
       await loadData();
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to reject credit.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to reject credit.");
     } finally {
       setBusyId("");
     }
@@ -136,18 +132,16 @@ export default function AdminCreditAccountsPage() {
 
   async function generateAgreement(account: CreditAccount, existing?: CreditAgreement) {
     setBusyId(account.businessAccountId);
-    setError("");
-    setMessage("");
     try {
       const draft = existing?.status === "DRAFT"
         ? existing
         : (await createAdminCreditAgreementDraft(account.businessAccountId)).agreement;
       const result = await generateAdminCreditAgreement(draft.id);
-      setMessage(result.message);
+      toast.success(result.message);
       setPreviewAgreement(result.agreement);
       await loadData();
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to generate the credit agreement.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to generate the credit agreement.");
     } finally {
       setBusyId("");
     }
@@ -205,26 +199,6 @@ export default function AdminCreditAccountsPage() {
           </div>
         </div>
 
-        {/* Alerts */}
-        {error ? (
-          <div
-            className="flex items-center gap-3 rounded-xl border-l-4 bg-white px-4 py-3 text-sm font-semibold shadow-sm"
-            style={{ borderColor: "#D71313", color: "#D71313" }}
-          >
-            <FiX className="shrink-0" />
-            {error}
-          </div>
-        ) : null}
-        {message ? (
-          <div
-            className="flex items-center gap-3 rounded-xl border-l-4 bg-white px-4 py-3 text-sm font-semibold shadow-sm"
-            style={{ borderColor: "#0D1282", color: "#0D1282" }}
-          >
-            <FiCheck className="shrink-0" />
-            {message}
-          </div>
-        ) : null}
-
         {/* Table card */}
         <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
           <div className="overflow-x-auto">
@@ -234,11 +208,11 @@ export default function AdminCreditAccountsPage() {
                   <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Customer</th>
                   <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Status</th>
                   <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Used</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Outstanding</th>
+                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Total Owed</th>
                   <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Available</th>
                   <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Advance</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Capacity</th>
                   <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Terms</th>
-                  <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Agreement</th>
                   <th className="whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wide ">Actions</th>
                 </tr>
               </thead>
@@ -258,6 +232,16 @@ export default function AdminCreditAccountsPage() {
                       <td className="px-4 py-4 text-left">
                         <p className="font-semibold text-slate-900 capitalize">{account.businessAccount?.companyName}</p>
                         <p className="mt-0.5 text-xs text-slate-400">{account.businessAccount?.accountId}</p>
+                        {/* Agreement state sits with the customer it belongs to, rather
+                            than taking a column of its own. */}
+                        <p className="mt-1 text-[11px] font-medium capitalize text-slate-500">
+                          {agreement ? agreement.status.replaceAll("_", " ") : "Not generated"}
+                        </p>
+                        {account.limitIncreaseRequest ? (
+                          <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                            Wants {formatCreditMoney(account.limitIncreaseRequest.requestedLimitMinor, account.currency)}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-4 py-4 text-left">
                         <CreditStatusBadge status={account.status} />
@@ -265,14 +249,19 @@ export default function AdminCreditAccountsPage() {
                       <td className="px-4 py-4 text-left text-slate-600">
                         {formatCreditMoney(account.usedCreditMinor, account.currency)}
                       </td>
-                      <td className="px-4 py-4 text-lefttext-slate-600  ">
+                      <td className="px-4 py-4 text-left text-slate-600">
+                        {formatCreditMoney(account.invoicedOutstandingMinor, account.currency)}
+                      </td>
+                      {/* Unbilled plus invoiced. Outstanding alone reads as zero until a
+                          cycle closes, so it hid balances that were genuinely owed. */}
+                      <td className="px-4 py-4 text-left font-medium text-slate-800">
+                        {formatCreditMoney(account.totalOwedMinor, account.currency)}
+                      </td>
+                      <td className="px-4 py-4 text-left text-slate-600">
                         {formatCreditMoney(account.availableCreditMinor, account.currency)}
                       </td>
                       <td className="px-4 py-4 text-left text-slate-600">
                         {formatCreditMoney(account.availableAdvanceMinor, account.currency)}
-                      </td>
-                      <td className="px-4 py-4 text-left text-slate-600">
-                        {formatCreditMoney(account.availableBookingCapacityMinor, account.currency)}
                       </td>
                       <td className="px-4 py-4 text-left">
                         <p className="font-medium text-slate-800">
@@ -281,89 +270,54 @@ export default function AdminCreditAccountsPage() {
                         <p className="mt-0.5 text-xs text-slate-400">{account.billingCycle}</p>
                       </td>
                       <td className="px-4 py-4 text-left">
-                        {agreement ? (
-                          <>
-                            <p className="font-medium text-slate-800 capitalize">{agreement.status.replaceAll("_", " ")}</p>
-                            {/* <p className="mt-0.5 text-xs text-slate-400">{agreement.agreementNumber}</p> */}
-                          </>
-                        ) : (
-                          <span
-                            className="text-sm  "                    
-                          >
-                            Not Generated
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-left">
-                        <div className="grid grid-cols-2 gap-1.5">
-  <Link
-    href={`/dashboard/credit-accounts/${account.businessAccountId}`}
-    title="Account"
-    className="inline-flex h-7 items-center gap-1 rounded-4xl border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
-    style={{ borderColor: "#0D1282", color: "#0D1282" }}
-  >
-    <FiEye size={12} /> Account
-  </Link>
-  {canSettle ? (
-  <button
-    type="button"
-    onClick={() => setSelected(account)}
-    title="Configure"
-    className="inline-flex h-7 items-center gap-1 rounded-4xl border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
-    style={{ borderColor: "#0D1282", color: "#0D1282" }}
-  >Configure
-    <GrDocumentConfig
- size={12} />
-  </button>
-  ) : null}
-  {canSettle && canGenerate ? (
-    <button
-      type="button"
-      onClick={() => void generateAgreement(account, agreement)}
-      disabled={isBusy}
-      title="Generate Agreement"
-      className="inline-flex h-7 items-center gap-1 rounded-4xl px-2 text-[11px] font-semibold text-slate-900 shadow-sm transition hover:opacity-90 disabled:opacity-50"
-      style={{ backgroundColor: "#F0DE36" }}
-    >
-      <FiFileText size={12} /> {isBusy ? "..." : "Generate"}
-    </button>
-  ) : null}
-  {agreement?.generatedDocument ? (
-    <button
-      type="button"
-      onClick={() => setPreviewAgreement(agreement)}
-      title="View Agreement"
-      className="inline-flex h-7 items-center gap-1 rounded-4xl border px-2 text-[11px] font-semibold transition hover:bg-slate-50"
-      style={{ borderColor: "#0D1282", color: "#0D1282" }}
-    >
-      <FiEye size={12} /> View
-    </button>
-  ) : null}
-  {canSettle && account.status === "APPROVED" ? (
-    <button
-      type="button"
-      onClick={() => void activate(account)}
-      disabled={isBusy}
-      title="Activate"
-      className="inline-flex h-7 items-center gap-1 rounded-4xl px-2 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
-      style={{ backgroundColor: "#0D1282" }}
-    >
-      <FiCheck size={12} /> Activate
-    </button>
-  ) : null}
-  {canSettle && ['PENDING_REVIEW', 'APPROVED'].includes(account.status) ? (
-    <button
-      type="button"
-      onClick={() => void reject(account)}
-      disabled={isBusy}
-      title="Reject"
-      className="inline-flex h-7 items-center gap-1 rounded-4xl border px-2 text-[11px] font-semibold transition hover:bg-red-50 disabled:opacity-50"
-      style={{ borderColor: "#D71313", color: "#D71313" }}
-    >
-      <FiX size={12} /> Reject
-    </button>
-  ) : null}
-</div>
+                        <CreditRowActions
+                          actions={[
+                            {
+                              label: "View account",
+                              icon: <FiEye size={13} aria-hidden="true" />,
+                              href: `/dashboard/credit-accounts/${account.businessAccountId}`
+                            },
+                            ...(canSettle
+                              ? [{
+                                  label: "Configure",
+                                  icon: <GrDocumentConfig size={13} aria-hidden="true" />,
+                                  onClick: () => setSelected(account)
+                                }]
+                              : []),
+                            ...(canSettle && canGenerate
+                              ? [{
+                                  label: isBusy ? "Generating..." : "Generate agreement",
+                                  icon: <FiFileText size={13} aria-hidden="true" />,
+                                  disabled: isBusy,
+                                  onClick: () => void generateAgreement(account, agreement)
+                                }]
+                              : []),
+                            ...(agreement?.generatedDocument
+                              ? [{
+                                  label: "View agreement",
+                                  icon: <FiEye size={13} aria-hidden="true" />,
+                                  onClick: () => setPreviewAgreement(agreement)
+                                }]
+                              : []),
+                            ...(canSettle && account.status === "APPROVED"
+                              ? [{
+                                  label: "Activate",
+                                  icon: <FiCheck size={13} aria-hidden="true" />,
+                                  disabled: isBusy,
+                                  onClick: () => void activate(account)
+                                }]
+                              : []),
+                            ...(canSettle && ["PENDING_REVIEW", "APPROVED"].includes(account.status)
+                              ? [{
+                                  label: "Reject",
+                                  icon: <FiX size={13} aria-hidden="true" />,
+                                  danger: true,
+                                  disabled: isBusy,
+                                  onClick: () => void reject(account)
+                                }]
+                              : [])
+                          ]}
+                        />
                       </td>
                     </tr>
                   );

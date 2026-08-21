@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FiCheckCircle, FiRefreshCw } from "react-icons/fi";
+import { FiCheckCircle, FiEdit3, FiRefreshCw } from "react-icons/fi";
 import {
   ShipmentChargeVerificationPreview,
   ShipmentChargeVerificationState,
@@ -57,6 +57,10 @@ export default function ShipmentChargeVerificationPanel({
   const [state, setState] = useState<ShipmentChargeVerificationState | null>(null);
   const [measurements, setMeasurements] = useState(() => initialMeasurements(parcelList));
   const [preview, setPreview] = useState<ShipmentChargeVerificationPreview | null>(null);
+  // Collapsed until Operations says the parcel measured differently. The booked
+  // weight is right on most shipments, and an open form on every one of them
+  // reads as an outstanding task that nobody actually owes.
+  const [formOpen, setFormOpen] = useState(false);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"PREVIEW" | "FINALIZE" | null>(null);
@@ -162,7 +166,7 @@ export default function ShipmentChargeVerificationPanel({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Final Weight &amp; Charge</h2>
-          <p className="mt-1 text-sm text-slate-600">Verify measured parcel details before Warehouse Scan In.</p>
+          <p className="mt-1 text-sm text-slate-600">Optional. Record the measured weight only if it differs from what was booked.</p>
         </div>
         {verification ? (
           <span className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
@@ -185,8 +189,24 @@ export default function ShipmentChargeVerificationPanel({
           <Summary label="Verified At" value={formatDashboardDateTime(verification.verifiedAt)} />
         </div>
       ) : !state?.eligible ? (
-        <div className="px-5 py-5 text-sm font-semibold text-amber-700">
-          {state?.message || "Final charge verification is not available for this shipment."}
+        // Not a warning any more: nothing is being held up, the correction is
+        // simply not open on this shipment right now.
+        <div className="px-5 py-5 text-sm text-slate-600">
+          {state?.message || "A measured weight cannot be recorded for this shipment."}
+        </div>
+      ) : !formOpen ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-5">
+          <p className="text-sm text-slate-600">
+            The booked weight and charge stand. Record a measured weight to recalculate them.
+          </p>
+          <button
+            type="button"
+            onClick={() => setFormOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-900 px-4 text-sm font-semibold text-blue-900 hover:bg-blue-50"
+          >
+            <FiEdit3 aria-hidden="true" />
+            Record Measured Weight
+          </button>
         </div>
       ) : (
         <div className="space-y-5 p-5">
@@ -259,7 +279,21 @@ export default function ShipmentChargeVerificationPanel({
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
               <FiCheckCircle aria-hidden="true" />
-              {busy === "FINALIZE" ? "Finalizing..." : "Finalize Weight & Charge"}
+              {busy === "FINALIZE" ? "Applying..." : "Apply Weight & Charge"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFormOpen(false);
+                setMeasurements(initialMeasurements(parcelList));
+                setPreview(null);
+                setNote("");
+                setError("");
+              }}
+              disabled={Boolean(busy)}
+              className="inline-flex h-10 items-center rounded-lg px-4 text-sm font-semibold text-slate-600 hover:text-slate-950 disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              Cancel
             </button>
           </div>
         </div>
@@ -327,6 +361,11 @@ function VerificationPreview({ preview }: { preview: ShipmentChargeVerificationP
             <>
               <FundingItem label="Credit Reduced" amountMinor={adjustment.creditReducedMinor} />
               <FundingItem label="Customer Advance Refunded" amountMinor={adjustment.advanceRefundedMinor} />
+              {/* Only appears once the invoice has been billed and settled, when
+                  there is no outstanding balance left to take the reduction off. */}
+              {adjustment.advanceCreditedMinor > 0 ? (
+                <FundingItem label="Returned to Customer Advance" amountMinor={adjustment.advanceCreditedMinor} />
+              ) : null}
             </>
           )}
         </div>

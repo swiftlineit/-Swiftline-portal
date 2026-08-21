@@ -157,7 +157,6 @@ describe("shipment label PDFs", () => {
     assert.ok(drawn.includes("1 OF 1"), "piece count missing");
     assert.ok(drawn.includes("12.50 KG"), "weight missing");
     assert.ok(drawn.includes("SW1A 2AA  GB"), "postcode missing");
-    assert.ok(drawn.includes("consignee@example.co.uk"), "consignee email missing");
     // The label carries no carrier identity of its own.
     assert.ok(!drawn.some((line) => /DPD/i.test(line)), `carrier wording leaked: ${shown}`);
   });
@@ -182,13 +181,17 @@ describe("shipment label PDFs", () => {
     assert.notEqual(postcode.font, street.font, "postcode should not use the address face");
   });
 
-  test("omits the email row entirely when the consignee has no address", async () => {
+  test("never prints the consignee email, even when the booking carries one", async () => {
+    // The label stops at the postcode row on purpose. The email stays on the
+    // booking snapshot for the portal to use; printing a customer's address on
+    // the outside of a parcel is not one of those uses.
     const data = labelData("SLCDEL200726001-01");
-    data.consignee.email = "";
+    assert.ok(data.consignee.email, "the fixture must carry an email for this to prove anything");
+
     const drawn = drawnText(await renderSwiftlineLabelPdf(data));
 
-    assert.ok(drawn.includes("SW1A 2AA  GB"));
-    assert.ok(!drawn.some((line) => line.includes("@")));
+    assert.ok(drawn.includes("SW1A 2AA  GB"), "the postcode row should still print");
+    assert.ok(!drawn.some((line) => line.includes("@")), "no email should reach the label");
   });
 });
 

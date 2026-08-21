@@ -9,7 +9,7 @@ import { CreditLedgerEntry } from "../models/creditLedgerEntry.model.js";
 import { CreditPayment } from "../models/creditPayment.model.js";
 import { PaymentTermsAcceptance } from "../models/paymentTerms.model.js";
 import {
-  closeCreditBillingCycle,
+  closeDueCreditBillingCycles,
   CreditBillingCycleError,
   getCreditBillingStatement,
   listCreditBillingStatements,
@@ -181,16 +181,34 @@ export async function downloadAdminStatement(request: Request, response: Respons
   streamStatementPdf(response, serializeCreditBillingStatement(statement), await businessCustomer(businessAccountId), request.query.download === "1");
 }
 
+/**
+ * Bills every completed period that has not been closed yet, newest last.
+ *
+ * Closing only the most recent period left any period that was missed
+ * unreachable: the button could never step back past the newest one, so those
+ * charges stayed unbilled for good. This is the same catch-up the nightly job
+ * runs, so pressing the button and waiting for the job produce the same result.
+ */
+async function closeDueCycles(
+  businessAccountId: mongoose.Types.ObjectId,
+  createdBy: mongoose.Types.ObjectId
+) {
+  const { closed, statements } = await closeDueCreditBillingCycles({ businessAccountId, createdBy });
+  const message = closed === 0
+    ? "No finalized unbilled shipment invoices were found for the completed billing periods."
+    : closed === 1
+      ? "Credit billing statement generated."
+      : `${closed} credit billing statements generated.`;
+  return { closed, statements, statement: statements[statements.length - 1] ?? null, message };
+}
+
 export async function closeAdminBillingCycle(request: Request, response: Response): Promise<Response> {
   const currentUserId = userId(request);
   const businessAccountId = adminBusinessAccountId(request);
   if (!currentUserId) return response.status(401).json({ success: false, message: "Please sign in again." });
   if (!businessAccountId) return response.status(400).json({ success: false, message: "Business account is invalid." });
-  const result = await closeCreditBillingCycle({ businessAccountId, createdBy: currentUserId });
-  const message = result.empty
-    ? "No finalized unbilled shipment invoices were found for the completed billing period."
-    : result.created ? "Credit billing statement generated." : "This billing period has already been closed.";
-  return response.status(result.created ? 201 : 200).json({ success: true, message, ...result });
+  const result = await closeDueCycles(businessAccountId, currentUserId);
+  return response.status(result.closed ? 201 : 200).json({ success: true, ...result });
 }
 
 const writeOffSchema = z.object({
@@ -256,11 +274,8 @@ export async function closeClientBillingCycle(request: Request, response: Respon
   if (!membership || !canCloseClientBillingCycle(membership.role)) {
     return response.status(403).json({ success: false, message: "Only the Finance member can close this billing cycle." });
   }
-  const result = await closeCreditBillingCycle({ businessAccountId, createdBy: currentUserId });
-  const message = result.empty
-    ? "No finalized unbilled shipment invoices were found for the completed billing period."
-    : result.created ? "Credit billing statement generated." : "This billing period has already been closed.";
-  return response.status(result.created ? 201 : 200).json({ success: true, message, ...result });
+  const result = await closeDueCycles(businessAccountId, currentUserId);
+  return response.status(result.closed ? 201 : 200).json({ success: true, ...result });
 }
 
 export async function createClientOnlinePayment(request: Request, response: Response): Promise<Response> {
@@ -487,6 +502,13 @@ export async function listClientPayments(request: Request, response: Response): 
 }
 
 function serializeLedgerEntry(entry: InstanceType<typeof CreditLedgerEntry>) {
+  // Booking rows record how the shipment was funded. The two figures are lifted
+  // out by name rather than passing the whole metadata object, which also holds
+  // internal reservation ids that no reader needs.
+  const metadata = (entry.metadata ?? {}) as Record<string, unknown>;
+  const fundingMinor = (key: string) =>
+    typeof metadata[key] === "number" ? (metadata[key] as number) : null;
+
   return {
     id: String(entry._id),
     type: entry.type,
@@ -496,6 +518,8 @@ function serializeLedgerEntry(entry: InstanceType<typeof CreditLedgerEntry>) {
     currency: entry.currency,
     availableCreditAfterMinor: entry.availableCreditAfterMinor,
     availableAdvanceAfterMinor: entry.availableAdvanceAfterMinor,
+    advanceAmountMinor: fundingMinor("advanceAmountMinor"),
+    creditAmountMinor: fundingMinor("creditAmountMinor"),
     createdAt: entry.createdAt
   };
 }

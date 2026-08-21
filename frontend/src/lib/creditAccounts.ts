@@ -22,6 +22,13 @@ export type CreditAccount = {
   availableCreditMinor?: number;
   availableAdvanceMinor?: number;
   availableBookingCapacityMinor?: number;
+  /** Unbilled plus invoiced: what is owed whether or not a statement exists yet. */
+  totalOwedMinor?: number;
+  /** Share of the limit committed, and whether it has crossed the warning threshold. */
+  utilizationPercent?: number;
+  warningActive?: boolean;
+  /** The customer's open ask for a higher limit, if there is one awaiting review. */
+  limitIncreaseRequest?: CreditLimitIncreaseRequest | null;
   paymentTermsDays: number;
   /**
    * Amounts owed and dates due, gathered from statements and payments rather
@@ -106,6 +113,36 @@ export async function requestCredit(input: { businessAccountId: string; requeste
   return parse<{ success: true; message: string; creditAccount: CreditAccount }>(response);
 }
 
+/** A live customer's ask for a higher limit. Their facility keeps working while it waits. */
+export type CreditLimitIncreaseRequest = {
+  id: string;
+  businessAccountId: string;
+  currentLimitMinor: number;
+  requestedLimitMinor: number;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "WITHDRAWN";
+  requestedAt: string;
+  reviewedAt: string | null;
+  decidedLimitMinor: number | null;
+  decisionNote: string;
+};
+
+export async function getCreditLimitIncrease(businessAccountId: string) {
+  const response = await fetchWithAuth(
+    apiUrl(`/api/v1/client/credit/limit-increase?businessAccountId=${encodeURIComponent(businessAccountId)}`)
+  );
+  return parse<{ success: true; request: CreditLimitIncreaseRequest | null }>(response);
+}
+
+export async function requestCreditLimitIncrease(input: {
+  businessAccountId: string;
+  requestedLimitMinor: number;
+  reason: string;
+}) {
+  const response = await fetchWithAuth(apiUrl("/api/v1/client/credit/limit-increase"), json("POST", input));
+  return parse<{ success: true; message: string; request: CreditLimitIncreaseRequest }>(response);
+}
+
 export async function getPaymentTerms() {
   const response = await fetchWithAuth(apiUrl("/api/v1/client/credit/payment-terms"));
   return parse<{ success: true; terms: PaymentTerms }>(response);
@@ -123,9 +160,16 @@ export async function listAdminCreditAccounts(status: CreditAccountStatus | "" =
   return parse<{ success: true; creditAccounts: CreditAccount[] }>(response);
 }
 
+/** Charges that exist but cannot be billed yet, because the parcel is still to be collected. */
+export type AwaitingCollection = {
+  count: number;
+  valueMinor: number;
+  oldestIssuedAt: string | null;
+};
+
 export async function getAdminCreditAccount(businessAccountId: string) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/credit-accounts/${businessAccountId}`));
-  return parse<{ success: true; creditAccount: CreditAccount }>(response);
+  return parse<{ success: true; creditAccount: CreditAccount; awaitingCollection: AwaitingCollection }>(response);
 }
 
 export type CreditApprovalInput = {
@@ -177,4 +221,6 @@ export function formatCreditMoney(valueMinor?: number, currency = "INR") {
   if (valueMinor === undefined) return "Restricted";
   return new Intl.NumberFormat("en-IN", { style: "currency", currency, minimumFractionDigits: 2 }).format(valueMinor / 100);
 }
-export const MAX_CREDIT_LIMIT_RUPEES = 100_000;
+export const MAX_CREDIT_LIMIT_RUPEES = 10_00_000;
+/** Mirrors `maxCreditLimitLabel` on the API, so both sides quote one number. */
+export const MAX_CREDIT_LIMIT_LABEL = `INR ${MAX_CREDIT_LIMIT_RUPEES.toLocaleString("en-IN")}`;

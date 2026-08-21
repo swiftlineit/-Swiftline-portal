@@ -4,6 +4,8 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FiDownload, FiRefreshCw,FiChevronDown  } from "react-icons/fi";
+import { toast } from "react-toastify";
+import { creditLedgerFunding, creditLedgerLabel } from "@/lib/creditLedgerLabels";
 import { DashboardLoading } from "@/components/DashboardShell";
 import CreditSummaryCards from "@/components/credit/CreditSummaryCards";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
@@ -32,6 +34,7 @@ import {
   getAdminCreditAccount,
   reactivateCreditAccount,
   suspendCreditAccount,
+  type AwaitingCollection,
   type CreditAccount
 } from "@/lib/creditAccounts";
 import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
@@ -73,6 +76,7 @@ export default function AdminCreditAccountDetailPage() {
   const [statements, setStatements] = useState<CreditStatement[]>([]);
   const [payments, setPayments] = useState<CreditPayment[]>([]);
   const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
+  const [awaitingCollection, setAwaitingCollection] = useState<AwaitingCollection | null>(null);
 
   // Independent filter + pagination state for each of the three tables below.
   const [statementStatus, setStatementStatus] = useState("");
@@ -99,8 +103,6 @@ export default function AdminCreditAccountDetailPage() {
   // Page-level UI state.
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   // Loads the account, statements, payments, and ledger together, then
   // pre-fills the payment form with the oldest outstanding statement.
@@ -113,6 +115,7 @@ export default function AdminCreditAccountDetailPage() {
     ]);
 
     setAccount(accountResult.creditAccount);
+    setAwaitingCollection(accountResult.awaitingCollection);
     setStatements(statementResult.statements);
     setStatementPagination(statementResult.pagination);
     setPayments(paymentResult.payments);
@@ -131,7 +134,7 @@ export default function AdminCreditAccountDetailPage() {
 
     const initialLoad = window.setTimeout(() => {
       void load()
-        .catch((caught) => setError(caught instanceof Error ? caught.message : "Credit account could not be loaded."))
+        .catch((caught) => toast.error(caught instanceof Error ? caught.message : "Credit account could not be loaded."))
         .finally(() => setLoading(false));
     }, 0);
 
@@ -141,14 +144,12 @@ export default function AdminCreditAccountDetailPage() {
   // Closes the currently completed billing cycle.
   async function closeCycle() {
     setBusy("cycle");
-    setError("");
-    setMessage("");
     try {
       const result = await closeAdminCycle(accountId);
-      setMessage(result.message);
+      toast.success(result.message);
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Billing cycle could not be closed.");
+      toast.error(caught instanceof Error ? caught.message : "Billing cycle could not be closed.");
     } finally {
       setBusy("");
     }
@@ -160,21 +161,19 @@ export default function AdminCreditAccountDetailPage() {
 
     const amountMinor = Math.round(Number(amountRupees) * 100);
     if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
-      setError("Enter a valid payment amount.");
+      toast.error("Enter a valid payment amount.");
       return;
     }
     if (amountMinor > MAX_OFFLINE_PAYMENT_RUPEES * 100) {
-      setError(`A single offline payment cannot exceed ${money(MAX_OFFLINE_PAYMENT_RUPEES * 100)}.`);
+      toast.error(`A single offline payment cannot exceed ${money(MAX_OFFLINE_PAYMENT_RUPEES * 100)}.`);
       return;
     }
     if (reference.trim().length < 3) {
-      setError("Enter the offline payment reference.");
+      toast.error("Enter the offline payment reference.");
       return;
     }
 
     setBusy("payment");
-    setError("");
-    setMessage("");
     try {
       const result = await recordAdminOfflinePayment(accountId, {
         requestedStatementId: statementId,
@@ -183,12 +182,12 @@ export default function AdminCreditAccountDetailPage() {
         externalReference: reference.trim(),
         notes: notes.trim()
       });
-      setMessage(result.message);
+      toast.success(result.message);
       setReference("");
       setNotes("");
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Offline payment could not be recorded.");
+      toast.error(caught instanceof Error ? caught.message : "Offline payment could not be recorded.");
     } finally {
       setBusy("");
     }
@@ -200,20 +199,18 @@ export default function AdminCreditAccountDetailPage() {
     const reason = window.prompt(`Reason to ${kind} this credit facility:`)?.trim();
     if (!reason) return;
     if (reason.length < 5) {
-      setError("Provide a reason of at least 5 characters.");
+      toast.error("Provide a reason of at least 5 characters.");
       return;
     }
 
     setBusy(kind);
-    setError("");
-    setMessage("");
     try {
       const action = kind === "suspend" ? suspendCreditAccount : kind === "reactivate" ? reactivateCreditAccount : closeCreditAccount;
       const result = await action(accountId, reason);
-      setMessage(result.message);
+      toast.success(result.message);
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The credit facility could not be updated.");
+      toast.error(caught instanceof Error ? caught.message : "The credit facility could not be updated.");
     } finally {
       setBusy("");
     }
@@ -228,25 +225,23 @@ export default function AdminCreditAccountDetailPage() {
 
     const amountMinor = Math.round(Number(rupees) * 100);
     if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
-      setError("Enter a valid write-off amount.");
+      toast.error("Enter a valid write-off amount.");
       return;
     }
 
     const reason = window.prompt("Reason for the write-off:")?.trim();
     if (!reason || reason.length < 5) {
-      setError("Provide a write-off reason of at least 5 characters.");
+      toast.error("Provide a write-off reason of at least 5 characters.");
       return;
     }
 
     setBusy(`writeoff:${statement.id}`);
-    setError("");
-    setMessage("");
     try {
       const result = await writeOffAdminStatement(accountId, statement.id, { amountMinor, reason });
-      setMessage(result.message);
+      toast.success(result.message);
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The statement could not be written off.");
+      toast.error(caught instanceof Error ? caught.message : "The statement could not be written off.");
     } finally {
       setBusy("");
     }
@@ -255,14 +250,12 @@ export default function AdminCreditAccountDetailPage() {
   // Verifies a pending offline payment so it's applied to the account.
   async function verify(paymentId: string) {
     setBusy(paymentId);
-    setError("");
-    setMessage("");
     try {
       const result = await verifyAdminOfflinePayment(accountId, paymentId);
-      setMessage(result.message);
+      toast.success(result.message);
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Offline payment could not be verified.");
+      toast.error(caught instanceof Error ? caught.message : "Offline payment could not be verified.");
     } finally {
       setBusy("");
     }
@@ -356,23 +349,29 @@ export default function AdminCreditAccountDetailPage() {
           </div>
         </div>
 
-        {/* Feedback banners */}
-        {error ? (
-          <div role="alert" className="border border-red-500  p-3  rounded-xl text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
-        {message ? (
-          <div role="status" className="border border-emerald-500   rounded-xl   p-3 text-sm text-emerald-700">
-            {message}
-          </div>
-        ) : null}
         {loading ? (
           <div className="p-10 text-center text-sm font-semibold   rounded-xl  text-slate-500">Loading credit account...</div>
         ) : null}
 
         {/* Account summary + any active restriction notice */}
         {account ? <CreditSummaryCards account={account} /> : null}
+
+        {/* Charges that exist but cannot be billed yet. Absent from every
+            balance above, so without this line the money is invisible. */}
+        {awaitingCollection && awaitingCollection.count > 0 ? (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <span className="font-semibold">{money(awaitingCollection.valueMinor)}</span>
+            <span>
+              across {awaitingCollection.count} shipment{awaitingCollection.count === 1 ? "" : "s"} awaiting collection
+            </span>
+            {awaitingCollection.oldestIssuedAt ? (
+              <span className="text-amber-700">· oldest booked {formatDashboardDate(awaitingCollection.oldestIssuedAt)}</span>
+            ) : null}
+            <span className="w-full text-xs text-amber-700">
+              Billing starts at collection, so these are not yet on any statement.
+            </span>
+          </div>
+        ) : null}
         {account ? <CreditRestrictionAlert restriction={account.restriction} gracePeriodDays={account.gracePeriodDays} /> : null}
 
         {/* Billing statements table */}
@@ -671,19 +670,41 @@ export default function AdminCreditAccountDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {ledger.map((entry) => (
+              {ledger.map((entry) => {
+                const activity = creditLedgerLabel(entry.type);
+                const funding = creditLedgerFunding(entry);
+                return (
                 <tr key={entry.id} className="border-t border-slate-100">
                   <td className="whitespace-nowrap px-4 py-4">{formatDashboardDateTime(entry.createdAt)}</td>
                   <td className="px-4 py-4">
-                    <p className="font-semibold">{title(entry.type)}</p>
-                    <p className="mt-1 max-w-md text-xs text-slate-500">{entry.description}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">{activity.label}</p>
+                      {/* Which pot the shipment was paid from, on the rows that record it. */}
+                      {funding ? (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                          {funding}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 max-w-md text-xs text-slate-500">{activity.detail || entry.description}</p>
                   </td>
                   <td className="px-4 py-4">{entry.reference}</td>
-                  <td className="px-4 py-4 text-right font-semibold">{money(entry.amountMinor)}</td>
+                  <td
+                    className={`px-4 py-4 text-right font-semibold ${
+                      activity.direction === "credit"
+                        ? "text-emerald-700"
+                        : activity.direction === "charge"
+                          ? "text-slate-900"
+                          : "text-slate-500"
+                    }`}
+                  >
+                    {money(entry.amountMinor)}
+                  </td>
                   <td className="px-4 py-4 text-right">{money(entry.availableCreditAfterMinor)}</td>
                   <td className="px-4 py-4 text-right">{money(entry.availableAdvanceAfterMinor)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           <div className="border-t border-slate-200 px-5 py-3">

@@ -7,7 +7,6 @@ import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js"
 import { CreditBillingStatement } from "../models/creditBillingStatement.model.js";
 import { CreditBillingStatementCounter } from "../models/creditBillingStatementCounter.model.js";
 import { CreditLedgerEntry } from "../models/creditLedgerEntry.model.js";
-import { ShipmentChargeVerification } from "../models/shipmentChargeVerification.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { closeCreditBillingCycle } from "../services/creditBillingCycle.service.js";
 import { getCreditBalances } from "../services/creditAccount.service.js";
@@ -23,7 +22,6 @@ before(async () => {
     CreditBillingStatement.init(),
     CreditBillingStatementCounter.init(),
     CreditLedgerEntry.init(),
-    ShipmentChargeVerification.init(),
     ShipmentInvoice.init()
   ]);
 });
@@ -42,6 +40,9 @@ async function createInvoice(input: {
   amountMinor: number;
   suffix: string;
   createdBy: mongoose.Types.ObjectId;
+  // What makes an invoice billable. Left unset, the shipment's charge has not
+  // settled yet and the cycle must pass it over.
+  chargeFinalizedAt?: Date;
 }) {
   const shipmentDraftId = new mongoose.Types.ObjectId();
   const dpdShipmentId = new mongoose.Types.ObjectId();
@@ -72,6 +73,7 @@ async function createInvoice(input: {
     pricingSnapshot: { totalAmount: input.amountMinor / 100 },
     revision: 1,
     issuedAt: new Date("2026-06-10T10:00:00.000Z"),
+    chargeFinalizedAt: input.chargeFinalizedAt ?? null,
     createdBy: input.createdBy
   });
   return { invoice, shipmentDraftId, dpdShipmentId };
@@ -90,27 +92,17 @@ describe("credit billing cycle database lifecycle", () => {
       paymentTermsDays: 30,
       billingCycle: "MONTHLY"
     });
-    const finalized = await createInvoice({ businessAccountId, branchId, amountMinor: 10_000, suffix: "00001", createdBy });
-    const unverified = await createInvoice({ businessAccountId, branchId, amountMinor: 5_000, suffix: "00002", createdBy });
-
-    await ShipmentChargeVerification.create({
-      shipmentDraftId: finalized.shipmentDraftId,
-      dpdShipmentId: finalized.dpdShipmentId,
+    const finalized = await createInvoice({
       businessAccountId,
       branchId,
-      previousParcelList: [{ sequence: 1, weightKg: 1, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "Test", shipmentReference1: "", shipmentReference2: "" }],
-      verifiedParcelList: [{ sequence: 1, weightKg: 1, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL", contentsDescription: "Test", shipmentReference1: "", shipmentReference2: "" }],
-      previousPricingSnapshot: { totalAmount: 100 },
-      verifiedPricingSnapshot: { totalAmount: 100 },
-      previousAmountMinor: 10_000,
-      verifiedAmountMinor: 10_000,
-      billingMode: "BUSINESS_ACCOUNT",
-      billingAdjustment: {},
-      invoiceNumber: finalized.invoice.invoiceNumber,
-      invoiceRevision: 1,
-      verifiedBy: createdBy,
-      verifiedAt: new Date("2026-06-15T12:00:00.000Z")
+      amountMinor: 10_000,
+      suffix: "00001",
+      createdBy,
+      chargeFinalizedAt: new Date("2026-06-15T12:00:00.000Z")
     });
+    // Never reached the hub, so its charge is still provisional. It stays off
+    // the statement whether or not anyone re-weighed it.
+    const unsettled = await createInvoice({ businessAccountId, branchId, amountMinor: 5_000, suffix: "00002", createdBy });
 
     const usedBefore = getCreditBalances(account).usedCreditMinor;
     const first = await closeCreditBillingCycle({
@@ -126,7 +118,7 @@ describe("credit billing cycle database lifecycle", () => {
 
     const updatedAccount = await BusinessCreditAccount.findById(account._id).exec();
     const billedInvoice = await ShipmentInvoice.findById(finalized.invoice._id).lean().exec();
-    const untouchedInvoice = await ShipmentInvoice.findById(unverified.invoice._id).lean().exec();
+    const untouchedInvoice = await ShipmentInvoice.findById(unsettled.invoice._id).lean().exec();
     assert.equal(updatedAccount?.unbilledCreditMinor, 5_000);
     assert.equal(updatedAccount?.invoicedOutstandingMinor, 10_000);
     assert.equal(updatedAccount ? getCreditBalances(updatedAccount).usedCreditMinor : -1, usedBefore);

@@ -6,7 +6,6 @@ import { CancellationFeeInvoice } from "../models/cancellationFeeInvoice.model.j
 import { ShipmentCancellation } from "../models/shipmentCancellation.model.js";
 import { CreditBillingAdjustment } from "../models/creditBillingAdjustment.model.js";
 import { CreditBillingStatementCounter } from "../models/creditBillingStatementCounter.model.js";
-import { ShipmentChargeVerification } from "../models/shipmentChargeVerification.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { appendCreditLedgerEntry } from "./creditAccount.service.js";
 import { notifyBusinessFinancialMembers } from "./portalNotification.service.js";
@@ -160,29 +159,30 @@ export async function closeCreditBillingCycle(input: {
         return { created: false, empty: false, statement: serializeCreditBillingStatement(existing), period };
       }
 
-      const verifications = await ShipmentChargeVerification.find({
+      // A shipment is billable once its charge has settled- see
+      // markShipmentChargeFinalized. That is the hub receiving the parcel, or an
+      // earlier weight correction, whichever came first. Final weight
+      // verification used to be the signal here because it was mandatory and so
+      // every shipment had one; it is now optional, and an unverified shipment
+      // must still reach a statement.
+      const finalizedInvoices = await ShipmentInvoice.find({
         businessAccountId: input.businessAccountId,
-        verifiedAt: { $gte: period.start, $lt: period.end }
-      }).select("shipmentDraftId").session(session).lean().exec();
-      const verifiedDraftIds = verifications.map((verification) => verification.shipmentDraftId);
-      const pendingCancellations = verifiedDraftIds.length
+        chargeFinalizedAt: { $gte: period.start, $lt: period.end },
+        status: "ISSUED",
+        paymentStatus: { $ne: "VOID" },
+        creditOutstandingMinor: { $gt: 0 },
+        billingStatementId: null
+      }).sort({ issuedAt: 1, _id: 1 }).session(session).exec();
+      const pendingCancellations = finalizedInvoices.length
         ? await ShipmentCancellation.find({
-            shipmentDraftId: { $in: verifiedDraftIds },
+            shipmentDraftId: { $in: finalizedInvoices.map((invoice) => invoice.shipmentDraftId) },
             status: "REQUESTED"
           }).select("shipmentDraftId").session(session).lean().exec()
         : [];
       const blockedDraftIds = new Set(pendingCancellations.map((item) => String(item.shipmentDraftId)));
-      const shipmentDraftIds = verifiedDraftIds.filter((id) => !blockedDraftIds.has(String(id)));
-      const invoices = shipmentDraftIds.length
-        ? await ShipmentInvoice.find({
-            businessAccountId: input.businessAccountId,
-            shipmentDraftId: { $in: shipmentDraftIds },
-            status: "ISSUED",
-            paymentStatus: { $ne: "VOID" },
-            creditOutstandingMinor: { $gt: 0 },
-            billingStatementId: null
-          }).sort({ issuedAt: 1, _id: 1 }).session(session).exec()
-        : [];
+      const invoices = finalizedInvoices.filter(
+        (invoice) => !blockedDraftIds.has(String(invoice.shipmentDraftId))
+      );
       const adjustments = await CreditBillingAdjustment.find({
         businessAccountId: input.businessAccountId,
         status: "PENDING",

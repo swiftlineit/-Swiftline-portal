@@ -2,7 +2,14 @@
 
 import { FormEvent, useState } from "react";
 import { FiChevronDown, FiX } from "react-icons/fi";
-import { approveCreditAccount, CreditAccount, CreditApprovalInput, MAX_CREDIT_LIMIT_RUPEES } from "@/lib/creditAccounts";
+import {
+  approveCreditAccount,
+  CreditAccount,
+  CreditApprovalInput,
+  formatCreditMoney,
+  MAX_CREDIT_LIMIT_LABEL,
+  MAX_CREDIT_LIMIT_RUPEES
+} from "@/lib/creditAccounts";
 
 type FormState = {
   limitRupees: string; paymentTermsDays: CreditApprovalInput["paymentTermsDays"];
@@ -23,7 +30,12 @@ function normalizePaymentTerms(value: number): CreditApprovalInput["paymentTerms
 
 function initialState(account: CreditAccount): FormState {
   return {
-    limitRupees: String((account.approvedCreditLimitMinor || account.requestedCreditLimitMinor || 0) / 100 || ""),
+    limitRupees: String(
+      (account.limitIncreaseRequest?.requestedLimitMinor
+        || account.approvedCreditLimitMinor
+        || account.requestedCreditLimitMinor
+        || 0) / 100 || ""
+    ),
     paymentTermsDays: normalizePaymentTerms(account.paymentTermsDays),
     billingCycle: account.billingCycle || "MONTHLY",
     validFrom: account.validFrom?.slice(0, 10) || new Date().toISOString().slice(0, 10),
@@ -48,7 +60,7 @@ export default function CreditApprovalDialog({ account, onClose, onSaved }: {
     const limitMinor = Math.round(Number(form.limitRupees) * 100);
     const depositMinor = Math.round(Number(form.depositRupees || 0) * 100);
     if (!Number.isInteger(limitMinor) || limitMinor <= 0) { setError("Enter an approved credit limit greater than zero."); return; }
-    if (Number(form.limitRupees) > MAX_CREDIT_LIMIT_RUPEES) { setError("Approved credit limit cannot exceed INR 1,00,000."); return; }
+    if (Number(form.limitRupees) > MAX_CREDIT_LIMIT_RUPEES) { setError(`Approved credit limit cannot exceed ${MAX_CREDIT_LIMIT_LABEL}.`); return; }
     if (!Number.isInteger(depositMinor) || depositMinor < 0) { setError("Enter a valid security deposit amount."); return; }
     if (form.reason.trim().length < 5) { setError("Provide a reason for this credit decision."); return; }
 
@@ -97,16 +109,26 @@ export default function CreditApprovalDialog({ account, onClose, onSaved }: {
 
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+            {account.limitIncreaseRequest ? (
+              <div className="rounded-lg border-l-4 px-3 py-2" style={{ borderColor: "#0D1282", backgroundColor: "#EEF0FB" }}>
+                <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#0D1282" }}>
+                  Limit increase requested
+                </p>
+                <p className="mt-0.5 text-sm text-slate-800">
+                  {formatCreditMoney(account.limitIncreaseRequest.currentLimitMinor, account.currency)}
+                  {" → "}
+                  <strong>{formatCreditMoney(account.limitIncreaseRequest.requestedLimitMinor, account.currency)}</strong>
+                  {" · "}{account.limitIncreaseRequest.reason}
+                </p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  Saving any limit here answers this request.
+                </p>
+              </div>
+            ) : null}
             {account.requestReason ? (
               <div className="rounded-lg border-l-4 px-3 py-2" style={{ borderColor: "#F0DE36", backgroundColor: "#FDF8DC" }}>
                 <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "#7A6A00" }}>Customer Request</p>
                 <p className="mt-0.5 text-sm text-slate-800">{account.requestReason}</p>
-              </div>
-            ) : null}
-            {error ? (
-              <div className="flex items-center gap-2 rounded-lg border-l-4 bg-white px-3 py-2 text-sm font-semibold shadow-sm" style={{ borderColor: "#D71313", color: "#D71313" }}>
-                <FiX className="shrink-0" size={14} />
-                {error}
               </div>
             ) : null}
 
@@ -149,11 +171,23 @@ export default function CreditApprovalDialog({ account, onClose, onSaved }: {
 
             <Section title="Notes">
               <Field label="Internal Remarks" span2><textarea rows={2} value={form.internalRemarks} onChange={(event) => setForm({ ...form, internalRemarks: event.target.value })} className={textareaClass} /></Field>
-              <Field label="Decision Reason" span2><textarea required rows={2} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} className={textareaClass} /></Field>
+              <Field label="Decision Reason" span2 required><textarea required rows={2} value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} className={textareaClass} /></Field>
             </Section>
           </div>
 
-          <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
+            {/* Kept beside Save: the form scrolls, and an error at the top of it
+                was out of view from the button that produced it. */}
+            {error ? (
+              <p
+                role="alert"
+                className="mr-auto flex items-center gap-2 text-sm font-semibold"
+                style={{ color: "#D71313" }}
+              >
+                <FiX className="shrink-0" size={14} aria-hidden="true" />
+                {error}
+              </p>
+            ) : null}
             <button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-50">Cancel</button>
             <button
               type="submit"
@@ -191,10 +225,13 @@ function SelectWrap({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Field({ label, children, span2 }: { label: string; children: React.ReactNode; span2?: boolean }) {
+function Field({ label, children, span2, required }: { label: string; children: React.ReactNode; span2?: boolean; required?: boolean }) {
   return (
     <label className={`block ${span2 ? "col-span-2 sm:col-span-3 lg:col-span-5" : ""}`}>
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+        {required ? <span className="ml-0.5" style={{ color: "#D71313" }}>*</span> : null}
+      </span>
       {children}
     </label>
   );

@@ -362,13 +362,5 @@ export async function renderSwiftlineLabelPdf(data: ShipmentLabelData) {
       .font("Helvetica-Bold")
       .fontSize(fitOneLine(document, postcode, TEXT_WIDTH, 14, 9))
       .text(postcode, TEXT_LEFT, ROW_CONSIGNEE + 80, { width: TEXT_WIDTH, lineBreak: false });
-
-    const email = text(data.consignee.email);
-    if (email) {
-      document
-        .font("Helvetica")
-        .fontSize(fitOneLine(document, email, TEXT_WIDTH, 8.5, 6))
-        .text(email, TEXT_LEFT, ROW_CONSIGNEE + 97, { width: TEXT_WIDTH, lineBreak: false });
-    }
   });
 }

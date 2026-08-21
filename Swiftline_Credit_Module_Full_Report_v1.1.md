@@ -31,7 +31,7 @@ Each shipment tax invoice remains the legal GST document. A credit billing state
 | Customer Advance | Captured top-ups and excess statement payments become customer-owned advance funds. |
 | Booking capacity | Available Customer Advance and available approved credit are combined for shipment eligibility. |
 | Shipment booking | The server calculates the GST-inclusive shipment charge and atomically funds the booking. |
-| Final charge verification | Operations verifies parcel weight and dimensions after Parcel Collected and before Warehouse Scan In. |
+| Final charge verification | Optional. Operations or Admin records a corrected parcel weight and dimensions when the parcel does not measure what was booked. |
 | Amendments | Client or Admin requests changes; only Admin approval changes shipment data and billing. |
 | Invoice revisions | Approved financial amendments create a new immutable shipment invoice revision while preserving earlier versions. |
 | Billing cycles | Finance closes completed weekly or monthly periods and generates consolidated business-account statements. |
@@ -171,16 +171,20 @@ After successful booking:
 
 ## 10. Final Charge Verification
 
-Final charge verification is an explicit Operations/Admin action normally available after Parcel Collected and before Warehouse Scan In.
+Final charge verification is an optional Operations/Admin correction, used when the parcel is found to weigh more or less than the customer declared. It never blocks shipment progress: a parcel can be received, cleared and loaded without anyone opening it, and the booked charge stands unless a correction is recorded.
 
-Operations enters the final actual weight and dimensions for every parcel. The server recalculates chargeable weight, rate, GST, and funding. Any difference is applied atomically and a revised invoice is generated when required.
+Operations enters the final actual weight and dimensions for every parcel. The server recalculates chargeable weight, rate, GST, and funding. Any difference is applied atomically and a revised invoice is generated when required. The corrected weights also replace the shipment snapshot, so the operations manifest and the customs EDI declare the same weight the customer is billed for.
+
+The window runs from Parcel Collected until the shipment departs. Each shipment can be corrected once.
 
 Verification is blocked when:
 
 - A shipment amendment is pending.
 - A cancellation request is pending.
 - The shipment has been cancelled.
-- The shipment has already progressed to Warehouse Scan In or later.
+- The shipment has already departed.
+
+A correction recorded after the invoice reached a billing statement never rewrites that statement. An increase appears as an adjustment on the next one; a reduction is taken off the outstanding balance, or returned to Customer Advance where the statement has already been settled.
 
 ## 11. Amendments and Invoice Revisions
 
@@ -226,6 +230,8 @@ Statements are consolidated per business account across all eligible branches an
 - Closing is idempotent; the same completed period cannot create a second statement.
 
 Statements contain shipment invoices, cancellation fee invoices, and approved billing adjustments. They do not calculate GST again.
+
+A shipment invoice becomes eligible for a statement once its charge has settled, which is whichever came first: the hub recording Warehouse Scan In, or Operations recording a corrected weight. A shipment still awaiting collection or in transit to the hub carries no settled charge and waits for a later period.
 
 Issued statement lines and totals are historical records. Payments and valid credit adjustments update the settled and outstanding figures without silently replacing the original lines.
 

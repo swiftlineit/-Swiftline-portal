@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { FiDownload, FiFileText, FiRefreshCw } from "react-icons/fi";
+import { toast } from "react-toastify";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
@@ -40,8 +41,6 @@ export default function ClientCreditStatementsPage() {
   const [dateRange, setDateRange] = useState(emptyDateRange);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
 
   const selectedAccount = useMemo(
     () => accounts.find((item) => item.account.id === businessAccountId) ?? null,
@@ -69,9 +68,9 @@ export default function ClientCreditStatementsPage() {
         if (!active) return;
         setAccounts(eligible);
         setBusinessAccountId(firstId);
-        if (!firstId) setError("Your account role cannot access credit statements.");
+        if (!firstId) toast.error("Your account role cannot access credit statements.");
       } catch (caught) {
-        if (active) setError(caught instanceof Error ? caught.message : "Statements could not be loaded.");
+        if (active) toast.error(caught instanceof Error ? caught.message : "Statements could not be loaded.");
       }
     })();
     return () => { active = false; };
@@ -81,23 +80,20 @@ export default function ClientCreditStatementsPage() {
   useEffect(() => {
     if (!businessAccountId) return;
     setLoading(true);
-    setError("");
     loadStatements(businessAccountId, dateRange)
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "Statements could not be loaded."))
+      .catch((caught) => toast.error(caught instanceof Error ? caught.message : "Statements could not be loaded."))
       .finally(() => setLoading(false));
   }, [businessAccountId, dateRange, loadStatements]);
 
   async function closeCycle() {
     if (!businessAccountId) return;
     setBusy(true);
-    setError("");
-    setMessage("");
     try {
       const result = await closeClientCycle(businessAccountId);
-      setMessage(result.message);
+      toast.success(result.message);
       await loadStatements(businessAccountId, dateRange);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The billing cycle could not be closed.");
+      toast.error(caught instanceof Error ? caught.message : "The billing cycle could not be closed.");
     } finally {
       setBusy(false);
     }
@@ -115,7 +111,7 @@ export default function ClientCreditStatementsPage() {
           <div className="flex gap-2">
             <DateRangeFilter value={dateRange} onChange={setDateRange} />
             <Link href={businessAccountId ? `/client/credit/ledger?businessAccountId=${businessAccountId}` : "/client/credit/ledger"} className="inline-flex h-10 rounded-4xl items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900">
-              <FiFileText /> Account Statement
+              <FiFileText /> Account Statement & Ledger
             </Link>
             {selectedAccount?.membership.role === "finance" ? (
               <button type="button" onClick={() => void closeCycle()} disabled={busy} className="inline-flex h-10 items-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white disabled:opacity-60">
@@ -131,8 +127,6 @@ export default function ClientCreditStatementsPage() {
           </select>
         ) : null}
 
-        {error ? <div role="alert" className="border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-        {message ? <div role="status" className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div> : null}
         <CreditRestrictionAlert
           restriction={creditAccount?.restriction}
           gracePeriodDays={creditAccount?.gracePeriodDays}

@@ -2,11 +2,13 @@ import mongoose from "mongoose";
 import { AuditLog } from "../models/auditLog.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { ShipmentCancellation } from "../models/shipmentCancellation.model.js";
-import { ShipmentChargeVerification } from "../models/shipmentChargeVerification.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
+import { resolveShipmentEventNote } from "./shipmentEventCopy.service.js";
+import { chargeFinalizingStatuses, markShipmentChargeFinalized } from "./shipmentInvoice.service.js";
 import {
   describeMissingPrerequisites,
   findMissingPrerequisites,
+  formatShipmentEventLabel,
   type ShipmentOperationalStatus
 } from "./shipmentStatusSequence.service.js";
 
@@ -23,20 +25,76 @@ export type BulkStatusBlock = {
 } | null;
 
 /**
+ * The batch was refused before anything was written.
+ *
+ * Distinct from a per-shipment skip: a skip means the rest of the batch went
+ * through, this means none of it did and the operator has to change what they
+ * selected.
+ */
+export class BulkStatusSelectionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BulkStatusSelectionError";
+  }
+}
+
+/**
+ * The stage a shipment with no events yet is standing at.
+ *
+ * Deliberately the same fallback the shipments list uses for its status column,
+ * so what the operator reads in the table is what the batch is judged against.
+ */
+export const NOT_YET_SCANNED = "SHIPMENT_BOOKED";
+
+/**
+ * Why this selection cannot be updated as one batch, or null when it can.
+ *
+ * A batch records one status across many shipments, which only means something
+ * if they are all standing at the same point. Mixing stages produces two
+ * different outcomes from one click: a booked parcel advances to Parcel
+ * Collected, while one already collected gets a second, identical row on the
+ * customer's tracker for a scan that never happened twice.
+ *
+ * The same reasoning rules out a batch whose target is the stage every shipment
+ * is already at- there is nothing to advance, only duplicates to write.
+ *
+ * Refused whole rather than partly applied. A half-written batch leaves the
+ * operator guessing which shipments moved.
+ */
+export function bulkSelectionBlockReason(
+  currentStatuses: readonly string[],
+  target: ShipmentOperationalStatus
+): string | null {
+  const distinct = [...new Set(currentStatuses)];
+
+  if (distinct.length > 1) {
+    const labels = distinct.map(formatShipmentEventLabel).sort();
+    return "A bulk update covers shipments that are all at the same stage. "
+      + `This selection mixes ${labels.join(", ")}. `
+      + "Narrow it to shipments that share one current status and update each group separately.";
+  }
+
+  if (distinct.length === 1 && distinct[0] === target) {
+    return `Every selected shipment is already at ${formatShipmentEventLabel(target)}. `
+      + "Choose the stage they should move to next.";
+  }
+
+  return null;
+}
+
+/**
  * Why a shipment cannot take the requested status, or null when it can.
  *
- * The same gates the single-shipment update enforces- cancellation, hold,
- * sequence prerequisites, and the Warehouse Scan In charge check- held as a
- * pure function so the decision is directly unit-testable. The database is
- * loaded once up front and each row is decided against in-memory data.
+ * The same gates the single-shipment update enforces- cancellation, hold and
+ * sequence prerequisites- held as a pure function so the decision is directly
+ * unit-testable. The database is loaded once up front and each row is decided
+ * against in-memory data.
  */
 export function statusUpdateBlockReason(input: {
   shipmentExists: boolean;
   cancellationStatus?: string;
   onHold: boolean;
   missingPrerequisites: ShipmentOperationalStatus[];
-  needsChargeVerification: boolean;
-  chargeVerified: boolean;
   status: ShipmentOperationalStatus;
 }): BulkStatusBlock {
   if (!input.shipmentExists) {
@@ -57,9 +115,6 @@ export function statusUpdateBlockReason(input: {
       reason: describeMissingPrerequisites(input.status, input.missingPrerequisites),
       missingStatuses: input.missingPrerequisites
     };
-  }
-  if (input.needsChargeVerification && !input.chargeVerified) {
-    return { reason: "Verify the final shipment weight and charge before Warehouse Scan In." };
   }
   return null;
 }
@@ -86,7 +141,7 @@ export async function bulkRecordOperationalStatus(input: {
   const shipments = await DpdShipment.find({ shipmentDraftId: { $in: draftObjectIds } }).lean().exec();
   const shipmentByDraft = new Map(shipments.map((shipment) => [String(shipment.shipmentDraftId), shipment]));
 
-  const [cancellations, chargeVerifiedShipmentIds, events] = await Promise.all([
+  const [cancellations, events] = await Promise.all([
     ShipmentCancellation.find({
       shipmentDraftId: { $in: draftObjectIds },
       status: { $in: ["REQUESTED", "COMPLETED"] }
@@ -94,9 +149,6 @@ export async function bulkRecordOperationalStatus(input: {
       .select("shipmentDraftId status")
       .lean()
       .exec(),
-    ShipmentChargeVerification.distinct("dpdShipmentId", {
-      dpdShipmentId: { $in: shipments.map((shipment) => shipment._id) }
-    }).exec(),
     ShipmentEvent.find({ shipmentDraftId: { $in: draftObjectIds } })
       .sort({ eventAt: -1, createdAt: -1 })
       .select("shipmentDraftId status")
@@ -107,7 +159,6 @@ export async function bulkRecordOperationalStatus(input: {
   const cancellationByDraft = new Map<string, string>(
     cancellations.map((cancellation) => [String(cancellation.shipmentDraftId), cancellation.status])
   );
-  const chargeVerifiedSet = new Set(chargeVerifiedShipmentIds.map(String));
 
   // The event list is newest-first, so the first row per draft is its latest
   // status and the distinct set is its recorded history- both in one query.
@@ -121,7 +172,17 @@ export async function bulkRecordOperationalStatus(input: {
     recordedByDraft.set(draftId, recorded);
   }
 
-  const note = input.note || "Live action updated by Swiftline Operations";
+  // Judged only over shipments that are actually booked. An unbooked row stays
+  // a reported skip, exactly as before, rather than failing the whole batch.
+  const selectionBlock = bulkSelectionBlockReason(
+    uniqueIds
+      .filter((draftId) => shipmentByDraft.has(draftId))
+      .map((draftId) => latestStatusByDraft.get(draftId) ?? NOT_YET_SCANNED),
+    input.status
+  );
+  if (selectionBlock) throw new BulkStatusSelectionError(selectionBlock);
+
+  const note = resolveShipmentEventNote(input.note, input.status);
   let updatedCount = 0;
   const skipped: BulkStatusSkip[] = [];
 
@@ -137,8 +198,6 @@ export async function bulkRecordOperationalStatus(input: {
       cancellationStatus: cancellationByDraft.get(draftId),
       onHold: latestStatusByDraft.get(draftId) === "ON_HOLD",
       missingPrerequisites: findMissingPrerequisites(input.status, recordedByDraft.get(draftId) ?? []),
-      needsChargeVerification: input.status === "WAREHOUSE_SCAN_IN",
-      chargeVerified: chargeVerifiedSet.has(String(shipment._id)),
       status: input.status
     });
 
@@ -152,7 +211,7 @@ export async function bulkRecordOperationalStatus(input: {
       continue;
     }
 
-    await ShipmentEvent.create({
+    const event = await ShipmentEvent.create({
       shipmentDraftId: shipment.shipmentDraftId,
       dpdShipmentId: shipment._id,
       status: input.status,
@@ -162,6 +221,15 @@ export async function bulkRecordOperationalStatus(input: {
       createdBy: input.userId,
       eventAt: new Date()
     });
+
+    // Collection settles the charge, exactly as it does on the single-shipment
+    // update- see chargeFinalizingStatuses.
+    if ((chargeFinalizingStatuses as readonly string[]).includes(input.status)) {
+      await markShipmentChargeFinalized({
+        shipmentDraftId: shipment.shipmentDraftId,
+        finalizedAt: event.eventAt
+      });
+    }
 
     await AuditLog.create({
       action: "SHIPMENT_STATUS_UPDATED",

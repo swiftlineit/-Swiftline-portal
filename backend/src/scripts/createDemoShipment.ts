@@ -19,7 +19,7 @@ import {
 } from "../services/shipmentBookingBilling.service.js";
 import { buildShipmentBookingSnapshot } from "../services/shipmentBookingSnapshot.service.js";
 import { calculateShipmentPricingEstimate } from "../services/shipmentPricing.service.js";
-import { ensureShipmentInvoiceForDraft } from "../services/shipmentInvoice.service.js";
+import { ensureShipmentInvoiceForDraft, markShipmentChargeFinalized } from "../services/shipmentInvoice.service.js";
 import { storeGeneratedLabel } from "../services/dpdShipment.service.js";
 import { SWIFTLINE_SERVICE_CODE } from "../services/shipmentPayload.service.js";
 import {
@@ -386,7 +386,7 @@ async function main() {
     {
       $set: {
         dpdShipmentId: dpdShipment._id,
-        note: "Live action updated by Swiftline Operations",
+        note: "",
         customerVisible: true,
         createdBy: actorId,
         eventAt: new Date(now.getTime() + index * 60_000)
@@ -437,6 +437,14 @@ async function main() {
         verifiedAt
       });
     }
+
+    // What actually puts the invoice on a statement. The verification above is
+    // the audit record of the re-weigh; it stopped doubling as the billing
+    // signal when final weight verification became optional.
+    await markShipmentChargeFinalized({
+      shipmentDraftId: shipmentDraft._id as mongoose.Types.ObjectId,
+      finalizedAt: verifiedAt
+    });
 
     console.log(`Billing verification: ${verifiedAt.toISOString()}`);
     console.log(`Completed period: ${period.start.toISOString()} to ${period.end.toISOString()}`);

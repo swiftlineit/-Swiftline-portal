@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FiCreditCard, FiDownload, FiEye, FiPrinter, FiRefreshCw, FiX } from "react-icons/fi";
+import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
   ClientShellUser
@@ -287,7 +288,6 @@ export default function ClientPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [previewInvoice, setPreviewInvoice] = useState<PaymentInvoiceDetails | null>(null);
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerms | null>(null);
@@ -325,8 +325,6 @@ export default function ClientPaymentsPage() {
     purpose: "CUSTOMER_ADVANCE" | "SECURITY_DEPOSIT" = "CUSTOMER_ADVANCE"
   ) => {
     if (!quiet) setRefreshing(true);
-    setError("");
-
     try {
       const [topUpsResponse, creditResponse, prepaidResponse] = await Promise.all([
         getClientPrepaidTopUps(businessAccountId),
@@ -342,7 +340,7 @@ export default function ClientPaymentsPage() {
         setAmountRupees(String(creditResponse.creditAccount.securityDepositRequiredMinor / 100));
       }
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to load account balances.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to load account balances.");
     } finally {
       if (!quiet) setRefreshing(false);
     }
@@ -353,8 +351,6 @@ export default function ClientPaymentsPage() {
 
     async function loadPage() {
       setLoading(true);
-      setError("");
-
       try {
         const currentUser = await loadCurrentUser();
         if (!currentUser) {
@@ -389,11 +385,11 @@ export default function ClientPaymentsPage() {
         if (firstAccountId) {
           await loadBalances(firstAccountId, true, initialPurpose);
         } else {
-          setError("Your account role cannot access payments.");
+          toast.error("Your account role cannot access payments.");
         }
       } catch (caughtError) {
         if (!mounted) return;
-        setError(caughtError instanceof Error ? caughtError.message : "Unable to load client payments.");
+        toast.error(caughtError instanceof Error ? caughtError.message : "Unable to load client payments.");
       } finally {
         if (mounted) setLoading(false);
       }
@@ -419,11 +415,11 @@ export default function ClientPaymentsPage() {
     const amountMinor = Math.round(rupees * 100);
 
     if (!Number.isFinite(rupees) || amountMinor <= 0) {
-      setError(paymentPurpose === "SECURITY_DEPOSIT" ? "Enter the required deposit amount." : "Enter a valid top-up amount.");
+      toast.error(paymentPurpose === "SECURITY_DEPOSIT" ? "Enter the required deposit amount." : "Enter a valid top-up amount.");
       return;
     }
     if (paymentPurpose === "SECURITY_DEPOSIT" && requiredDepositMinor > 0 && amountMinor !== requiredDepositMinor) {
-      setError("Enter the exact required deposit amount.");
+      toast.error("Enter the exact required deposit amount.");
       return;
     }
     // Security deposits are exempt from both bounds, matching the server. Each
@@ -431,11 +427,11 @@ export default function ClientPaymentsPage() {
     // rejects the payment, so this only affects how early the customer is told.
     if (paymentPurpose !== "SECURITY_DEPOSIT") {
       if (topUpBounds && (amountMinor < topUpBounds.min || amountMinor > topUpBounds.max)) {
-        setError(`Enter an amount between ${formatMinorMoney(topUpBounds.min)} and ${formatMinorMoney(topUpBounds.max)}.`);
+        toast.error(`Enter an amount between ${formatMinorMoney(topUpBounds.min)} and ${formatMinorMoney(topUpBounds.max)}.`);
         return;
       }
       if (dailyTopUp && amountMinor > dailyTopUp.remainingMinor) {
-        setError(
+        toast.error(
           dailyTopUp.remainingMinor > 0
             ? `This exceeds today's ${formatMinorMoney(dailyTopUp.limitMinor)} limit. ${formatMinorMoney(dailyTopUp.remainingMinor)} is still available.`
             : `Today's ${formatMinorMoney(dailyTopUp.limitMinor)} top-up limit has been reached. Please try again after midnight.`
@@ -444,12 +440,11 @@ export default function ClientPaymentsPage() {
       }
     }
     if (!termsAccepted || !paymentTerms) {
-      setError("Read and accept the current payment terms before continuing.");
+      toast.error("Read and accept the current payment terms before continuing.");
       return;
     }
 
     setSubmitting(true);
-    setError("");
     setNotice("");
 
     try {
@@ -506,7 +501,7 @@ export default function ClientPaymentsPage() {
               setNotice(verified.message);
               await loadBalances(selectedAccount.account.id, true, paymentPurpose);
             } catch (caughtError) {
-              setError(caughtError instanceof Error ? caughtError.message : "Unable to verify payment.");
+              toast.error(caughtError instanceof Error ? caughtError.message : "Unable to verify payment.");
             }
           })();
         }
@@ -514,7 +509,7 @@ export default function ClientPaymentsPage() {
 
       checkout.open();
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to start top-up.");
+      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to start top-up.");
     } finally {
       setSubmitting(false);
     }
@@ -563,7 +558,6 @@ export default function ClientPaymentsPage() {
           </div>
         ) : null}
 
-        {error ? <StatusBanner tone="error" message={error} /> : null}
         {notice ? <StatusBanner tone="info" message={notice} /> : null}
 
         {selectedAccount && creditAccount ? (

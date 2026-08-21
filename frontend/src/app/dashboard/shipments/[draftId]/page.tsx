@@ -107,7 +107,7 @@ function getTrackingEvents(draft: ShipmentDraft, history: DpdShipmentHistoryItem
   if (history?.dpdShipment && !eventsByStatus.has("SHIPMENT_BOOKED")) {
     events.push({
       label: "Shipment Booked",
-      value: `${formatDashboardDate(history.dpdShipment.createdAt)} • Live action updated by Swiftline Operations`,
+      value: `${formatDashboardDate(history.dpdShipment.createdAt)} • Shipment booked with Swiftline and awaiting collection.`,
       done: true
     });
   }
@@ -119,7 +119,7 @@ function getTrackingEvents(draft: ShipmentDraft, history: DpdShipmentHistoryItem
       if (!event) continue;
       events.push({
         label: event.statusLabel ?? formatLabel(status),
-        value: `${formatDashboardDate(event.eventAt)} - ${event.note || "Live action updated by Swiftline Operations"}`,
+        value: `${formatDashboardDate(event.eventAt)} - ${event.note || "Shipment progress updated."}`,
         done: true
       });
     }
@@ -137,7 +137,7 @@ function getTrackingEvents(draft: ShipmentDraft, history: DpdShipmentHistoryItem
     events.push({
       label: event?.statusLabel ?? formatLabel(status),
       value: event
-        ? `${formatDashboardDate(event.eventAt)} • ${event.note || "Live action updated by Swiftline Operations"}`
+        ? `${formatDashboardDate(event.eventAt)} • ${event.note || "Shipment progress updated."}`
         : "Pending",
       done: Boolean(event)
     });
@@ -296,7 +296,7 @@ export default function AdminShipmentDetailsPage() {
         await updateDpdShipmentOperationalStatus({
           dpdShipmentId: history.dpdShipment.id,
           status: nextStatus,
-          note: actionNote || "Live action updated by Swiftline Operations",
+          note: actionNote,
           location: actionLocation
         });
       }

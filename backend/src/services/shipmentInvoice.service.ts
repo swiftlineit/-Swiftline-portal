@@ -72,6 +72,16 @@ export function resolveShipmentInvoicePaymentAllocation(input: {
   paymentAllocation?: { advanceAppliedMinor: number; creditOutstandingMinor: number };
   existingAllocation?: { advanceAppliedMinor: number; creditOutstandingMinor: number } | null;
   reservationAllocation?: { advanceAmountMinor: number; creditAmountMinor: number } | null;
+  /**
+   * Value the customer has already settled against this invoice.
+   *
+   * Paying a billing statement clears an invoice's outstanding credit without
+   * moving anything into the applied advance, so a paid invoice's two
+   * allocations no longer add up to its total on their own. Zero for every
+   * invoice that has not been paid, which is every invoice at the moment it is
+   * first issued.
+   */
+  settledAmountMinor?: number;
 }) {
   const advanceAppliedMinor = input.paymentAllocation?.advanceAppliedMinor
     ?? input.existingAllocation?.advanceAppliedMinor
@@ -81,8 +91,9 @@ export function resolveShipmentInvoicePaymentAllocation(input: {
     ?? input.existingAllocation?.creditOutstandingMinor
     ?? input.reservationAllocation?.creditAmountMinor
     ?? input.totalAmountMinor;
+  const settledAmountMinor = input.settledAmountMinor ?? 0;
 
-  if (advanceAppliedMinor + creditOutstandingMinor !== input.totalAmountMinor) {
+  if (advanceAppliedMinor + creditOutstandingMinor + settledAmountMinor !== input.totalAmountMinor) {
     throw new ShipmentInvoiceServiceError("The invoice payment allocation does not match its total amount.", 409);
   }
 
@@ -138,6 +149,15 @@ export async function ensureShipmentInvoiceForDraft(input: {
     advanceAppliedMinor: number;
     creditOutstandingMinor: number;
   };
+  /**
+   * What stays settled against the invoice after the caller's money movement.
+   *
+   * Only needed alongside `paymentAllocation` when the revision refunds value
+   * the customer had already paid; without it the settled amount is read from
+   * the invoice as it stands, which is correct for every revision that leaves
+   * paid value alone.
+   */
+  settledAmountMinor?: number;
   pricingOverride?: ShipmentPricingEstimate;
   session?: mongoose.ClientSession;
 }) {
@@ -205,11 +225,20 @@ export async function ensureShipmentInvoiceForDraft(input: {
       }
     : null;
   const totalAmountMinor = toMinor(pricing.totalAmount);
+  // Falls back to the invoice as it stands before this revision: whatever its
+  // total is no longer accounted for by applied advance and outstanding credit
+  // has already been paid. Zero for a new invoice and for any invoice still
+  // unpaid.
+  const settledAmountMinor = input.settledAmountMinor
+    ?? (existing
+      ? existing.totalAmountMinor - existing.advanceAppliedMinor - existing.creditOutstandingMinor
+      : 0);
   const { advanceAppliedMinor, creditOutstandingMinor } = resolveShipmentInvoicePaymentAllocation({
     totalAmountMinor,
     paymentAllocation: input.paymentAllocation,
     existingAllocation: existing,
-    reservationAllocation: reservation ?? snapshotAllocation
+    reservationAllocation: reservation ?? snapshotAllocation,
+    settledAmountMinor
   });
   const paymentStatus = creditOutstandingMinor === 0
     ? "PAID" as const
@@ -423,6 +452,47 @@ export async function ensureShipmentInvoiceForDraft(input: {
     }
     throw error;
   }
+}
+
+/**
+ * Shipment statuses that settle a charge, so it can be billed.
+ *
+ * Collection is the point the service demonstrably began: the parcel is out of
+ * the customer's hands and Swiftline is carrying it, so the charge is real and
+ * belongs on the next statement. Waiting for hub receipt deferred revenue for as
+ * long as a parcel sat in transit- and a parcel that never reached the hub was
+ * never billed at all.
+ *
+ * Hub receipt stays in the list behind it. It settles nothing new once
+ * collection already has, but it is what catches a shipment whose collection
+ * went unrecorded, so no parcel can reach the hub still unbillable.
+ */
+export const chargeFinalizingStatuses = ["PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN"] as const;
+
+/**
+ * Records the moment a shipment's charge stopped being provisional.
+ *
+ * The billing cycle bills invoices whose charge settled inside the period, so
+ * this stamp is what puts a shipment on a statement. It is set by whichever
+ * comes first: the parcel being collected, the hub receiving it, or Operations
+ * correcting its weight.
+ *
+ * Written once and never moved. The `chargeFinalizedAt: null` filter is what
+ * makes that true- a later Warehouse Scan In row, a re-scan, a second collection
+ * row, or a correction recorded afterwards all leave the original date alone,
+ * because re-dating an invoice would carry it into a later statement period
+ * and delay a bill that was already due.
+ */
+export async function markShipmentChargeFinalized(input: {
+  shipmentDraftId: mongoose.Types.ObjectId;
+  finalizedAt: Date;
+  session?: mongoose.ClientSession;
+}) {
+  await ShipmentInvoice.updateOne(
+    { shipmentDraftId: input.shipmentDraftId, chargeFinalizedAt: null },
+    { $set: { chargeFinalizedAt: input.finalizedAt } },
+    { runValidators: true, session: input.session }
+  ).exec();
 }
 
 export function serializeShipmentInvoice(

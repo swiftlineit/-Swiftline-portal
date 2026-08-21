@@ -64,6 +64,16 @@ export interface IShipmentInvoice extends mongoose.Document {
   revisions: IShipmentInvoiceRevision[];
   issuedAt: Date;
   revisedAt?: Date | null;
+  /**
+   * When this shipment's charge stopped being provisional, which is what makes
+   * the invoice eligible for a billing statement.
+   *
+   * Set once, by whichever came first: the hub receiving the parcel
+   * (Warehouse Scan In, meaning nobody found a difference worth correcting) or
+   * Operations recording a corrected weight. Null while the amount can still
+   * move on its own, and on shipments that never reached the hub.
+   */
+  chargeFinalizedAt?: Date | null;
   billingStatementId?: mongoose.Types.ObjectId | null;
   billedAt?: Date | null;
   createdBy: mongoose.Types.ObjectId;
@@ -135,6 +145,7 @@ const shipmentInvoiceSchema = new mongoose.Schema<IShipmentInvoice>(
     revisions: { type: [shipmentInvoiceRevisionSchema], default: [] },
     issuedAt: { type: Date, required: true, default: Date.now, index: true },
     revisedAt: { type: Date, default: null },
+    chargeFinalizedAt: { type: Date, default: null },
     billingStatementId: { type: mongoose.Schema.Types.ObjectId, ref: "CreditBillingStatement", default: null, index: true },
     billedAt: { type: Date, default: null, index: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -145,5 +156,7 @@ const shipmentInvoiceSchema = new mongoose.Schema<IShipmentInvoice>(
 
 shipmentInvoiceSchema.index({ businessAccountId: 1, branchId: 1, issuedAt: -1 });
 shipmentInvoiceSchema.index({ businessAccountId: 1, billingStatementId: 1, issuedAt: 1 });
+// Drives the billing cycle's "which shipments settled in this period" query.
+shipmentInvoiceSchema.index({ businessAccountId: 1, chargeFinalizedAt: 1, billingStatementId: 1 });
 
 export const ShipmentInvoice = mongoose.model<IShipmentInvoice>("ShipmentInvoice", shipmentInvoiceSchema);

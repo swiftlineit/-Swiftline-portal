@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { BusinessCreditAccount, type IBusinessCreditAccount } from "../models/businessCreditAccount.model.js";
 import { CreditLedgerEntry, type CreditLedgerEntryType } from "../models/creditLedgerEntry.model.js";
-import { maxCreditLimitMinor } from "../models/financialTypes.js";
+import { maxCreditLimitLabel, maxCreditLimitMinor } from "../models/financialTypes.js";
 import type { BusinessAccountMemberRole, CreditPermission } from "../models/businessAccountMember.model.js";
 import { PaymentTermsDocument } from "../models/paymentTerms.model.js";
 import { notifyBusinessFinancialMembers } from "./portalNotification.service.js";
@@ -65,7 +65,7 @@ export function getCreditActivationBlockers(input: {
     input.agreementStatus !== "signed" ? "Credit agreement must be signed." : "",
     input.securityDepositRequiredMinor > 0 && input.depositStatus !== "received" ? "Required security deposit must be received." : "",
     input.approvedCreditLimitMinor <= 0 ? "Approved credit limit must be greater than zero." : "",
-    input.approvedCreditLimitMinor > maxCreditLimitMinor ? "Approved credit limit cannot exceed INR 1,00,000." : "",
+    input.approvedCreditLimitMinor > maxCreditLimitMinor ? `Approved credit limit cannot exceed ${maxCreditLimitLabel}.` : "",
     input.validUntil && input.validUntil <= now ? "Credit validity has already expired." : ""
   ].filter((blocker): blocker is string => Boolean(blocker));
 }
@@ -101,7 +101,12 @@ export function getCreditBalances(
     usedCreditMinor,
     availableCreditMinor,
     availableAdvanceMinor,
-    availableBookingCapacityMinor: availableAdvanceMinor + availableCreditMinor
+    availableBookingCapacityMinor: availableAdvanceMinor + availableCreditMinor,
+    // Everything the customer owes, whether or not it has reached a statement
+    // yet. `invoicedOutstandingMinor` alone reads as zero until a cycle closes,
+    // which hid a real balance behind an encouraging number. Reservations are
+    // excluded: a hold on an unconfirmed booking is not yet a debt.
+    totalOwedMinor: account.unbilledCreditMinor + account.invoicedOutstandingMinor
   };
 }
 
@@ -250,4 +255,31 @@ export async function getCurrentPaymentTerms() {
     effectiveFrom: document.effectiveFrom,
     sections: document.sections
   } : fallbackPaymentTerms;
+}
+
+/** Shapes an increase request for both the client view and the admin queue. */
+export function serializeLimitIncrease(request: {
+  _id: unknown;
+  businessAccountId: unknown;
+  currentLimitMinor: number;
+  requestedLimitMinor: number;
+  reason: string;
+  status: string;
+  requestedAt: Date;
+  reviewedAt?: Date | null;
+  decidedLimitMinor?: number | null;
+  decisionNote?: string;
+}) {
+  return {
+    id: String(request._id),
+    businessAccountId: String(request.businessAccountId),
+    currentLimitMinor: request.currentLimitMinor,
+    requestedLimitMinor: request.requestedLimitMinor,
+    reason: request.reason,
+    status: request.status,
+    requestedAt: request.requestedAt,
+    reviewedAt: request.reviewedAt ?? null,
+    decidedLimitMinor: request.decidedLimitMinor ?? null,
+    decisionNote: request.decisionNote ?? ""
+  };
 }

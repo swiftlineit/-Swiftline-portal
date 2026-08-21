@@ -8,6 +8,7 @@ import {
   FiGlobe,
   FiInfo,
   FiMapPin,
+  FiFileText,
   FiPackage,
   FiSend,
   FiShield,
@@ -18,11 +19,16 @@ import type { IconType } from "react-icons";
 import {
   calendarCategories,
   calendarCategoryLabels,
+  regulatoryShipmentDirectionLabels,
+  regulatoryShipmentTypeLabels,
+  regulatoryUpdateCategoryLabels,
   serviceDisruptionTypeLabels,
   type CalendarCategory,
   type CalendarEntry,
+  type RegulatoryUpdate,
   type ServiceDisruption
 } from "@/lib/operationsAdvisory";
+import { regulatoryRegionLabel } from "@/lib/regulatoryRegions";
 
 /**
  * The read-only Holiday & Cut-Off Calendar. Shared by the client page and (via
@@ -110,10 +116,13 @@ function severityIcon(severity: ServiceDisruption["severity"]) {
 
 export default function OperationsCalendarView({
   entries,
-  disruptions
+  disruptions,
+  regulatoryUpdates = []
 }: {
   entries: CalendarEntry[];
   disruptions: ServiceDisruption[];
+  /** Customs & regulatory updates, published from their own admin tab. */
+  regulatoryUpdates?: RegulatoryUpdate[];
 }) {
   const byCategory = new Map<CalendarCategory, CalendarEntry[]>();
   for (const category of calendarCategories) {
@@ -123,7 +132,7 @@ export default function OperationsCalendarView({
     byCategory.get(entry.category)?.push(entry);
   }
 
-  const hasContent = entries.length > 0 || disruptions.length > 0;
+  const hasContent = entries.length > 0 || disruptions.length > 0 || regulatoryUpdates.length > 0;
 
   if (!hasContent) {
     return (
@@ -131,7 +140,7 @@ export default function OperationsCalendarView({
         <FiCalendar aria-hidden="true" className="h-10 w-10 text-slate-300" />
         <p className="text-sm font-semibold text-slate-900">No operational information yet</p>
         <p className="max-w-sm text-sm text-slate-500">
-          Holidays, cut-off times and service alerts will appear here as soon as our team publishes them.
+          Holidays, cut-off times, customs updates and service alerts will appear here as soon as our team publishes them.
         </p>
       </div>
     );
@@ -180,6 +189,8 @@ export default function OperationsCalendarView({
         </section>
       ) : null}
 
+      <RegulatoryUpdatesSection updates={regulatoryUpdates} />
+
       <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" aria-label="Holiday and cut-off calendar">
         {calendarCategories.map((category) => {
           const categoryEntries = byCategory.get(category) ?? [];
@@ -216,5 +227,108 @@ export default function OperationsCalendarView({
         })}
       </section>
     </div>
+  );
+}
+
+const regulatoryStatusTone: Record<RegulatoryUpdate["status"], string> = {
+  ACTIVE: "bg-emerald-100 text-emerald-800",
+  UPCOMING: "bg-amber-100 text-amber-800",
+  EXPIRED: "bg-slate-200 text-slate-600"
+};
+
+/** "All · All" reads like noise, so a blanket scope is simply not printed. */
+function scopeLabel(update: RegulatoryUpdate) {
+  const parts: string[] = [];
+
+  if (!update.affectedShipments.includes("ALL")) {
+    parts.push(update.affectedShipments.map((value) => regulatoryShipmentDirectionLabels[value]).join(" / "));
+  }
+  if (!update.shipmentTypes.includes("ALL")) {
+    parts.push(update.shipmentTypes.map((value) => regulatoryShipmentTypeLabels[value]).join(" / "));
+  }
+  if (update.valueThreshold) parts.push(update.valueThreshold);
+
+  return parts.join(" · ");
+}
+
+function effectiveLabel(update: RegulatoryUpdate) {
+  if (update.effectiveFromTbc || !update.effectiveFrom) return "Effective date to be confirmed";
+
+  const from = formatLocalDate(update.effectiveFrom);
+  const until = update.effectiveUntil ? formatLocalDate(update.effectiveUntil) : null;
+
+  return until ? `Effective ${from} - ${until}` : `Effective from ${from}`;
+}
+
+/**
+ * Customs and regulatory changes, kept out of the holiday grid on purpose: a
+ * client reads these for what they have to *do*, not for which day an office
+ * is shut. Rendered wide so the impact and action text stay readable.
+ */
+function RegulatoryUpdatesSection({ updates }: { updates: RegulatoryUpdate[] }) {
+  if (!updates.length) return null;
+
+  return (
+    <section aria-labelledby="regulatory-updates-heading">
+      <div className="mb-3 flex items-center gap-2">
+        <FiFileText aria-hidden="true" className="h-4 w-4 text-[#0D1282]" />
+        <h2 id="regulatory-updates-heading" className="text-sm font-bold uppercase tracking-wide text-slate-900">
+          Customs & Regulatory Updates
+        </h2>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        {updates.map((update) => {
+          const scope = scopeLabel(update);
+
+          return (
+            <article key={update.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="text-sm font-bold text-slate-950">{update.title}</p>
+                <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${regulatoryStatusTone[update.status]}`}>
+                  {update.status}
+                </span>
+              </div>
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {update.regions.map((code) => (
+                  <span key={code} className="rounded-full bg-[#0D1282]/[0.07] px-2 py-0.5 text-[10px] font-semibold text-[#0D1282]">
+                    {regulatoryRegionLabel(code)}
+                  </span>
+                ))}
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                  {regulatoryUpdateCategoryLabels[update.category]}
+                </span>
+              </div>
+
+              <p className="mt-2 text-sm leading-6 text-slate-700">{update.customerImpact}</p>
+
+              {update.actionRequired ? (
+                <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700">
+                  <span className="font-bold uppercase tracking-wide text-slate-500">Action required: </span>
+                  {update.actionRequired}
+                </p>
+              ) : null}
+
+              <p className="mt-2 text-[11px] font-medium text-slate-500">
+                {effectiveLabel(update)}
+                {scope ? ` · ${scope}` : ""}
+              </p>
+
+              {update.sourceUrl ? (
+                <a
+                  href={update.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 inline-block text-[11px] font-semibold text-[#0D1282] hover:underline"
+                >
+                  Official source
+                </a>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }

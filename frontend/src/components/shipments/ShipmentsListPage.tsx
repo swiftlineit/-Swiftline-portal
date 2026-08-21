@@ -49,6 +49,14 @@ function getAccountLabel(account: BusinessAccount) {
 }
 
 /**
+ * The stage a shipment is standing at, as the status filter spells it. Falls
+ * back to the raw value so an unmapped status is still readable.
+ */
+function formatStageLabel(status: string) {
+  return shipmentStatusOptions.find((option) => option.value === status)?.label ?? status;
+}
+
+/**
  * A shipment the operations user may push forward from the list. It must be a
  * completed booking, and it must not be on hold or cancelled- both are current
  * states, which is exactly what the list's `status` field holds (the newest
@@ -229,6 +237,25 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   const mixedSelection = manifestSelection.length > 1 && manifestSelection.some((shipment) =>
     shipment.businessAccountId !== manifestSelection[0]?.businessAccountId
     || shipment.branchId !== manifestSelection[0]?.branchId);
+
+  /**
+   * The distinct stages the status selection spans.
+   *
+   * A bulk update records one status across many shipments, which only means
+   * something if they are all standing at the same point. Mixing stages would
+   * advance some while writing the rest a second, identical timeline row for a
+   * scan that never happened twice, so the server refuses the batch whole. The
+   * same rule is applied here so the operator is told while they are still
+   * choosing, rather than by a toast after the click.
+   */
+  const selectedStages = useMemo(
+    () => [...new Set(statusSelection.map((shipment) => shipment.status))],
+    [statusSelection]
+  );
+  const mixedStatusSelection = selectedStages.length > 1;
+  const alreadyAtBulkStatus = selectedStages.length === 1 && selectedStages[0] === bulkStatus;
+  const bulkStatusBlocked = mixedStatusSelection || alreadyAtBulkStatus;
+
   const allSelected = selectable.length > 0 && selectable.every((shipment) => selected.has(shipment.id));
 
   // Selects/deselects only the current page's eligible rows, leaving any
@@ -279,7 +306,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
 
   async function handleBulkStatusUpdate() {
     const shipmentDraftIds = statusSelection.map((shipment) => shipment.id);
-    if (!shipmentDraftIds.length) return;
+    if (!shipmentDraftIds.length || bulkStatusBlocked) return;
 
     setBulkStatusBusy(true);
     setError("");
@@ -287,7 +314,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
       const result = await bulkUpdateDpdShipmentOperationalStatus({
         shipmentDraftIds,
         status: bulkStatus,
-        note: bulkStatusNote || "Bulk status update by Swiftline Operations",
+        note: bulkStatusNote,
         location: bulkStatusLocation
       });
       setBulkStatusResult(result);
@@ -585,6 +612,22 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
                 not eligible (not booked, on hold or cancelled) and will be skipped.
               </p>
             ) : null}
+            {mixedStatusSelection ? (
+              <p className="mt-1 text-xs font-semibold leading-5 text-amber-700">
+                A bulk update covers shipments that are all at the same stage. This
+                selection mixes {selectedStages.map(formatStageLabel).sort().join(", ")}.
+                Narrow it to shipments that share one current status and update each
+                group separately.
+              </p>
+            ) : null}
+
+            {alreadyAtBulkStatus ? (
+              <p className="mt-1 text-xs font-semibold leading-5 text-amber-700">
+                Every selected shipment is already at {formatStageLabel(bulkStatus)}.
+                Choose the stage they should move to next.
+              </p>
+            ) : null}
+
           </div>
 
           <span className="w-fit shrink-0 rounded-full border border-[#0D1282]/15 bg-white px-3 py-1.5 text-xs font-semibold text-[#0D1282]">
@@ -658,7 +701,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
             <button
               type="button"
               onClick={handleBulkStatusUpdate}
-              disabled={bulkStatusBusy}
+              disabled={bulkStatusBusy || bulkStatusBlocked}
               className="h-11 flex-1 whitespace-nowrap rounded-xl bg-[#0D1282] px-5 text-sm font-semibold text-white transition hover:bg-[#0D1282]/90 disabled:cursor-not-allowed disabled:bg-slate-400 xl:flex-none"
             >
               {bulkStatusBusy ? "Updating..." : "Update Status"}

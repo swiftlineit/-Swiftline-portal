@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FiAlertCircle, FiArrowLeft } from "react-icons/fi";
+import { FiArrowLeft } from "react-icons/fi";
+import { toast } from "react-toastify";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import { getPaymentTerms, PaymentTerms } from "@/lib/creditAccounts";
 import { useClientUser } from "@/lib/useClientUser";
@@ -11,13 +12,12 @@ export default function PaymentTermsPage() {
   const { user, loading: userLoading } = useClientUser();
   const [terms, setTerms] = useState<PaymentTerms | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user) return;
     getPaymentTerms()
       .then((result) => setTerms(result.terms))
-      .catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : "Payment terms could not be loaded."))
+      .catch((loadError: unknown) => toast.error(loadError instanceof Error ? loadError.message : "Payment terms could not be loaded."))
       .finally(() => setLoading(false));
   }, [user]);
 
@@ -32,7 +32,6 @@ export default function PaymentTermsPage() {
           {terms ? <p className="mt-2 text-sm text-slate-500">Version {terms.version} | Effective {new Date(terms.effectiveFrom).toLocaleDateString("en-GB").replaceAll("/", "-")}</p> : null}
         </header>
 
-        {error ? <div role="alert" className="mt-4 flex gap-2 border border-red-200 bg-red-50 p-4 text-sm text-red-700"><FiAlertCircle className="mt-0.5 shrink-0" />{error}</div> : null}
         {loading ? <div className="border border-t-0 border-slate-200 bg-white p-8 text-center text-sm font-semibold text-slate-500">Loading payment terms...</div> : null}
         {terms ? (
           <div className="border border-t-0 border-slate-200 bg-white px-6 py-2">

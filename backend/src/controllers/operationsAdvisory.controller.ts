@@ -11,6 +11,16 @@ import {
   serviceDisruptionSeverityValues,
   serviceDisruptionTypeValues
 } from "../models/serviceDisruption.model.js";
+import {
+  RegulatoryUpdate,
+  deriveRegulatoryUpdateStatus,
+  regulatoryShipmentDirectionValues,
+  regulatoryShipmentTypeValues,
+  regulatoryUpdateCategoryValues,
+  regulatoryUpdateStatusValues,
+  type IRegulatoryUpdate
+} from "../models/regulatoryUpdate.model.js";
+import { regulatoryRegionCodes } from "../services/reference/regulatoryRegions.js";
 import { User } from "../models/user.model.js";
 import { notifyPortalUsers } from "../services/portalNotification.service.js";
 
@@ -551,4 +561,299 @@ export async function listClientCalendarEntries(_request: Request, response: Res
     success: true,
     entries: entries.map(serializeCalendarEntry)
   });
+}
+
+// ── Customs & regulatory updates ─────────────────────────────────────────────
+
+/**
+ * "All" is not one option among many- it swallows the others. Collapsing the
+ * selection here means the client view never has to render "All · Import".
+ */
+function normaliseMultiSelect<T extends string>(values: T[], fallback: T): T[] {
+  const unique = Array.from(new Set(values));
+  if (!unique.length || unique.includes(fallback)) return [fallback];
+  return unique;
+}
+
+const regulatoryUpdatePayloadSchema = z.object({
+  regions: z
+    .array(z.string().trim().toUpperCase())
+    .min(1, { message: "Choose at least one country or region" })
+    .max(40)
+    .refine((values) => values.every((value) => regulatoryRegionCodes.includes(value)), {
+      message: "One of the selected countries or regions is not recognised"
+    }),
+  category: z.enum(regulatoryUpdateCategoryValues),
+  title: z.string().trim().min(1, { message: "A title is required" }).max(160),
+  effectiveFrom: optionalDateField(),
+  effectiveFromTbc: z.boolean().default(false),
+  effectiveUntil: optionalDateField(),
+  statusOverride: z.enum(regulatoryUpdateStatusValues).nullable().optional().default(null),
+  affectedShipments: z
+    .array(z.enum(regulatoryShipmentDirectionValues))
+    .optional()
+    .default(["ALL"]),
+  shipmentTypes: z
+    .array(z.enum(regulatoryShipmentTypeValues))
+    .optional()
+    .default(["ALL"]),
+  valueThreshold: z.string().trim().max(80).nullable().optional().default(null),
+  customerImpact: z
+    .string()
+    .trim()
+    .min(1, { message: "Describe how this affects the customer" })
+    .max(800),
+  actionRequired: z.string().trim().max(800).optional().default(""),
+  sourceUrl: z
+    .union([
+      z.string().trim().url({ message: "Use a full link, e.g. https://www.gov.uk/..." }).max(500),
+      z.literal(""),
+      z.null()
+    ])
+    .optional()
+    .default(null)
+    .transform((value) => value || null),
+  active: z.boolean().default(true)
+}).superRefine((value, ctx) => {
+  // Effective From is required on the form, but "to be confirmed" is a real
+  // answer- a reform is often announced long before a date exists. Exactly one
+  // of the two must be supplied so an entry can never be silently undated.
+  if (!value.effectiveFrom && !value.effectiveFromTbc) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["effectiveFrom"],
+      message: "Give an effective date, or mark it as to be confirmed."
+    });
+  }
+
+  if (value.effectiveFrom && value.effectiveFromTbc) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["effectiveFromTbc"],
+      message: "Clear the date before marking it as to be confirmed."
+    });
+  }
+
+  if (value.effectiveFrom && value.effectiveUntil && value.effectiveUntil < value.effectiveFrom) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["effectiveUntil"],
+      message: "The end date cannot be before the effective date."
+    });
+  }
+});
+
+type RegulatoryUpdatePayload = z.infer<typeof regulatoryUpdatePayloadSchema>;
+
+/** Everything the wire payload needs settled before it reaches the collection. */
+function toRegulatoryUpdateDocument(payload: RegulatoryUpdatePayload) {
+  return {
+    ...payload,
+    affectedShipments: normaliseMultiSelect(payload.affectedShipments, "ALL"),
+    shipmentTypes: normaliseMultiSelect(payload.shipmentTypes, "ALL"),
+    valueThreshold: payload.valueThreshold || null,
+    sourceUrl: payload.sourceUrl || null
+  };
+}
+
+type RegulatoryUpdateSource = Pick<
+  IRegulatoryUpdate,
+  | "regions"
+  | "category"
+  | "title"
+  | "effectiveFrom"
+  | "effectiveFromTbc"
+  | "effectiveUntil"
+  | "statusOverride"
+  | "affectedShipments"
+  | "shipmentTypes"
+  | "valueThreshold"
+  | "customerImpact"
+  | "actionRequired"
+  | "sourceUrl"
+  | "active"
+  | "createdAt"
+  | "updatedAt"
+> & { _id: unknown };
+
+function serializeRegulatoryUpdate(update: RegulatoryUpdateSource) {
+  return {
+    id: String(update._id),
+    regions: update.regions ?? [],
+    category: update.category,
+    title: update.title,
+    effectiveFrom: update.effectiveFrom ?? null,
+    effectiveFromTbc: update.effectiveFromTbc ?? false,
+    effectiveUntil: update.effectiveUntil ?? null,
+    statusOverride: update.statusOverride ?? null,
+    // The derived value is what every reader shows. `statusOverride` rides
+    // along only so the admin form can round-trip a pinned status.
+    status: deriveRegulatoryUpdateStatus(update),
+    affectedShipments: update.affectedShipments ?? ["ALL"],
+    shipmentTypes: update.shipmentTypes ?? ["ALL"],
+    valueThreshold: update.valueThreshold ?? null,
+    customerImpact: update.customerImpact,
+    actionRequired: update.actionRequired ?? "",
+    sourceUrl: update.sourceUrl ?? null,
+    active: update.active,
+    createdAt: update.createdAt,
+    // Shown as "Last Updated": the timestamp the schema already maintains,
+    // never a field anyone types.
+    updatedAt: update.updatedAt
+  };
+}
+
+async function writeRegulatoryUpdateAuditLog(
+  action: "REGULATORY_UPDATE_CREATED" | "REGULATORY_UPDATE_UPDATED" | "REGULATORY_UPDATE_DELETED",
+  updateId: mongoose.Types.ObjectId,
+  data: Pick<RegulatoryUpdatePayload, "category" | "regions" | "active">,
+  userId: mongoose.Types.ObjectId
+) {
+  await AuditLog.create({
+    action,
+    entityType: "REGULATORY_UPDATE",
+    entityId: updateId,
+    performedBy: userId,
+    performedAt: new Date(),
+    metadata: {
+      category: data.category,
+      regions: data.regions,
+      active: data.active
+    }
+  });
+}
+
+// ── Staff: regulatory updates ────────────────────────────────────────────────
+
+export async function listRegulatoryUpdates(request: Request, response: Response): Promise<Response> {
+  const filters: Record<string, unknown> = {};
+
+  if (request.query.active === "true") filters.active = true;
+  if (request.query.active === "false") filters.active = false;
+  if (typeof request.query.category === "string" && request.query.category) {
+    filters.category = request.query.category;
+  }
+  if (typeof request.query.region === "string" && request.query.region) {
+    filters.regions = request.query.region.toUpperCase();
+  }
+
+  const updates = await RegulatoryUpdate.find(filters)
+    .sort({ effectiveFrom: -1, createdAt: -1 })
+    .lean()
+    .exec();
+
+  const serialized = updates.map(serializeRegulatoryUpdate);
+
+  // Status is derived, so it can never be a Mongo filter: the narrowing happens
+  // after serialization, against the same value the caller will render.
+  const status = typeof request.query.status === "string" ? request.query.status : "";
+
+  return response.status(200).json({
+    success: true,
+    updates: status ? serialized.filter((update) => update.status === status) : serialized
+  });
+}
+
+export async function createRegulatoryUpdate(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = regulatoryUpdatePayloadSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, errors: parsed.error.format() });
+
+  const update = await RegulatoryUpdate.create({
+    ...toRegulatoryUpdateDocument(parsed.data),
+    createdBy: userId
+  });
+
+  await writeRegulatoryUpdateAuditLog(
+    "REGULATORY_UPDATE_CREATED",
+    update._id as mongoose.Types.ObjectId,
+    parsed.data,
+    userId
+  );
+
+  return response.status(201).json({
+    success: true,
+    update: serializeRegulatoryUpdate(update)
+  });
+}
+
+export async function updateRegulatoryUpdate(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const updateId = toObjectId(typeof request.params.id === "string" ? request.params.id : "");
+  if (!updateId) return response.status(404).json({ success: false, message: "Regulatory update not found" });
+
+  const parsed = regulatoryUpdatePayloadSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, errors: parsed.error.format() });
+
+  const update = await RegulatoryUpdate.findByIdAndUpdate(
+    updateId,
+    { ...toRegulatoryUpdateDocument(parsed.data), updatedBy: userId },
+    { new: true, runValidators: true }
+  ).exec();
+
+  if (!update) return response.status(404).json({ success: false, message: "Regulatory update not found" });
+
+  await writeRegulatoryUpdateAuditLog(
+    "REGULATORY_UPDATE_UPDATED",
+    updateId,
+    parsed.data,
+    userId
+  );
+
+  return response.status(200).json({
+    success: true,
+    update: serializeRegulatoryUpdate(update)
+  });
+}
+
+export async function deleteRegulatoryUpdate(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const updateId = toObjectId(typeof request.params.id === "string" ? request.params.id : "");
+  if (!updateId) return response.status(404).json({ success: false, message: "Regulatory update not found" });
+
+  const update = await RegulatoryUpdate.findByIdAndDelete(updateId).exec();
+  if (!update) return response.status(404).json({ success: false, message: "Regulatory update not found" });
+
+  await writeRegulatoryUpdateAuditLog(
+    "REGULATORY_UPDATE_DELETED",
+    updateId,
+    { category: update.category, regions: update.regions, active: update.active },
+    userId
+  );
+
+  return response.status(200).json({ success: true, message: "Regulatory update deleted" });
+}
+
+// ── Client: regulatory updates ───────────────────────────────────────────────
+
+/** Upcoming rules lead: they are the ones a client can still prepare for. */
+const regulatoryStatusRank: Record<string, number> = { UPCOMING: 0, ACTIVE: 1, EXPIRED: 2 };
+
+/**
+ * Published, still-relevant regulatory updates. Expired ones are dropped: the
+ * status exists so staff can watch an entry age out, not so clients read rules
+ * that no longer apply.
+ */
+export async function listClientRegulatoryUpdates(_request: Request, response: Response): Promise<Response> {
+  const updates = await RegulatoryUpdate.find({ active: true })
+    .sort({ effectiveFrom: -1, createdAt: -1 })
+    .lean()
+    .exec();
+
+  const ordered = updates
+    .map(serializeRegulatoryUpdate)
+    .filter((update) => update.status !== "EXPIRED")
+    .sort((left, right) => {
+      const rankDelta = (regulatoryStatusRank[left.status] ?? 9) - (regulatoryStatusRank[right.status] ?? 9);
+      if (rankDelta !== 0) return rankDelta;
+      return new Date(right.createdAt ?? 0).getTime() - new Date(left.createdAt ?? 0).getTime();
+    });
+
+  return response.status(200).json({ success: true, updates: ordered });
 }

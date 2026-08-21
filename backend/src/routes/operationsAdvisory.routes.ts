@@ -1,12 +1,16 @@
 import { Router } from "express";
 import {
   createCalendarEntry,
+  createRegulatoryUpdate,
   createServiceDisruption,
   deleteCalendarEntry,
+  deleteRegulatoryUpdate,
   deleteServiceDisruption,
   listCalendarEntries,
+  listRegulatoryUpdates,
   listServiceDisruptions,
   updateCalendarEntry,
+  updateRegulatoryUpdate,
   updateServiceDisruption
 } from "../controllers/operationsAdvisory.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
@@ -33,3 +37,9 @@ operationsAdvisoryRouter.get("/calendar-entries", listCalendarEntries);
 operationsAdvisoryRouter.post("/calendar-entries", createCalendarEntry);
 operationsAdvisoryRouter.patch("/calendar-entries/:id", updateCalendarEntry);
 operationsAdvisoryRouter.delete("/calendar-entries/:id", deleteCalendarEntry);
+
+// Customs & Regulatory Updates
+operationsAdvisoryRouter.get("/regulatory-updates", listRegulatoryUpdates);
+operationsAdvisoryRouter.post("/regulatory-updates", createRegulatoryUpdate);
+operationsAdvisoryRouter.patch("/regulatory-updates/:id", updateRegulatoryUpdate);
+operationsAdvisoryRouter.delete("/regulatory-updates/:id", deleteRegulatoryUpdate);

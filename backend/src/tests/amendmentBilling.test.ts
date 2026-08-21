@@ -38,6 +38,76 @@ describe("amendment billing allocation policy", () => {
     assert.equal(result.creditOutstandingMinor, 0);
   });
 
+  // A settled invoice has nothing left on its statement to unwind, so a
+  // reduction has to come back as Customer Advance instead. Only reachable now
+  // that a shipment can be re-weighed after its invoice was billed and paid.
+  test("returns a reduction on a fully paid invoice to Customer Advance", () => {
+    const result = calculateAmendmentBillingAdjustment({
+      previousAmountMinor: 50_000,
+      amendedAmountMinor: 45_000,
+      // Paying the statement cleared the outstanding credit without moving it
+      // into the applied advance, so both allocations read zero.
+      previousAdvanceAppliedMinor: 0,
+      previousCreditOutstandingMinor: 0,
+      availableAdvanceMinor: 0,
+      availableCreditMinor: 0
+    });
+
+    assert.equal(result.creditReducedMinor, 0);
+    assert.equal(result.advanceRefundedMinor, 0);
+    assert.equal(result.advanceCreditedMinor, 5_000);
+    assert.equal(result.advanceAppliedMinor, 0);
+    assert.equal(result.creditOutstandingMinor, 0);
+    assert.equal(result.settledAmountMinor, 45_000);
+  });
+
+  test("splits a reduction on a part-paid invoice across credit and Customer Advance", () => {
+    const result = calculateAmendmentBillingAdjustment({
+      previousAmountMinor: 50_000,
+      amendedAmountMinor: 40_000,
+      previousAdvanceAppliedMinor: 0,
+      previousCreditOutstandingMinor: 4_000,
+      availableAdvanceMinor: 0,
+      availableCreditMinor: 0
+    });
+
+    assert.equal(result.creditReducedMinor, 4_000);
+    assert.equal(result.advanceRefundedMinor, 0);
+    assert.equal(result.advanceCreditedMinor, 6_000);
+    assert.equal(result.creditOutstandingMinor, 0);
+    assert.equal(result.settledAmountMinor, 40_000);
+  });
+
+  test("funds an increase on a fully paid invoice without disturbing what was settled", () => {
+    const result = calculateAmendmentBillingAdjustment({
+      previousAmountMinor: 50_000,
+      amendedAmountMinor: 60_000,
+      previousAdvanceAppliedMinor: 0,
+      previousCreditOutstandingMinor: 0,
+      availableAdvanceMinor: 4_000,
+      availableCreditMinor: 10_000
+    });
+
+    assert.equal(result.advanceUsedMinor, 4_000);
+    assert.equal(result.creditUsedMinor, 6_000);
+    assert.equal(result.advanceCreditedMinor, 0);
+    assert.equal(result.settledAmountMinor, 50_000);
+  });
+
+  test("leaves an unpaid reduction entirely on credit and applied advance", () => {
+    const result = calculateAmendmentBillingAdjustment({
+      previousAmountMinor: 50_000,
+      amendedAmountMinor: 45_000,
+      previousAdvanceAppliedMinor: 10_000,
+      previousCreditOutstandingMinor: 40_000,
+      availableAdvanceMinor: 0,
+      availableCreditMinor: 0
+    });
+
+    assert.equal(result.advanceCreditedMinor, 0);
+    assert.equal(result.settledAmountMinor, 0);
+  });
+
   test("rejects an increase when combined capacity is insufficient", () => {
     assert.throws(
       () => calculateAmendmentBillingAdjustment({

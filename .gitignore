@@ -39,3 +39,9 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Backup
+backup-before-migration/
+backup-before-migration*/
+backups/
+backup-before-stage3*/

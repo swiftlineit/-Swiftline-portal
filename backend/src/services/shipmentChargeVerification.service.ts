@@ -14,23 +14,40 @@ import {
 } from "./amendmentBilling.service.js";
 import {
   ensureShipmentInvoiceForDraft,
+  markShipmentChargeFinalized,
   ShipmentInvoiceServiceError
 } from "./shipmentInvoice.service.js";
+import {
+  buildRevisedShipmentSnapshot,
+  readShipmentBookingSnapshot
+} from "./shipmentBookingSnapshot.service.js";
 import {
   buildPricingInputFromDraft,
   calculateShipmentPricingEstimate,
   type ShipmentPricingEstimate
 } from "./shipmentPricing.service.js";
+import { normalizeParcelItems } from "./parcelItems.service.js";
 import { formatMinorRupees } from "./prepaid/dailyTopUpLimit.service.js";
 import { notifyBusinessShipmentMembers } from "./portalNotification.service.js";
 
-const afterCollectionStatuses: ShipmentEventStatus[] = [
-  "WAREHOUSE_SCAN_IN",
-  "EXPORT_CUSTOMS_CLEARED",
-  "FLIGHT_ASSIGNED",
+/**
+ * The shipment has left India, and its weight is no longer ours to correct.
+ *
+ * Verification used to close at Warehouse Scan In, which only worked because
+ * scan-in was itself blocked until the charge was verified. Now that progress
+ * runs freely, that cutoff would let whoever records scan-in first lock out the
+ * re-weigh for good- so the window runs to departure instead. Everything before
+ * it (hub receipt, export customs, flight assignment) is time the parcel is
+ * still on the ground and still ours to weigh.
+ */
+const afterDepartureStatuses: ShipmentEventStatus[] = [
   "FLIGHT_DEPARTED",
   "DESTINATION_ARRIVED",
   "IMPORT_CUSTOMS_CLEARANCE",
+  // Off the operational ladder, so the status endpoint cannot record it today.
+  // Listed anyway: it means the same thing as the statuses around it, and this
+  // gate should not depend on which statuses happen to be selectable.
+  "IN_TRANSIT",
   "OUT_FOR_DELIVERY",
   "DELIVERED",
   "RETURNED",
@@ -97,7 +114,7 @@ async function assertVerificationWindow(
   session?: mongoose.ClientSession
 ) {
   const collectedQuery = ShipmentEvent.exists({ shipmentDraftId, status: "PARCEL_COLLECTED" });
-  const progressedQuery = ShipmentEvent.exists({ shipmentDraftId, status: { $in: afterCollectionStatuses } });
+  const departedQuery = ShipmentEvent.exists({ shipmentDraftId, status: { $in: afterDepartureStatuses } });
   const amendmentQuery = ShipmentAmendment.exists({ shipmentDraftId, status: "REQUESTED" });
   const cancellationQuery = ShipmentCancellation.findOne({
     shipmentDraftId,
@@ -105,20 +122,20 @@ async function assertVerificationWindow(
   }).select("status").lean();
   if (session) {
     collectedQuery.session(session);
-    progressedQuery.session(session);
+    departedQuery.session(session);
     amendmentQuery.session(session);
     cancellationQuery.session(session);
   }
 
   const collected = await collectedQuery.exec();
-  const progressed = await progressedQuery.exec();
+  const departed = await departedQuery.exec();
   const pendingAmendment = await amendmentQuery.exec();
   const cancellation = await cancellationQuery.exec();
   if (!collected) {
     throw new ShipmentChargeVerificationError(409, "Final charge verification is available after Parcel Collected.");
   }
-  if (progressed) {
-    throw new ShipmentChargeVerificationError(409, "Final charge verification must be completed before Warehouse Scan In.");
+  if (departed) {
+    throw new ShipmentChargeVerificationError(409, "The shipment has departed, so its final weight can no longer be corrected.");
   }
   if (pendingAmendment) {
     throw new ShipmentChargeVerificationError(409, "Approve or reject the pending shipment amendment before final verification.");
@@ -147,6 +164,15 @@ function mergeVerifiedParcels(current: ShipmentParcel[], verified: VerifiedParce
     if (!measured) {
       throw new ShipmentChargeVerificationError(400, `Parcel ${parcel.sequence} verification is missing.`);
     }
+    // Only the measurements are replaced. Everything else on the parcel
+    // describes the goods rather than the box, and a re-weigh has nothing to
+    // say about it- so the item lines, their HSN codes and declared values, and
+    // any per-parcel KYC are carried across untouched.
+    //
+    // Rebuilding the parcel without them used to blank all three. The draft's
+    // pre-validate hook then regenerated `items` from contentsDescription as a
+    // single line with no HSN code and zero quantity, which emptied the customs
+    // invoice and dropped the declared goods value to nothing.
     return {
       sequence: parcel.sequence,
       weightKg: measured.actualWeightKg,
@@ -154,9 +180,12 @@ function mergeVerifiedParcels(current: ShipmentParcel[], verified: VerifiedParce
       widthCm: measured.widthCm,
       heightCm: measured.heightCm,
       shipmentContentType: parcel.shipmentContentType,
+      items: normalizeParcelItems(parcel),
       contentsDescription: parcel.contentsDescription,
       shipmentReference1: parcel.shipmentReference1,
-      shipmentReference2: parcel.shipmentReference2
+      shipmentReference2: parcel.shipmentReference2,
+      aadhaarNumber: parcel.aadhaarNumber,
+      kycDocuments: parcel.kycDocuments
     };
   });
 }
@@ -170,8 +199,7 @@ async function calculateVerificationPricing(
   const pricing = await calculateShipmentPricingEstimate({
     // The draft supplies the route, the CSB type, the insurance choice and the
     // declared goods value; only the measurements are replaced by what the
-    // warehouse actually weighed. Re-deriving the declared value from `parcels`
-    // would read zero, because verified parcels carry no item lines.
+    // warehouse actually weighed.
     ...buildPricingInputFromDraft(draft),
     parcels,
     // Warehouse verification may change weights, never the commercial tax
@@ -326,6 +354,7 @@ export async function finalizeShipmentChargeVerification(input: {
             advanceAppliedMinor: billingAdjustment.advanceAppliedMinor,
             creditOutstandingMinor: billingAdjustment.creditOutstandingMinor
           },
+          settledAmountMinor: billingAdjustment.settledAmountMinor,
           pricingOverride: verifiedPricing,
           session
         });
@@ -334,6 +363,40 @@ export async function finalizeShipmentChargeVerification(input: {
           throw new ShipmentChargeVerificationError(error.statusCode, error.message);
         }
         throw error;
+      }
+
+      // A shipment normally reaches Warehouse Scan In first and is stamped there.
+      // This covers the correction that arrives before the hub records receipt-
+      // the charge is settled the moment it is corrected. Stamping is write-once,
+      // so a later scan-in leaves this date alone.
+      await markShipmentChargeFinalized({
+        shipmentDraftId: draft._id as mongoose.Types.ObjectId,
+        finalizedAt: verification.verifiedAt,
+        session
+      });
+
+      // The verified weights have to reach the shipment snapshot as well as the
+      // draft: the operations manifest builds its bag and consignment weights
+      // from the snapshot, and the sealed manifest carries those figures into
+      // the customs EDI. Left alone, the hub would pack and declare the booked
+      // weight while the customer was billed the corrected one.
+      //
+      // Unlike an approved amendment this deliberately does not touch
+      // snapshotRevision, does not reset the shipment to DPD_CREATED, and does
+      // not regenerate labels. The parcel is already labelled and in our hands;
+      // only its weight changed. Bumping the revision would strand every printed
+      // label, which is matched to the shipment by labelVersion.
+      const previousSnapshot = readShipmentBookingSnapshot(shipment.currentShipmentSnapshot)
+        ?? readShipmentBookingSnapshot(shipment.bookingSnapshot);
+      if (previousSnapshot && previousSnapshot.parcels.length === draft.parcelList.length) {
+        shipment.currentShipmentSnapshot = buildRevisedShipmentSnapshot({
+          previousSnapshot,
+          draft,
+          pricing: verifiedPricing,
+          advanceAmountMinor: billingAdjustment.advanceAppliedMinor,
+          creditAmountMinor: billingAdjustment.creditOutstandingMinor
+        }) as unknown as Record<string, unknown>;
+        await shipment.save({ session });
       }
 
       verification.billingAdjustment = billingAdjustment as unknown as Record<string, unknown>;

@@ -79,7 +79,8 @@ import { shipmentImportUpload } from "../middleware/shipmentImportUpload.middlew
 import { shipmentKycUpload } from "../middleware/shipmentKycUpload.middleware.js";
 import { shipmentSupportingDocumentUpload } from "../middleware/shipmentSupportingDocumentUpload.middleware.js";
 import {
-  acceptClientPaymentTerms, getClientCreditSummary, getClientPaymentTerms, requestClientCredit
+  acceptClientPaymentTerms, getClientCreditLimitIncrease, getClientCreditSummary, getClientPaymentTerms,
+  requestClientCredit, requestClientCreditLimitIncrease
 } from "../controllers/clientCredit.controller.js";
 import {
   getClientCreditAgreement,
@@ -115,6 +116,7 @@ import {
 } from "../controllers/supportTicket.controller.js";
 import {
   listClientCalendarEntries,
+  listClientRegulatoryUpdates,
   listClientServiceDisruptions
 } from "../controllers/operationsAdvisory.controller.js";
 import { cancelClientPickupRequest, createClientPickupRequest, rescheduleClientPickupRequest, getClientPickupRequest, listClientEligiblePickups, listClientPickupRequests, viewClientPickupProof } from "../controllers/pickup.controller.js";
@@ -134,9 +136,11 @@ clientRouter.use(requireRole("client"));
 clientRouter.use("/address-book", addressBookRouter);
 clientRouter.get("/documents", listClientDocuments);
 
-// Operations advisory: the header marquee and the Holiday & Cut-Off Calendar.
+// Operations advisory: the header marquee, the Holiday & Cut-Off Calendar and
+// the customs & regulatory updates published alongside it.
 clientRouter.get("/service-disruptions", listClientServiceDisruptions);
 clientRouter.get("/calendar-entries", listClientCalendarEntries);
+clientRouter.get("/regulatory-updates", listClientRegulatoryUpdates);
 
 clientRouter.get("/support-tickets", listClientTickets);
 clientRouter.post("/support-tickets", createClientTicket);
@@ -163,6 +167,8 @@ clientRouter.get("/quotes/:quoteId", getClientShipmentQuote);
 clientRouter.post("/quotes/:quoteId/convert", convertClientShipmentQuote);
 clientRouter.get("/credit", getClientCreditSummary);
 clientRouter.post("/credit/request", requestClientCredit);
+clientRouter.get("/credit/limit-increase", getClientCreditLimitIncrease);
+clientRouter.post("/credit/limit-increase", requestClientCreditLimitIncrease);
 clientRouter.get("/credit/payment-terms", getClientPaymentTerms);
 clientRouter.post("/credit/payment-terms/accept", acceptClientPaymentTerms);
 clientRouter.get("/credit/statements", listClientStatements);

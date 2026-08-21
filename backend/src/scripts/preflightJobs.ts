@@ -81,44 +81,57 @@ async function run() {
     );
 
     // --- close-billing -------------------------------------------------------
-    // The precondition for a statement is an issued invoice still carrying
-    // credit that has not been attached to a statement yet.
-    const [unbilledInvoices, unbilledFees, pendingAdjustments] = await Promise.all([
-      ShipmentInvoice.countDocuments({
-        status: "ISSUED",
-        paymentStatus: { $ne: "VOID" },
-        creditOutstandingMinor: { $gt: 0 },
-        billingStatementId: null
-      }).exec(),
+    // An unbilled invoice is only *billable* once its charge has settled, which
+    // is what chargeFinalizedAt records. Counting every unbilled invoice as
+    // billable is what once reported twenty invoices as work waiting when none
+    // of them could reach a statement at all- they were blocked, not queued.
+    const unbilledInvoiceFilter = {
+      status: "ISSUED",
+      paymentStatus: { $ne: "VOID" },
+      creditOutstandingMinor: { $gt: 0 },
+      billingStatementId: null
+    } as const;
+
+    const [billableInvoices, awaitingCollection, unbilledFees, pendingAdjustments] = await Promise.all([
+      ShipmentInvoice.countDocuments({ ...unbilledInvoiceFilter, chargeFinalizedAt: { $ne: null } }).exec(),
+      ShipmentInvoice.countDocuments({ ...unbilledInvoiceFilter, chargeFinalizedAt: null }).exec(),
       CancellationFeeInvoice.countDocuments({
         creditOutstandingMinor: { $gt: 0 },
         billingStatementId: null
       }).exec(),
       CreditBillingAdjustment.countDocuments({ status: "PENDING" }).exec()
     ]);
-    const billableTotal = unbilledInvoices + unbilledFees + pendingAdjustments;
+    const billableTotal = billableInvoices + unbilledFees + pendingAdjustments;
 
-    // Anything issued before this line falls into an earlier period, so its
-    // statement would be back-dated and could already be past due.
+    // Anything settled before this line falls into an earlier period, so its
+    // statement would be back-dated and could already be past due. Measured on
+    // chargeFinalizedAt because that is the date the billing cycle groups by-
+    // issuedAt would answer for a period the invoice never belonged to.
     const backdateCutoff = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000);
-    const wouldBackdate = unbilledInvoices
+    const wouldBackdate = billableInvoices
       ? await ShipmentInvoice.countDocuments({
-          status: "ISSUED",
-          paymentStatus: { $ne: "VOID" },
-          creditOutstandingMinor: { $gt: 0 },
-          billingStatementId: null,
-          issuedAt: { $lt: backdateCutoff, $gte: new Date(now.getTime() - OVERDUE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000) }
+          ...unbilledInvoiceFilter,
+          chargeFinalizedAt: {
+            $lt: backdateCutoff,
+            $gte: new Date(now.getTime() - OVERDUE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000)
+          }
         }).exec()
       : 0;
 
     console.log("\njob:credit:close-billing");
-    line("unbilled invoices", String(unbilledInvoices));
+    line("billable invoices", String(billableInvoices));
+    line("awaiting collection", `${awaitingCollection} (not billable until collected)`);
     line("unbilled cancel fees", String(unbilledFees));
     line("pending adjustments", String(pendingAdjustments));
     line("would be back-dated", String(wouldBackdate));
     verdict(
       billableTotal === 0,
-      "nothing to bill, so no statement can be created",
+      awaitingCollection > 0
+        // Naming the backlog matters: "nothing to bill" alongside a pile of
+        // unbilled invoices reads as a fault, when it is the job correctly
+        // declining to bill charges that have not settled.
+        ? `nothing to bill yet- ${awaitingCollection} invoice(s) are waiting on collection`
+        : "nothing to bill, so no statement can be created",
       wouldBackdate > 0
         ? "back-dated statements WILL be created and may block accounts immediately"
         : "statements will be created, dated in the current period"

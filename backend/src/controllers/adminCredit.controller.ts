@@ -7,9 +7,15 @@ import { excludeSentinel } from "../services/individualCustomer.service.js";
 import { BusinessCreditAccount, creditAccountStatusValues, type CreditAccountStatus, type IBusinessCreditAccount } from "../models/businessCreditAccount.model.js";
 import { type CreditLedgerEntryType } from "../models/creditLedgerEntry.model.js";
 import { CreditLimitHistory } from "../models/creditLimitHistory.model.js";
-import { maxCreditLimitMinor } from "../models/financialTypes.js";
-import { appendCreditLedgerEntry, ensureCreditAccount, getCreditActivationBlockers, serializeCreditAccount } from "../services/creditAccount.service.js";
+import { maxCreditLimitLabel, maxCreditLimitMinor } from "../models/financialTypes.js";
+import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
+import { CreditLimitIncreaseRequest } from "../models/creditLimitIncreaseRequest.model.js";
+import {
+  appendCreditLedgerEntry, ensureCreditAccount, getCreditActivationBlockers,
+  serializeCreditAccount, serializeLimitIncrease
+} from "../services/creditAccount.service.js";
 import { getCreditRestrictionState } from "../services/creditOverdue.service.js";
+import { getCreditBillingSummary } from "../services/creditBilling.summary.service.js";
 import { formatMinorRupees } from "../services/prepaid/dailyTopUpLimit.service.js";
 import { notifyBusinessFinancialMembers } from "../services/portalNotification.service.js";
 import { operationsBranchIds } from "../middleware/operationsBranchAccess.middleware.js";
@@ -19,7 +25,7 @@ const creditClientHref = "/client/credit#credit-summary";
 const approvalSchema = z.object({
   approvedCreditLimitMinor: z.number().int()
     .positive("Approved credit limit must be greater than zero.")
-    .max(maxCreditLimitMinor, "Approved credit limit cannot exceed INR 1,00,000."),
+    .max(maxCreditLimitMinor, `Approved credit limit cannot exceed ${maxCreditLimitLabel}.`),
   paymentTermsDays: z.union([z.literal(0), z.literal(7), z.literal(15), z.literal(30), z.literal(45)]),
   billingCycle: z.enum(["WEEKLY", "MONTHLY"]),
   validFrom: z.string().trim().optional().default(""),
@@ -74,7 +80,12 @@ async function serializeAdminCreditAccount(account: InstanceType<typeof Business
       ? serialized.availableAdvanceMinor
       : serialized.availableBookingCapacityMinor;
 
-  return { ...serialized, availableBookingCapacityMinor, restriction };
+  return {
+    ...serialized,
+    availableBookingCapacityMinor,
+    restriction,
+    billing: await getCreditBillingSummary(account.businessAccountId)
+  };
 }
 
 export async function listAdminCreditAccounts(request: Request, response: Response): Promise<Response> {
@@ -103,13 +114,26 @@ export async function listAdminCreditAccounts(request: Request, response: Respon
     .sort({ updatedAt: -1 }).lean().exec();
   const creditAccounts = await BusinessCreditAccount.find({ businessAccountId: { $in: businesses.map((account) => account._id) } }).exec();
   const byBusinessId = new Map(creditAccounts.map((account) => [String(account.businessAccountId), account]));
+  const openRequests = await CreditLimitIncreaseRequest.find({
+    businessAccountId: { $in: businesses.map((account) => account._id) },
+    status: "PENDING"
+  }).lean().exec();
+  const requestByBusinessId = new Map(openRequests.map((item) => [String(item.businessAccountId), serializeLimitIncrease(item)]));
   const allAccounts = await Promise.all(businesses.map(async (business) => {
     const account = byBusinessId.get(String(business._id));
     return account
-      ? { ...await serializeAdminCreditAccount(account), businessAccount: businessSummary(business) }
+      ? {
+          ...await serializeAdminCreditAccount(account),
+          businessAccount: businessSummary(business),
+          limitIncreaseRequest: requestByBusinessId.get(String(business._id)) ?? null
+        }
+      // A business with no facility yet still fills every column, because the
+      // money formatter renders a missing figure as "Restricted" - which would
+      // read as withheld data rather than the zero it actually is.
       : {
           id: "", businessAccountId: String(business._id), status: "NOT_REQUESTED", currency: "INR",
           requestedCreditLimitMinor: 0, approvedCreditLimitMinor: 0, usedCreditMinor: 0,
+          unbilledCreditMinor: 0, invoicedOutstandingMinor: 0, totalOwedMinor: 0,
           availableCreditMinor: 0, availableAdvanceMinor: 0, availableBookingCapacityMinor: 0,
           paymentTermsDays: 30, billingCycle: "MONTHLY", businessAccount: businessSummary(business)
         };
@@ -120,6 +144,42 @@ export async function listAdminCreditAccounts(request: Request, response: Respon
     ? allAccounts.filter((account) => account.status === statusFilter)
     : allAccounts;
   return response.status(200).json({ success: true, creditAccounts: creditAccountsResult });
+}
+
+/**
+ * Shipments booked but not yet collected, and what they are worth.
+ *
+ * Billing starts at collection, so these are charges that exist but cannot
+ * reach a statement yet. Without a figure for them the money is invisible: it
+ * is absent from Billed Outstanding, absent from Total Owed, and shows up only
+ * as an account that quietly bills less than it should.
+ */
+async function summarizeAwaitingCollection(businessAccountId: mongoose.Types.ObjectId) {
+  const invoices = await ShipmentInvoice.find({
+    businessAccountId,
+    chargeFinalizedAt: null,
+    billingStatementId: null,
+    status: "ISSUED",
+    paymentStatus: { $ne: "VOID" },
+    creditOutstandingMinor: { $gt: 0 }
+  }).select("creditOutstandingMinor issuedAt").lean().exec();
+
+  const oldestIssuedAt = invoices.reduce<Date | null>(
+    (oldest, invoice) => (!oldest || invoice.issuedAt < oldest ? invoice.issuedAt : oldest),
+    null
+  );
+
+  return {
+    count: invoices.length,
+    valueMinor: invoices.reduce((total, invoice) => total + invoice.creditOutstandingMinor, 0),
+    oldestIssuedAt
+  };
+}
+
+/** The open increase request for one account, so the reviewer sees what was asked for. */
+async function openLimitIncrease(businessAccountId: mongoose.Types.ObjectId) {
+  const pending = await CreditLimitIncreaseRequest.findOne({ businessAccountId, status: "PENDING" }).lean().exec();
+  return pending ? serializeLimitIncrease(pending) : null;
 }
 
 export async function getAdminCreditAccount(request: Request, response: Response): Promise<Response> {
@@ -134,6 +194,8 @@ export async function getAdminCreditAccount(request: Request, response: Response
     success: true,
     creditAccount: { ...await serializeAdminCreditAccount(account), businessAccount: summary },
     businessAccount: summary,
+    awaitingCollection: await summarizeAwaitingCollection(businessAccountId),
+    limitIncreaseRequest: await openLimitIncrease(businessAccountId),
     limitHistory: history
   });
 }
@@ -190,9 +252,15 @@ export async function approveAdminCreditAccount(request: Request, response: Resp
       account.holdReason = "";
       account.version += 1;
       await account.save({ session });
-      business.creditLimitStatus = "approved";
-      business.updatedBy = currentUserId;
-      await business.save({ session });
+      // Written as a targeted update rather than business.save(): saving the
+      // whole document revalidates every unrelated field, so an account still
+      // carrying pre-storage-service KYC rows fails validation and takes the
+      // credit decision down with it. Only these two fields are ours to change.
+      await BusinessAccount.updateOne(
+        { _id: businessAccountId },
+        { $set: { creditLimitStatus: "approved", updatedBy: currentUserId } },
+        { session }
+      ).exec();
       if (previousLimitMinor !== account.approvedCreditLimitMinor) {
         await CreditLimitHistory.create([{
           businessAccountId, creditAccountId: account._id, previousLimitMinor,
@@ -211,6 +279,21 @@ export async function approveAdminCreditAccount(request: Request, response: Resp
     });
     const stayedActive = result?.wasActive ?? false;
     if (result) {
+      // Setting the limit answers any open increase request, whatever the
+      // reviewer actually granted- so the customer stops seeing "under review"
+      // and the next request is not blocked by a stale one.
+      await CreditLimitIncreaseRequest.updateOne(
+        { businessAccountId, status: "PENDING" },
+        {
+          $set: {
+            status: "APPROVED",
+            reviewedBy: currentUserId,
+            reviewedAt: new Date(),
+            decidedLimitMinor: parsed.data.approvedCreditLimitMinor,
+            decisionNote: parsed.data.reason
+          }
+        }
+      ).exec();
       await notifyBusinessFinancialMembers(businessAccountId, {
         // Re-approving a live facility is a terms change, not a new decision.
         type: stayedActive ? "CREDIT_ACCOUNT_STATUS_CHANGED" : "CREDIT_REQUEST_APPROVED",

@@ -934,6 +934,7 @@ export async function approveShipmentAmendment(request: Request, response: Respo
           advanceAppliedMinor: billingAdjustment.advanceAppliedMinor,
           creditOutstandingMinor: billingAdjustment.creditOutstandingMinor
         },
+        settledAmountMinor: billingAdjustment.settledAmountMinor,
         pricingOverride: livePricingImpact.requested,
         session
       });

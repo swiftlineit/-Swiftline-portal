@@ -2,11 +2,13 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FiAlertCircle, FiFileText, FiPlus, FiRefreshCw } from "react-icons/fi";
+import { FiFileText, FiList, FiPlus, FiRefreshCw } from "react-icons/fi";
+import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
 } from "@/components/client/ClientDashboardShell";
 import CreditStatusBadge from "@/components/credit/CreditStatusBadge";
+import CreditLimitIncreasePanel from "@/components/credit/CreditLimitIncreasePanel";
 import CreditSummaryCards from "@/components/credit/CreditSummaryCards";
 import {
   CreditAgreement,
@@ -16,6 +18,7 @@ import {
   CreditAccount,
   CreditPermission,
   getClientCreditAccount,
+  MAX_CREDIT_LIMIT_LABEL,
   MAX_CREDIT_LIMIT_RUPEES,
   requestCredit,
 } from "@/lib/creditAccounts";
@@ -57,8 +60,6 @@ export default function ClientCreditPage() {
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   const loadCredit = useCallback(async (businessAccountId: string) => {
     const result = await getClientCreditAccount(businessAccountId);
@@ -77,7 +78,6 @@ export default function ClientCreditPage() {
     if (!user) return;
     async function load() {
       setLoading(true);
-      setError("");
       try {
         const dashboard = await getClientDashboard();
         setAccounts(dashboard.accounts);
@@ -85,7 +85,7 @@ export default function ClientCreditPage() {
         setSelectedId(firstId);
         if (firstId) await loadCredit(firstId);
       } catch (loadError) {
-        setError(errorMessage(loadError));
+        toast.error(errorMessage(loadError));
       } finally {
         setLoading(false);
       }
@@ -96,12 +96,10 @@ export default function ClientCreditPage() {
   async function handleAccountChange(businessAccountId: string) {
     setSelectedId(businessAccountId);
     setLoading(true);
-    setError("");
-    setSuccess("");
     try {
       await loadCredit(businessAccountId);
     } catch (loadError) {
-      setError(errorMessage(loadError));
+      toast.error(errorMessage(loadError));
     } finally {
       setLoading(false);
     }
@@ -111,23 +109,21 @@ export default function ClientCreditPage() {
     event.preventDefault();
     const rupees = Number(requestedAmount);
     if (!Number.isFinite(rupees) || rupees <= 0) {
-      setError("Enter a valid credit limit greater than zero.");
+      toast.error("Enter a valid credit limit greater than zero.");
       return;
     }
     if (rupees > MAX_CREDIT_LIMIT_RUPEES) {
-      setError("Requested credit limit cannot exceed INR 1,00,000.");
+      toast.error(`Requested credit limit cannot exceed ${MAX_CREDIT_LIMIT_LABEL}.`);
       return;
     }
     if (reason.trim().length < 10) {
-      setError(
+      toast.error(
         "Briefly explain the expected shipment volume or business need.",
       );
       return;
     }
 
     setSubmitting(true);
-    setError("");
-    setSuccess("");
     try {
       const result = await requestCredit({
         businessAccountId: selectedId,
@@ -137,9 +133,9 @@ export default function ClientCreditPage() {
       setCreditAccount(result.creditAccount);
       setRequestedAmount("");
       setReason("");
-      setSuccess(result.message);
+      toast.success(result.message);
     } catch (requestError) {
-      setError(errorMessage(requestError));
+      toast.error(errorMessage(requestError));
     } finally {
       setSubmitting(false);
     }
@@ -177,6 +173,13 @@ export default function ClientCreditPage() {
             {/* add credit button */}
 
             <Link
+              href={selectedId ? `/client/credit/ledger?businessAccountId=${selectedId}` : "/client/credit/ledger"}
+              className="inline-flex rounded-4xl h-10 items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 hover:border-blue-300"
+            >
+              <FiList aria-hidden="true" />
+              View Ledger
+            </Link>
+            <Link
               href="/client/payments"
               className="inline-flex rounded-4xl h-10 items-center gap-2 border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 hover:border-blue-300"
             >
@@ -203,24 +206,6 @@ export default function ClientCreditPage() {
           </label>
         ) : null}
 
-        {error ? (
-          <div
-            role="alert"
-            className="flex items-start gap-2 border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-          >
-            <FiAlertCircle className="mt-0.5 shrink-0" />
-            {error}
-          </div>
-        ) : null}
-        {success ? (
-          <div
-            role="status"
-            className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"
-          >
-            {success}
-          </div>
-        ) : null}
-
         {loading ? (
           <div className="flex min-h-48 items-center justify-center border border-slate-200 bg-white text-sm font-semibold text-slate-500">
             <FiRefreshCw className="mr-2 animate-spin" /> Loading credit
@@ -237,6 +222,13 @@ export default function ClientCreditPage() {
             </section> */}
 
             <CreditSummaryCards account={creditAccount} />
+
+            {/* Shown only when the customer is at or near their ceiling- the
+                moment a higher limit is worth asking for. */}
+            <CreditLimitIncreasePanel
+              account={creditAccount}
+              canRequest={permissions.includes("requestCredit")}
+            />
 
             {creditAccount.restriction &&
             creditAccount.restriction.level !== "NONE" ? (
@@ -400,7 +392,7 @@ export default function ClientCreditPage() {
                       className="mt-2 h-11 w-full border border-slate-300 px-3 font-normal focus:border-blue-500 focus:outline-none"
                     />
                     <span className="mt-1 block text-xs font-normal text-slate-500">
-                      Maximum INR 1,00,000
+                      Maximum {MAX_CREDIT_LIMIT_LABEL}
                     </span>
                   </label>
                   <label className="text-sm font-semibold text-slate-700 sm:col-span-2">

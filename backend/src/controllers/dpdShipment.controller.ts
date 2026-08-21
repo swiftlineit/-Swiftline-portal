@@ -26,7 +26,7 @@ const counterCollectionSchema = z.object({
   note: z.string().trim().max(300).optional()
 });
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
-import { ShipmentChargeVerification } from "../models/shipmentChargeVerification.model.js";
+import { chargeFinalizingStatuses, markShipmentChargeFinalized } from "../services/shipmentInvoice.service.js";
 import { ShipmentCancellation } from "../models/shipmentCancellation.model.js";
 import {
   buildDeliveryEstimate,
@@ -38,7 +38,11 @@ import {
   findMissingPrerequisites,
   formatShipmentEventLabel
 } from "../services/shipmentStatusSequence.service.js";
-import { bulkRecordOperationalStatus } from "../services/bulkShipmentStatus.service.js";
+import {
+  BulkStatusSelectionError,
+  bulkRecordOperationalStatus
+} from "../services/bulkShipmentStatus.service.js";
+import { resolveShipmentEventNote } from "../services/shipmentEventCopy.service.js";
 import {
   DpdLabelUnavailableError,
   DpdShipmentServiceError,
@@ -233,7 +237,7 @@ function serializeShipmentEvent(event: {
     status: event.status,
     statusLabel: formatShipmentEventLabel(event.status),
     holdReason: event.holdReason ?? null,
-    note: event.note ?? "",
+    note: resolveShipmentEventNote(event.note, event.status),
     location: event.location ?? "",
     customerVisible: event.customerVisible,
     eventAt: event.eventAt,
@@ -1024,10 +1028,10 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
    * Progress is recorded in order, so the timeline can never claim a shipment
    * reached a stage it has no record of passing through.
    *
-   * Checked ahead of the charge verification below because it is the coarser
-   * gate: a shipment at the wrong rung entirely has a more fundamental problem
-   * than an unverified charge, and answering with the charge message first would
-   * send Operations to fix something that is not yet the obstacle.
+   * The last gate standing between Operations and a status update. The shipment
+   * charge deliberately is not one: final weight verification is an optional
+   * correction Operations reaches for when the parcel does not weigh what was
+   * declared, and a parcel sitting at the hub must never be held up by it.
    *
    * The recorded set is deliberately not filtered on `customerVisible`- an
    * internal scan still happened, and hiding an event from customers must not
@@ -1045,26 +1049,27 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
     });
   }
 
-  if (
-    parsed.data.status === "WAREHOUSE_SCAN_IN"
-    && !(await ShipmentChargeVerification.exists({ dpdShipmentId: shipment._id }))
-  ) {
-    return response.status(409).json({
-      success: false,
-      message: "Verify the final shipment weight and charge before Warehouse Scan In."
-    });
-  }
-
   const event = await ShipmentEvent.create({
     shipmentDraftId: shipment.shipmentDraftId,
     dpdShipmentId: shipment._id,
     status: parsed.data.status,
-    note: parsed.data.note || "Live action updated by Swiftline Operations",
+    note: resolveShipmentEventNote(parsed.data.note, parsed.data.status),
     location: parsed.data.location,
     customerVisible: true,
     createdBy: userId,
     eventAt: new Date()
   });
+
+  // Collecting the parcel settles its charge- see chargeFinalizingStatuses.
+  // Final weight verification may still follow- it is an optional correction,
+  // not a precondition- and if it does, it revises the invoice this stamp has
+  // already made billable.
+  if ((chargeFinalizingStatuses as readonly string[]).includes(parsed.data.status)) {
+    await markShipmentChargeFinalized({
+      shipmentDraftId: shipment.shipmentDraftId,
+      finalizedAt: event.eventAt
+    });
+  }
 
   await AuditLog.create({
     action: "SHIPMENT_STATUS_UPDATED",
@@ -1115,6 +1120,12 @@ export async function bulkUpdateDpdShipmentOperationalStatus(request: Request, r
 
     return response.status(200).json({ success: true, message, ...result });
   } catch (error) {
+    // A refused selection is the operator's to fix, not a fault: it is reported
+    // with the reason so the toast can say which stages were mixed.
+    if (error instanceof BulkStatusSelectionError) {
+      return response.status(409).json({ success: false, message: error.message });
+    }
+
     return response.status(500).json({ success: false, message: "The bulk status update could not be completed." });
   }
 }

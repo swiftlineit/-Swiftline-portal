@@ -4,7 +4,7 @@ import { z } from "zod";
 import { env } from "../config/env.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js";
-import { PaymentTopUp, type IPaymentTopUp } from "../models/paymentTopUp.model.js";
+import { PaymentTopUp, type IPaymentTopUp, type PaymentTopUpStatus } from "../models/paymentTopUp.model.js";
 import { PrepaidAccount } from "../models/prepaidAccount.model.js";
 import { PrepaidTransaction } from "../models/prepaidTransaction.model.js";
 import {
@@ -396,7 +396,25 @@ export async function listClientPrepaidTopUps(request: Request, response: Respon
   const clientAccount = await getClientBusinessAccount(userId, businessAccountId);
   if (!clientAccount) return response.status(404).json({ success: false, message: "Business account not found" });
 
-  const topUps = await PaymentTopUp.find({ businessAccountId: clientAccount.businessAccountId })
+  /**
+   * Abandoned checkouts are hidden from history.
+   *
+   * CREATED and CHECKOUT_OPENED mean the customer opened the payment page and
+   * did not pay. They are intents, not transactions, and listing them reads as
+   * a payment that happened. A recent one is still shown: a payment can sit in
+   * that state for a few minutes while the provider settles, and a customer
+   * whose money has just left should never see an empty history.
+   */
+  const abandonedBefore = new Date(Date.now() - 30 * 60 * 1000);
+  const abandonedStatuses: PaymentTopUpStatus[] = ["CREATED", "CHECKOUT_OPENED"];
+  const visibleTopUps = {
+    businessAccountId: clientAccount.businessAccountId,
+    $or: [
+      { status: { $nin: abandonedStatuses } },
+      { status: { $in: abandonedStatuses }, createdAt: { $gte: abandonedBefore } }
+    ]
+  };
+  const topUps = await PaymentTopUp.find(visibleTopUps)
     .sort({ createdAt: -1 })
     .limit(100)
     .exec();
@@ -410,7 +428,7 @@ export async function listClientPrepaidTopUps(request: Request, response: Respon
     }
   }
 
-  const refreshedTopUps = await PaymentTopUp.find({ businessAccountId: clientAccount.businessAccountId })
+  const refreshedTopUps = await PaymentTopUp.find(visibleTopUps)
     .sort({ createdAt: -1 })
     .limit(100)
     .exec();

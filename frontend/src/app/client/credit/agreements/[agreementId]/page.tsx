@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FiAlertCircle, FiArrowLeft, FiCheckCircle, FiDownload, FiPrinter } from "react-icons/fi";
+import { FiArrowLeft, FiCheckCircle, FiDownload, FiPrinter } from "react-icons/fi";
+import { toast } from "react-toastify";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import {
   CreditAgreement,
@@ -30,8 +31,6 @@ export default function ClientCreditAgreementPage() {
   const [accepted, setAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     if (!user || !agreementId) return;
@@ -53,7 +52,7 @@ export default function ClientCreditAgreementPage() {
           setPdfUrl(objectUrl);
         }
       } catch (loadError: unknown) {
-        if (active) setError(message(loadError));
+        if (active) toast.error(message(loadError));
       } finally {
         if (active) setLoading(false);
       }
@@ -74,13 +73,11 @@ export default function ClientCreditAgreementPage() {
 
   async function sign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (signerName.trim().length < 2) return setError("Enter the authorised signer's full name.");
-    if (jobTitle.trim().length < 2) return setError("Enter the authorised signer's designation.");
-    if (!accepted) return setError("Confirm that you have read and accept the credit agreement.");
+    if (signerName.trim().length < 2) return toast.error("Enter the authorised signer's full name.");
+    if (jobTitle.trim().length < 2) return toast.error("Enter the authorised signer's designation.");
+    if (!accepted) return toast.error("Confirm that you have read and accept the credit agreement.");
 
     setSubmitting(true);
-    setError("");
-    setSuccess("");
     try {
       const result = await signClientCreditAgreement(agreementId, {
         signerName: signerName.trim(),
@@ -88,10 +85,10 @@ export default function ClientCreditAgreementPage() {
         accepted: true
       });
       setAgreement(result.agreement);
-      setSuccess(result.message);
+      toast.success(result.message);
       await replacePdf();
     } catch (signError) {
-      setError(message(signError));
+      toast.error(message(signError));
     } finally {
       setSubmitting(false);
     }
@@ -124,8 +121,6 @@ export default function ClientCreditAgreementPage() {
           </div>
         </header>
 
-        {error ? <div role="alert" className="flex items-start gap-2 border border-red-200 bg-red-50 p-3 text-sm text-red-700"><FiAlertCircle className="mt-0.5 shrink-0" />{error}</div> : null}
-        {success ? <div role="status" className="flex items-start gap-2 border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"><FiCheckCircle className="mt-0.5 shrink-0" />{success}</div> : null}
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section className="h-[74vh] min-h-[560px] border border-slate-200 bg-slate-100 p-2">

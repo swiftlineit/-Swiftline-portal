@@ -15,6 +15,7 @@ import {
   buildTrackingSummary,
   resolveShipmentByTrackingNumber
 } from "../services/shipmentTracking.service.js";
+import { resolveShipmentEventNote } from "../services/shipmentEventCopy.service.js";
 import { formatShipmentEventLabel } from "../services/shipmentStatusSequence.service.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
@@ -952,7 +953,7 @@ function serializeClientShipmentEvent(event: {
     status: event.status,
     statusLabel: formatShipmentEventLabel(event.status),
     holdReason: event.holdReason ?? null,
-    note: event.note ?? "",
+    note: resolveShipmentEventNote(event.note, event.status),
     location: event.location ?? "",
     customerVisible: event.customerVisible,
     eventAt: event.eventAt

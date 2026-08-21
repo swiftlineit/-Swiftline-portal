@@ -9,8 +9,10 @@ import OperationsCalendarView from "@/components/operations-advisory/OperationsC
 import { useClientUser } from "@/lib/useClientUser";
 import {
   listClientCalendarEntries,
+  listClientRegulatoryUpdates,
   listClientServiceDisruptions,
   type CalendarEntry,
+  type RegulatoryUpdate,
   type ServiceDisruption
 } from "@/lib/operationsAdvisory";
 
@@ -24,6 +26,7 @@ export default function ClientOperationsCalendarPage() {
   const { user, loading: userLoading } = useClientUser();
   const [entries, setEntries] = useState<CalendarEntry[]>([]);
   const [disruptions, setDisruptions] = useState<ServiceDisruption[]>([]);
+  const [regulatoryUpdates, setRegulatoryUpdates] = useState<RegulatoryUpdate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -35,13 +38,15 @@ export default function ClientOperationsCalendarPage() {
       setLoading(true);
       setError("");
       try {
-        const [entryData, disruptionData] = await Promise.all([
+        const [entryData, disruptionData, regulatoryData] = await Promise.all([
           listClientCalendarEntries(),
-          listClientServiceDisruptions()
+          listClientServiceDisruptions(),
+          listClientRegulatoryUpdates()
         ]);
         if (!active) return;
         setEntries(entryData.entries);
         setDisruptions(disruptionData.disruptions);
+        setRegulatoryUpdates(regulatoryData.updates);
       } catch (caughtError) {
         if (!active) return;
         setError(caughtError instanceof Error ? caughtError.message : "The calendar could not be loaded.");
@@ -65,7 +70,7 @@ export default function ClientOperationsCalendarPage() {
             Holiday & Cut-Off Calendar
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Branch and destination holidays, cut-off times, weekend delivery and live service updates.
+            Branch and destination holidays, cut-off times, weekend delivery, customs &amp; regulatory changes and live service updates.
           </p>
         </div>
       </div>
@@ -82,7 +87,7 @@ export default function ClientOperationsCalendarPage() {
           <p className="text-sm font-semibold text-[#0D1282]">Loading calendar...</p>
         </div>
       ) : (
-        <OperationsCalendarView entries={entries} disruptions={disruptions} />
+        <OperationsCalendarView entries={entries} disruptions={disruptions} regulatoryUpdates={regulatoryUpdates} />
       )}
     </div>
   );

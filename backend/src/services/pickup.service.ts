@@ -15,6 +15,7 @@ import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent, type ShipmentEventStatus } from "../models/shipmentEvent.model.js";
 import { User } from "../models/user.model.js";
 import { sendPickupOtpEmail } from "./mail.service.js";
+import { markShipmentChargeFinalized } from "./shipmentInvoice.service.js";
 import { notifyBusinessShipmentMembers, notifyOperationsStaff, notifyPortalUsers } from "./portalNotification.service.js";
 
 const pickupBlockedStatuses: ShipmentEventStatus[] = [
@@ -809,15 +810,28 @@ export async function completePickupAttempt(input: { attemptId: string; driverUs
         link.active = !link.parcels.every((parcel) => parcel.status === "COLLECTED");
         await link.save({ session });
       }
-      if (collectedLinks.length) await ShipmentEvent.insertMany(collectedLinks.map((link) => ({
-        shipmentDraftId: link.shipmentDraftId,
-        dpdShipmentId: link.dpdShipmentId,
-        status: "PARCEL_COLLECTED",
-        note: `Collected under pickup ${request.requestNumber}.`,
-        customerVisible: true,
-        createdBy: input.driverUserId,
-        eventAt: now
-      })), { session });
+      if (collectedLinks.length) {
+        await ShipmentEvent.insertMany(collectedLinks.map((link) => ({
+          shipmentDraftId: link.shipmentDraftId,
+          dpdShipmentId: link.dpdShipmentId,
+          status: "PARCEL_COLLECTED",
+          note: `Collected under pickup ${request.requestNumber}.`,
+          customerVisible: true,
+          createdBy: input.driverUserId,
+          eventAt: now
+        })), { session });
+        // The driver handing the parcel over settles its charge, exactly as a
+        // manually recorded collection does- see chargeFinalizingStatuses. Most
+        // collections arrive through this path, so a stamp only on the status
+        // endpoint would miss them.
+        for (const link of collectedLinks) {
+          await markShipmentChargeFinalized({
+            shipmentDraftId: link.shipmentDraftId,
+            finalizedAt: now,
+            session
+          });
+        }
+      }
       await AuditLog.create([{ action: "PICKUP_COMPLETED", entityType: "PICKUP_REQUEST", entityId: request._id, performedBy: input.driverUserId, performedAt: now, metadata: { attemptId: attempt._id, collectedShipments: collectedLinks.length, totalShipments: links.length } }], { session });
     });
   } finally { await session.endSession(); }

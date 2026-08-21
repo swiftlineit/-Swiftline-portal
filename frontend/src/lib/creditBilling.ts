@@ -66,6 +66,9 @@ export type CreditLedgerEntry = {
   currency: "INR";
   availableCreditAfterMinor: number;
   availableAdvanceAfterMinor: number;
+  /** Booking rows only: how the shipment was funded. */
+  advanceAmountMinor?: number | null;
+  creditAmountMinor?: number | null;
   createdAt: string;
 };
 
@@ -123,7 +126,7 @@ export async function getClientStatement(businessAccountId: string, statementId:
 }
 
 export async function closeClientCycle(businessAccountId: string) {
-  return parse<{ success: true; message: string; statement: CreditStatement | null }>(await fetchWithAuth(
+  return parse<{ success: true; message: string; closed: number; statements: CreditStatement[]; statement: CreditStatement | null }>(await fetchWithAuth(
     apiUrl("/api/v1/client/credit/statements/close-cycle"),
     json("POST", { businessAccountId })
   ));
@@ -141,7 +144,7 @@ export async function getAdminStatement(businessAccountId: string, statementId: 
 }
 
 export async function closeAdminCycle(businessAccountId: string) {
-  return parse<{ success: true; message: string; statement: CreditStatement | null }>(await fetchWithAuth(
+  return parse<{ success: true; message: string; closed: number; statements: CreditStatement[]; statement: CreditStatement | null }>(await fetchWithAuth(
     apiUrl(`/api/v1/credit-accounts/${businessAccountId}/close-cycle`),
     json("POST")
   ));

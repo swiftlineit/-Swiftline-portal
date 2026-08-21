@@ -1,24 +1,26 @@
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { CreditBillingStatement } from "../models/creditBillingStatement.model.js";
 import { CreditPayment } from "../models/creditPayment.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
 import { PaymentTermsAcceptance } from "../models/paymentTerms.model.js";
-import { maxCreditLimitMinor } from "../models/financialTypes.js";
+import { CreditLimitIncreaseRequest } from "../models/creditLimitIncreaseRequest.model.js";
+import { maxCreditLimitLabel, maxCreditLimitMinor } from "../models/financialTypes.js";
 import {
   appendCreditLedgerEntry, ensureCreditAccount, getCurrentPaymentTerms,
-  getMemberCreditPermissions, serializeCreditAccount
+  getMemberCreditPermissions, serializeCreditAccount, serializeLimitIncrease
 } from "../services/creditAccount.service.js";
 import { getCreditRestrictionState } from "../services/creditOverdue.service.js";
+import { getCreditBillingSummary } from "../services/creditBilling.summary.service.js";
 import { notifyActiveAdmins } from "../services/portalNotification.service.js";
+import { formatMinorRupees } from "../services/prepaid/dailyTopUpLimit.service.js";
 
 const requestCreditSchema = z.object({
   businessAccountId: z.string().trim().min(1),
   requestedCreditLimitMinor: z.number().int()
     .min(100, "Requested credit must be at least one rupee.")
-    .max(maxCreditLimitMinor, "Requested credit limit cannot exceed INR 1,00,000."),
+    .max(maxCreditLimitMinor, `Requested credit limit cannot exceed ${maxCreditLimitLabel}.`),
   reason: z.string().trim().min(10, "Explain why the credit facility is required.").max(500)
 });
 
@@ -88,52 +90,7 @@ export async function getClientCreditSummary(request: Request, response: Respons
    * page to ask. Only fetched for a caller allowed to see balances.
    */
   const billing = canViewBalances
-    ? await (async () => {
-      const now = new Date();
-      /**
-       * Late is decided by the date, not only by the OVERDUE status.
-       *
-       * `job:credit:mark-overdue` stamps that status hourly, so a statement
-       * that passed its due date minutes ago is still ISSUED. Reading the
-       * status alone would under-report the overdue total for up to an hour;
-       * reading the date catches both.
-       */
-      const unsettled = { $nin: ["PAID", "VOID"] as const };
-      const [overdueStatements, nextStatement, lastPayment] = await Promise.all([
-        CreditBillingStatement.find({
-          businessAccountId: membership.businessAccount,
-          status: unsettled,
-          dueAt: { $lt: now }
-        }).select("outstandingAmountMinor totalAmountMinor dueAt").lean().exec(),
-        CreditBillingStatement.findOne({
-          businessAccountId: membership.businessAccount,
-          status: unsettled,
-          dueAt: { $gte: now }
-        }).sort({ dueAt: 1 }).select("dueAt outstandingAmountMinor").lean().exec(),
-        CreditPayment.findOne({
-          businessAccountId: membership.businessAccount,
-          status: "VERIFIED"
-        }).sort({ verifiedAt: -1, createdAt: -1 }).select("amountMinor verifiedAt createdAt").lean().exec()
-      ]);
-
-      return {
-        // What is actually still owed on late statements, not their original
-        // totals: a statement half paid is half overdue, not fully.
-        overdueAmountMinor: overdueStatements.reduce(
-          (sum, statement) => sum + (statement.outstandingAmountMinor ?? statement.totalAmountMinor ?? 0),
-          0
-        ),
-        overdueStatementCount: overdueStatements.length,
-        nextDueAt: nextStatement?.dueAt ?? null,
-        nextDueAmountMinor: nextStatement?.outstandingAmountMinor ?? null,
-        lastPayment: lastPayment
-          ? {
-            amountMinor: lastPayment.amountMinor,
-            at: lastPayment.verifiedAt ?? lastPayment.createdAt
-          }
-          : null
-      };
-    })()
+    ? await getCreditBillingSummary(membership.businessAccount)
     : null;
 
   return response.status(200).json({
@@ -251,4 +208,107 @@ export async function acceptClientPaymentTerms(request: Request, response: Respo
     { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true }
   ).exec();
   return response.status(200).json({ success: true, message: "Payment terms acceptance recorded." });
+}
+
+const limitIncreaseSchema = z.object({
+  businessAccountId: z.string().trim().min(1),
+  requestedLimitMinor: z.number().int()
+    .min(100, "Requested limit must be at least one rupee.")
+    .max(maxCreditLimitMinor, `Requested credit limit cannot exceed ${maxCreditLimitLabel}.`),
+  reason: z.string().trim().min(10, "Explain why a higher limit is needed.").max(500)
+});
+
+/**
+ * The open increase request for an account, if there is one.
+ *
+ * Returned alongside the summary so the client page can show "under review"
+ * instead of offering the form again, and so the amount asked for is visible
+ * while it waits.
+ */
+export async function getClientCreditLimitIncrease(request: Request, response: Response): Promise<Response> {
+  const businessAccountId = typeof request.query.businessAccountId === "string" ? request.query.businessAccountId : "";
+  const membership = await membershipFor(request, businessAccountId);
+  if (!membership) return response.status(404).json({ success: false, message: "Business account access was not found." });
+
+  const pending = await CreditLimitIncreaseRequest.findOne({
+    businessAccountId: membership.businessAccount,
+    status: "PENDING"
+  }).lean().exec();
+
+  return response.status(200).json({ success: true, request: pending ? serializeLimitIncrease(pending) : null });
+}
+
+export async function requestClientCreditLimitIncrease(request: Request, response: Response): Promise<Response> {
+  const currentUserId = userId(request);
+  if (!currentUserId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  const parsed = limitIncreaseSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Check the request details." });
+  }
+
+  const membership = await membershipFor(request, parsed.data.businessAccountId);
+  if (!membership) return response.status(404).json({ success: false, message: "Business account access was not found." });
+  const permissions = getMemberCreditPermissions(membership.role, membership.creditPermissions);
+  if (!permissions.includes("requestCredit")) {
+    return response.status(403).json({ success: false, message: "Your account role cannot request a credit limit increase." });
+  }
+
+  const account = await ensureCreditAccount(membership.businessAccount);
+  // Only a live facility can be increased. An account that has never been
+  // approved, or was rejected, belongs in the first-time request flow instead.
+  if (account.status !== "ACTIVE") {
+    return response.status(409).json({
+      success: false,
+      message: "A credit limit increase can only be requested on an active credit facility."
+    });
+  }
+  if (parsed.data.requestedLimitMinor <= account.approvedCreditLimitMinor) {
+    return response.status(400).json({
+      success: false,
+      message: `Requested limit must be higher than the current ${formatMinorRupees(account.approvedCreditLimitMinor)}.`
+    });
+  }
+
+  // The unique partial index enforces one open request; this check turns the
+  // duplicate-key error into a message the customer can act on.
+  const existing = await CreditLimitIncreaseRequest.findOne({
+    businessAccountId: membership.businessAccount,
+    status: "PENDING"
+  }).lean().exec();
+  if (existing) {
+    return response.status(409).json({
+      success: false,
+      message: "A credit limit increase is already under review."
+    });
+  }
+
+  const created = await CreditLimitIncreaseRequest.create({
+    businessAccountId: membership.businessAccount,
+    creditAccountId: account._id,
+    currentLimitMinor: account.approvedCreditLimitMinor,
+    requestedLimitMinor: parsed.data.requestedLimitMinor,
+    reason: parsed.data.reason,
+    requestedBy: currentUserId
+  });
+
+  const business = await BusinessAccount.findById(membership.businessAccount).select("accountId company.companyName").lean().exec();
+  await notifyActiveAdmins({
+    type: "CREDIT_REQUEST_SUBMITTED",
+    title: "Credit limit increase requested",
+    message: `${business?.company?.companyName || business?.accountId} asked to raise their credit limit from `
+      + `${formatMinorRupees(account.approvedCreditLimitMinor)} to ${formatMinorRupees(parsed.data.requestedLimitMinor)}.`,
+    href: `/dashboard/credit-accounts#credit-account-${String(membership.businessAccount)}`,
+    idempotencyKey: `CREDIT_LIMIT_INCREASE:${String(created._id)}`,
+    businessAccountId: membership.businessAccount,
+    metadata: {
+      requestedLimitMinor: parsed.data.requestedLimitMinor,
+      currentLimitMinor: account.approvedCreditLimitMinor
+    }
+  });
+
+  return response.status(201).json({
+    success: true,
+    message: "Credit limit increase submitted for review.",
+    request: serializeLimitIncrease(created.toObject())
+  });
 }

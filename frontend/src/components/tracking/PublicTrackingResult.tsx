@@ -97,9 +97,7 @@ export default function PublicTrackingResult({
       <div className="mt-5 space-y-5 sm:space-y-6">
         <TrackingHeader tracking={tracking} />
 
-        {tracking.isParcelLevel ? (
-          <ParcelNotice tracking={tracking} />
-        ) : null}
+        {tracking.isParcelLevel ? <ParcelNotice tracking={tracking} /> : null}
 
         <SummaryBand tracking={tracking} />
 
@@ -150,7 +148,6 @@ function BackLink() {
       <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm">
         <FiArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
       </span>
-
       Track a shipment
     </Link>
   );
@@ -164,9 +161,7 @@ function weightLabel(weightKg: number) {
 function statusDotClass(status: string) {
   if (status === "DELIVERED") return "bg-emerald-500";
 
-  if (
-    ["SHIPMENT_CANCELLED", "RETURNED", "LOST", "DAMAGED"].includes(status)
-  ) {
+  if (["SHIPMENT_CANCELLED", "RETURNED", "LOST", "DAMAGED"].includes(status)) {
     return "bg-red-500";
   }
 
@@ -180,9 +175,7 @@ function statusChipClass(status: string) {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
 
-  if (
-    ["SHIPMENT_CANCELLED", "RETURNED", "LOST", "DAMAGED"].includes(status)
-  ) {
+  if (["SHIPMENT_CANCELLED", "RETURNED", "LOST", "DAMAGED"].includes(status)) {
     return "border-red-200 bg-red-50 text-red-700";
   }
 
@@ -319,9 +312,7 @@ function SummaryBand({ tracking }: { tracking: PublicTracking }) {
           tracking.destinationCountryName ||
           "Not available"
         }
-        hint={
-          tracking.destinationCity ? tracking.destinationCountryName : ""
-        }
+        hint={tracking.destinationCity ? tracking.destinationCountryName : ""}
       />
 
       <SummaryCard
@@ -452,10 +443,7 @@ function JourneyRail({ tracking }: { tracking: PublicTracking }) {
                   }`}
                 >
                   {reached ? (
-                    <FiCheckCircle
-                      aria-hidden="true"
-                      className="h-3.5 w-3.5"
-                    />
+                    <FiCheckCircle aria-hidden="true" className="h-3.5 w-3.5" />
                   ) : null}
                 </span>
 
@@ -509,7 +497,9 @@ function StatusCard({ tracking }: { tracking: PublicTracking }) {
 
         <div className="mt-6 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-2">
           <div>
-            <p className="text-xs font-medium text-slate-400">Tracking number</p>
+            <p className="text-xs font-medium text-slate-400">
+              Tracking number
+            </p>
             <p className="mt-1 break-all text-sm font-semibold text-slate-900">
               {tracking.trackingNumber}
             </p>
@@ -580,11 +570,7 @@ const scheduleChips: Record<
   },
 };
 
-function EstimateCard({
-  estimate,
-}: {
-  estimate: DeliveryEstimate | null;
-}) {
+function EstimateCard({ estimate }: { estimate: DeliveryEstimate | null }) {
   if (!estimate) {
     return (
       <section className="flex min-h-47.5 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
@@ -746,78 +732,78 @@ function Timeline({ tracking }: { tracking: PublicTracking }) {
         </p>
       </div>
 
-      <div className="p-5 sm:p-6">
+      <div className="p-4 sm:p-5">
         {events.length ? (
-          <ol className="relative">
+          <ol className="relative space-y-3">
             {events.map((event, index) => {
               const isLatest = index === events.length - 1;
 
               return (
                 <li
                   key={`${event.status}-${event.eventAt}-${index}`}
-                  className="relative grid grid-cols-[36px_minmax(0,1fr)] gap-3 pb-8 last:pb-0 sm:grid-cols-[44px_minmax(0,1fr)] sm:gap-4"
+                  className="relative pl-8 sm:pl-9"
                 >
                   {index < events.length - 1 ? (
-                    <span className="absolute left-4.25 top-9 h-[calc(100%-20px)] w-px bg-slate-200 sm:left-5.25" />
+                    <span className="absolute left-3.25 top-7 h-[calc(100%+12px)] w-px bg-slate-200 sm:left-3.5" />
                   ) : null}
 
-                  <div className="relative z-10">
-                    <span
-                      className={[
-                        "flex h-9 w-9 items-center justify-center rounded-xl border sm:h-11 sm:w-11",
-                        isLatest
-                          ? "border-[#0D1282] bg-[#0D1282] text-white shadow-[0_8px_20px_rgba(13,18,130,0.16)]"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-600",
-                      ].join(" ")}
-                    >
-                      <FiCheckCircle
-                        aria-hidden="true"
-                        className="h-4 w-4"
-                      />
-                    </span>
-                  </div>
+                  <span
+                    className={[
+                      "absolute left-0 top-4 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 sm:h-7 sm:w-7",
+                      isLatest
+                        ? "border-[#0D1282] bg-[#0D1282] text-white shadow-[0_4px_12px_rgba(13,18,130,0.18)]"
+                        : "border-emerald-200 bg-white text-emerald-600",
+                    ].join(" ")}
+                  >
+                    <FiCheckCircle aria-hidden="true" className="h-3.5 w-3.5" />
+                  </span>
 
                   <div
                     className={[
-                      "min-w-0 rounded-2xl border p-4 sm:p-5",
+                      "rounded-xl border px-4 py-3.5 sm:px-5 sm:py-4",
                       isLatest
-                        ? "border-[#0D1282]/15 bg-[#0D1282]/25"
-                        : "border-slate-100 bg-slate-50/50",
+                        ? "border-[#0D1282]/20 bg-[#0D1282]/[0.035]"
+                        : "border-slate-200 bg-white",
                     ].join(" ")}
                   >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
+                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-semibold text-slate-950">
+                          <p className="text-sm font-semibold text-slate-900 sm:text-[15px]">
                             {event.statusLabel || labelStatus(event.status)}
                           </p>
 
                           {isLatest ? (
-                            <span className="rounded-full bg-[#d71920]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#d71920]">
+                            <span className="rounded-full bg-[#d71920]/8 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#d71920]">
                               Latest
                             </span>
                           ) : null}
                         </div>
 
-                        {event.location ? (
-                          <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                            <FiMapPin
-                              aria-hidden="true"
-                              className="h-3.5 w-3.5 shrink-0 text-[#d71920]"
-                            />
+                        {event.location || event.eventAt ? (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
+                            {event.location ? (
+                              <span className="flex items-center gap-1.5">
+                                <FiMapPin
+                                  aria-hidden="true"
+                                  className="h-3.5 w-3.5 shrink-0 text-[#d71920]"
+                                />
+                                {event.location}
+                              </span>
+                            ) : null}
 
-                            {event.location}
-                          </p>
+                            {event.eventAt ? (
+                              <span className="text-slate-400">
+                                {formatDashboardDateTime(event.eventAt)}
+                              </span>
+                            ) : null}
+                          </div>
                         ) : null}
                       </div>
-
-                      <p className="shrink-0 text-xs font-medium text-slate-400">
-                        {formatDashboardDateTime(event.eventAt)}
-                      </p>
                     </div>
 
                     {event.note ? (
-                      <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-600">
+                      <p className="mt-3 border-t border-slate-100 pt-3 text-sm leading-6 text-slate-600">
                         {event.note}
                       </p>
                     ) : null}
@@ -827,18 +813,20 @@ function Timeline({ tracking }: { tracking: PublicTracking }) {
             })}
           </ol>
         ) : (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
-              <FiTruck className="h-5 w-5" />
+          <div className="flex items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-400 shadow-sm">
+              <FiTruck className="h-4.5 w-4.5" />
             </span>
 
-            <p className="mt-4 text-sm font-semibold text-slate-700">
-              No tracking events yet
-            </p>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">
+                No tracking events yet
+              </p>
 
-            <p className="mt-1 text-sm text-slate-500">
-              No tracking events have been recorded yet.
-            </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                No tracking events have been recorded yet.
+              </p>
+            </div>
           </div>
         )}
       </div>

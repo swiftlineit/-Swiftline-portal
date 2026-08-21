@@ -1,24 +1,40 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FiAlertOctagon, FiAlertTriangle, FiInfo } from "react-icons/fi";
+import { FiAlertOctagon, FiAlertTriangle, FiFileText, FiInfo } from "react-icons/fi";
+import type { IconType } from "react-icons";
 import {
+  isNewAdvisory,
+  listClientRegulatoryUpdates,
   listClientServiceDisruptions,
+  listRegulatoryUpdates,
   listServiceDisruptions,
+  regulatoryUpdateCategoryLabels,
   serviceDisruptionTypeLabels,
+  type RegulatoryUpdate,
   type ServiceDisruption
 } from "@/lib/operationsAdvisory";
 
 /** Ticker travel speed, so the marquee reads comfortably at any content width. */
 const SCROLL_SPEED_PX_PER_SECOND = 80;
 
-/** A disruption counts as a "new update" until it is this old; it then carries
-    a glowing NEW badge at the start of its segment in the marquee. */
-const NEW_UPDATE_WINDOW_MS = 48 * 60 * 60 * 1000;
+/** One rendered segment of the ticker, whatever kind of advisory it came from. */
+type MarqueeItem = {
+  key: string;
+  label: string;
+  title: string;
+  detail: string;
+  icon: IconType;
+  dotClass: string;
+  isNew: boolean;
+};
 
 /**
- * The operational advisory ticker that runs across the dashboard headers.
- * `variant` decides which endpoint to read: the client variant asks the client
+ * The operational advisory ticker that runs across the dashboard headers. It
+ * carries both service disruptions and the customs & regulatory updates
+ * published alongside them, so one glance covers everything in force.
+ *
+ * `variant` decides which endpoints to read: the client variant asks the client
  * router (active + inside its time window) while the staff variant asks the
  * staff router for the same "live" slice, so both headers tell the same story.
  *
@@ -34,6 +50,7 @@ export default function OperationsMarquee({
   variant?: "client" | "staff";
 }) {
   const [disruptions, setDisruptions] = useState<ServiceDisruption[]>([]);
+  const [regulatoryUpdates, setRegulatoryUpdates] = useState<RegulatoryUpdate[]>([]);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(0);
   const [halfCopies, setHalfCopies] = useState(1);
@@ -42,10 +59,16 @@ export default function OperationsMarquee({
 
   const load = useCallback(async () => {
     try {
-      const result = variant === "client"
-        ? await listClientServiceDisruptions()
-        : await listServiceDisruptions({ scope: "live" });
-      setDisruptions(result.disruptions);
+      const [disruptionResult, regulatoryResult] = variant === "client"
+        ? await Promise.all([listClientServiceDisruptions(), listClientRegulatoryUpdates()])
+        : await Promise.all([
+          listServiceDisruptions({ scope: "live" }),
+          listRegulatoryUpdates({ active: true })
+        ]);
+      setDisruptions(disruptionResult.disruptions);
+      // Expired rules are dropped for staff too, so both headers scroll the
+      // same list the client endpoint already narrows to.
+      setRegulatoryUpdates(regulatoryResult.updates.filter((update) => update.status !== "EXPIRED"));
       setReady(true);
     } catch {
       // The marquee is decorative surface: a network failure must never take
@@ -67,16 +90,39 @@ export default function OperationsMarquee({
     };
   }, [load]);
 
-  const items = useMemo(
-    () => disruptions.map((disruption) => ({
-      key: disruption.id,
-      label: serviceDisruptionTypeLabels[disruption.type],
-      disruption,
-      isNew: disruption.createdAt
-        ? now - new Date(disruption.createdAt).getTime() < NEW_UPDATE_WINDOW_MS
-        : false
-    })),
-    [disruptions, now]
+  // Disruptions lead: they are happening now, while a regulatory update is
+  // usually about something a client has time to prepare for.
+  const items = useMemo<MarqueeItem[]>(
+    () => [
+      ...disruptions.map((disruption) => ({
+        key: `disruption:${disruption.id}`,
+        label: serviceDisruptionTypeLabels[disruption.type],
+        title: disruption.title,
+        detail: disruption.message,
+        icon: disruption.severity === "CRITICAL"
+          ? FiAlertOctagon
+          : disruption.severity === "WARNING"
+            ? FiAlertTriangle
+            : FiInfo,
+        dotClass: disruption.severity === "CRITICAL"
+          ? "bg-[#FF4D4D]"
+          : disruption.severity === "WARNING"
+            ? "bg-amber-400"
+            : "bg-emerald-400",
+        isNew: isNewAdvisory(disruption.createdAt, now)
+      })),
+      ...regulatoryUpdates.map((update) => ({
+        key: `regulatory:${update.id}`,
+        label: regulatoryUpdateCategoryLabels[update.category],
+        title: update.title,
+        detail: update.customerImpact,
+        icon: FiFileText,
+        // Upcoming rules read as a heads-up, live ones as in force now.
+        dotClass: update.status === "ACTIVE" ? "bg-emerald-400" : "bg-amber-400",
+        isNew: isNewAdvisory(update.createdAt, now)
+      }))
+    ],
+    [disruptions, regulatoryUpdates, now]
   );
 
   // Size the loop from the measured width of a single content pass so there is
@@ -123,9 +169,7 @@ export default function OperationsMarquee({
           {items.map((item) => (
             <MarqueeSegment
               key={item.key}
-              label={item.label}
-              disruption={item.disruption}
-              isNew={item.isNew}
+              item={item}
               ariaHidden
             />
           ))}
@@ -139,9 +183,7 @@ export default function OperationsMarquee({
             items.map((item) => (
               <MarqueeSegment
                 key={`${item.key}-${copy}`}
-                label={item.label}
-                disruption={item.disruption}
-                isNew={item.isNew}
+                item={item}
               />
             ))
           )}
@@ -149,9 +191,7 @@ export default function OperationsMarquee({
             items.map((item) => (
               <MarqueeSegment
                 key={`${item.key}-copy-${copy}`}
-                label={item.label}
-                disruption={item.disruption}
-                isNew={item.isNew}
+                item={item}
                 ariaHidden
               />
             ))
@@ -163,34 +203,20 @@ export default function OperationsMarquee({
 }
 
 function MarqueeSegment({
-  label,
-  disruption,
-  isNew = false,
+  item,
   ariaHidden = false,
 }: {
-  label: string;
-  disruption: ServiceDisruption;
-  isNew?: boolean;
+  item: MarqueeItem;
   ariaHidden?: boolean;
 }) {
-  const Icon = disruption.severity === "CRITICAL"
-    ? FiAlertOctagon
-    : disruption.severity === "WARNING"
-      ? FiAlertTriangle
-      : FiInfo;
-
-  const dotClass = disruption.severity === "CRITICAL"
-    ? "bg-[#FF4D4D]"
-    : disruption.severity === "WARNING"
-      ? "bg-amber-400"
-      : "bg-emerald-400";
+  const Icon = item.icon;
 
   return (
     <span
       aria-hidden={ariaHidden || undefined}
       className="inline-flex items-center gap-2 pr-12 text-sm font-medium text-white/95"
     >
-      {isNew ? (
+      {item.isNew ? (
         <span
           className="inline-flex shrink-0 items-center rounded-full bg-red-600 p-1.5 text-[10px]  uppercase leading-none tracking-wide text-white animate-advisory-glow"
         >
@@ -199,11 +225,11 @@ function MarqueeSegment({
       ) : null}
       <span className="flex items-center gap-1.5">
         <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-        <span className="font-bold uppercase tracking-wide">{label}:</span>
+        <span className="font-bold uppercase tracking-wide">{item.label}:</span>
       </span>
-      <span>{disruption.title}</span>
-      <span className="hidden text-white/70 lg:inline">- {disruption.message}</span>
-      <span className={`ml-1 h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} />
+      <span>{item.title}</span>
+      <span className="hidden text-white/70 lg:inline">- {item.detail}</span>
+      <span className={`ml-1 h-1.5 w-1.5 shrink-0 rounded-full ${item.dotClass}`} />
     </span>
   );
 }

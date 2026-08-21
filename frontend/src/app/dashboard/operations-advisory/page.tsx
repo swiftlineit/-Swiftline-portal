@@ -1,9 +1,10 @@
 "use client";
 
 import { Suspense } from "react";
-import { FiAlertOctagon, FiCalendar, FiEye } from "react-icons/fi";
+import { FiAlertOctagon, FiCalendar, FiEye, FiFileText } from "react-icons/fi";
 import { DashboardLoading } from "@/components/DashboardShell";
 import CalendarEntriesManager from "@/components/operations-advisory/CalendarEntriesManager";
+import RegulatoryUpdatesManager from "@/components/operations-advisory/RegulatoryUpdatesManager";
 import ServiceDisruptionsManager from "@/components/operations-advisory/ServiceDisruptionsManager";
 import OperationsCalendarView from "@/components/operations-advisory/OperationsCalendarView";
 import { OPERATIONS_AREA } from "@/lib/roles";
@@ -12,17 +13,27 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   listCalendarEntries,
+  listRegulatoryUpdates,
   listServiceDisruptions,
   type CalendarEntry,
+  type RegulatoryUpdate,
   type ServiceDisruption
 } from "@/lib/operationsAdvisory";
 
-type Tab = "disruptions" | "calendar";
+type Tab = "disruptions" | "calendar" | "regulatory";
 
 const tabMeta: Record<Tab, { label: string; icon: typeof FiCalendar }> = {
   disruptions: { label: "Service Disruption Centre", icon: FiAlertOctagon },
-  calendar: { label: "Holiday & Cut-Off Calendar", icon: FiCalendar }
+  calendar: { label: "Holiday & Cut-Off Calendar", icon: FiCalendar },
+  regulatory: { label: "Customs & Regulatory Updates", icon: FiFileText }
 };
+
+/** Tabs the header calendar icon and other deep links can address by name. */
+function tabFromQuery(value: string | null): Tab {
+  if (value === "calendar") return "calendar";
+  if (value === "regulatory") return "regulatory";
+  return "disruptions";
+}
 
 export default function OperationsAdvisoryPage() {
   // useSearchParams opts the tree into client rendering, so the boundary has to
@@ -42,11 +53,11 @@ function OperationsAdvisoryContent() {
   // kept local so clicking the tabs never rewrites the URL, but a navigation
   // that changes the query (e.g. clicking the header icon again) adjusts the
   // tab during render using React's store-info-from-previous-renders pattern.
-  const [tab, setTab] = useState<Tab>(() => searchParams.get("tab") === "calendar" ? "calendar" : "disruptions");
+  const [tab, setTab] = useState<Tab>(() => tabFromQuery(searchParams.get("tab")));
   const [previousSearchParams, setPreviousSearchParams] = useState(searchParams);
   if (searchParams !== previousSearchParams) {
     setPreviousSearchParams(searchParams);
-    setTab(searchParams.get("tab") === "calendar" ? "calendar" : "disruptions");
+    setTab(tabFromQuery(searchParams.get("tab")));
   }
 
   if (loading || !user) return <DashboardLoading />;
@@ -56,7 +67,7 @@ function OperationsAdvisoryContent() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-slate-950">Operations Advisory</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Publish service disruptions and maintain the Holiday & Cut-Off Calendar shown to clients.
+          Publish service disruptions, maintain the Holiday &amp; Cut-Off Calendar and keep clients ahead of customs rule changes.
         </p>
       </div>
 
@@ -84,14 +95,14 @@ function OperationsAdvisoryContent() {
         })}
       </div>
 
-      {tab === "disruptions" ? (
-        <ServiceDisruptionsManager />
-      ) : (
+      {tab === "disruptions" ? <ServiceDisruptionsManager /> : null}
+      {tab === "regulatory" ? <RegulatoryUpdatesManager /> : null}
+      {tab === "calendar" ? (
         <>
           <CalendarEntriesManager />
           <PreviewStrip />
         </>
-      )}
+      ) : null}
     </>
   );
 }
@@ -104,6 +115,7 @@ function OperationsAdvisoryContent() {
 function PreviewStrip() {
   const [entries, setEntries] = useState<CalendarEntry[]>([]);
   const [disruptions, setDisruptions] = useState<ServiceDisruption[]>([]);
+  const [regulatoryUpdates, setRegulatoryUpdates] = useState<RegulatoryUpdate[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -111,13 +123,16 @@ function PreviewStrip() {
 
     async function load() {
       try {
-        const [entryData, disruptionData] = await Promise.all([
+        const [entryData, disruptionData, regulatoryData] = await Promise.all([
           listCalendarEntries({ active: true }),
-          listServiceDisruptions({ scope: "live" })
+          listServiceDisruptions({ scope: "live" }),
+          listRegulatoryUpdates({ active: true })
         ]);
         if (!active) return;
         setEntries(entryData.entries);
         setDisruptions(disruptionData.disruptions);
+        // Matches what the client endpoint serves: published, not yet expired.
+        setRegulatoryUpdates(regulatoryData.updates.filter((update) => update.status !== "EXPIRED"));
         setError("");
       } catch (caughtError) {
         if (!active) return;
@@ -138,7 +153,7 @@ function PreviewStrip() {
       {error ? (
         <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>
       ) : (
-        <OperationsCalendarView entries={entries} disruptions={disruptions} />
+        <OperationsCalendarView entries={entries} disruptions={disruptions} regulatoryUpdates={regulatoryUpdates} />
       )}
     </section>
   );

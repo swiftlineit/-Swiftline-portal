@@ -28,11 +28,66 @@ export default function ClientBookingCapacityNotice({
   const hasAdvance = advanceBalanceMinor > 0;
   const awaitingReview = AWAITING_REVIEW_STATUSES.has(credit.status);
   const noCredit = NO_CAPACITY_STATUSES.has(credit.status) || awaitingReview;
+  const canRequestCredit = permissions.includes("requestCredit");
+
+  /**
+   * A live facility running out of room.
+   *
+   * The notice below only ever covered accounts with no capacity at all, so a
+   * customer whose limit was nearly spent saw nothing here- they found out when
+   * a booking failed. This is the same warning the credit page shows, surfaced
+   * where they actually start their day.
+   */
+  if (credit.status === "ACTIVE") {
+    const availableCreditMinor = credit.availableCreditMinor ?? 0;
+    if (!credit.warningActive && availableCreditMinor > 0) return null;
+
+    return (
+      <section role="status" className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-200 text-amber-900">
+              <FiInfo aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-slate-900">
+                {availableCreditMinor <= 0
+                  ? "You have used your full credit limit"
+                  : "Your credit limit is running low"}
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-700">
+                {availableCreditMinor <= 0
+                  ? "New bookings need available credit or a Customer Advance balance. Ask for a higher limit, or add an advance to keep shipping."
+                  : "You are close to your approved credit limit. Request a higher limit now so your bookings are not interrupted."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col">
+            {canRequestCredit ? (
+              <Link
+                href="/client/credit#credit-summary"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-4xl bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800"
+              >
+                Request More Credit
+                <FiArrowRight aria-hidden="true" />
+              </Link>
+            ) : null}
+            <Link
+              href="/client/payments"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-blue-900 hover:border-blue-300"
+            >
+              <FiCreditCard aria-hidden="true" />
+              Add Customer Advance
+            </Link>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   // Either an active facility or a funded advance means bookings can proceed.
   if (!noCredit || hasAdvance) return null;
-
-  const canRequestCredit = permissions.includes("requestCredit");
 
   return (
     <section

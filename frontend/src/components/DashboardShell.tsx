@@ -146,7 +146,7 @@ export default function DashboardShell({
                   <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900" />
                 </div>
               </div>
-              <OperationsCalendarIcon variant="staff" />
+              <OperationsCalendarIcon variant="staff" role={user.role} />
               <NotificationBell />
               <div className="group relative inline-flex">
                 <button

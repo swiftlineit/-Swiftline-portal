@@ -8,6 +8,7 @@ import { requireRole } from "../middleware/auth.middleware.js";
 import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js";
 import { CreditLedgerEntry } from "../models/creditLedgerEntry.model.js";
 import { PaymentTermsAcceptance } from "../models/paymentTerms.model.js";
+import { maxCreditLimitLabel, maxCreditLimitMinor } from "../models/financialTypes.js";
 import {
   canAccessCreditFinancials,
   canCloseClientBillingCycle,
@@ -71,7 +72,9 @@ describe("credit balance policy", () => {
       usedCreditMinor: 45_000,
       availableCreditMinor: 55_000,
       availableAdvanceMinor: 25_000,
-      availableBookingCapacityMinor: 80_000
+      availableBookingCapacityMinor: 80_000,
+      // Unbilled plus invoiced: the reserved 10_000 is a hold, not a debt.
+      totalOwedMinor: 35_000
     });
   });
 
@@ -209,11 +212,11 @@ describe("credit model safeguards", () => {
     assert.ok(validation?.errors.paymentTermsDays);
   });
 
-  test("rejects requested and approved limits above INR 1,00,000", async () => {
+  test("rejects requested and approved limits above the credit ceiling", async () => {
     const account = new BusinessCreditAccount({
       businessAccountId: new mongoose.Types.ObjectId(),
-      requestedCreditLimitMinor: 10_000_001,
-      approvedCreditLimitMinor: 10_000_001
+      requestedCreditLimitMinor: maxCreditLimitMinor + 1,
+      approvedCreditLimitMinor: maxCreditLimitMinor + 1
     });
     const validation = await account.validate().then(
       () => null,
@@ -282,9 +285,9 @@ describe("friendly API validation and authorization", () => {
     assert.match(String((badAmount.body() as { message: string }).message), /greater than zero/i);
 
     const excessiveAmount = createResponseRecorder();
-    await approveAdminCreditAccount(request({ user, params: { businessAccountId }, body: { ...validApprovalBody(), approvedCreditLimitMinor: 10_000_001 } }), excessiveAmount.response);
+    await approveAdminCreditAccount(request({ user, params: { businessAccountId }, body: { ...validApprovalBody(), approvedCreditLimitMinor: maxCreditLimitMinor + 1 } }), excessiveAmount.response);
     assert.equal(excessiveAmount.statusCode(), 400);
-    assert.match(String((excessiveAmount.body() as { message: string }).message), /1,00,000/);
+    assert.ok(String((excessiveAmount.body() as { message: string }).message).includes(maxCreditLimitLabel));
 
     const badDates = createResponseRecorder();
     await approveAdminCreditAccount(request({ user, params: { businessAccountId }, body: { ...validApprovalBody(), validFrom: "2027-07-16", validUntil: "2026-07-16" } }), badDates.response);
@@ -301,9 +304,9 @@ describe("friendly API validation and authorization", () => {
     assert.notEqual((creditRequest.body() as { message: string }).message, "Internal server error");
 
     const excessiveRequest = createResponseRecorder();
-    await requestClientCredit(request({ user, body: { businessAccountId: "valid", requestedCreditLimitMinor: 10_000_001, reason: "Regular international shipment volume" } }), excessiveRequest.response);
+    await requestClientCredit(request({ user, body: { businessAccountId: "valid", requestedCreditLimitMinor: maxCreditLimitMinor + 1, reason: "Regular international shipment volume" } }), excessiveRequest.response);
     assert.equal(excessiveRequest.statusCode(), 400);
-    assert.match(String((excessiveRequest.body() as { message: string }).message), /1,00,000/);
+    assert.ok(String((excessiveRequest.body() as { message: string }).message).includes(maxCreditLimitLabel));
 
     const terms = createResponseRecorder();
     await acceptClientPaymentTerms(request({ user, body: { businessAccountId: "", termsVersion: "" } }), terms.response);

@@ -24,8 +24,18 @@ export type AmendmentBillingAdjustment = {
   creditUsedMinor: number;
   creditReducedMinor: number;
   advanceRefundedMinor: number;
+  /**
+   * Part of a reduction that came back as fresh Customer Advance because the
+   * customer had already paid it. Only ever non-zero once a shipment can be
+   * re-weighed after its invoice reached a statement and was settled- there is
+   * nothing left on the statement to take it off, so it is returned as booking
+   * capacity instead.
+   */
+  advanceCreditedMinor: number;
   advanceAppliedMinor: number;
   creditOutstandingMinor: number;
+  /** What stays settled against the invoice once this adjustment is applied. */
+  settledAmountMinor: number;
 };
 
 export type AmendmentFundingPreview = {
@@ -57,6 +67,16 @@ export function calculateAmendmentBillingAdjustment(input: {
   let creditUsedMinor = 0;
   let creditReducedMinor = 0;
   let advanceRefundedMinor = 0;
+  let advanceCreditedMinor = 0;
+
+  // What the customer has already paid against this invoice. Settling a billing
+  // statement clears the invoice's outstanding credit without moving anything
+  // into the applied advance, so whatever the two allocations no longer account
+  // for is money that has actually changed hands. Zero for every invoice that
+  // has not been billed and paid, which is the state amendments always find.
+  const previousSettledMinor = input.previousAmountMinor
+    - input.previousAdvanceAppliedMinor
+    - input.previousCreditOutstandingMinor;
 
   if (deltaAmountMinor > 0) {
     advanceUsedMinor = Math.min(deltaAmountMinor, Math.max(input.availableAdvanceMinor, 0));
@@ -69,17 +89,23 @@ export function calculateAmendmentBillingAdjustment(input: {
       );
     }
   } else if (deltaAmountMinor < 0) {
+    // A reduction unwinds in the order the money was committed: outstanding
+    // credit first, then advance applied at booking, and only then value the
+    // customer has already paid. That last part cannot be taken off a statement
+    // that is already settled, so it is returned as Customer Advance.
     const reductionMinor = Math.abs(deltaAmountMinor);
     creditReducedMinor = Math.min(reductionMinor, input.previousCreditOutstandingMinor);
-    advanceRefundedMinor = reductionMinor - creditReducedMinor;
-    if (advanceRefundedMinor > input.previousAdvanceAppliedMinor) {
+    advanceRefundedMinor = Math.min(reductionMinor - creditReducedMinor, input.previousAdvanceAppliedMinor);
+    advanceCreditedMinor = reductionMinor - creditReducedMinor - advanceRefundedMinor;
+    if (advanceCreditedMinor > previousSettledMinor) {
       throw new AmendmentBillingError(409, "The existing invoice payment allocation is inconsistent.");
     }
   }
 
   const advanceAppliedMinor = input.previousAdvanceAppliedMinor + advanceUsedMinor - advanceRefundedMinor;
   const creditOutstandingMinor = input.previousCreditOutstandingMinor + creditUsedMinor - creditReducedMinor;
-  if (advanceAppliedMinor + creditOutstandingMinor !== input.amendedAmountMinor) {
+  const settledAmountMinor = previousSettledMinor - advanceCreditedMinor;
+  if (advanceAppliedMinor + creditOutstandingMinor + settledAmountMinor !== input.amendedAmountMinor) {
     throw new AmendmentBillingError(409, "The amended invoice payment allocation is inconsistent.");
   }
 
@@ -91,8 +117,10 @@ export function calculateAmendmentBillingAdjustment(input: {
     creditUsedMinor,
     creditReducedMinor,
     advanceRefundedMinor,
+    advanceCreditedMinor,
     advanceAppliedMinor,
-    creditOutstandingMinor
+    creditOutstandingMinor,
+    settledAmountMinor
   };
 }
 
@@ -371,7 +399,12 @@ async function applyShipmentBillingAdjustment(input: {
     },
     {
       $inc: {
-        customerAdvanceBalanceMinor: adjustment.advanceRefundedMinor - adjustment.advanceUsedMinor,
+        // advanceCreditedMinor is value the customer had already paid, so it
+        // comes back as fresh Customer Advance rather than being unwound from
+        // the statement it was settled against.
+        customerAdvanceBalanceMinor: adjustment.advanceRefundedMinor
+          + adjustment.advanceCreditedMinor
+          - adjustment.advanceUsedMinor,
         unbilledCreditMinor: adjustment.creditUsedMinor - (isPreviouslyBilled ? 0 : adjustment.creditReducedMinor),
         invoicedOutstandingMinor: isPreviouslyBilled ? -adjustment.creditReducedMinor : 0,
         version: 1

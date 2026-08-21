@@ -22,6 +22,7 @@ import { Branch } from "../models/branch.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { consignorCountryName, ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
+import { resolveShipmentEventNote } from "../services/shipmentEventCopy.service.js";
 import { formatShipmentEventLabel } from "../services/shipmentStatusSequence.service.js";
 import {
   buildDeliveryEstimate,
@@ -223,7 +224,7 @@ export async function trackPublicShipment(request: Request, response: Response):
     statusLabel: formatShipmentEventLabel(event.status),
     eventAt: event.eventAt,
     location: event.location ?? "",
-    note: event.note ?? ""
+    note: resolveShipmentEventNote(event.note, event.status)
   }));
 
   // The lane, purely so the header can name the destination country the way

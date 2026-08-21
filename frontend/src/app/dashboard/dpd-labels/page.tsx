@@ -366,7 +366,7 @@ export default function DpdLabelsPage() {
         await updateDpdShipmentOperationalStatus({
           dpdShipmentId: shipmentAction.shipment.dpdShipment.id,
           status: nextStatus,
-          note: actionNote || "Live action updated by Swiftline Operations",
+          note: actionNote,
         });
       }
 

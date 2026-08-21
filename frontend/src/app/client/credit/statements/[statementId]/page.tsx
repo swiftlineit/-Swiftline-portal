@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FiDownload, FiPrinter, FiRefreshCw } from "react-icons/fi";
+import { toast } from "react-toastify";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import CreditRestrictionAlert from "@/components/credit/CreditRestrictionAlert";
 import {
@@ -65,8 +66,6 @@ export default function ClientCreditStatementDetailPage() {
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerms | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
@@ -93,13 +92,13 @@ export default function ClientCreditStatementDetailPage() {
         "";
       setBusinessAccountId(accountId);
       if (!accountId) {
-        setError("Business account is missing from this statement link.");
+        toast.error("Business account is missing from this statement link.");
         setLoading(false);
         return;
       }
       void load(accountId)
         .catch((caught) =>
-          setError(
+          toast.error(
             caught instanceof Error
               ? caught.message
               : "Statement could not be loaded.",
@@ -117,12 +116,10 @@ export default function ClientCreditStatementDetailPage() {
     if (!statement) return;
     const amountMinor = Math.round(Number(amountRupees) * 100);
     if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
-      setError("Enter a valid payment amount.");
+      toast.error("Enter a valid payment amount.");
       return;
     }
     setBusy(true);
-    setError("");
-    setMessage("");
     try {
       if (!termsAccepted || !paymentTerms)
         throw new Error(
@@ -158,16 +155,16 @@ export default function ClientCreditStatementDetailPage() {
         theme: { color: "#1e3a8a" },
         modal: {
           ondismiss: () =>
-            setMessage("Checkout closed without completing payment."),
+            toast.success("Checkout closed without completing payment."),
         },
         handler: (checkout) => {
           void (async () => {
             try {
               const verified = await verifyClientOnlinePayment(checkout);
-              setMessage(verified.message);
+              toast.success(verified.message);
               await load(businessAccountId);
             } catch (caught) {
-              setError(
+              toast.error(
                 caught instanceof Error
                   ? caught.message
                   : "Payment confirmation failed.",
@@ -177,7 +174,7 @@ export default function ClientCreditStatementDetailPage() {
         },
       }).open();
     } catch (caught) {
-      setError(
+      toast.error(
         caught instanceof Error
           ? caught.message
           : "Payment could not be started.",
@@ -192,22 +189,20 @@ export default function ClientCreditStatementDetailPage() {
     if (!statement) return;
     const amountMinor = Math.round(Number(amountRupees) * 100);
     if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
-      setError("Enter a valid payment amount.");
+      toast.error("Enter a valid payment amount.");
       return;
     }
     if (amountMinor > MAX_OFFLINE_PAYMENT_RUPEES * 100) {
-      setError(
+      toast.error(
         `A single offline payment cannot exceed ${money(MAX_OFFLINE_PAYMENT_RUPEES * 100)}.`,
       );
       return;
     }
     if (reference.trim().length < 3) {
-      setError("Enter the bank, UPI, cash, or cheque reference.");
+      toast.error("Enter the bank, UPI, cash, or cheque reference.");
       return;
     }
     setBusy(true);
-    setError("");
-    setMessage("");
     try {
       if (!termsAccepted || !paymentTerms)
         throw new Error(
@@ -226,11 +221,11 @@ export default function ClientCreditStatementDetailPage() {
         externalReference: reference.trim(),
         notes: notes.trim(),
       });
-      setMessage(result.message);
+      toast.success(result.message);
       setReference("");
       setNotes("");
     } catch (caught) {
-      setError(
+      toast.error(
         caught instanceof Error
           ? caught.message
           : "Offline payment could not be submitted.",
@@ -301,22 +296,6 @@ export default function ClientCreditStatementDetailPage() {
         ) : null}
       </div>
 
-      {error ? (
-        <div
-          role="alert"
-          className="border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-        >
-          {error}
-        </div>
-      ) : null}
-      {message ? (
-        <div
-          role="status"
-          className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"
-        >
-          {message}
-        </div>
-      ) : null}
       <CreditRestrictionAlert
         restriction={creditAccount?.restriction}
         gracePeriodDays={creditAccount?.gracePeriodDays}

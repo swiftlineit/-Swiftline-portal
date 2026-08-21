@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FiArrowLeft, FiChevronDown, FiDownload, FiRefreshCw } from "react-icons/fi";
+import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
 } from "@/components/client/ClientDashboardShell";
@@ -19,6 +20,7 @@ import {
   type ClientDashboardAccount,
 } from "@/lib/clientDashboard";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
+import { creditLedgerFunding, creditLedgerLabel } from "@/lib/creditLedgerLabels";
 import { useClientUser } from "@/lib/useClientUser";
 
 function money(valueMinor: number) {
@@ -29,14 +31,6 @@ function money(valueMinor: number) {
   }).format(valueMinor / 100);
 }
 
-function label(value: string) {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : ""))
-    .join(" ");
-}
-
 export default function ClientCreditLedgerPage() {
   const { user, loading: userLoading } = useClientUser();
   const router = useRouter();
@@ -44,7 +38,6 @@ export default function ClientCreditLedgerPage() {
   const [businessAccountId, setBusinessAccountId] = useState("");
   const [entries, setEntries] = useState<CreditLedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   // Reporting window for the export; empty exports the full history.
   const [exportRange, setExportRange] = useState("");
 
@@ -84,7 +77,7 @@ export default function ClientCreditLedgerPage() {
         }
       } catch (caught) {
         if (active)
-          setError(
+          toast.error(
             caught instanceof Error
               ? caught.message
               : "Account statement could not be loaded.",
@@ -101,13 +94,12 @@ export default function ClientCreditLedgerPage() {
   async function changeAccount(accountId: string) {
     setBusinessAccountId(accountId);
     setLoading(true);
-    setError("");
     try {
       const result = await listClientLedger(accountId);
       setEntries(result.entries);
       router.replace(`/client/credit/ledger?businessAccountId=${accountId}`);
     } catch (caught) {
-      setError(
+      toast.error(
         caught instanceof Error
           ? caught.message
           : "Account statement could not be loaded.",
@@ -185,14 +177,6 @@ export default function ClientCreditLedgerPage() {
             ))}
           </select>
         ) : null}
-        {error ? (
-          <div
-            role="alert"
-            className="border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-          >
-            {error}
-          </div>
-        ) : null}
         <section className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-100 text-xs uppercase text-slate-500">
@@ -206,17 +190,26 @@ export default function ClientCreditLedgerPage() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => (
+              {entries.map((entry) => {
+                const activity = creditLedgerLabel(entry.type);
+                const funding = creditLedgerFunding(entry);
+                return (
                 <tr key={entry.id} className="border-t border-slate-100">
                   <td className="whitespace-nowrap px-4 py-4 text-slate-600">
                     {formatDashboardDateTime(entry.createdAt)}
                   </td>
                   <td className="px-4 py-4">
-                    <p className="font-semibold text-slate-900">
-                      {label(entry.type)}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-slate-900">{activity.label}</p>
+                      {/* Which pot the shipment was paid from. */}
+                      {funding ? (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                          {funding}
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="mt-1 max-w-md text-xs text-slate-500">
-                      {entry.description}
+                      {activity.detail || entry.description}
                     </p>
                   </td>
                   <td className="px-4 py-4 text-slate-700">
@@ -232,7 +225,8 @@ export default function ClientCreditLedgerPage() {
                     {money(entry.availableAdvanceAfterMinor)}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {loading ? (

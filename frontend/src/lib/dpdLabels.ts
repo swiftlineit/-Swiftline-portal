@@ -280,8 +280,12 @@ export type ShipmentAmendmentBillingAdjustment = {
   creditUsedMinor: number;
   creditReducedMinor: number;
   advanceRefundedMinor: number;
+  // Part of a reduction returned as fresh Customer Advance because the customer
+  // had already paid it and there is nothing left on the statement to unwind.
+  advanceCreditedMinor: number;
   advanceAppliedMinor: number;
   creditOutstandingMinor: number;
+  settledAmountMinor: number;
 };
 
 export type ShipmentAmendmentFundingPreview = {
