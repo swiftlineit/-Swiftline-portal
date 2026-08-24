@@ -3,14 +3,14 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
-import { BarcodeFormat, BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
+import { BarcodeFormat, BrowserMultiFormatOneDReader } from "@zxing/browser";
 import { FiCamera, FiCheckCircle, FiLogOut, FiRefreshCw, FiZap, FiZapOff, FiXCircle } from "react-icons/fi";
 import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import {
   disconnectOperationsScanSession,
   getOperationsScanSession,
   scanOperationsParcel,
-  type ManifestDetail,
+  type OperationsScanResult,
   type OperationsScanSession
 } from "@/lib/operationsManifests";
 
@@ -18,7 +18,7 @@ type ScanResult = {
   accepted: boolean;
   code: string;
   message: string;
-  detail?: ManifestDetail;
+  scan?: OperationsScanResult;
 };
 
 // `focusMode` and `torch` are camera capabilities the DOM typings do not model yet.
@@ -30,6 +30,57 @@ type BarcodeDetectorConstructor = {
   new (options?: { formats?: string[] }): BarcodeDetectorLike;
   getSupportedFormats?: () => Promise<string[]>;
 };
+
+const SCAN_OUTPUT_WIDTH = 960;
+
+/**
+ * Copies exactly the camera area visible inside the yellow frame. The video is
+ * rendered with object-cover, so matching its element aspect ratio here keeps
+ * the decoder crop and the operator's visible crop identical on every phone.
+ */
+function drawScanRegion(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  if (!videoWidth || !videoHeight) return false;
+  const frameAspectRatio = video.clientWidth > 0 && video.clientHeight > 0
+    ? video.clientWidth / video.clientHeight
+    : 3;
+  const videoAspectRatio = videoWidth / videoHeight;
+  const sourceWidth = Math.round(
+    videoAspectRatio > frameAspectRatio
+      ? videoHeight * frameAspectRatio
+      : videoWidth,
+  );
+  const sourceHeight = Math.round(
+    videoAspectRatio > frameAspectRatio
+      ? videoHeight
+      : videoWidth / frameAspectRatio,
+  );
+  const sourceX = Math.round((videoWidth - sourceWidth) / 2);
+  const sourceY = Math.round((videoHeight - sourceHeight) / 2);
+  // 960px retains crisp Code 128 bars while materially reducing the fallback
+  // ZXing luminance and binarisation work on mid-range phones.
+  const outputWidth = Math.min(SCAN_OUTPUT_WIDTH, sourceWidth);
+  const outputHeight = Math.max(1, Math.round(outputWidth * sourceHeight / sourceWidth));
+  if (canvas.width !== outputWidth || canvas.height !== outputHeight) {
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
+  }
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) return false;
+  context.drawImage(
+    video,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    0,
+    0,
+    outputWidth,
+    outputHeight
+  );
+  return true;
+}
 
 // Consignment parties are stored as a single formatted block: company on the first
 // line, then contact and address. The phone shows the name and address separately.
@@ -78,9 +129,9 @@ export default function ManifestPhoneScannerPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const controlsRef = useRef<IScannerControls | null>(null);
+  const scanCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const nativeLoopRef = useRef<number | null>(null);
+  const decodeTimerRef = useRef<number | null>(null);
   const busyRef = useRef(false);
   const sessionRef = useRef<OperationsScanSession | null>(null);
   const recentCodeRef = useRef<{ code: string; at: number }>({ code: "", at: 0 });
@@ -103,7 +154,12 @@ export default function ManifestPhoneScannerPage() {
       sessionRef.current = response.session;
       setSession(response.session);
       if (response.session.status === "ENDED") {
-        controlsRef.current?.stop();
+        if (decodeTimerRef.current !== null) window.clearTimeout(decodeTimerRef.current);
+        decodeTimerRef.current = null;
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        if (videoRef.current) videoRef.current.srcObject = null;
+        setTorchOn(false);
         setCameraRunning(false);
       }
       return response.session;
@@ -117,61 +173,55 @@ export default function ManifestPhoneScannerPage() {
 
   useEffect(() => {
     void Promise.resolve().then(loadSession);
-    const interval = window.setInterval(() => { if (!document.hidden) void loadSession(); }, 2500);
+    // Scans themselves keep the session alive. A slower status heartbeat avoids
+    // competing with camera acknowledgements on weak mobile connections.
+    const interval = window.setInterval(() => { if (!document.hidden) void loadSession(); }, 10000);
     return () => {
       window.clearInterval(interval);
-      controlsRef.current?.stop();
+      if (decodeTimerRef.current !== null) window.clearTimeout(decodeTimerRef.current);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, [loadSession]);
 
   const submitCode = useCallback(async (rawCode: string, scanSource: "CAMERA" | "MANUAL" = "CAMERA") => {
     const code = rawCode.trim().toUpperCase();
     const currentSession = sessionRef.current;
-    if (!code || !currentSession?.activeBag || currentSession.status !== "ACTIVE" || busyRef.current) return;
+    if (!code || currentSession?.status !== "ACTIVE" || busyRef.current) return;
     const now = Date.now();
     if (recentCodeRef.current.code === code && now - recentCodeRef.current.at < 3000) return;
     recentCodeRef.current = { code, at: now };
     busyRef.current = true;
     setError("");
     try {
-      const activeBagId = currentSession.activeBag.id;
-      const detail = await scanOperationsParcel(
+      const response = await scanOperationsParcel(
         currentSession.manifestId,
-        activeBagId,
         code,
         crypto.randomUUID(),
         { scanSource, sessionId }
       );
-      setResult({ accepted: true, code, message: detail.latestScan?.message || "Parcel added.", detail });
+      const scan = response.scanResult;
+      setResult({ accepted: true, code, message: scan.message || "Parcel added.", scan });
       setManualCode("");
       feedbackTone(true);
-
-      // Follow the bag the parcel actually landed in. A full bag opens a new one
-      // server-side, and reusing the previously active bag here would send the next
-      // parcel back to the old bag and split shipments that belong together.
-      const packedBagId = detail.latestScan?.bagId ?? activeBagId;
-      const scannedBag = detail.bags.find((bag) => bag.id === packedBagId);
-      if (scannedBag) {
-        const nextSession = {
-          ...currentSession,
-          activeBag: {
-            id: scannedBag.id,
-            bagNumber: scannedBag.bagNumber,
-            status: scannedBag.status,
-            totalPhysicalParcels: scannedBag.totalPhysicalParcels,
-            totalWeightKg: scannedBag.totalWeightKg
-          }
-        };
-        sessionRef.current = nextSession;
-        setSession(nextSession);
-      }
+      const nextSession = {
+        ...currentSession,
+        lastScanAt: new Date().toISOString(),
+        manifest: currentSession.manifest ? {
+          ...currentSession.manifest,
+          totalPhysicalParcels: scan.manifestTotals.totalPhysicalParcels,
+          totalWeightKg: scan.manifestTotals.totalWeightKg
+        } : null,
+        activeBag: scan.bag
+      };
+      sessionRef.current = nextSession;
+      setSession(nextSession);
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "This parcel could not be scanned.";
       setResult({ accepted: false, code, message });
       feedbackTone(false);
       void loadSession();
     } finally {
-      window.setTimeout(() => { busyRef.current = false; }, 250);
+      busyRef.current = false;
     }
   }, [loadSession, sessionId]);
 
@@ -180,45 +230,49 @@ export default function ManifestPhoneScannerPage() {
     if (!video || cameraRunning) return;
     setError("");
     try {
-      // Code 128 needs horizontal pixels far more than it needs frame rate, so the
-      // stream is requested at the highest width the phone will grant.
+      // A 1280px stream keeps Code 128 bars crisp without paying the continuous
+      // full-HD decode cost that made the previous scanner feel delayed.
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           advanced: [{ focusMode: "continuous" } as CameraConstraintSet]
         }
       });
       streamRef.current = stream;
-
+      video.srcObject = stream;
+      await video.play();
+      const canvas = scanCanvasRef.current ?? document.createElement("canvas");
+      scanCanvasRef.current = canvas;
       const detector = await createNativeBarcodeDetector();
-      if (detector) {
-        // Chrome on Android decodes in native code, which is several times faster
-        // than the JavaScript decoder and far more tolerant of a moving phone.
-        video.srcObject = stream;
-        await video.play();
-        const readFrame = async () => {
-          if (!streamRef.current) return;
-          try {
-            const [found] = await detector.detect(video);
-            if (found?.rawValue) void submitCode(found.rawValue, "CAMERA");
-          } catch {
-            // A dropped frame is not an error worth surfacing; the next one retries.
+      // The fallback reader is restricted to one-dimensional barcodes and then
+      // to Code 128, avoiding the cost of trying QR and unrelated formats.
+      const reader = detector ? null : new BrowserMultiFormatOneDReader();
+      if (reader) reader.possibleFormats = [BarcodeFormat.CODE_128];
+      const readFrame = async () => {
+        if (!streamRef.current) return;
+        try {
+          // Do not decode behind an in-flight server request. It wastes battery
+          // and can keep the camera from settling its continuous focus.
+          if (!busyRef.current && drawScanRegion(video, canvas)) {
+            const value = detector
+              ? (await detector.detect(canvas))[0]?.rawValue
+              : reader?.decodeFromCanvas(canvas).getText();
+            if (value) {
+              void submitCode(value, "CAMERA");
+            }
           }
-          nativeLoopRef.current = window.setTimeout(() => void readFrame(), 100);
-        };
-        void readFrame();
-      } else {
-        const reader = new BrowserMultiFormatReader(new Map(), { delayBetweenScanAttempts: 50, delayBetweenScanSuccess: 300 });
-        // The hints map must exist before this setter runs, otherwise the reader
-        // keeps trying every symbology and decoding stays slow.
-        reader.possibleFormats = [BarcodeFormat.CODE_128];
-        controlsRef.current = await reader.decodeFromStream(stream, video, (decoded) => {
-          if (decoded) void submitCode(decoded.getText(), "CAMERA");
-        });
-      }
+        } catch {
+          // Not-found is expected while the operator aligns the label.
+        }
+        decodeTimerRef.current = window.setTimeout(
+          () => void readFrame(),
+          detector ? 40 : 70
+        );
+      };
+      void readFrame();
 
       setCameraRunning(true);
     } catch (caughtError) {
@@ -228,12 +282,10 @@ export default function ManifestPhoneScannerPage() {
   }
 
   function stopCamera() {
-    if (nativeLoopRef.current !== null) {
-      window.clearTimeout(nativeLoopRef.current);
-      nativeLoopRef.current = null;
+    if (decodeTimerRef.current !== null) {
+      window.clearTimeout(decodeTimerRef.current);
+      decodeTimerRef.current = null;
     }
-    controlsRef.current?.stop();
-    controlsRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -265,7 +317,7 @@ export default function ManifestPhoneScannerPage() {
     void submitCode(manualCode, "MANUAL");
   }
 
-  const latestConsignment = result?.detail?.consignments.find((item) => item.scannedParcelNumbers.includes(result.code));
+  const latestConsignment = result?.scan?.consignment;
   const consignee = latestConsignment ? partyLines(latestConsignment.consigneeSnapshot) : null;
 
   return (
@@ -275,35 +327,36 @@ export default function ManifestPhoneScannerPage() {
           <Image src="/Slogo.png" alt="Swiftline" width={36} height={36} className="h-9 w-9 shrink-0 rounded-lg object-contain" />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{session?.manifest?.manifestNumber ?? "Manifest Scanner"}</p>
-            <p className="truncate text-xs text-white/70">{session?.activeBag?.bagNumber ?? "Waiting for an open bag"}</p>
+            <p className="truncate text-xs text-white/70">Bags assigned automatically</p>
           </div>
         </div>
         <button onClick={() => void disconnect()} title="Disconnect phone" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white"><FiLogOut /></button>
       </header>
 
-      {/* A Code 128 label is wide and short, so a letterbox viewport frames it without
-          pushing the scan result off screen. */}
-      <section className="relative h-[30vh] max-h-64 min-h-40 w-full overflow-hidden rounded-2xl bg-black shadow-lg ring-1 ring-white/10">
-        <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
-        <div className="pointer-events-none absolute inset-x-5 top-1/2 h-20 -translate-y-1/2 rounded-xl border-2 border-[#F0DE36] shadow-[0_0_0_9999px_rgba(2,6,23,0.45)]" />
-        <span className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[11px] font-medium text-white/80">
-          Hold the barcode inside the frame
-        </span>
-        {!cameraRunning ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl bg-slate-950/92 p-5 text-center">
-            <FiCamera className="h-8 w-8 text-[#F0DE36]" />
-            <p className="mt-3 text-xs text-white/80">
-              {loading ? "Loading scanner..." : session?.activeBag ? "Scan the printed Swiftline parcel barcode." : "Select an open bag on the laptop before scanning."}
-            </p>
-            <button
-              onClick={() => void startCamera()}
-              disabled={loading || !session?.activeBag || session.status !== "ACTIVE"}
-              className="mt-4 h-11 rounded-full bg-[#F0DE36] px-6 text-sm font-semibold text-[#0D1282] transition active:scale-95 disabled:opacity-40"
-            >
-              Start Camera
-            </button>
-          </div>
-        ) : null}
+      {/* The live camera exists only inside this taller yellow rectangle. The
+          decoder uses the same centre crop, so nothing outside it can scan. */}
+      <section className="w-full rounded-2xl bg-slate-900 p-3 shadow-lg ring-1 ring-white/10">
+        <div className="relative h-[clamp(8.5rem,38vw,11rem)] w-full overflow-hidden rounded-xl border-[3px] border-[#F0DE36] bg-black">
+          <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
+          {!cameraRunning ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 p-4 text-center">
+              <FiCamera className="h-7 w-7 text-[#F0DE36]" />
+              <p className="mt-2 text-xs text-white/80">
+                {loading ? "Loading scanner..." : "Open the camera and fit the complete barcode inside this box."}
+              </p>
+              <button
+                onClick={() => void startCamera()}
+                disabled={loading || session?.status !== "ACTIVE"}
+                className="mt-3 h-10 rounded-full bg-[#F0DE36] px-6 text-sm font-semibold text-[#0D1282] transition active:scale-95 disabled:opacity-40"
+              >
+                Start Camera
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <p className="mt-2 text-center text-[11px] font-medium text-white/75">
+          Only the barcode visible inside the yellow box is scanned
+        </p>
       </section>
 
       <div className="mt-3 space-y-3">
@@ -328,7 +381,7 @@ export default function ManifestPhoneScannerPage() {
                   <div className="mt-3 space-y-2 text-xs text-white/80">
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                       <span>Consignment</span><strong className="text-right text-white">{latestConsignment.displayConsignmentNumber}</strong>
-                      <span>Parcels</span><strong className="text-right text-white">{latestConsignment.scannedParcelNumbers.length} of {latestConsignment.expectedParcelNumbers.length}</strong>
+                      <span>Parcels</span><strong className="text-right text-white">{latestConsignment.scannedParcels} of {latestConsignment.expectedParcels}</strong>
                       <span>Weight</span><strong className="text-right text-white">{latestConsignment.weightKg.toFixed(3)} kg</strong>
                       <span>Service</span><strong className="text-right text-white">{latestConsignment.serviceInfo || "Not set"}</strong>
                     </div>
@@ -354,7 +407,7 @@ export default function ManifestPhoneScannerPage() {
 
         <div className="rounded-2xl bg-white/10 px-4 py-3">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-white/70">{session?.activeBag?.bagNumber ?? "No active bag"}</span>
+            <span className="text-white/70">{session?.activeBag?.bagNumber ?? "Awaiting first scan"}</span>
             <strong>{session?.activeBag ? `${session.activeBag.totalWeightKg.toFixed(3)} / 31.000 kg` : "--"}</strong>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15">
@@ -363,12 +416,12 @@ export default function ManifestPhoneScannerPage() {
               style={{ width: `${Math.min(100, ((session?.activeBag?.totalWeightKg ?? 0) / 31) * 100)}%` }}
             />
           </div>
-          <p className="mt-2 text-[11px] text-white/60">A full bag opens the next one automatically.</p>
+          <p className="mt-2 text-[11px] text-white/60">The server selects the fullest suitable bag and never exceeds 31 kg.</p>
         </div>
 
         <form onSubmit={submitManual} className="flex gap-2">
           <input value={manualCode} onChange={(event) => setManualCode(event.target.value.toUpperCase())} placeholder="Manual parcel code" className="h-11 min-w-0 flex-1 rounded-full bg-white px-4 font-mono text-sm text-slate-950 outline-none ring-1 ring-white/20" />
-          <button disabled={!manualCode.trim() || !session?.activeBag} className="h-11 rounded-full bg-white px-5 text-sm font-semibold text-[#0D1282] transition active:scale-95 disabled:opacity-40">Submit</button>
+          <button disabled={!manualCode.trim() || session?.status !== "ACTIVE"} className="h-11 rounded-full bg-white px-5 text-sm font-semibold text-[#0D1282] transition active:scale-95 disabled:opacity-40">Submit</button>
         </form>
       </div>
     </main>

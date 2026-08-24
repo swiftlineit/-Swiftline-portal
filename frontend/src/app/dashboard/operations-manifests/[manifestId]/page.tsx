@@ -11,8 +11,6 @@ import {
   FiDownload,
   FiPlus,
   FiPrinter,
-  FiRefreshCw,
-  FiSend,
   FiSmartphone,
   FiTrash2,
   FiWifi,
@@ -24,7 +22,6 @@ import { DashboardLoading } from "@/components/DashboardShell";
 import {
   createOperationsBag,
   createOperationsScanSession,
-  changeOperationsScanSessionBag,
   disconnectOperationsScanSession,
   downloadOperationsManifest,
   getActiveOperationsScanSession,
@@ -163,32 +160,6 @@ export default function OperationsManifestWorkspace() {
   }, [load, phoneSessionId, phoneSessionStatus]);
 
   useEffect(() => {
-    if (!phoneSession || phoneSession.status === "ENDED" || !activeBagId)
-      return;
-    if (
-      !data?.bags.some(
-        (bag) =>
-          bag.id === activeBagId && ["OPEN", "REOPENED"].includes(bag.status),
-      )
-    )
-      return;
-    if (phoneSession.activeBag?.id === activeBagId) return;
-    void changeOperationsScanSessionBag(
-      manifestId,
-      phoneSession.id,
-      activeBagId,
-    )
-      .then((result) => setPhoneSession(result.session))
-      .catch((caughtError) =>
-        toast.error(
-          caughtError instanceof Error
-            ? caughtError.message
-            : "The phone scanner bag could not be changed.",
-        ),
-      );
-  }, [activeBagId, data?.bags, manifestId, phoneSession]);
-
-  useEffect(() => {
     if (!scanning && !pendingReason) inputRef.current?.focus();
   }, [activeBagId, data?.scans.length, pendingReason, scanning]);
 
@@ -224,25 +195,24 @@ export default function OperationsManifestWorkspace() {
 
   async function handleScan(event: FormEvent) {
     event.preventDefault();
-    if (!activeBagId)
-      return toast.error("Create and select an open bag first.");
     if (!barcode.trim()) return;
     setScanning(true);
     try {
       const result = await scanOperationsParcel(
         manifestId,
-        activeBagId,
         barcode,
         crypto.randomUUID(),
       );
-      setData(result);
       setBarcode("");
-      const latest = result.latestScan;
-      // A full bag rolls the parcel into a fresh one, so follow where it landed.
-      if (latest?.bagId && latest.bagId !== activeBagId)
-        setActiveBagId(latest.bagId);
-      if (latest?.message.includes("label")) toast.info(latest.message);
-      else toast.success(latest?.message || "Parcel added.");
+      setActiveBagId(result.scanResult.bag.id);
+      if (result.scanResult.message.includes("label"))
+        toast.info(result.scanResult.message);
+      else toast.success(result.scanResult.message || "Parcel added.");
+      // Confirmation is intentionally compact and fast. Refresh the workspace in
+      // the background without holding the barcode input behind a full reload.
+      void getOperationsManifest(manifestId)
+        .then((detail) => setData(detail))
+        .catch(() => undefined);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -255,11 +225,9 @@ export default function OperationsManifestWorkspace() {
   }
 
   async function connectPhone() {
-    if (!activeBagId)
-      return toast.error("Create and select an open bag first.");
     setPhoneBusy(true);
     try {
-      const result = await createOperationsScanSession(manifestId, activeBagId);
+      const result = await createOperationsScanSession(manifestId);
       setPhoneSession(result.session);
       setPairingQr(result.qrDataUri);
       lastPhoneScanRef.current = result.session.lastScanAt;
@@ -355,20 +323,37 @@ export default function OperationsManifestWorkspace() {
     );
   }
 
+  async function handleSeal() {
+    const mixedDestinations = currentData.destinationSummary.length > 1;
+    if (mixedDestinations) {
+      const countries = currentData.destinationSummary
+        .map((item) => `${item.countryName} (${item.parcels} parcel${item.parcels === 1 ? "" : "s"})`)
+        .join(", ");
+      const confirmed = window.confirm(
+        `This manifest contains multiple final destination countries: ${countries}. `
+        + "Confirm they are travelling under this MAWB and routing hub before sealing."
+      );
+      if (!confirmed) return;
+    }
+    await refreshAction(
+      () => runManifestAction(
+        manifestId,
+        "seal",
+        "",
+        { confirmMixedDestinations: mixedDestinations }
+      ),
+      "Manifest sealed."
+    );
+  }
+
   return (
     <>
       <div className="mx-auto max-w-[1500px]">
         <ManifestHeader
           data={data}
           busy={busy}
-          onRefresh={() => void load()}
           onExport={(format, view) => void exportFile(format, view)}
-          onSeal={() =>
-            void refreshAction(
-              () => runManifestAction(manifestId, "seal"),
-              "Manifest sealed.",
-            )
-          }
+          onSeal={() => void handleSeal()}
           onDispatch={() =>
             void refreshAction(
               () => runManifestAction(manifestId, "dispatch"),
@@ -389,6 +374,21 @@ export default function OperationsManifestWorkspace() {
                   <li key={issue}><span className="text-red-600 mr-2">!</span>{issue}</li>
                 ))}
               </ul>
+            </div>
+          </section>
+        ) : null}
+
+        {data.destinationSummary.length > 1 && canEdit ? (
+          <section className="mb-5 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950">
+            <FiAlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div>
+              <h2 className="text-sm font-semibold">Mixed final destinations</h2>
+              <p className="mt-1 text-sm">
+                {data.destinationSummary.map((item) => `${item.countryName}: ${item.parcels} parcel${item.parcels === 1 ? "" : "s"}`).join(" · ")}
+              </p>
+              <p className="mt-1 text-xs text-amber-800">
+                These parcels are allowed, but sealing requires confirmation that they travel under this MAWB and routing hub.
+              </p>
             </div>
           </section>
         ) : null}
@@ -492,10 +492,10 @@ export default function OperationsManifestWorkspace() {
                 <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
                   <div>
                     <p className="text-xs font-semibold uppercase text-[#0D1282]">
-                      Active Bag
+                      Bag View
                     </p>
                     <h2 className="mt-0.5 text-lg font-semibold text-slate-950">
-                      {activeBag?.bagNumber ?? "No bag selected"}
+                      {activeBag?.bagNumber ?? "Automatic allocation"}
                     </h2>
                   </div>
                   <span className="text-sm font-semibold text-slate-600">
@@ -517,11 +517,7 @@ export default function OperationsManifestWorkspace() {
                     onChange={(event) =>
                       setBarcode(event.target.value.toUpperCase())
                     }
-                    disabled={
-                      !activeBag ||
-                      !["OPEN", "REOPENED"].includes(activeBag.status) ||
-                      scanning
-                    }
+                    disabled={scanning}
                     placeholder="Scan Swiftline parcel barcode"
                     className="h-11 min-w-0 flex-1 rounded-2xl border-2 border-[#0D1282] px-4 font-mono text-base font-semibold uppercase outline-none focus:ring-1 "
                   />
@@ -533,8 +529,7 @@ export default function OperationsManifestWorkspace() {
                   </button>
                 </form>
                 <p className="mt-2 text-xs text-slate-500">
-                  A full bag opens the next one automatically. Bag weight counts
-                  scanned parcels only.
+                  Bags are selected automatically by available capacity and shipment grouping. Click a bag only to inspect it.
                 </p>
               </section>
 
@@ -632,7 +627,7 @@ function PhoneScannerPanel({
             </div>
             <p className="mt-1 text-xs text-slate-500">
               {connected
-                ? `Connected to ${session.activeBag?.bagNumber ?? "no active bag"}. Scans will appear here automatically.`
+                ? "Connected to this manifest. Each parcel is assigned to the best available bag automatically."
                 : pending
                   ? "Scan this pairing QR with the phone's normal camera."
                   : "Use a phone as the camera while this laptop remains the manifest workspace."}
@@ -693,14 +688,12 @@ function PhoneScannerPanel({
 function ManifestHeader({
   data,
   busy,
-  onRefresh,
   onExport,
   onSeal,
   onDispatch,
 }: {
   data: ManifestDetail;
   busy: boolean;
-  onRefresh: () => void;
   onExport: (format: "xlsx" | "pdf" | "edi", view?: boolean) => void;
   onSeal: () => void;
   onDispatch: () => void;

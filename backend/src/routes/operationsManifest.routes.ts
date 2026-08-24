@@ -18,8 +18,10 @@ operationsManifestRouter.post("/", requireRequestedOperationsBranch, controller.
 operationsManifestRouter.use("/:manifestId", requireOperationsManifestBranch);
 operationsManifestRouter.get("/:manifestId/scan-sessions/active", scannerFeedLimiter, scanSessionController.getActiveSession);
 operationsManifestRouter.post("/:manifestId/scan-sessions", scannerPairingLimiter, scanSessionController.createSession);
-operationsManifestRouter.patch("/:manifestId/scan-sessions/:sessionId/bag", scannerPairingLimiter, scanSessionController.changeSessionBag);
-operationsManifestRouter.delete("/:manifestId/scan-sessions/:sessionId", scannerPairingLimiter, scanSessionController.disconnectSession);
+// Kept for one backwards-compatible release; lifecycle traffic must never spend
+// the strict explicit-pairing budget or produce false pairing-attempt toasts.
+operationsManifestRouter.patch("/:manifestId/scan-sessions/:sessionId/bag", scannerFeedLimiter, scanSessionController.changeSessionBag);
+operationsManifestRouter.delete("/:manifestId/scan-sessions/:sessionId", scannerFeedLimiter, scanSessionController.disconnectSession);
 operationsManifestRouter.get("/:manifestId", controller.getManifest);
 operationsManifestRouter.patch("/:manifestId", controller.updateManifest);
 operationsManifestRouter.post("/:manifestId/bags", controller.createBag);

@@ -5,6 +5,7 @@ import ExcelJS from "exceljs";
 import mongoose from "mongoose";
 import { OperationsManifest } from "../models/operationsManifest.model.js";
 import { OperationsManifestConsignment } from "../models/operationsManifestConsignment.model.js";
+import { OperationsManifestCounter } from "../models/operationsManifestCounter.model.js";
 import { OperationsManifestScan } from "../models/operationsManifestScan.model.js";
 import { OperationsManifestScanSession } from "../models/operationsManifestScanSession.model.js";
 import { operationsBranchIds } from "../middleware/operationsBranchAccess.middleware.js";
@@ -14,10 +15,16 @@ import {
   buildOperationsManifestPdf,
   buildManifestDispatchIssues,
   buildManifestDispatchTrackingEvent,
+  allocateOperationsManifestNumber,
   calculateScannedParcelWeight,
+  chooseOperationsBagForParcel,
   formatOperationsBagNumber,
+  formatOperationsManifestNumber,
   isOperationsBagWeightAllowed,
-  summarizeBagComposition
+  OPERATIONS_MANIFEST_ORIGIN_ADDRESS,
+  shouldReactivateTrailingOperationsBag,
+  summarizeBagComposition,
+  summarizeManifestDestinations
 } from "../services/operationsManifest.service.js";
 
 describe("operations manifest dispatch readiness", () => {
@@ -89,6 +96,17 @@ describe("operations manifest dispatch readiness", () => {
     });
     assert.match(issues.find((issue) => issue.reference === "SLC-HOLD-01")?.reason ?? "", /on hold/);
     assert.match(issues.find((issue) => issue.reference === "SLC-CANCEL-02")?.reason ?? "", /cancelled/);
+  });
+
+  it("also blocks a cancellation recorded only in shipment event history", () => {
+    const issues = buildManifestDispatchIssues({
+      consignments: [{ shipmentDraftId: firstDraftId, consignmentNumber: "SLC-CANCEL-EVENT" }],
+      events: [
+        ...eventsFor(firstDraftId, readyStatuses),
+        { shipmentDraftId: firstDraftId, status: "SHIPMENT_CANCELLED", eventAt: new Date(2026, 7, 22, 10) }
+      ]
+    });
+    assert.match(issues[0]?.reason ?? "", /cancelled/);
   });
 });
 
@@ -263,6 +281,51 @@ describe("operations manifest safeguards", () => {
     assert.equal(isOperationsBagWeightAllowed(31.5), false);
   });
 
+  it("automatically packs 10, 10, 20, 10 kg as Bag 01, 01, 02, 01", () => {
+    const bags: Array<{ id: string; sequence: number; status: string; totalWeightKg: number }> = [
+      { id: "bag-1", sequence: 1, status: "OPEN", totalWeightKg: 0 }
+    ];
+    const assignments = [10, 10, 20, 10].map((weight) => {
+      let selected = chooseOperationsBagForParcel(bags, weight);
+      if (!selected) {
+        const next = { id: `bag-${bags.length + 1}`, sequence: bags.length + 1, status: "OPEN", totalWeightKg: 0 };
+        bags.push(next);
+        selected = next;
+      }
+      const bag = bags.find((item) => item.id === selected?.id);
+      assert.ok(bag);
+      bag.totalWeightKg += weight;
+      return bag.sequence;
+    });
+
+    assert.deepEqual(assignments, [1, 1, 2, 1]);
+    assert.deepEqual(bags.map((bag) => bag.totalWeightKg), [30, 20]);
+  });
+
+  it("keeps a shipment together before applying general best-fit", () => {
+    const selected = chooseOperationsBagForParcel([
+      { id: "bag-1", sequence: 1, status: "OPEN", totalWeightKg: 15, containsConsignment: false },
+      { id: "bag-2", sequence: 2, status: "OPEN", totalWeightKg: 5, containsConsignment: true }
+    ], 10);
+    assert.equal(selected?.id, "bag-2");
+  });
+
+  it("reactivates only an empty cancelled trailing bag", () => {
+    assert.equal(shouldReactivateTrailingOperationsBag("CANCELLED", false), true);
+    assert.equal(shouldReactivateTrailingOperationsBag("CANCELLED", true), false);
+    assert.equal(shouldReactivateTrailingOperationsBag("CLOSED", false), false);
+  });
+
+  it("summarizes mixed final countries without treating the MAWB route as a parcel restriction", () => {
+    assert.deepEqual(summarizeManifestDestinations([
+      { consigneeSnapshot: { party: { countryCode: "GB", countryName: "United Kingdom" } }, scannedParcelNumbers: ["GB-1", "GB-2"] },
+      { consigneeSnapshot: { party: { countryCode: "PL", countryName: "Poland" } }, scannedParcelNumbers: ["PL-1"] }
+    ]), [
+      { countryCode: "PL", countryName: "Poland", consignments: 1, parcels: 1 },
+      { countryCode: "GB", countryName: "United Kingdom", consignments: 1, parcels: 2 }
+    ]);
+  });
+
   it("counts every parcel packed into the same bag once, whatever consignment it belongs to", () => {
     const bagId = new mongoose.Types.ObjectId();
     const first = new mongoose.Types.ObjectId();
@@ -283,14 +346,36 @@ describe("operations manifest safeguards", () => {
 
   it("uses the flight sequence for bag numbering and adds only scanned parcel weight", async () => {
     // The bag number is the manifest number plus a two-digit bag suffix.
+    assert.equal(formatOperationsManifestNumber(17), "SLC017");
     assert.equal(formatOperationsBagNumber("SLC012", 1), "SLC01201");
     assert.equal(formatOperationsBagNumber("SLC012", 12), "SLC01212");
+    assert.equal(formatOperationsBagNumber("SLC017", 1), "SLC01701");
     const parcelWeights = [{ parcelNumber: "P01", weightKg: 5 }, { parcelNumber: "P02", weightKg: 5 }];
     assert.equal(calculateScannedParcelWeight({ scannedParcelNumbers: ["P01"], parcelWeightSnapshots: parcelWeights }), 5);
     assert.equal(calculateScannedParcelWeight({ scannedParcelNumbers: ["P01", "P02"], parcelWeightSnapshots: parcelWeights }), 10);
 
     assert.equal(isOperationsBagWeightAllowed(31), true);
     assert.equal(isOperationsBagWeightAllowed(31.001), false);
+  });
+
+  it("marks the counter update as an aggregation pipeline", async () => {
+    const original = OperationsManifestCounter.findOneAndUpdate;
+    let capturedOptions: { updatePipeline?: boolean } | undefined;
+    (OperationsManifestCounter as any).findOneAndUpdate = (
+      _filter: unknown,
+      _update: unknown,
+      options: { updatePipeline?: boolean },
+    ) => {
+      capturedOptions = options;
+      return { exec: async () => ({ sequence: 17 }) };
+    };
+
+    try {
+      assert.equal(await allocateOperationsManifestNumber(), "SLC017");
+      assert.equal(capturedOptions?.updatePipeline, true);
+    } finally {
+      OperationsManifestCounter.findOneAndUpdate = original;
+    }
   });
 
   it("enforces idempotent scan request identifiers and active parcel uniqueness", () => {
@@ -360,5 +445,16 @@ describe("operations manifest safeguards", () => {
     const pdf = await buildOperationsManifestPdf(manifest);
     assert.ok(pdf.length > 1000);
     assert.equal(pdf.subarray(0, 4).toString(), "%PDF");
+  });
+
+  it("renders the frozen Swiftline legal FROM block on v3 documents", async () => {
+    const manifest = sealedManifest();
+    const snapshot = manifest.sealedSnapshot as Record<string, unknown>;
+    snapshot.version = 3;
+    snapshot.originAddress = OPERATIONS_MANIFEST_ORIGIN_ADDRESS;
+    const sheet = await manifestSheetRows(manifest);
+    const values = sheet.getSheetValues().flat(3).filter(Boolean).join(" ");
+    assert.match(values, /M\/S SWIFTLINE CARGO AND EXPRESS/);
+    assert.match(values, /HARYANA-123401/);
   });
 });

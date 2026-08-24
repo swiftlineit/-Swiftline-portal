@@ -421,8 +421,15 @@ function verifyLabelAccessToken(token: string) {
   }
 }
 
-function buildAbsoluteUrl(request: Request, path: string) {
-  return `${request.protocol}://${request.get("host")}${path}`;
+export function buildAbsoluteUrl(
+  request: Pick<Request, "protocol" | "host">,
+  path: string,
+) {
+  // `request.host` is proxy-aware in Express: when the configured reverse
+  // proxy is trusted it uses X-Forwarded-Host, while request.get("host") reads
+  // the internal localhost address. This keeps signed label links on the
+  // public HTTPS origin behind nginx and VS Code development tunnels.
+  return `${request.protocol}://${request.host}${path}`;
 }
 
 export async function buildStoredLabelAccess(params: {

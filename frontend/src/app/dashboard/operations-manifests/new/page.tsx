@@ -249,7 +249,7 @@ export default function NewOperationsManifestPage() {
             </label>
 
             <div className={labelClass}>
-              Destination Country *
+              MAWB Routing Country *
               <CountrySelect
                 value={header.destinationCountryCode}
                 onChange={(code, name) => {
@@ -258,6 +258,10 @@ export default function NewOperationsManifestPage() {
                 }}
               />
             </div>
+
+            <p className="-mt-3 text-xs normal-case text-slate-500 md:col-span-2">
+              This is the shared flight or routing-hub country. Parcels for other final destination countries can still be packed and will be listed before sealing.
+            </p>
 
             <label className={`${labelClass} md:col-span-2`}>
               Destination Agent Details *

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { FiArrowRight, FiPlus, FiRefreshCw, FiChevronDown } from "react-icons/fi";
+import { FiArrowRight, FiPlus, FiChevronDown } from "react-icons/fi";
 import { DashboardLoading } from "@/components/DashboardShell";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
 import { emptyDateRange } from "@/lib/dateRange";

@@ -124,11 +124,12 @@ export async function scanParcel(request: Request, response: Response) {
   try {
     const actorId = userId(request);
     const input = parsedBody(response, z.object({
-      bagId: z.string(),
+      bagId: z.string().optional(),
       parcelNumber: z.string().trim().min(1, "Scan or enter a Swiftline parcel barcode."),
       scanRequestId: z.string().uuid().optional(),
       scanSource: z.enum(["MANUAL", "CAMERA", "HARDWARE"]).optional().default("MANUAL"),
-      sessionId: z.string().optional()
+      sessionId: z.string().optional(),
+      responseMode: z.enum(["DETAIL", "COMPACT"]).optional().default("DETAIL")
     }).superRefine((data, context) => {
       if (data.scanSource === "CAMERA" && !data.sessionId) {
         context.addIssue({ code: "custom", path: ["sessionId"], message: "Connect this phone to the manifest before scanning." });
@@ -140,7 +141,6 @@ export async function scanParcel(request: Request, response: Response) {
       await assertCameraScanSession({
         sessionId: input.sessionId,
         manifestId: String(request.params.manifestId),
-        bagId: input.bagId,
         actor: {
           userId: actorId,
           role: currentUser.role,
@@ -191,7 +191,14 @@ export async function moveConsignment(request: Request, response: Response) {
 }
 
 export async function sealManifest(request: Request, response: Response) {
-  try { const actorId = userId(request); if (!actorId) return response.status(401).json({ success: false, message: "Unauthorized" }); await sealOperationsManifest(String(request.params.manifestId), actorId); return response.json({ success: true, message: "Manifest sealed. Excel and PDF exports are now available." }); }
+  try {
+    const actorId = userId(request);
+    const input = parsedBody(response, z.object({ confirmMixedDestinations: z.boolean().optional().default(false) }), request.body ?? {});
+    if (!actorId) return response.status(401).json({ success: false, message: "Unauthorized" });
+    if (!input) return;
+    await sealOperationsManifest(String(request.params.manifestId), actorId, input);
+    return response.json({ success: true, message: "Manifest sealed. Excel and PDF exports are now available." });
+  }
   catch (error) { return sendError(response, error); }
 }
 

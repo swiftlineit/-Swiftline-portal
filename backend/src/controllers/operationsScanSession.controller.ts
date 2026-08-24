@@ -32,9 +32,9 @@ function sendError(response: Response, error: unknown) {
 export async function createSession(request: Request, response: Response) {
   try {
     const currentActor = actor(request);
-    const parsed = z.object({ activeBagId: z.string().trim().min(1) }).safeParse(request.body);
+    const parsed = z.object({ activeBagId: z.string().trim().min(1).optional() }).safeParse(request.body ?? {});
     if (!currentActor) return response.status(401).json({ success: false, message: "Unauthorized" });
-    if (!parsed.success) return response.status(400).json({ success: false, message: "Select an open bag before connecting a phone." });
+    if (!parsed.success) return response.status(400).json({ success: false, message: "The phone scanner request is invalid." });
     return response.status(201).json({
       success: true,
       ...(await createOperationsScanSession({

@@ -81,12 +81,45 @@ export type ManifestDetail = {
   scans: OperationsScan[];
   latestScan: OperationsScan | null;
   sealingIssues: string[];
+  destinationSummary: Array<{
+    countryCode: string;
+    countryName: string;
+    consignments: number;
+    parcels: number;
+  }>;
   dispatchIssues: Array<{
     shipmentDraftId: string;
     reference: string;
     reason: string;
     missingStatuses: string[];
   }>;
+};
+export type OperationsScanResult = {
+  scanId: string;
+  parcelNumber: string;
+  message: string;
+  bag: {
+    id: string;
+    bagNumber: string;
+    status: OperationsBag["status"];
+    totalPhysicalParcels: number;
+    totalWeightKg: number;
+  };
+  manifestTotals: {
+    totalBags: number;
+    totalConsignments: number;
+    totalPhysicalParcels: number;
+    totalWeightKg: number;
+  };
+  consignment: {
+    displayConsignmentNumber: string;
+    scannedParcels: number;
+    expectedParcels: number;
+    weightKg: number;
+    serviceInfo: string;
+    description: string;
+    consigneeSnapshot: { name?: string; formatted?: string };
+  };
 };
 export type OperationsScanSession = {
   id: string;
@@ -191,7 +224,6 @@ export const createOperationsBag = (id: string) =>
   });
 export const scanOperationsParcel = (
   id: string,
-  bagId: string,
   parcelNumber: string,
   scanRequestId: string,
   options?: {
@@ -199,24 +231,26 @@ export const scanOperationsParcel = (
     sessionId?: string;
   },
 ) =>
-  request<{ success: true } & ManifestDetail>(
+  request<{ success: true; scanResult: OperationsScanResult }>(
     `/api/v1/operations-manifests/${id}/scan`,
     {
       method: "POST",
-      body: JSON.stringify({ bagId, parcelNumber, scanRequestId, ...options }),
+      body: JSON.stringify({
+        parcelNumber,
+        scanRequestId,
+        responseMode: "COMPACT",
+        ...options,
+      }),
     },
   );
-export const createOperationsScanSession = (
-  manifestId: string,
-  activeBagId: string,
-) =>
+export const createOperationsScanSession = (manifestId: string) =>
   request<{
     success: true;
     session: OperationsScanSession;
     qrDataUri: string;
   }>(`/api/v1/operations-manifests/${manifestId}/scan-sessions`, {
     method: "POST",
-    body: JSON.stringify({ activeBagId }),
+    body: "{}",
   });
 export const pairOperationsScanSession = (token: string) =>
   request<{
@@ -265,10 +299,17 @@ export const runManifestAction = (
   id: string,
   action: "seal" | "dispatch" | "cancel",
   reason = "",
+  options?: { confirmMixedDestinations?: boolean },
 ) =>
   request<{ success: true; message: string }>(
     `/api/v1/operations-manifests/${id}/${action}`,
-    { method: "POST", body: JSON.stringify(reason ? { reason } : {}) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...(reason ? { reason } : {}),
+        ...(options ?? {}),
+      }),
+    },
   );
 export const runBagAction = (
   id: string,

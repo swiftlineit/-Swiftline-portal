@@ -50,19 +50,49 @@ export class OperationsManifestServiceError extends Error {
 
 const editableStatuses = ["DRAFT", "PACKING", "READY_TO_SEAL"] as const;
 
+/**
+ * Operations manifests use one legal origin block regardless of the branch that
+ * physically packs the freight. It is frozen into the sealed snapshot so a later
+ * branch or company-profile edit cannot rewrite an issued document.
+ */
+export const OPERATIONS_MANIFEST_ORIGIN_ADDRESS = [
+  "M/S SWIFTLINE CARGO AND EXPRESS",
+  "LOGISTICS PRIVATE LTD",
+  "SECOND FLOOR KRISHAN COMPLEX",
+  "SECTOR- 10 NEAR 33 KVS STATION",
+  "UTTAM NAGAR REWARI",
+  "HARYANA-123401"
+].join("\n");
+
 function isEditable(manifest: IOperationsManifest) {
   return editableStatuses.includes(manifest.status as (typeof editableStatuses)[number]);
 }
 
 export async function allocateOperationsManifestNumber(session?: mongoose.ClientSession) {
-  // A single running sequence gives the plain SLC001, SLC002, … numbers operations use.
+  // A single persistent sequence gives the plain SLC017, SLC018, ... numbers
+  // Operations uses and keeps every related bag/EDI identifier deterministic.
   const counter = await OperationsManifestCounter.findOneAndUpdate(
     { _id: "operations-manifest" },
-    { $inc: { sequence: 1 } },
-    { upsert: true, returnDocument: "after", session }
+    // SLC017 is the first system-generated number agreed with Operations. This
+    // protects a missed migration without ever moving an advanced counter back.
+    [{
+      $set: {
+        sequence: {
+          $add: [{ $max: [{ $ifNull: ["$sequence", 0] }, 16] }, 1]
+        }
+      }
+    }],
+    // Mongoose rejects array updates unless they are explicitly identified as
+    // aggregation pipelines. Keeping this option beside the pipeline prevents
+    // manifest creation from failing before the counter write reaches MongoDB.
+    { upsert: true, returnDocument: "after", session, updatePipeline: true }
   ).exec();
   if (!counter) throw new OperationsManifestServiceError("Manifest number could not be generated.", 500);
-  return `SLC${String(counter.sequence).padStart(3, "0")}`;
+  return formatOperationsManifestNumber(counter.sequence);
+}
+
+export function formatOperationsManifestNumber(sequence: number) {
+  return `SLC${String(sequence).padStart(3, "0")}`;
 }
 
 async function audit(
@@ -158,6 +188,68 @@ export function formatOperationsBagNumber(manifestNumber: string, bagSequence: n
 
 export function isOperationsBagWeightAllowed(weightKg: number) {
   return roundWeight(weightKg) <= 31;
+}
+
+export type OperationsBagAllocationCandidate = {
+  id: string;
+  sequence: number;
+  status: string;
+  totalWeightKg: number;
+  containsConsignment?: boolean;
+};
+
+/**
+ * Picks the bag server-side. Parcels from the same shipment stay together when
+ * possible; otherwise best-fit fills the fullest suitable bag. Sequence is the
+ * stable tie-breaker, so equal 20 kg bags choose Bag 01 before Bag 02.
+ */
+export function chooseOperationsBagForParcel(
+  bags: OperationsBagAllocationCandidate[],
+  incomingWeightKg: number
+) {
+  return bags
+    .filter((bag) => ["OPEN", "REOPENED"].includes(bag.status))
+    .filter((bag) => isOperationsBagWeightAllowed(roundWeight(bag.totalWeightKg + incomingWeightKg)))
+    .sort((left, right) =>
+      Number(Boolean(right.containsConsignment)) - Number(Boolean(left.containsConsignment))
+      || right.totalWeightKg - left.totalWeightKg
+      || left.sequence - right.sequence)[0] ?? null;
+}
+
+export function shouldReactivateTrailingOperationsBag(status: string | undefined, hasAcceptedScan: boolean) {
+  return status === "CANCELLED" && !hasAcceptedScan;
+}
+
+export type ManifestDestinationSummary = {
+  countryCode: string;
+  countryName: string;
+  consignments: number;
+  parcels: number;
+};
+
+/** Final-country visibility is independent from the shared MAWB routing hub. */
+export function summarizeManifestDestinations(consignments: Array<{
+  consigneeSnapshot?: Record<string, unknown>;
+  scannedParcelNumbers?: string[];
+}>): ManifestDestinationSummary[] {
+  const destinations = new Map<string, ManifestDestinationSummary>();
+  for (const consignment of consignments) {
+    const party = consignment.consigneeSnapshot?.party as Record<string, unknown> | undefined;
+    const countryCode = String(party?.countryCode ?? "").trim().toUpperCase();
+    const countryName = String(party?.countryName ?? "").trim();
+    const key = countryCode || countryName.toUpperCase() || "UNKNOWN";
+    const current = destinations.get(key) ?? {
+      countryCode,
+      countryName: countryName || countryCode || "Unknown",
+      consignments: 0,
+      parcels: 0
+    };
+    current.consignments += 1;
+    current.parcels += consignment.scannedParcelNumbers?.length ?? 0;
+    destinations.set(key, current);
+  }
+  return [...destinations.values()].sort((left, right) =>
+    left.countryName.localeCompare(right.countryName));
 }
 
 type ScannedParcelRef = { bagId?: unknown; parcelNumber: string; consignmentId?: unknown };
@@ -297,19 +389,32 @@ export async function createOperationsManifest(input: {
   const branchId = asObjectId(input.branchId, "Branch");
   const branch = await Branch.findOne({ _id: branchId, status: "ACTIVE" }).exec();
   if (!branch) throw new OperationsManifestServiceError("Select an active Swiftline branch.", 409);
-  const manifestNumber = await allocateOperationsManifestNumber();
-  const manifest = await OperationsManifest.create({
-    manifestNumber,
-    branchId,
-    header: input.header,
-    status: "DRAFT",
-    createdBy: input.userId
-  });
-  await audit("OPERATIONS_MANIFEST_CREATED", manifest._id as mongoose.Types.ObjectId, input.userId, { manifestNumber, branchId });
-  // Packing always starts with an open bag, so the operator can scan immediately.
-  await openNextBag(manifest, input.userId);
-  await recalculateTotals(manifest._id as mongoose.Types.ObjectId);
-  return manifest;
+  const session = await mongoose.startSession();
+  try {
+    const createdManifest = await session.withTransaction(async () => {
+      // Counter, manifest, audit and first bag commit together. A failed create
+      // therefore cannot burn the specifically requested next number.
+      const manifestNumber = await allocateOperationsManifestNumber(session);
+      const created = await OperationsManifest.create([{
+        manifestNumber,
+        branchId,
+        header: input.header,
+        status: "DRAFT",
+        totalBags: 1,
+        createdBy: input.userId
+      }], { session });
+      const manifest = created[0];
+      if (!manifest) throw new OperationsManifestServiceError("Manifest could not be created.", 500);
+      await audit("OPERATIONS_MANIFEST_CREATED", manifest._id as mongoose.Types.ObjectId, input.userId, { manifestNumber, branchId }, session);
+      // Packing always starts with an open bag, so the operator can scan immediately.
+      await openNextBag(manifest, input.userId, session);
+      return manifest;
+    });
+    if (!createdManifest) throw new OperationsManifestServiceError("Manifest could not be created.", 500);
+    return createdManifest;
+  } finally {
+    await session.endSession();
+  }
 }
 
 export async function updateOperationsManifest(input: {
@@ -334,6 +439,34 @@ async function openNextBag(
 ) {
   const manifestId = manifest._id as mongoose.Types.ObjectId;
   const latest = await OperationsManifestBag.findOne({ manifestId }).sort({ sequence: -1 }).session(session ?? null).exec();
+  if (latest?.status === "CANCELLED") {
+    const acceptedScan = await OperationsManifestScan.exists({
+      manifestId,
+      bagId: latest._id,
+      status: "ACCEPTED"
+    }).session(session ?? null);
+    if (shouldReactivateTrailingOperationsBag(latest.status, Boolean(acceptedScan))) {
+      latest.status = "OPEN";
+      latest.totalConsignments = 0;
+      latest.totalPhysicalParcels = 0;
+      latest.totalWeightKg = 0;
+      latest.closedBy = null;
+      latest.closedAt = null;
+      latest.reopenedBy = null;
+      latest.reopenedAt = null;
+      latest.cancelledBy = null;
+      latest.cancelledAt = null;
+      latest.correctionReason = "";
+      await latest.save({ session });
+      await audit("OPERATIONS_BAG_UPDATED", manifestId, userId, {
+        bagId: latest._id,
+        bagNumber: latest.bagNumber,
+        status: "OPEN",
+        reactivatedTrailingBag: true
+      }, session);
+      return latest;
+    }
+  }
   const sequence = (latest?.sequence ?? 0) + 1;
   const bagNumber = formatOperationsBagNumber(manifest.manifestNumber, sequence);
   const created = await OperationsManifestBag.create([{
@@ -379,7 +512,7 @@ async function recordRejectedScan(input: {
   scanSource?: OperationsScanSource;
   scanSessionId?: string;
 }) {
-  await OperationsManifestScan.create({
+  const rejected = await OperationsManifestScan.create({
     manifestId: input.manifestId,
     bagId: input.bagId ?? null,
     parcelNumber: input.parcelNumber || "UNKNOWN",
@@ -391,7 +524,53 @@ async function recordRejectedScan(input: {
     scannedBy: input.userId,
     scannedAt: new Date()
   }).catch(() => undefined);
+  // Session activity is advanced only after the rejected scan has actually been
+  // recorded. A camera read that never reached the scan service is not a scan.
+  if (rejected && input.scanSessionId && mongoose.Types.ObjectId.isValid(input.scanSessionId)) {
+    await OperationsManifestScanSession.updateOne(
+      { _id: input.scanSessionId, manifestId: input.manifestId, status: "ACTIVE" },
+      { $set: { lastSeenAt: new Date(), lastScanAt: rejected.scannedAt } }
+    ).exec();
+  }
   throw new OperationsManifestServiceError(input.message, 409);
+}
+
+async function buildAcceptedScanAcknowledgement(manifestId: mongoose.Types.ObjectId, scanRequestId: string) {
+  const scan = await OperationsManifestScan.findOne({ manifestId, scanRequestId, status: "ACCEPTED" }).lean().exec();
+  if (!scan?.bagId || !scan.consignmentId) return null;
+  const [bag, manifest, consignment] = await Promise.all([
+    OperationsManifestBag.findById(scan.bagId).lean().exec(),
+    OperationsManifest.findById(manifestId).lean().exec(),
+    OperationsManifestConsignment.findById(scan.consignmentId).lean().exec()
+  ]);
+  if (!bag || !manifest || !consignment) return null;
+  return {
+    scanId: String(scan._id),
+    parcelNumber: scan.parcelNumber,
+    message: scan.message,
+    bag: {
+      id: String(bag._id),
+      bagNumber: bag.bagNumber,
+      status: bag.status,
+      totalPhysicalParcels: bag.totalPhysicalParcels,
+      totalWeightKg: bag.totalWeightKg
+    },
+    manifestTotals: {
+      totalBags: manifest.totalBags,
+      totalConsignments: manifest.totalConsignments,
+      totalPhysicalParcels: manifest.totalPhysicalParcels,
+      totalWeightKg: manifest.totalWeightKg
+    },
+    consignment: {
+      displayConsignmentNumber: formatManifestConsignmentNumber(consignment.consignmentNumber),
+      scannedParcels: consignment.scannedParcelNumbers.length,
+      expectedParcels: consignment.expectedParcelNumbers.length,
+      weightKg: consignment.weightKg,
+      serviceInfo: consignment.serviceInfo,
+      description: consignment.description,
+      consigneeSnapshot: consignment.consigneeSnapshot
+    }
+  };
 }
 
 async function previousDeclaredValue(shipmentDraftId: mongoose.Types.ObjectId) {
@@ -406,38 +585,47 @@ async function previousDeclaredValue(shipmentDraftId: mongoose.Types.ObjectId) {
 
 export async function scanOperationsParcel(input: {
   manifestId: string;
-  bagId: string;
+  /** Kept as a backwards-compatible hint while old clients are phased out. */
+  bagId?: string;
   parcelNumber: string;
   scanRequestId?: string;
   scanSource?: OperationsScanSource;
   scanSessionId?: string;
+  responseMode?: "DETAIL" | "COMPACT";
   userId: mongoose.Types.ObjectId;
 }) {
   const manifestId = asObjectId(input.manifestId, "Operations manifest");
-  const bagId = asObjectId(input.bagId, "Bag");
+  const bagId = input.bagId && mongoose.Types.ObjectId.isValid(input.bagId)
+    ? new mongoose.Types.ObjectId(input.bagId)
+    : undefined;
   const parcelNumber = input.parcelNumber.trim().toUpperCase();
   const scanRequestId = input.scanRequestId?.trim() || crypto.randomUUID();
   const scanMetadata = { scanSource: input.scanSource ?? "MANUAL", scanSessionId: input.scanSessionId };
   if (!parcelNumber) throw new OperationsManifestServiceError("Scan or enter a Swiftline parcel barcode.");
 
-  const existingRequest = await OperationsManifestScan.findOne({ scanRequestId }).lean().exec();
+  // These lookups are independent. Running them in one round trip window cuts
+  // camera acknowledgement latency without moving any validation into the
+  // transaction or weakening the unique scan safeguards.
+  const [existingRequest, manifest, label] = await Promise.all([
+    OperationsManifestScan.findOne({ scanRequestId }).lean().exec(),
+    OperationsManifest.findById(manifestId).exec(),
+    LabelDocument.findOne({ parcelNumber, labelType: "SWIFTLINE", voidedAt: null }).exec()
+  ]);
   if (existingRequest) {
-    if (existingRequest.status === "ACCEPTED") return getOperationsManifestDetail(input.manifestId, { latestScanId: String(existingRequest._id) });
+    if (existingRequest.status === "ACCEPTED") {
+      if (input.responseMode === "COMPACT") {
+        const scanResult = await buildAcceptedScanAcknowledgement(manifestId, scanRequestId);
+        if (!scanResult) throw new OperationsManifestServiceError("The accepted scan could not be confirmed.", 500);
+        return { scanResult };
+      }
+      return getOperationsManifestDetail(input.manifestId, { latestScanId: String(existingRequest._id) });
+    }
     throw new OperationsManifestServiceError(existingRequest.message, 409);
   }
 
-  const [manifest, bag] = await Promise.all([
-    OperationsManifest.findById(manifestId).exec(),
-    OperationsManifestBag.findOne({ _id: bagId, manifestId }).exec()
-  ]);
   if (!manifest) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "Operations manifest was not found." });
   if (!isEditable(manifest)) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "This manifest is locked and cannot accept parcel scans." });
-  if (!bag) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "Select a bag that belongs to this manifest." });
-  if (!(["OPEN", "REOPENED"] as string[]).includes(bag.status)) {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: `${bag.bagNumber} is closed. Reopen it before scanning parcels.` });
-  }
 
-  const label = await LabelDocument.findOne({ parcelNumber, labelType: "SWIFTLINE", voidedAt: null }).exec();
   if (!label) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "No Swiftline parcel was found for this barcode." });
   const shipment = await DpdShipment.findOne({ _id: label.dpdShipmentId, status: "LABEL_RECEIVED" }).exec();
   const snapshot = shipment
@@ -457,27 +645,44 @@ export async function scanOperationsParcel(input: {
   if (!expectedParcelNumbers.includes(parcelNumber)) {
     return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "This barcode does not match the shipment's current parcel labels." });
   }
-  const destinationCode = String(snapshot.consignee.countryCode ?? "").toUpperCase();
-  if (manifest.header.destinationCountryCode && destinationCode !== manifest.header.destinationCountryCode) {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: `This shipment is for ${destinationCode || "another destination"}, not ${manifest.header.destinationCountryCode}.` });
-  }
-  const latestEvent = await ShipmentEvent.findOne({ shipmentDraftId: shipment.shipmentDraftId }).sort({ eventAt: -1, createdAt: -1 }).lean().exec();
-  const cancelled = await ShipmentEvent.exists({ shipmentDraftId: shipment.shipmentDraftId, status: "SHIPMENT_CANCELLED" });
-  if (cancelled || latestEvent?.status === "ON_HOLD") {
-    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: cancelled ? "Cancelled shipments cannot be packed." : "This shipment is on hold and cannot be packed." });
+  const [
+    latestEvent,
+    cancelled,
+    cancellation,
+    priorConsignment,
+    duplicate,
+    labelCount,
+    previousValueMinor
+  ] = await Promise.all([
+    ShipmentEvent.findOne({ shipmentDraftId: shipment.shipmentDraftId }).sort({ eventAt: -1, createdAt: -1 }).lean().exec(),
+    ShipmentEvent.exists({ shipmentDraftId: shipment.shipmentDraftId, status: "SHIPMENT_CANCELLED" }),
+    ShipmentCancellation.findOne({
+      shipmentDraftId: shipment.shipmentDraftId,
+      status: { $in: ["REQUESTED", "COMPLETED"] }
+    }).select("status").lean().exec(),
+    OperationsManifestConsignment.findOne({
+      shipmentDraftId: shipment.shipmentDraftId,
+      status: { $ne: "REMOVED" }
+    }).exec(),
+    OperationsManifestScan.findOne({ parcelNumber, status: "ACCEPTED" }).lean().exec(),
+    LabelDocument.countDocuments({ dpdShipmentId: shipment._id, labelType: "SWIFTLINE", voidedAt: null }).exec(),
+    previousDeclaredValue(shipment.shipmentDraftId)
+  ]);
+  if (cancelled || cancellation || latestEvent?.status === "ON_HOLD") {
+    const message = cancelled || cancellation?.status === "COMPLETED"
+      ? "Cancelled shipments cannot be packed."
+      : cancellation?.status === "REQUESTED"
+        ? "This shipment has a pending cancellation request and cannot be packed."
+        : "This shipment is on hold and cannot be packed.";
+    return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message });
   }
 
-  const priorConsignment = await OperationsManifestConsignment.findOne({
-    shipmentDraftId: shipment.shipmentDraftId,
-    status: { $ne: "REMOVED" }
-  }).exec();
   if (priorConsignment && String(priorConsignment.manifestId) !== String(manifestId)) {
     const priorManifest = await OperationsManifest.findById(priorConsignment.manifestId).lean().exec();
     if (priorManifest?.status !== "CANCELLED") {
       return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: `This shipment already belongs to ${priorManifest?.manifestNumber ?? "another operations manifest"}.` });
     }
   }
-  const duplicate = await OperationsManifestScan.findOne({ parcelNumber, status: "ACCEPTED" }).lean().exec();
   if (duplicate) {
     return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "This parcel has already been scanned." });
   }
@@ -495,116 +700,218 @@ export async function scanOperationsParcel(input: {
       message: `This parcel weighs ${incomingWeightKg.toFixed(3)} kg and cannot fit inside a 31 kg bag.`
     });
   }
-  // Otherwise the selected bag simply fills up and packing rolls onto a fresh bag.
-  const overflowsSelectedBag = !isOperationsBagWeightAllowed(roundWeight(bag.totalWeightKg + incomingWeightKg));
-
-  const [labelCount, previousValueMinor] = await Promise.all([
-    LabelDocument.countDocuments({ dpdShipmentId: shipment._id, labelType: "SWIFTLINE", voidedAt: null }).exec(),
-    previousDeclaredValue(shipment.shipmentDraftId)
-  ]);
   const declaredValueFromSnapshot = snapshotDeclaredGoodsValueMinor(snapshot);
   const declaredValueMinor = declaredValueFromSnapshot > 0 ? declaredValueFromSnapshot : (previousValueMinor ?? 0);
-  const line = buildManifestLine({
-    shipmentDraftId: shipment.shipmentDraftId,
-    dpdShipmentId: shipment._id as mongoose.Types.ObjectId,
-    snapshot,
-    declaredValueMinor: declaredValueMinor ?? 0,
-    bagNumber: bag.bagNumber
-  });
   const businessAccountId = asObjectId(String(snapshot.account.id ?? ""), "Business account");
 
   const session = await mongoose.startSession();
-  let packedBag = bag;
+  let committedScanResult: NonNullable<Awaited<ReturnType<typeof buildAcceptedScanAcknowledgement>>> | null = null;
   try {
-    await session.withTransaction(async () => {
-      packedBag = overflowsSelectedBag ? await openNextBag(manifest, input.userId, session) : bag;
-      const packedBagId = packedBag._id as mongoose.Types.ObjectId;
-      let consignment = await OperationsManifestConsignment.findOne({ manifestId, shipmentDraftId: shipment.shipmentDraftId })
-        .session(session)
-        .exec();
-      if (!consignment) {
-        const created = await OperationsManifestConsignment.create([{
-          manifestId,
-          bagId: packedBagId,
-          shipmentDraftId: shipment.shipmentDraftId,
-          dpdShipmentId: shipment._id,
-          businessAccountId,
-          consignmentNumber: snapshot.tracking.swiftlineTrackingNumber,
-          expectedParcelNumbers,
-          scannedParcelNumbers: [],
-          parcelWeightSnapshots,
-          manifestPieces: 1,
-          weightKg: 0,
-          status: "PARTIAL",
-          consignorSnapshot: line.consignor,
-          consigneeSnapshot: line.consignee,
-          description: line.description,
-          declaredValueMinor,
-          currency: "INR",
-          serviceInfo: line.serviceInfo,
-          dpdLabelGenerated: labelCount >= snapshot.parcels.length
-        }], { session });
-        consignment = created[0] ?? null;
+    let committed = false;
+    for (let attempt = 1; attempt <= 3 && !committed; attempt += 1) {
+      try {
+        await session.withTransaction(async () => {
+          const lockedManifest = await OperationsManifest.findById(manifestId).session(session).exec();
+          if (!lockedManifest || !isEditable(lockedManifest)) {
+            throw new OperationsManifestServiceError("This manifest is locked and cannot accept parcel scans.", 409);
+          }
+
+          let consignment = await OperationsManifestConsignment.findOne({
+            manifestId,
+            shipmentDraftId: shipment.shipmentDraftId
+          }).session(session).exec();
+          const wasActiveConsignment = Boolean(consignment && consignment.status !== "REMOVED");
+          const existingConsignmentBagIds = consignment
+            ? new Set((await OperationsManifestScan.find({
+              manifestId,
+              consignmentId: consignment._id,
+              status: "ACCEPTED"
+            }).select("bagId").lean().session(session).exec()).map((scan) => String(scan.bagId ?? "")))
+            : new Set<string>();
+          const openBags = await OperationsManifestBag.find({
+            manifestId,
+            status: { $in: ["OPEN", "REOPENED"] }
+          }).sort({ sequence: 1 }).session(session).exec();
+          const selected = chooseOperationsBagForParcel(openBags.map((candidate) => ({
+            id: String(candidate._id),
+            sequence: candidate.sequence,
+            status: candidate.status,
+            totalWeightKg: candidate.totalWeightKg,
+            containsConsignment: existingConsignmentBagIds.has(String(candidate._id))
+          })), incomingWeightKg);
+          const openedBag = !selected;
+          const packedBag = selected
+            ? openBags.find((candidate) => String(candidate._id) === selected.id) ?? null
+            : await openNextBag(lockedManifest, input.userId, session);
+          if (!packedBag) throw new OperationsManifestServiceError("A suitable bag could not be allocated.", 500);
+          const packedBagId = packedBag._id as mongoose.Types.ObjectId;
+
+          const line = buildManifestLine({
+            shipmentDraftId: shipment.shipmentDraftId,
+            dpdShipmentId: shipment._id as mongoose.Types.ObjectId,
+            snapshot,
+            declaredValueMinor: declaredValueMinor ?? 0,
+            bagNumber: packedBag.bagNumber
+          });
+          if (!consignment) {
+            const created = await OperationsManifestConsignment.create([{
+              manifestId,
+              bagId: packedBagId,
+              shipmentDraftId: shipment.shipmentDraftId,
+              dpdShipmentId: shipment._id,
+              businessAccountId,
+              consignmentNumber: snapshot.tracking.swiftlineTrackingNumber,
+              expectedParcelNumbers,
+              scannedParcelNumbers: [],
+              parcelWeightSnapshots,
+              manifestPieces: 1,
+              weightKg: 0,
+              status: "PARTIAL",
+              consignorSnapshot: line.consignor,
+              consigneeSnapshot: line.consignee,
+              description: line.description,
+              declaredValueMinor,
+              currency: "INR",
+              serviceInfo: line.serviceInfo,
+              dpdLabelGenerated: labelCount >= snapshot.parcels.length
+            }], { session });
+            consignment = created[0] ?? null;
+          }
+          if (!consignment) throw new OperationsManifestServiceError("Manifest row could not be created.", 500);
+          if (consignment.status === "REMOVED") {
+            consignment.bagId = packedBagId;
+            consignment.scannedParcelNumbers = [];
+          }
+          if (!consignment.parcelWeightSnapshots.length) {
+            consignment.parcelWeightSnapshots = parcelWeightSnapshots;
+          } else if (fillMissingParcelValues(consignment.parcelWeightSnapshots, snapshot)) {
+            consignment.markModified("parcelWeightSnapshots");
+          }
+          if (!consignment.scannedParcelNumbers.includes(parcelNumber)) consignment.scannedParcelNumbers.push(parcelNumber);
+          consignment.declaredValueMinor = consignmentDeclaredValueMinor(consignment) ?? declaredValueMinor;
+          consignment.weightKg = calculateScannedParcelWeight(consignment);
+          consignment.status = consignment.scannedParcelNumbers.length === consignment.expectedParcelNumbers.length ? "COMPLETE" : "PARTIAL";
+          await consignment.save({ session });
+
+          const bagAlreadyContainedConsignment = existingConsignmentBagIds.has(String(packedBagId));
+          packedBag.totalWeightKg = roundWeight(packedBag.totalWeightKg + incomingWeightKg);
+          packedBag.totalPhysicalParcels += 1;
+          if (!bagAlreadyContainedConsignment) packedBag.totalConsignments += 1;
+          await packedBag.save({ session });
+
+          const message = [
+            openedBag
+              ? `${packedBag.bagNumber} was opened automatically for this parcel.`
+              : `Parcel added to ${packedBag.bagNumber} automatically.`,
+            consignment.dpdLabelGenerated ? "" : "Swiftline labels have not been generated for every parcel on this shipment."
+          ].filter(Boolean).join(" ");
+          const createdScans = await OperationsManifestScan.create([{
+            manifestId,
+            bagId: packedBagId,
+            consignmentId: consignment._id,
+            parcelNumber,
+            scanRequestId,
+            status: "ACCEPTED",
+            scanSource: scanMetadata.scanSource,
+            scanSessionId: scanMetadata.scanSessionId || null,
+            message,
+            scannedBy: input.userId,
+            scannedAt: new Date()
+          }], { session });
+          const acceptedScan = createdScans[0];
+          if (!acceptedScan) throw new OperationsManifestServiceError("The accepted scan could not be recorded.", 500);
+
+          lockedManifest.totalBags += openedBag ? 1 : 0;
+          lockedManifest.totalConsignments += wasActiveConsignment ? 0 : 1;
+          lockedManifest.totalPhysicalParcels += 1;
+          lockedManifest.totalWeightKg = roundWeight(lockedManifest.totalWeightKg + incomingWeightKg);
+          lockedManifest.status = "PACKING";
+          await lockedManifest.save({ session });
+          await audit("OPERATIONS_PARCEL_SCANNED", manifestId, input.userId, {
+            bagId: packedBagId,
+            allocation: openedBag ? "OPENED_BAG" : bagAlreadyContainedConsignment ? "SAME_CONSIGNMENT" : "BEST_FIT",
+            legacyBagHintId: bagId,
+            consignmentId: consignment._id,
+            parcelNumber,
+            scanSource: scanMetadata.scanSource,
+            scanSessionId: scanMetadata.scanSessionId,
+            dpdLabelGenerated: consignment.dpdLabelGenerated
+          }, session);
+
+          // All documents required by the compact phone acknowledgement are
+          // already current in this transaction. Keeping the snapshot avoids a
+          // scan lookup followed by three more reads after commit.
+          committedScanResult = {
+            scanId: String(acceptedScan._id),
+            parcelNumber: acceptedScan.parcelNumber,
+            message: acceptedScan.message,
+            bag: {
+              id: String(packedBag._id),
+              bagNumber: packedBag.bagNumber,
+              status: packedBag.status,
+              totalPhysicalParcels: packedBag.totalPhysicalParcels,
+              totalWeightKg: packedBag.totalWeightKg
+            },
+            manifestTotals: {
+              totalBags: lockedManifest.totalBags,
+              totalConsignments: lockedManifest.totalConsignments,
+              totalPhysicalParcels: lockedManifest.totalPhysicalParcels,
+              totalWeightKg: lockedManifest.totalWeightKg
+            },
+            consignment: {
+              displayConsignmentNumber: formatManifestConsignmentNumber(consignment.consignmentNumber),
+              scannedParcels: consignment.scannedParcelNumbers.length,
+              expectedParcels: consignment.expectedParcelNumbers.length,
+              weightKg: consignment.weightKg,
+              serviceInfo: consignment.serviceInfo,
+              description: consignment.description,
+              consigneeSnapshot: consignment.consigneeSnapshot
+            }
+          };
+        });
+        committed = true;
+      } catch (error) {
+        if (error instanceof mongoose.mongo.MongoServerError && error.code === 11000) {
+          const keyPattern = error.keyPattern as Record<string, unknown> | undefined;
+          const parcelDuplicate = Boolean(keyPattern?.parcelNumber || keyPattern?.scanRequestId);
+          // Concurrent stations can race on the next bag or on first creation of
+          // the same consignment. Retry those against the winning transaction.
+          if (!parcelDuplicate && attempt < 3) continue;
+          if (parcelDuplicate) {
+            throw new OperationsManifestServiceError("This parcel has already been scanned.", 409);
+          }
+          throw new OperationsManifestServiceError(
+            "Another scanner changed the manifest at the same time. Scan this parcel again.",
+            409
+          );
+        }
+        throw error;
       }
-      if (!consignment) throw new OperationsManifestServiceError("Manifest row could not be created.", 500);
-      if (consignment.status === "REMOVED") {
-        consignment.bagId = packedBagId;
-        consignment.scannedParcelNumbers = [];
-      }
-      if (!consignment.parcelWeightSnapshots.length) {
-        consignment.parcelWeightSnapshots = parcelWeightSnapshots;
-      } else if (fillMissingParcelValues(consignment.parcelWeightSnapshots, snapshot)) {
-        consignment.markModified("parcelWeightSnapshots");
-      }
-      if (!consignment.scannedParcelNumbers.includes(parcelNumber)) consignment.scannedParcelNumbers.push(parcelNumber);
-      consignment.declaredValueMinor = consignmentDeclaredValueMinor(consignment) ?? declaredValueMinor;
-      consignment.weightKg = calculateScannedParcelWeight(consignment);
-      consignment.status = consignment.scannedParcelNumbers.length === consignment.expectedParcelNumbers.length ? "COMPLETE" : "PARTIAL";
-      await consignment.save({ session });
-      await OperationsManifestScan.create([{
-        manifestId,
-        bagId: packedBagId,
-        consignmentId: consignment._id,
-        parcelNumber,
-        scanRequestId,
-        status: "ACCEPTED",
-        scanSource: scanMetadata.scanSource,
-        scanSessionId: scanMetadata.scanSessionId || null,
-        message: [
-          overflowsSelectedBag ? `${bag.bagNumber} was full, so ${packedBag.bagNumber} was opened for this parcel.` : "Parcel added to the manifest.",
-          consignment.dpdLabelGenerated ? "" : "Swiftline labels have not been generated for every parcel on this shipment."
-        ].filter(Boolean).join(" "),
-        scannedBy: input.userId,
-        scannedAt: new Date()
-      }], { session });
-      await recalculateTotals(manifestId, session);
-      await audit("OPERATIONS_PARCEL_SCANNED", manifestId, input.userId, {
-        bagId: packedBagId,
-        overflowedFromBagId: overflowsSelectedBag ? bagId : undefined,
-        consignmentId: consignment._id,
-        parcelNumber,
-        scanSource: scanMetadata.scanSource,
-        scanSessionId: scanMetadata.scanSessionId,
-        dpdLabelGenerated: consignment.dpdLabelGenerated
-      }, session);
-    });
-  } catch (error) {
-    if (error instanceof mongoose.mongo.MongoServerError && error.code === 11000) {
-      throw new OperationsManifestServiceError("This parcel has already been scanned.", 409);
     }
-    throw error;
+    if (!committed) throw new OperationsManifestServiceError("A bag could not be allocated after concurrent scans. Scan the parcel again.", 409);
   } finally {
     await session.endSession();
   }
-  if (overflowsSelectedBag) {
-    // Point any paired phone at the bag packing actually continued in.
-    await OperationsManifestScanSession.updateMany(
-      { manifestId, activeBagId: bagId, status: "ACTIVE" },
-      { $set: { activeBagId: packedBag._id, lastSeenAt: new Date() } }
+
+  // The in-transaction snapshot is the normal fast path. The query fallback is
+  // retained for defensive recovery and idempotent requests from older clients.
+  const scanResult = committedScanResult
+    ?? await buildAcceptedScanAcknowledgement(manifestId, scanRequestId);
+  if (!scanResult) throw new OperationsManifestServiceError("The accepted scan could not be confirmed.", 500);
+  if (input.scanSessionId && mongoose.Types.ObjectId.isValid(input.scanSessionId)) {
+    await OperationsManifestScanSession.updateOne(
+      { _id: input.scanSessionId, manifestId, status: "ACTIVE" },
+      {
+        $set: {
+          activeBagId: scanResult.bag.id,
+          lastSeenAt: new Date(),
+          lastScanAt: new Date()
+        }
+      }
     ).exec();
   }
-  const accepted = await OperationsManifestScan.findOne({ scanRequestId }).lean().exec();
-  return getOperationsManifestDetail(input.manifestId, { latestScanId: accepted ? String(accepted._id) : undefined });
+  if (input.responseMode === "COMPACT") return { scanResult };
+  return getOperationsManifestDetail(input.manifestId, { latestScanId: scanResult.scanId });
 }
 
 export async function closeOperationsBag(manifestIdValue: string, bagIdValue: string, userId: mongoose.Types.ObjectId) {
@@ -824,11 +1131,12 @@ export function buildManifestDispatchIssues(input: {
     const draftId = String(consignment.shipmentDraftId);
     const reference = consignment.consignmentNumber || draftId;
     const cancellation = cancellationByDraft.get(draftId);
-    if (cancellation) {
+    const eventCancelled = statusesByDraft.get(draftId)?.has("SHIPMENT_CANCELLED");
+    if (cancellation || eventCancelled) {
       return [{
         shipmentDraftId: draftId,
         reference,
-        reason: cancellation === "COMPLETED"
+        reason: cancellation === "COMPLETED" || eventCancelled
           ? "Shipment is cancelled."
           : "Shipment has a pending cancellation request.",
         missingStatuses: []
@@ -889,7 +1197,11 @@ export function buildManifestDispatchTrackingEvent(input: {
   };
 }
 
-export async function sealOperationsManifest(manifestIdValue: string, userId: mongoose.Types.ObjectId) {
+export async function sealOperationsManifest(
+  manifestIdValue: string,
+  userId: mongoose.Types.ObjectId,
+  options: { confirmMixedDestinations?: boolean } = {}
+) {
   const manifestId = asObjectId(manifestIdValue, "Operations manifest");
   const session = await mongoose.startSession();
   try {
@@ -904,6 +1216,13 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
       ]);
       const issues = sealingIssues(manifest, bags, consignments);
       if (issues.length) throw new OperationsManifestServiceError(issues.join(" "), 409);
+      const destinations = summarizeManifestDestinations(consignments);
+      if (destinations.length > 1 && !options.confirmMixedDestinations) {
+        throw new OperationsManifestServiceError(
+          `This manifest contains ${destinations.length} final destination countries. Confirm the mixed destinations before sealing.`,
+          409
+        );
+      }
       // A consignment can span several bags, so the printed manifest records every
       // bag its parcels were packed into rather than just the first one.
       const acceptedScans = await OperationsManifestScan.find({ manifestId, status: "ACCEPTED" })
@@ -932,12 +1251,12 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
           bagNumbers: [...new Set(parcels.map((parcel) => parcel.bagNumber))].filter(Boolean)
         };
       });
-      // v2 adds structured consignor/consignee `party` fields on each consignment
-      // (for the EDI export). v1 snapshots stay readable; the EDI export checks for
-      // `party` directly rather than trusting the version number.
+      // v3 freezes the legal FROM block. Older snapshots remain readable and keep
+      // their historical branch-derived origin instead of being rewritten.
       manifest.sealedSnapshot = JSON.parse(JSON.stringify({
-        version: 2,
+        version: 3,
         manifestNumber: manifest.manifestNumber,
+        originAddress: OPERATIONS_MANIFEST_ORIGIN_ADDRESS,
         header: manifest.header,
         branch,
         totals: {
@@ -960,7 +1279,11 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
         { $set: { status: "ENDED", activeBagId: null, endedAt: new Date(), endedReason: "Manifest sealed." } },
         { session }
       ).exec();
-      await audit("OPERATIONS_MANIFEST_SEALED", manifestId, userId, { totals: manifest.sealedSnapshot.totals }, session);
+      await audit("OPERATIONS_MANIFEST_SEALED", manifestId, userId, {
+        totals: manifest.sealedSnapshot.totals,
+        destinations,
+        mixedDestinationsConfirmed: destinations.length > 1
+      }, session);
       sealed = manifest;
     });
     if (!sealed) throw new OperationsManifestServiceError("Manifest could not be sealed.", 500);
@@ -1172,6 +1495,7 @@ export async function getOperationsManifestDetail(manifestIdValue: string, optio
   const dispatchIssues = manifest.status === "SEALED"
     ? await loadManifestDispatchIssues(consignments)
     : [];
+  const destinationSummary = summarizeManifestDestinations(consignments);
   const branch = await Branch.findById(manifest.branchId).select("name code address contact").lean().exec();
   const bagNumberById = new Map(bags.map((bag) => [String(bag._id), bag.bagNumber]));
   const latestScan = options?.latestScanId
@@ -1209,6 +1533,7 @@ export async function getOperationsManifestDetail(manifestIdValue: string, optio
       bags.filter((bag) => bag.status !== "CANCELLED"),
       consignments
     ),
+    destinationSummary,
     dispatchIssues
   };
 }
@@ -1251,7 +1576,7 @@ export async function buildOperationsManifestExcel(manifest: IOperationsManifest
     shipmentDraftIds: model.consignments.map((item) => new mongoose.Types.ObjectId(item.shipmentDraftId)),
     headerSnapshot: {
       originBranch: [String(model.branch.name ?? ""), String(model.branch.code ?? "")].filter(Boolean).join(" - "),
-      originAddress: formatManifestOrigin(model.branch),
+      originAddress: model.originAddress || formatManifestOrigin(model.branch),
       destinationAgent: snapshot.header.destinationAgent,
       flightNumber: snapshot.header.flightNumber,
       departureDate: snapshot.header.departureDate,
@@ -1308,7 +1633,7 @@ export async function buildOperationsManifestPdf(manifest: IOperationsManifest) 
     document.rect(left, y, totalWidth, 20).stroke("#222222");
     document.font("Helvetica-Bold").fontSize(10).text("Courier Manifest", left, y + 5, { width: totalWidth, align: "center" });
     y += 20;
-    const branchLines = formatManifestOrigin(snapshot.branch).split("\n");
+    const branchLines = (model.originAddress || formatManifestOrigin(snapshot.branch)).split("\n");
     const destinationLines = String(snapshot.header.destinationAgent ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     const details: Array<[string, string | number]> = [
       ["Manifest Number", snapshot.manifestNumber], ["FLIGHT NUMBER", snapshot.header.flightNumber],

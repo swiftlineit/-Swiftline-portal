@@ -12,6 +12,8 @@ import { formatManifestConsignmentNumber, type ManifestPartySnapshot } from "./s
 export type SealedSnapshot = {
   version?: number;
   manifestNumber: string;
+  /** Frozen legal FROM block; absent on legacy v1/v2 snapshots. */
+  originAddress?: string;
   header: IOperationsManifest["header"];
   branch: Record<string, unknown>;
   totals: { totalBags: number; totalConsignments: number; totalPhysicalParcels: number; totalWeightKg: number };
@@ -139,6 +141,7 @@ export function buildManifestDocumentModel(snapshot: SealedSnapshot): ManifestDo
   return {
     version: snapshot.version ?? 1,
     manifestNumber: snapshot.manifestNumber,
+    originAddress: snapshot.originAddress ?? "",
     header: snapshot.header as unknown as Record<string, unknown>,
     branch: snapshot.branch,
     totals: snapshot.totals,

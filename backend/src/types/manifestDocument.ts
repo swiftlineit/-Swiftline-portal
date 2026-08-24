@@ -52,6 +52,8 @@ export type ManifestDocumentConsignment = {
 export type ManifestDocumentModel = {
   version: number;
   manifestNumber: string;
+  /** Legal FROM block frozen at seal time; empty for legacy snapshots. */
+  originAddress: string;
   header: Record<string, unknown>;
   branch: Record<string, unknown>;
   totals: {

@@ -85,14 +85,14 @@ async function sessionDetail(session: IOperationsManifestScanSession) {
 
 export async function createOperationsScanSession(input: {
   manifestId: string;
-  activeBagId: string;
+  activeBagId?: string;
   actor: SessionActor;
 }) {
   const manifestId = objectId(input.manifestId, "Operations manifest");
-  const activeBagId = objectId(input.activeBagId, "Bag");
+  const activeBagId = input.activeBagId ? objectId(input.activeBagId, "Bag") : null;
   const [manifest, bag] = await Promise.all([
     OperationsManifest.findById(manifestId).exec(),
-    OperationsManifestBag.findOne({ _id: activeBagId, manifestId }).exec()
+    activeBagId ? OperationsManifestBag.findOne({ _id: activeBagId, manifestId }).exec() : null
   ]);
   if (!manifest || !["DRAFT", "PACKING", "READY_TO_SEAL"].includes(manifest.status)) {
     throw new OperationsScanSessionError("This manifest cannot start a phone scanner.", 409);
@@ -100,7 +100,7 @@ export async function createOperationsScanSession(input: {
   if (!actorCanAccessBranch(input.actor, manifest.branchId)) {
     throw new OperationsScanSessionError("You do not have access to this manifest's branch.", 403);
   }
-  if (!bag || !["OPEN", "REOPENED"].includes(bag.status)) {
+  if (activeBagId && (!bag || !["OPEN", "REOPENED"].includes(bag.status))) {
     throw new OperationsScanSessionError("Select an open bag before connecting a phone.", 409);
   }
 
@@ -124,7 +124,7 @@ export async function createOperationsScanSession(input: {
   const session = await OperationsManifestScanSession.create({
     manifestId,
     branchId: manifest.branchId,
-    activeBagId,
+    activeBagId: activeBagId ?? null,
     pairingTokenHash: tokenHash(rawToken),
     pairingExpiresAt,
     sessionExpiresAt,
@@ -256,7 +256,6 @@ export async function endOperationsScanSession(input: {
 export async function assertCameraScanSession(input: {
   sessionId: string;
   manifestId: string;
-  bagId: string;
   actor: SessionActor;
 }) {
   const session = await OperationsManifestScanSession.findOne({
@@ -270,11 +269,8 @@ export async function assertCameraScanSession(input: {
   if (!session.phoneUserId || String(session.phoneUserId) !== String(input.actor.userId)) {
     throw new OperationsScanSessionError("This phone is not paired with the manifest.", 403);
   }
-  if (!session.activeBagId || String(session.activeBagId) !== input.bagId) {
-    throw new OperationsScanSessionError("The active bag changed on the laptop. Refresh the phone and scan this parcel again.", 409);
-  }
-  session.lastSeenAt = new Date();
-  session.lastScanAt = new Date();
-  await session.save();
+  // Accepted and rejected scan paths both update lastSeenAt/lastScanAt. Saving
+  // here as well added a redundant Atlas write before every camera scan and
+  // delayed the acknowledgement on mobile connections.
   return session;
 }
