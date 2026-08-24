@@ -12,15 +12,20 @@ const BASELINE = 16;
 const NEXT_NUMBER = "SLC017";
 
 async function auditState(session?: mongoose.ClientSession) {
-  const [counter, collision, numbered] = await Promise.all([
-    OperationsManifestCounter.findById(COUNTER_ID).lean().session(session ?? null).exec(),
-    OperationsManifest.exists({ manifestNumber: NEXT_NUMBER }).session(session ?? null),
-    OperationsManifest.find({ manifestNumber: /^SLC\d+$/ })
-      .select("manifestNumber")
-      .lean()
-      .session(session ?? null)
-      .exec()
-  ]);
+  // MongoDB does not support parallel operations on the same transaction
+  // session. Keep these safety checks sequential so the locked re-audit works
+  // on both replica-set and sharded Atlas deployments.
+  const counter = await OperationsManifestCounter.findById(COUNTER_ID)
+    .lean()
+    .session(session ?? null)
+    .exec();
+  const collision = await OperationsManifest.exists({ manifestNumber: NEXT_NUMBER })
+    .session(session ?? null);
+  const numbered = await OperationsManifest.find({ manifestNumber: /^SLC\d+$/ })
+    .select("manifestNumber")
+    .lean()
+    .session(session ?? null)
+    .exec();
   const highestSystemSequence = numbered.reduce((highest, item) => {
     const parsed = Number(String(item.manifestNumber).slice(3));
     return Number.isSafeInteger(parsed) ? Math.max(highest, parsed) : highest;
