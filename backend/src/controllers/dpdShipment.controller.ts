@@ -64,6 +64,7 @@ import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
 import {
   formatTrackingEventLabel,
   loadShipmentJourney,
+  normalizeVisibleTrackingHistory,
   type TrackingJourney
 } from "../services/shipmentJourney.service.js";
 import { buildTrackingPosition } from "../services/shipmentPosition.service.js";
@@ -851,7 +852,8 @@ export async function listDpdShipments(request: Request, response: Response): Pr
           .filter((label) => label.labelVersion === (shipment.snapshotRevision || 1))
           .map(serializeLabel),
         currentEvent: currentEvent ? serializeShipmentEvent(currentEvent, journey) : null,
-        events: events.map((event) => serializeShipmentEvent(event, journey)),
+        events: normalizeVisibleTrackingHistory(events, journey)
+          .map((event) => serializeShipmentEvent(event, journey)),
         trackingJourney: journey ?? null,
         // Staff tracking shows the same schedule, weights and required action
         // the client sees, so Operations and the customer never read two
@@ -914,7 +916,8 @@ export async function getDpdShipment(request: Request, response: Response): Prom
     dpdShipment: serializeDpdShipment(shipment),
     labels: labels.map(serializeLabel),
     currentEvent: currentEvent ? serializeShipmentEvent(currentEvent, journey) : null,
-    events: events.map((event) => serializeShipmentEvent(event, journey)),
+    events: normalizeVisibleTrackingHistory(events, journey)
+      .map((event) => serializeShipmentEvent(event, journey)),
     trackingJourney: journey ?? null,
     trackingPosition: draft && journey
       ? buildTrackingPosition({

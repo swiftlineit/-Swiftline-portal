@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   buildTrackingJourney,
   formatTrackingEventLabel,
+  normalizeVisibleTrackingHistory,
   resolveTrackingProfile
 } from "../services/shipmentJourney.service.js";
 
@@ -148,5 +149,88 @@ describe("destination-aware shipment journey", () => {
       events: completedEvents.filter((event) => event.status !== "PARCEL_COLLECTED")
     });
     assert.equal(journey.milestones.some((item) => item.key === "COLLECTED"), false);
+  });
+});
+
+describe("visible tracking history", () => {
+  const journey = buildTrackingJourney({
+    destinationCountryCode: "GB",
+    destinationCountryName: "United Kingdom",
+    originHubName: "Delhi Hub",
+    events: []
+  });
+
+  it("collapses the two legacy export statuses into one Ready for Export milestone", () => {
+    const history = normalizeVisibleTrackingHistory([
+      {
+        status: "FLIGHT_ASSIGNED",
+        eventAt: "2026-08-22T01:38:00.000Z",
+        note: "Allocated to an outbound flight.",
+        location: ""
+      },
+      {
+        status: "EXPORT_CUSTOMS_CLEARED",
+        eventAt: "2026-08-22T01:37:00.000Z",
+        note: "Export customs clearance completed.",
+        location: ""
+      }
+    ], journey);
+
+    assert.equal(history.length, 1);
+    assert.equal(history[0]?.statusLabel, "Ready for Export");
+    assert.equal(history[0]?.eventAt, "2026-08-22T01:37:00.000Z");
+    assert.equal(history[0]?.note, "Shipment prepared and ready for export.");
+  });
+
+  it("collapses genuine repeated milestones but keeps repeatable holds", () => {
+    const history = normalizeVisibleTrackingHistory([
+      { status: "ON_HOLD", eventAt: "2026-08-23T09:00:00.000Z", note: "", location: "" },
+      { status: "PARCEL_COLLECTED", eventAt: "2026-08-22T08:01:00.000Z", note: "", location: "" },
+      { status: "PARCEL_COLLECTED", eventAt: "2026-08-22T08:00:00.000Z", note: "", location: "" },
+      { status: "ON_HOLD", eventAt: "2026-08-21T09:00:00.000Z", note: "", location: "" }
+    ], journey);
+
+    assert.equal(history.filter((event) => event.status === "PARCEL_COLLECTED").length, 1);
+    assert.equal(history.filter((event) => event.status === "ON_HOLD").length, 2);
+  });
+
+  it("preserves an operator note and recorded location from a collapsed legacy group", () => {
+    const history = normalizeVisibleTrackingHistory([
+      {
+        status: "EXPORT_CUSTOMS_CLEARED",
+        eventAt: "2026-08-22T01:37:00.000Z",
+        note: "",
+        location: ""
+      },
+      {
+        status: "FLIGHT_ASSIGNED",
+        eventAt: "2026-08-22T01:38:00.000Z",
+        note: "Confirmed on flight SL101.",
+        location: "Delhi Airport"
+      }
+    ], journey);
+
+    assert.equal(history.length, 1);
+    assert.equal(history[0]?.note, "Confirmed on flight SL101.");
+    assert.equal(history[0]?.location, "Delhi Airport");
+  });
+
+  it("normalizes history when a lightweight staff list does not load a journey", () => {
+    const history = normalizeVisibleTrackingHistory([
+      {
+        status: "FLIGHT_ASSIGNED",
+        eventAt: "2026-08-22T01:38:00.000Z",
+        note: "Allocated to an outbound flight."
+      },
+      {
+        status: "EXPORT_CUSTOMS_CLEARED",
+        eventAt: "2026-08-22T01:37:00.000Z",
+        note: "Export customs clearance completed."
+      }
+    ]);
+
+    assert.equal(history.length, 1);
+    assert.equal(history[0]?.statusLabel, "Ready For Export");
+    assert.equal(history[0]?.note, "Shipment prepared and ready for export.");
   });
 });

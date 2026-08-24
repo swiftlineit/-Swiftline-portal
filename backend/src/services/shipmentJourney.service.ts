@@ -3,6 +3,11 @@ import { DeliveryPartner } from "../models/deliveryPartner.model.js";
 import { DeliveryAssignment } from "../models/pod.model.js";
 import type { ISwiftlineRoute, TrackingProfileSetting } from "../models/swiftlineRoute.model.js";
 import { findRoute } from "./swiftlineRoute.service.js";
+import {
+  defaultShipmentEventNote,
+  isSystemWrittenNote,
+  resolveShipmentEventNote
+} from "./shipmentEventCopy.service.js";
 import { formatShipmentEventLabel } from "./shipmentStatusSequence.service.js";
 
 export type TrackingProfile = Exclude<TrackingProfileSetting, "AUTO">;
@@ -73,23 +78,27 @@ const gatewayNames: Record<string, string> = {
   CDG: "Paris"
 };
 
-const milestoneDefinitions: Array<{ key: string; statuses: readonly string[] }> = [
-  { key: "BOOKED", statuses: ["SHIPMENT_BOOKED", "SHIPMENT_CREATED"] },
-  { key: "COLLECTED", statuses: ["PARCEL_COLLECTED"] },
-  { key: "ORIGIN_RECEIVED", statuses: ["WAREHOUSE_SCAN_IN"] },
-  { key: "ORIGIN_PROCESSED", statuses: ["ORIGIN_HUB_PROCESSED"] },
-  { key: "EXPORT_READY", statuses: ["READY_FOR_EXPORT", "EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED"] },
-  { key: "ORIGIN_DISPATCHED", statuses: ["ORIGIN_HUB_DISPATCHED", "FLIGHT_DEPARTED"] },
+const milestoneDefinitions: Array<{
+  key: string;
+  canonicalStatus: string;
+  statuses: readonly string[];
+}> = [
+  { key: "BOOKED", canonicalStatus: "SHIPMENT_BOOKED", statuses: ["SHIPMENT_BOOKED", "SHIPMENT_CREATED"] },
+  { key: "COLLECTED", canonicalStatus: "PARCEL_COLLECTED", statuses: ["PARCEL_COLLECTED"] },
+  { key: "ORIGIN_RECEIVED", canonicalStatus: "WAREHOUSE_SCAN_IN", statuses: ["WAREHOUSE_SCAN_IN"] },
+  { key: "ORIGIN_PROCESSED", canonicalStatus: "ORIGIN_HUB_PROCESSED", statuses: ["ORIGIN_HUB_PROCESSED"] },
+  { key: "EXPORT_READY", canonicalStatus: "READY_FOR_EXPORT", statuses: ["READY_FOR_EXPORT", "EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED"] },
+  { key: "ORIGIN_DISPATCHED", canonicalStatus: "ORIGIN_HUB_DISPATCHED", statuses: ["ORIGIN_HUB_DISPATCHED", "FLIGHT_DEPARTED"] },
   // International transit is the active phase established by departure. It is
   // customer-visible without asking Operations to record a duplicate scan.
-  { key: "INTERNATIONAL_TRANSIT", statuses: ["ORIGIN_HUB_DISPATCHED", "FLIGHT_DEPARTED", "IN_TRANSIT"] },
-  { key: "GATEWAY_ARRIVED", statuses: ["DESTINATION_ARRIVED"] },
-  { key: "CUSTOMS_IN_PROGRESS", statuses: ["IMPORT_CUSTOMS_CLEARANCE"] },
-  { key: "CUSTOMS_CLEARED", statuses: ["IMPORT_CUSTOMS_CLEARED"] },
-  { key: "PARTNER_TRANSFERRED", statuses: ["DELIVERY_PARTNER_TRANSFERRED"] },
-  { key: "DELIVERY_HUB", statuses: ["DELIVERY_HUB_ARRIVED"] },
-  { key: "OUT_FOR_DELIVERY", statuses: ["OUT_FOR_DELIVERY"] },
-  { key: "DELIVERED", statuses: ["DELIVERED"] }
+  { key: "INTERNATIONAL_TRANSIT", canonicalStatus: "IN_TRANSIT", statuses: ["ORIGIN_HUB_DISPATCHED", "FLIGHT_DEPARTED", "IN_TRANSIT"] },
+  { key: "GATEWAY_ARRIVED", canonicalStatus: "DESTINATION_ARRIVED", statuses: ["DESTINATION_ARRIVED"] },
+  { key: "CUSTOMS_IN_PROGRESS", canonicalStatus: "IMPORT_CUSTOMS_CLEARANCE", statuses: ["IMPORT_CUSTOMS_CLEARANCE"] },
+  { key: "CUSTOMS_CLEARED", canonicalStatus: "IMPORT_CUSTOMS_CLEARED", statuses: ["IMPORT_CUSTOMS_CLEARED"] },
+  { key: "PARTNER_TRANSFERRED", canonicalStatus: "DELIVERY_PARTNER_TRANSFERRED", statuses: ["DELIVERY_PARTNER_TRANSFERRED"] },
+  { key: "DELIVERY_HUB", canonicalStatus: "DELIVERY_HUB_ARRIVED", statuses: ["DELIVERY_HUB_ARRIVED"] },
+  { key: "OUT_FOR_DELIVERY", canonicalStatus: "OUT_FOR_DELIVERY", statuses: ["OUT_FOR_DELIVERY"] },
+  { key: "DELIVERED", canonicalStatus: "DELIVERED", statuses: ["DELIVERED"] }
 ];
 
 const stageDefinitions: Array<{ key: string; label: string; milestoneKeys: readonly string[] }> = [
@@ -288,6 +297,84 @@ export function buildTrackingJourney(input: {
 export function formatTrackingEventLabel(status: string, journey: TrackingJourney) {
   const definition = milestoneDefinitions.find((item) => item.statuses.includes(status));
   return definition ? milestoneLabel(definition.key, journey.context) : formatShipmentEventLabel(status);
+}
+
+type VisibleHistoryEvent = {
+  status: string;
+  eventAt: Date | string;
+  note?: string | null;
+  location?: string | null;
+};
+
+function eventTime(value: Date | string) {
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+/**
+ * Turns raw operational events into the concise history shown in tracking.
+ *
+ * Legacy statuses can describe different internal actions while representing
+ * one customer milestone. They remain separate in MongoDB and in audit data,
+ * but only the earliest occurrence is displayed. Repeatable exceptions such as
+ * holds have no journey definition and therefore remain untouched.
+ */
+export function normalizeVisibleTrackingHistory<T extends VisibleHistoryEvent>(
+  events: readonly T[],
+  journey?: TrackingJourney
+): Array<T & { statusLabel: string; note: string }> {
+  const chronological = [...events].sort((left, right) => (
+    eventTime(left.eventAt) - eventTime(right.eventAt)
+  ));
+  const milestoneGroups = new Map<string, { definition: (typeof milestoneDefinitions)[number]; events: T[] }>();
+  const visible: Array<T & { statusLabel: string; note: string }> = [];
+
+  for (const event of chronological) {
+    // The first matching definition is deliberate: a departure establishes the
+    // transit phase too, but its single history row is "Dispatched", while the
+    // journey rail may still light both phases from the same confirmed event.
+    const definition = milestoneDefinitions.find((item) => item.statuses.includes(event.status));
+    if (!definition) {
+      visible.push({
+        ...event,
+        statusLabel: journey
+          ? formatTrackingEventLabel(event.status, journey)
+          : formatShipmentEventLabel(event.status),
+        note: resolveShipmentEventNote(event.note, event.status)
+      });
+      continue;
+    }
+
+    const existing = milestoneGroups.get(definition.key);
+    if (existing) existing.events.push(event);
+    else milestoneGroups.set(definition.key, { definition, events: [event] });
+  }
+
+  for (const { definition, events: groupEvents } of milestoneGroups.values()) {
+    const first = groupEvents[0];
+    if (!first) continue;
+
+    // A person's note is never discarded merely because the status is a legacy
+    // alias. System-generated legacy copy is replaced by the current canonical
+    // milestone description.
+    const humanNote = groupEvents.find((event) => !isSystemWrittenNote(event.note, event.status))?.note?.trim();
+    const recordedLocation = groupEvents
+      .map((event) => String(event.location ?? "").trim())
+      .find(Boolean);
+
+    visible.push({
+      ...first,
+      ...(recordedLocation ? { location: recordedLocation } : {}),
+      statusLabel: journey
+        ? milestoneLabel(definition.key, journey.context)
+        : formatShipmentEventLabel(definition.canonicalStatus),
+      note: humanNote || defaultShipmentEventNote(definition.canonicalStatus)
+    });
+  }
+
+  // API event arrays have always been newest-first. Frontends that present a
+  // chronological story can continue sorting locally without a contract change.
+  return visible.sort((left, right) => eventTime(right.eventAt) - eventTime(left.eventAt));
 }
 
 /**

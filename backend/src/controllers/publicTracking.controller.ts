@@ -32,6 +32,7 @@ import { findRoute } from "../services/swiftlineRoute.service.js";
 import {
   formatTrackingEventLabel,
   loadShipmentJourney,
+  normalizeVisibleTrackingHistory,
   type TrackingJourney
 } from "../services/shipmentJourney.service.js";
 import { buildTrackingPosition } from "../services/shipmentPosition.service.js";
@@ -182,7 +183,7 @@ function serializePublicTracking(input: {
     attention: input.onHold ? PUBLIC_HOLD_NOTICE : null,
     journey: input.journey,
 
-    events: events.map((event) => ({
+    events: normalizeVisibleTrackingHistory(events, input.journey).map((event) => ({
       status: event.status,
       statusLabel: event.statusLabel,
       eventAt: event.eventAt,

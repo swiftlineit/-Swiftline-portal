@@ -20,6 +20,7 @@ import { formatShipmentEventLabel } from "../services/shipmentStatusSequence.ser
 import {
   formatTrackingEventLabel,
   loadShipmentJourney,
+  normalizeVisibleTrackingHistory,
   type TrackingJourney
 } from "../services/shipmentJourney.service.js";
 import { buildTrackingPosition } from "../services/shipmentPosition.service.js";
@@ -1107,7 +1108,8 @@ function serializeClientShipmentDetails(params: {
     taxInvoiceNumber: currentInvoiceNumber ?? "",
     labels: labels.map(serializeClientLabel),
     currentEvent: currentEvent ? serializeClientShipmentEvent(currentEvent, journey) : null,
-    events: events.map((event) => serializeClientShipmentEvent(event, journey)),
+    events: normalizeVisibleTrackingHistory(events, journey)
+      .map((event) => serializeClientShipmentEvent(event, journey)),
     trackingJourney: journey ?? null
   };
 }
