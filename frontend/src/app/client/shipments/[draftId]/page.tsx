@@ -101,15 +101,28 @@ function getShipmentStatus(shipment: ClientShipmentDetails) {
 }
 
 function getTrackingEvents(shipment: ClientShipmentDetails) {
+  if (shipment.trackingJourney?.milestones.length) {
+    return shipment.trackingJourney.milestones.map((milestone) => ({
+      label: milestone.label,
+      value: milestone.reachedAt ? formatDashboardDate(milestone.reachedAt) : "Pending",
+      done: Boolean(milestone.reachedAt)
+    }));
+  }
   const orderedStatuses = [
     "SHIPMENT_BOOKED",
     "PARCEL_COLLECTED",
     "WAREHOUSE_SCAN_IN",
+    "ORIGIN_HUB_PROCESSED",
+    "READY_FOR_EXPORT",
+    "ORIGIN_HUB_DISPATCHED",
     "EXPORT_CUSTOMS_CLEARED",
     "FLIGHT_ASSIGNED",
     "FLIGHT_DEPARTED",
     "DESTINATION_ARRIVED",
     "IMPORT_CUSTOMS_CLEARANCE",
+    "IMPORT_CUSTOMS_CLEARED",
+    "DELIVERY_PARTNER_TRANSFERRED",
+    "DELIVERY_HUB_ARRIVED",
     "OUT_FOR_DELIVERY",
     "DELIVERED"
   ];
@@ -179,9 +192,11 @@ function hasMovedPastParcelCollected(shipment: ClientShipmentDetails | null) {
 
 function hasBeenCollected(shipment: ClientShipmentDetails | null) {
   const collectedOrLater = new Set([
-    "PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN", "EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED",
-    "FLIGHT_DEPARTED", "DESTINATION_ARRIVED", "IMPORT_CUSTOMS_CLEARANCE",
-    "OUT_FOR_DELIVERY", "DELIVERED", "RETURNED", "LOST", "DAMAGED"
+    "PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN", "ORIGIN_HUB_PROCESSED", "READY_FOR_EXPORT",
+    "ORIGIN_HUB_DISPATCHED", "EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED", "FLIGHT_DEPARTED",
+    "DESTINATION_ARRIVED", "IMPORT_CUSTOMS_CLEARANCE", "IMPORT_CUSTOMS_CLEARED",
+    "DELIVERY_PARTNER_TRANSFERRED", "DELIVERY_HUB_ARRIVED", "OUT_FOR_DELIVERY", "DELIVERED",
+    "RETURNED", "LOST", "DAMAGED"
   ]);
   return Boolean(shipment?.events.some((event) => collectedOrLater.has(event.status)));
 }

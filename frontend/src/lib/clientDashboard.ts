@@ -255,6 +255,8 @@ export type ClientShipmentDetails = {
   // them; the page falls back to what it can derive rather than assuming.
   trackingSummary?: TrackingSummary | null;
   trackingAttention?: TrackingAttention | null;
+  trackingJourney?: import("@/lib/shipmentJourney").TrackingJourney | null;
+  trackingPosition?: import("@/lib/shipmentTracking").TrackingPosition | null;
 };
 
 export type ClientPrepaidAccount = {

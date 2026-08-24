@@ -8,7 +8,10 @@
 
 import { fetchWithAuth } from "@/lib/shipmentsList";
 import { readJsonSafely } from "@/lib/auth";
-import { getPortalCountryCode } from "@/lib/portalCountries";
+import { resolveCountry } from "@/lib/countryLookup";
+
+/** ISO-2 for a country name, uppercased, or "" when the name is not a country. */
+const countryCodeFor = (countryName: string) => resolveCountry(countryName)?.iso2.toUpperCase() ?? "";
 
 export type AddressPrediction = {
   placeId: string;
@@ -44,13 +47,13 @@ export function createSessionToken() {
 }
 
 export function supportsAddressLookup(countryName: string) {
-  return Boolean(getPortalCountryCode(countryName));
+  return Boolean(countryCodeFor(countryName));
 }
 
 // GB search is by postcode (the PAF is indexed that way); everywhere else is
 // free-text. The placeholder has to say which, or the field looks broken.
 export function getLookupPlaceholder(countryName: string) {
-  return getPortalCountryCode(countryName) === "GB"
+  return countryCodeFor(countryName) === "GB"
     ? "Search by postcode, e.g. SW1A 1AA"
     : "Search for a street, building or area";
 }
@@ -60,7 +63,7 @@ export async function autocompleteAddress(
   countryName: string,
   sessionToken: string
 ): Promise<AddressPrediction[]> {
-  const countryCode = getPortalCountryCode(countryName);
+  const countryCode = countryCodeFor(countryName);
 
   if (!countryCode || input.trim().length < MIN_LOOKUP_LENGTH) return [];
 
@@ -86,7 +89,7 @@ export async function getLookupAddress(
   countryName: string,
   sessionToken: string
 ): Promise<LookupAddress | null> {
-  const countryCode = getPortalCountryCode(countryName);
+  const countryCode = countryCodeFor(countryName);
 
   if (!countryCode || !placeId) return null;
 

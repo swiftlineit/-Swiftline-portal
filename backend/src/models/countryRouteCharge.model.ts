@@ -44,7 +44,7 @@ export interface ICountryRouteCharge extends mongoose.Document {
   /** Floor for the insurance premium, so a low-value shipment still covers the cost of cover. */
   insuranceMinimum: number;
   /**
-   * Percentage taken off the pre-tax subtotal. This is a ROUTE-level discount: it
+   * Percentage taken off the GST-inclusive subtotal. This is a ROUTE-level discount: it
    * applies to every customer shipping to this country on this service, not to one
    * negotiated account.
    */

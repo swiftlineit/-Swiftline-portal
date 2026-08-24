@@ -9,6 +9,7 @@ import {
 } from "@/components/client/ClientDashboardShell";
 import ClientAccessBlocked from "@/components/client/dashboard/ClientAccessBlocked";
 import ClientBookingCapacityNotice from "@/components/client/dashboard/ClientBookingCapacityNotice";
+import CreditPaymentStatusBanner from "@/components/credit/CreditPaymentStatusBanner";
 import ClientDashboardHeader from "@/components/client/dashboard/ClientDashboardHeader";
 import ClientQuickAccess from "@/components/client/dashboard/ClientQuickAccess";
 import ClientRateCardNotice from "@/components/client/dashboard/ClientRateCardNotice";
@@ -295,6 +296,10 @@ export default function ClientDashboardPage() {
           <>
             <ClientRateCardNotice account={selectedAccount} />
 
+            <CreditPaymentStatusBanner
+              account={extras.credit}
+              businessAccountId={selectedAccountId}
+            />
             <ClientBookingCapacityNotice
               credit={extras.credit}
               permissions={extras.creditPermissions}

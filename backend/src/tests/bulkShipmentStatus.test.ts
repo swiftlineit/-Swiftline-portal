@@ -22,7 +22,7 @@ describe("bulk shipment status blocking", () => {
       cancellationStatus: "COMPLETED",
       onHold: false,
       missingPrerequisites: [],
-      status: "FLIGHT_ASSIGNED"
+      status: "READY_FOR_EXPORT"
     }), { reason: "Shipment has been cancelled and its progress cannot be updated." });
 
     assert.deepEqual(statusUpdateBlockReason({
@@ -30,7 +30,7 @@ describe("bulk shipment status blocking", () => {
       cancellationStatus: "REQUESTED",
       onHold: false,
       missingPrerequisites: [],
-      status: "FLIGHT_ASSIGNED"
+      status: "READY_FOR_EXPORT"
     }), { reason: "Resolve the pending shipment cancellation before updating shipment progress." });
   });
 
@@ -40,7 +40,7 @@ describe("bulk shipment status blocking", () => {
       cancellationStatus: undefined,
       onHold: true,
       missingPrerequisites: [],
-      status: "FLIGHT_ASSIGNED"
+      status: "READY_FOR_EXPORT"
     }), { reason: "Release the shipment before updating its status." });
   });
 
@@ -49,18 +49,52 @@ describe("bulk shipment status blocking", () => {
       shipmentExists: true,
       cancellationStatus: undefined,
       onHold: false,
-      missingPrerequisites: ["PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN", "EXPORT_CUSTOMS_CLEARED"],
-      status: "FLIGHT_ASSIGNED"
+      missingPrerequisites: ["WAREHOUSE_SCAN_IN", "ORIGIN_HUB_PROCESSED"],
+      status: "READY_FOR_EXPORT"
     }), {
-      reason: "Flight Assigned cannot be recorded yet. Parcel Collected, Warehouse Scan In "
-        + "and Export Customs Cleared are still outstanding- shipment progress must be "
+      reason: "Ready For Export cannot be recorded yet. Warehouse Scan In and Origin Hub Processed "
+        + "are still outstanding- shipment progress must be "
         + "recorded in order.",
-      missingStatuses: ["PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN", "EXPORT_CUSTOMS_CLEARED"]
+      missingStatuses: ["WAREHOUSE_SCAN_IN", "ORIGIN_HUB_PROCESSED"]
     });
+  });
+
+  it("skips a milestone that was already recorded", () => {
+    const recordedAt = new Date("2026-08-22T07:09:00.000Z");
+    const blocked = statusUpdateBlockReason({
+      shipmentExists: true,
+      cancellationStatus: undefined,
+      onHold: false,
+      alreadyRecordedAt: recordedAt,
+      missingPrerequisites: [],
+      status: "PARCEL_COLLECTED"
+    });
+    assert.match(blocked?.reason ?? "", /already recorded/);
+    assert.match(blocked?.reason ?? "", /Refresh the shipment/);
   });
 
   // Final weight verification is an optional correction, not a precondition, so
   // a parcel arriving at the hub is never held up waiting to be re-weighed.
+  /**
+   * One date is stated for the whole batch, but each shipment's own history
+   * decides whether it can take it- a shipment already scanned later than the
+   * stated time is skipped and told why, while the rest of the batch goes on.
+   */
+  it("skips a shipment whose own history rules out the stated date", () => {
+    assert.deepEqual(statusUpdateBlockReason({
+      shipmentExists: true,
+      cancellationStatus: undefined,
+      onHold: false,
+      missingPrerequisites: [],
+      eventDateProblem: "A status date cannot be in the future. "
+        + "Leave it empty to record this update as happening now.",
+      status: "READY_FOR_EXPORT"
+    }), {
+      reason: "A status date cannot be in the future. "
+        + "Leave it empty to record this update as happening now."
+    });
+  });
+
   it("lets Warehouse Scan In through without a verified charge", () => {
     assert.equal(statusUpdateBlockReason({
       shipmentExists: true,
@@ -77,7 +111,7 @@ describe("bulk shipment status blocking", () => {
       cancellationStatus: undefined,
       onHold: false,
       missingPrerequisites: [],
-      status: "FLIGHT_DEPARTED"
+      status: "ORIGIN_HUB_DISPATCHED"
     }), null);
   });
 });
@@ -94,7 +128,7 @@ describe("bulk selection blocking", () => {
   it("names every stage the selection spans, not only the first two", () => {
     const reason = bulkSelectionBlockReason(
       ["SHIPMENT_BOOKED", "PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN"],
-      "FLIGHT_ASSIGNED"
+      "READY_FOR_EXPORT"
     );
     assert.match(String(reason), /Parcel Collected, Shipment Booked, Warehouse Scan In/);
   });

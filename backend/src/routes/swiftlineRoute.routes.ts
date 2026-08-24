@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  bulkSaveSwiftlineRoutes,
   deleteSwiftlineRoute,
   listSwiftlineRoutes,
   saveSwiftlineRoute
@@ -16,4 +17,6 @@ swiftlineRouteRouter.use(requireRole("admin", "operations"));
 
 swiftlineRouteRouter.get("/", listSwiftlineRoutes);
 swiftlineRouteRouter.put("/", saveSwiftlineRoute);
+// Registered before "/:routeId" so "bulk" is never read as a route id.
+swiftlineRouteRouter.put("/bulk", bulkSaveSwiftlineRoutes);
 swiftlineRouteRouter.delete("/:routeId", deleteSwiftlineRoute);

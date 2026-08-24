@@ -22,6 +22,9 @@ import { countryRateServiceValues, type CountryRateService } from "./countryRate
 export const routeTransitBasisValues = ["BUSINESS_DAYS", "CALENDAR_DAYS"] as const;
 export type RouteTransitBasis = (typeof routeTransitBasisValues)[number];
 
+export const trackingProfileValues = ["AUTO", "UK", "USA", "CANADA", "EUROPE", "OTHER"] as const;
+export type TrackingProfileSetting = (typeof trackingProfileValues)[number];
+
 export interface ISwiftlineRoute extends mongoose.Document {
   originCountryCode: string;
   destinationCountryCode: string;
@@ -46,6 +49,10 @@ export interface ISwiftlineRoute extends mongoose.Document {
    */
   transitDaysMax: number;
   transitBasis: RouteTransitBasis;
+  /** Customer tracking copy and route shape. AUTO resolves from destination. */
+  trackingProfile: TrackingProfileSetting;
+  /** Consolidation hub shown to customers for this lane. */
+  originHubName: string;
   /**
    * Whether the lane is open for booking. A closed lane keeps its transit
    * history instead of being deleted, so reopening it does not mean re-keying
@@ -102,6 +109,14 @@ const swiftlineRouteSchema = new mongoose.Schema<ISwiftlineRoute>(
       required: true,
       default: "BUSINESS_DAYS"
     },
+    trackingProfile: {
+      type: String,
+      enum: trackingProfileValues,
+      required: true,
+      default: "AUTO",
+      index: true
+    },
+    originHubName: { type: String, trim: true, required: true, maxlength: 120, default: "Delhi Hub" },
     serviceable: { type: Boolean, required: true, default: true, index: true },
     cutOffTime: {
       type: String,

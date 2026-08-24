@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
@@ -6,6 +7,11 @@ import {
   countryRateServiceValues,
   rateCardBandValues
 } from "../models/countryRateCard.model.js";
+import {
+  parseRateCardWorkbook,
+  rateCardImportLimits,
+  RateCardImportError
+} from "../services/rateCardImport.service.js";
 import { CountryRouteCharge } from "../models/countryRouteCharge.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { businessAccountBranchFilter } from "../middleware/businessAccountBranchAccess.middleware.js";
@@ -357,5 +363,268 @@ export async function saveCountryRouteCharge(request: Request, response: Respons
     throw error;
   } finally {
     if (releaseLock) await releaseLock().catch(() => undefined);
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Importing a rate list workbook
+ * ---------------------------------------------------------------------- */
+
+const importSlabSchema = z.object({
+  fromKg: z.coerce.number().nonnegative(),
+  toKg: z.coerce.number().positive(),
+  chargesPerKg: z.coerce.number().nonnegative(),
+  maxBoxKg: z.coerce.number().positive()
+}).refine((slab) => slab.toKg >= slab.fromKg, {
+  message: "To KG must be greater than or equal to From KG",
+  path: ["toKg"]
+});
+
+const importRouteSchema = z.object({
+  countryCode: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Country code must be a two-letter ISO code"),
+  countryName: z.string().trim().min(2).max(80),
+  slabs: z.array(importSlabSchema).min(1).max(rateCardImportLimits.maxWeightRows)
+}).superRefine((route, context) => {
+  // Overlap is checked here, in memory, rather than with a query per slab as
+  // the manual create path does. The slabs arrive as a complete set for the
+  // route and every one of them is about to replace what is stored, so the
+  // only arrangement that matters is their arrangement against each other.
+  const ordered = [...route.slabs].sort((a, b) => a.fromKg - b.fromKg);
+  for (let index = 1; index < ordered.length; index += 1) {
+    const current = ordered[index];
+    const previous = ordered[index - 1];
+    if (!current || !previous) continue;
+
+    if (current.fromKg <= previous.toKg) {
+      context.addIssue({
+        code: "custom",
+        path: ["slabs"],
+        message: `${route.countryName}: the ${current.fromKg}-${current.toKg} kg slab overlaps ${previous.fromKg}-${previous.toKg} kg.`
+      });
+      return;
+    }
+  }
+});
+
+const importPayloadSchema = z.object({
+  band: z.enum(rateCardBandValues),
+  services: z.array(z.enum(countryRateServiceValues)).min(1, "Choose at least one service."),
+  routes: z.array(importRouteSchema).min(1, "There is nothing to import."),
+  // Set by the review screen once the operator has seen which destinations lose
+  // their current rates. Re-checked below against the database, so a stale
+  // review cannot let a replacement through unseen.
+  confirmReplace: z.boolean().optional().default(false),
+  fileName: z.string().trim().max(255).optional()
+}).superRefine((payload, context) => {
+  const services = new Set(payload.services);
+  if (services.size !== payload.services.length) {
+    context.addIssue({ code: "custom", path: ["services"], message: "Each service can only be imported once." });
+  }
+
+  const codes = new Set(payload.routes.map((route) => route.countryCode));
+  if (codes.size !== payload.routes.length) {
+    context.addIssue({ code: "custom", path: ["routes"], message: "The same destination appears more than once." });
+  }
+
+  const total = payload.routes.reduce((running, route) => running + route.slabs.length, 0) * services.size;
+  if (total > rateCardImportLimits.maxSlabs) {
+    context.addIssue({
+      code: "custom",
+      path: ["routes"],
+      message: `This import would write ${total} rate rows, more than the ${rateCardImportLimits.maxSlabs} allowed at once.`
+    });
+  }
+});
+
+function getUploadExtension(originalName: string) {
+  const extension = path.extname(originalName).toLowerCase();
+  return extension === ".csv" || extension === ".xls" || extension === ".xlsx" ? extension : null;
+}
+
+/**
+ * Reads an uploaded rate list and hands back its grid. Writes nothing.
+ *
+ * Country names are returned exactly as the workbook spells them: matching them
+ * to ISO codes happens in the browser, against the same catalogue the country
+ * picker uses, and the operator confirms the result before anything is stored.
+ */
+export async function previewRateCardImport(request: Request, response: Response): Promise<Response> {
+  const file = (request as Request & { file?: Express.Multer.File }).file;
+  if (!file) return response.status(400).json({ success: false, message: "Attach a rate list to import." });
+
+  const extension = getUploadExtension(file.originalname);
+  if (!extension) {
+    return response.status(400).json({ success: false, message: "Only .csv, .xls and .xlsx rate lists are supported." });
+  }
+
+  try {
+    const parsed = await parseRateCardWorkbook(file.buffer, extension);
+    return response.status(200).json({ success: true, fileName: file.originalname, ...parsed });
+  } catch (error) {
+    if (error instanceof RateCardImportError) {
+      return response.status(400).json({ success: false, message: error.message });
+    }
+
+    // A workbook ExcelJS cannot open is a bad upload, not a server fault.
+    return response.status(400).json({
+      success: false,
+      message: "The file could not be read as a spreadsheet. Re-save it as .xlsx and try again."
+    });
+  }
+}
+
+/**
+ * Writes the reviewed rate list.
+ *
+ * Replace-per-route: for every destination in the payload the stored slabs are
+ * deleted and the imported ones inserted. Merging is not an option- the model
+ * forbids overlapping slabs, and a hand-tuned 5.01-10 overlaps an incoming
+ * 5.01-6, so a merge would have to either reject the import or leave the route
+ * holding two prices for the same weight. Destinations absent from the file are
+ * never touched.
+ */
+export async function commitRateCardImport(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = importPayloadSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: "This import is invalid.",
+      errors: getValidationErrors(parsed.error)
+    });
+  }
+
+  const { band, services, routes, confirmReplace, fileName } = parsed.data;
+  const routeByCode = new Map(routes.map((route) => [route.countryCode, route]));
+
+  const existing = await CountryRateCard.find({
+    band,
+    countryCode: { $in: [...routeByCode.keys()] },
+    service: { $in: services }
+  }).select("countryCode service").lean().exec();
+
+  const existingCounts = new Map<string, number>();
+  for (const rate of existing) {
+    const key = `${rate.countryCode}:${rate.service}`;
+    existingCounts.set(key, (existingCounts.get(key) ?? 0) + 1);
+  }
+
+  if (existingCounts.size && !confirmReplace) {
+    const replacements = [...existingCounts.entries()].map(([key, count]) => {
+      const separator = key.indexOf(":");
+      const countryCode = key.slice(0, separator);
+      const service = key.slice(separator + 1);
+      return {
+        countryCode,
+        countryName: routeByCode.get(countryCode)?.countryName ?? countryCode,
+        service,
+        existingSlabs: count,
+        incomingSlabs: routeByCode.get(countryCode)?.slabs.length ?? 0
+      };
+    });
+
+    const countries = new Set(replacements.map((entry) => entry.countryCode)).size;
+    return response.status(409).json({
+      success: false,
+      code: "RATE_CARD_IMPORT_REPLACE_UNCONFIRMED",
+      replacements,
+      message: `${countries} destination${countries === 1 ? "" : "s"} on this band already have rates. Confirm the replacement to continue.`
+    });
+  }
+
+  const targets = routes.flatMap((route) => services.map((service) => ({ route, service })));
+  const releases: Array<() => Promise<void>> = [];
+  const session = await mongoose.startSession();
+  let summary: Array<{ countryCode: string; countryName: string; service: string; added: number; removed: number }> = [];
+
+  try {
+    // Every route is locked before anything is written, so a half-finished
+    // import cannot race an operator editing one of the same destinations by
+    // hand. One lock per route rather than the manual path one lock per slab.
+    for (const { route, service } of targets) {
+      releases.push(await acquireRateCardRouteLock({ band, countryCode: route.countryCode, service }));
+    }
+
+    await session.withTransaction(async () => {
+      // Reset inside the callback: withTransaction re-runs it on a transient
+      // error, and totals carried over from the abandoned attempt would double.
+      summary = [];
+
+      for (const { route, service } of targets) {
+        const removal = await CountryRateCard.deleteMany({
+          band,
+          countryCode: route.countryCode,
+          service
+        }).session(session).exec();
+
+        const documents = route.slabs.map((slab) => ({
+          band,
+          countryCode: route.countryCode,
+          countryName: route.countryName,
+          service,
+          fromKg: slab.fromKg,
+          toKg: slab.toKg,
+          chargesPerKg: slab.chargesPerKg,
+          maxBoxKg: slab.maxBoxKg,
+          createdBy: userId,
+          updatedBy: userId
+        }));
+
+        const created = await CountryRateCard.insertMany(documents, { session, ordered: true });
+
+        // One entry per route rather than one per import, because an audit
+        // entry is keyed to an entity and an import spans hundreds. This is the
+        // same granularity as a route charge save, and it makes "what happened
+        // to Belgium Courier" answerable.
+        await AuditLog.create([{
+          action: "COUNTRY_RATE_CARD_IMPORTED",
+          entityType: "COUNTRY_RATE_CARD",
+          entityId: created[0]?._id,
+          performedBy: userId,
+          performedAt: new Date(),
+          metadata: {
+            fileName: fileName ?? null,
+            band,
+            service,
+            countryCode: route.countryCode,
+            countryName: route.countryName,
+            added: documents.length,
+            removed: removal.deletedCount ?? 0,
+            slabs: route.slabs
+          }
+        }], { session });
+
+        summary.push({
+          countryCode: route.countryCode,
+          countryName: route.countryName,
+          service,
+          added: documents.length,
+          removed: removal.deletedCount ?? 0
+        });
+      }
+    });
+
+    const slabsWritten = summary.reduce((running, entry) => running + entry.added, 0);
+    const slabsRemoved = summary.reduce((running, entry) => running + entry.removed, 0);
+
+    return response.status(200).json({
+      success: true,
+      band,
+      services,
+      routesWritten: routes.length,
+      slabsWritten,
+      slabsRemoved,
+      summary
+    });
+  } catch (error) {
+    if (error instanceof RateCardRouteBusyError) {
+      return response.status(error.statusCode).json({ success: false, code: error.code, message: error.message });
+    }
+    throw error;
+  } finally {
+    await session.endSession();
+    await Promise.all(releases.map((release) => release().catch(() => undefined)));
   }
 }

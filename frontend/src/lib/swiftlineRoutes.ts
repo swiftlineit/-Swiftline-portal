@@ -18,11 +18,24 @@ export const routeTransitBasisLabels: Record<RouteTransitBasis, string> = {
   CALENDAR_DAYS: "Calendar days"
 };
 
+export const trackingProfiles = ["AUTO", "UK", "USA", "CANADA", "EUROPE", "OTHER"] as const;
+export type TrackingProfileSetting = (typeof trackingProfiles)[number];
+export const trackingProfileLabels: Record<TrackingProfileSetting, string> = {
+  AUTO: "Automatic by destination",
+  UK: "United Kingdom (LHR + DPD)",
+  USA: "United States",
+  CANADA: "Canada",
+  EUROPE: "Europe",
+  OTHER: "Other destination"
+};
+
 export type SwiftlineRoute = {
   _id: string;
   originCountryCode: string;
   destinationCountryCode: string;
   destinationCountryName: string;
+  trackingProfile: TrackingProfileSetting;
+  originHubName: string;
   /** Countries passed through on the way, in travel order. Empty when direct. */
   viaCountryCodes: string[];
   service: CountryRateService;
@@ -37,9 +50,51 @@ export type SwiftlineRoute = {
   updatedAt: string;
 };
 
+/**
+ * A destination that has published rates, per service.
+ *
+ * Returned alongside the lanes so the screen can show which priced destinations
+ * have no route yet- a gap that leaves serviceability without a transit time
+ * and the customer tracking page on generic copy.
+ */
+export type RateCardCoverage = {
+  countryCode: string;
+  countryName: string;
+  service: CountryRateService;
+};
+
+/** The route details applied to every destination in a bulk save. */
+export type BulkSwiftlineRouteDetails = {
+  viaCountryCodes: string[];
+  transitDaysMin: number;
+  transitDaysMax: number;
+  transitBasis: RouteTransitBasis;
+  trackingProfile: TrackingProfileSetting;
+  originHubName: string;
+  serviceable: boolean;
+  cutOffTime: string;
+  restrictions: string;
+  notes: string;
+};
+
+export type BulkSwiftlineRouteInput = {
+  destinations: Array<{ countryCode: string; countryName: string }>;
+  services: CountryRateService[];
+  details: BulkSwiftlineRouteDetails;
+  overwriteExisting: boolean;
+};
+
+export type BulkRouteOutcome = {
+  countryCode: string;
+  countryName: string;
+  service: CountryRateService;
+};
+
 export type SwiftlineRouteInput = {
   destinationCountryCode: string;
   destinationCountryName: string;
+  trackingProfile: TrackingProfileSetting;
+  originHubName: string;
   viaCountryCodes: string[];
   service: CountryRateService;
   transitDaysMin: number;
@@ -109,7 +164,36 @@ export async function listSwiftlineRoutes(filters: { service?: string; search?: 
 
   const response = await fetchWithAuth(apiUrl(`/api/v1/swiftline-routes${suffix}`));
 
-  return parseApiResponse<{ success: true; routes: SwiftlineRoute[] }>(response);
+  return parseApiResponse<{
+    success: true;
+    routes: SwiftlineRoute[];
+    /** Every destination with published rates, whether or not a lane exists. */
+    coverage: RateCardCoverage[];
+  }>(response);
+}
+
+/**
+ * Opens many lanes at once, from one set of details.
+ *
+ * A rate list opens thirty destinations at a time and each needs a lane before
+ * it can quote a transit time or show its real hub on the tracking page.
+ * `overwriteExisting` is off by default, so filling in the gaps can never
+ * overwrite a transit time somebody tuned by hand.
+ */
+export async function bulkSaveSwiftlineRoutes(input: BulkSwiftlineRouteInput) {
+  const response = await fetchWithAuth(apiUrl("/api/v1/swiftline-routes/bulk"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+
+  return parseApiResponse<{
+    success: true;
+    message: string;
+    created: BulkRouteOutcome[];
+    updated: BulkRouteOutcome[];
+    skipped: BulkRouteOutcome[];
+  }>(response);
 }
 
 /** Creates or replaces a lane. The server keys on origin + destination + service. */

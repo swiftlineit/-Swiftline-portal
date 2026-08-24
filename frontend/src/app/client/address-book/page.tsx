@@ -49,7 +49,7 @@ import {
   getClientDashboard,
   type ClientDashboardAccount,
 } from "@/lib/clientDashboard";
-import { portalCountries } from "@/lib/portalCountries";
+import { countries } from "@/lib/countries";
 import { useClientUser } from "@/lib/useClientUser";
 
 const allowedRoles = new Set(["account_owner", "account_admin", "operations"]);
@@ -766,7 +766,7 @@ function AddressFormDialog({
                 disabled={form.type === "SENDER"}
                 value={form.countryCode}
                 onChange={(event) => {
-                  const country = portalCountries.find(
+                  const country = countries.find(
                     (item) => item.iso2.toUpperCase() === event.target.value,
                   );
                   if (country)
@@ -781,7 +781,7 @@ function AddressFormDialog({
                 <option value="" disabled>
                   Select country
                 </option>
-                {portalCountries.map((country) => (
+                {countries.map((country) => (
                   <option key={country.iso2} value={country.iso2.toUpperCase()}>
                     {country.name}
                   </option>

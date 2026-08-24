@@ -135,12 +135,6 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-export function getCountryFlag(countryCode: string) {
-  const code = countryCode.trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(code)) return "";
-  return Array.from(code).map((letter) => String.fromCodePoint(127397 + letter.charCodeAt(0))).join("");
-}
-
 export function formatCountryRateService(service: string) {
   return service.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -237,6 +231,93 @@ export async function deleteCountryRateCard(rateId: string, confirmAssignedImpac
   });
 
   return parseApiResponse<{ success: true; message: string }>(response);
+}
+
+/* -------------------------------------------------------------------------
+ * Importing a rate list workbook
+ * ---------------------------------------------------------------------- */
+
+export type RateCardImportZone = {
+  column: number;
+  /** Country names exactly as the workbook spells them, resolved in the browser. */
+  rawNames: string[];
+  /** Parallel to `weights`; null where the workbook left the cell blank. */
+  rates: (number | null)[];
+};
+
+export type RateCardImportPreview = {
+  fileName: string;
+  weights: number[];
+  zones: RateCardImportZone[];
+};
+
+export type RateCardImportSlab = {
+  fromKg: number;
+  toKg: number;
+  chargesPerKg: number;
+  maxBoxKg: number;
+};
+
+export type RateCardImportRoute = {
+  countryCode: string;
+  countryName: string;
+  slabs: RateCardImportSlab[];
+};
+
+export type RateCardImportPayload = {
+  band: RateCardBand;
+  services: CountryRateService[];
+  routes: RateCardImportRoute[];
+  confirmReplace: boolean;
+  fileName?: string;
+};
+
+export type RateCardImportRouteResult = {
+  countryCode: string;
+  countryName: string;
+  service: CountryRateService;
+  added: number;
+  removed: number;
+};
+
+export type RateCardImportResult = {
+  success: true;
+  band: RateCardBand;
+  services: CountryRateService[];
+  routesWritten: number;
+  slabsWritten: number;
+  slabsRemoved: number;
+  summary: RateCardImportRouteResult[];
+};
+
+/** Reads the uploaded workbook. The server writes nothing at this stage. */
+export async function previewRateCardImport(file: File) {
+  const body = new FormData();
+  body.append("rateFile", file);
+
+  const response = await fetchWithAuth(apiUrl("/api/v1/country-rate-cards/imports/preview"), {
+    method: "POST",
+    body
+  });
+
+  return parseApiResponse<{ success: true } & RateCardImportPreview>(response);
+}
+
+/**
+ * Writes the reviewed rate list.
+ *
+ * Sends the resolved rows rather than the file, so what the operator approved
+ * on the review screen is exactly what is stored- a second parse on the server
+ * could not drift from what was shown.
+ */
+export async function commitRateCardImport(payload: RateCardImportPayload) {
+  const response = await fetchWithAuth(apiUrl("/api/v1/country-rate-cards/imports"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  return parseApiResponse<RateCardImportResult>(response);
 }
 
 export function buildCountryRateCardCsv(rates: CountryRateCard[]) {

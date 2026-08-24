@@ -46,7 +46,7 @@ function buildEmailPayload(share: IRateCardShare, viewUrl: string, senderName: s
       .map((entry) => ({ service: formatShareService(entry.service), lowest: money(entry.lowest, share.currency) })),
     termsRows: [
       terms.fuelSurchargePercent > 0 ? { label: "Fuel surcharge", value: `${terms.fuelSurchargePercent}%` } : null,
-      terms.gstPercent > 0 ? { label: "GST", value: `${terms.gstPercent}% extra as applicable` } : null,
+      terms.gstPercent > 0 ? { label: "GST", value: `${terms.gstPercent}% included as applicable` } : null,
       terms.minChargeableWeightKg > 0 ? { label: "Min chargeable weight", value: `${terms.minChargeableWeightKg} kg` } : null,
       terms.volumetricDivisor > 0 ? { label: "Volumetric divisor", value: `L x W x H (cm) / ${terms.volumetricDivisor}` } : null
     ].filter(Boolean)

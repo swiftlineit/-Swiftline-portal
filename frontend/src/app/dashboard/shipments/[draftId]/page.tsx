@@ -15,6 +15,7 @@ import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel"
 import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/components/shipments/ShipmentKycDocumentsPanel";
 import StaffSupportingDocuments from "@/components/shipments/StaffSupportingDocuments";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
+import GatewayIataInput, { isValidGatewayIata } from "@/components/shipments/GatewayIataInput";
 import {
   DpdShipmentHistoryItem,
   ShipmentAmendmentInput,
@@ -22,8 +23,10 @@ import {
   ShipmentDraft,
   ShipmentOperationalStatus,
   createShipmentAmendment,
+  correctDpdShipmentGateway,
   findMissingStatusPrerequisites,
   firstAllowedOperationalStatus,
+  hasRecordedOperationalStatus,
   getDpdLabelAccessUrl,
   getShipmentDraft,
   holdDpdShipment,
@@ -37,7 +40,7 @@ import {
   shipmentOperationalStatusOptions,
   updateDpdShipmentOperationalStatus
 } from "@/lib/dpdLabels";
-import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
+import { currentDateTimeLocal, dateTimeLocalToIso, formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatCsbType } from "@/lib/csbType";
 import {
   getAdminShipmentCancellation,
@@ -88,15 +91,28 @@ function getShipmentStatus(history: DpdShipmentHistoryItem | null) {
 }
 
 function getTrackingEvents(draft: ShipmentDraft, history: DpdShipmentHistoryItem | null) {
+  if (history?.trackingJourney?.milestones.length) {
+    return history.trackingJourney.milestones.map((milestone) => ({
+      label: milestone.label,
+      value: milestone.reachedAt ? formatDashboardDate(milestone.reachedAt) : "Pending",
+      done: Boolean(milestone.reachedAt)
+    }));
+  }
   const orderedStatuses = [
     "SHIPMENT_BOOKED",
     "PARCEL_COLLECTED",
     "WAREHOUSE_SCAN_IN",
+    "ORIGIN_HUB_PROCESSED",
+    "READY_FOR_EXPORT",
+    "ORIGIN_HUB_DISPATCHED",
     "EXPORT_CUSTOMS_CLEARED",
     "FLIGHT_ASSIGNED",
     "FLIGHT_DEPARTED",
     "DESTINATION_ARRIVED",
     "IMPORT_CUSTOMS_CLEARANCE",
+    "IMPORT_CUSTOMS_CLEARED",
+    "DELIVERY_PARTNER_TRANSFERRED",
+    "DELIVERY_HUB_ARRIVED",
     "OUT_FOR_DELIVERY",
     "DELIVERED"
   ];
@@ -166,8 +182,10 @@ function hasMovedPastParcelCollected(history: DpdShipmentHistoryItem | null) {
 
 function hasReachedWarehouse(history: DpdShipmentHistoryItem | null) {
   const blockedStatuses = new Set([
-    "WAREHOUSE_SCAN_IN", "EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED", "FLIGHT_DEPARTED",
-    "DESTINATION_ARRIVED", "IMPORT_CUSTOMS_CLEARANCE", "OUT_FOR_DELIVERY", "DELIVERED",
+    "WAREHOUSE_SCAN_IN", "ORIGIN_HUB_PROCESSED", "READY_FOR_EXPORT", "ORIGIN_HUB_DISPATCHED",
+    "EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED", "FLIGHT_DEPARTED", "DESTINATION_ARRIVED",
+    "IMPORT_CUSTOMS_CLEARANCE", "IMPORT_CUSTOMS_CLEARED", "DELIVERY_PARTNER_TRANSFERRED",
+    "DELIVERY_HUB_ARRIVED", "OUT_FOR_DELIVERY", "DELIVERED",
     "RETURNED", "LOST", "DAMAGED"
   ]);
   return Boolean(history?.events.some((event) => blockedStatuses.has(event.status)));
@@ -183,7 +201,7 @@ export default function AdminShipmentDetailsPage() {
   const [shipmentLoading, setShipmentLoading] = useState(true);
   const [actionFeedback, setActionFeedback] = useState<{ message: string; tone: "warning" | "error" } | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [actionMode, setActionMode] = useState<"hold" | "release" | "status" | null>(null);
+  const [actionMode, setActionMode] = useState<"hold" | "release" | "status" | "gateway" | null>(null);
   // Starts unchosen. Defaulting to a reason meant a hold placed without touching
   // the dropdown was recorded as "missing documents", which raises a customer
   // -facing demand for paperwork nobody actually asked for.
@@ -193,6 +211,14 @@ export default function AdminShipmentDetailsPage() {
   // Where this scan happened. Optional- an event without a location is still
   // recorded, it just does not move the shipment's "current location".
   const [actionLocation, setActionLocation] = useState("");
+  const [actionGatewayCode, setActionGatewayCode] = useState("");
+  /**
+   * When this scan actually happened, as a datetime-local value. Optional-
+   * empty records the event at the moment it is saved, exactly as before, while
+   * a stated time is what the customer's timeline shows for a status keyed in
+   * later than the parcel actually moved.
+   */
+  const [actionAt, setActionAt] = useState("");
   const [amendmentBusy, setAmendmentBusy] = useState(false);
   const [chargeVerified, setChargeVerified] = useState(false);
   const [cancellationBusy, setCancellationBusy] = useState(false);
@@ -207,6 +233,11 @@ export default function AdminShipmentDetailsPage() {
   );
   const isOnHold = history?.currentEvent?.status === "ON_HOLD";
   const cancellationLocked = cancellation?.status === "REQUESTED" || cancellation?.status === "COMPLETED";
+  const isUkRoute = draft?.consigneeEnteredAddress.countryCode?.toUpperCase() === "GB";
+  const arrivalEvent = useMemo(
+    () => (history?.events ?? []).find((event) => event.status === "DESTINATION_ARRIVED") ?? null,
+    [history]
+  );
 
   /**
    * Every status this shipment has ever recorded, which is what decides how far
@@ -221,6 +252,7 @@ export default function AdminShipmentDetailsPage() {
   const statusChoices = useMemo(
     () => shipmentOperationalStatusOptions.map((option) => ({
       ...option,
+      completed: hasRecordedOperationalStatus(option.value, recordedStatuses),
       missing: findMissingStatusPrerequisites(option.value, recordedStatuses)
     })),
     [recordedStatuses]
@@ -274,12 +306,20 @@ export default function AdminShipmentDetailsPage() {
     if ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3) return;
     // A hold must name its reason: the reason is what the customer is told.
     if (actionMode === "hold" && !holdReason) return;
+    if ((actionMode === "gateway" || (actionMode === "status" && nextStatus === "DESTINATION_ARRIVED"))
+      && !isValidGatewayIata(isUkRoute ? "LHR" : actionGatewayCode)) return;
 
     setActionBusy(true);
     setActionFeedback(null);
 
     try {
-      if (actionMode === "hold") {
+      if (actionMode === "gateway") {
+        const result = await correctDpdShipmentGateway({
+          dpdShipmentId: history.dpdShipment.id,
+          gatewayCode: isUkRoute ? "LHR" : actionGatewayCode
+        });
+        toast.success(result.message);
+      } else if (actionMode === "hold") {
         await holdDpdShipment({
           dpdShipmentId: history.dpdShipment.id,
           reason: holdReason as ShipmentHoldReason,
@@ -297,13 +337,19 @@ export default function AdminShipmentDetailsPage() {
           dpdShipmentId: history.dpdShipment.id,
           status: nextStatus,
           note: actionNote,
-          location: actionLocation
+          location: actionLocation,
+          gatewayCode: nextStatus === "DESTINATION_ARRIVED"
+            ? (isUkRoute ? "LHR" : actionGatewayCode)
+            : undefined,
+          eventAt: dateTimeLocalToIso(actionAt)
         });
       }
 
       setActionMode(null);
       setActionNote("");
       setActionLocation("");
+      setActionGatewayCode("");
+      setActionAt("");
       await loadShipment();
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "Shipment action failed.";
@@ -406,7 +452,9 @@ export default function AdminShipmentDetailsPage() {
                       setActionMode("status");
                       // Opens on the earliest stage this shipment may record, so the
                       // form never presents a selection the server would reject.
-                      setNextStatus(firstAllowedOperationalStatus(recordedStatuses));
+                      const firstStatus = firstAllowedOperationalStatus(recordedStatuses);
+                      setNextStatus(firstStatus);
+                      setActionGatewayCode(firstStatus === "DESTINATION_ARRIVED" && isUkRoute ? "LHR" : "");
                       setActionNote("");
                     }}
                     className="h-10 border border-blue-900 px-4 rounded-4xl text-sm font-semibold text-blue-900 hover:bg-blue-50"
@@ -438,6 +486,21 @@ export default function AdminShipmentDetailsPage() {
                   </button>
                 )}
               </>
+            ) : null}
+            {history?.dpdShipment && arrivalEvent ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setActionMode("gateway");
+                  setActionGatewayCode(isUkRoute ? "LHR" : arrivalEvent.gatewayCode ?? "");
+                  setActionNote("");
+                  setActionLocation("");
+                  setActionAt("");
+                }}
+                className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-blue-900 hover:text-blue-900"
+              >
+                {arrivalEvent.gatewayCode ? "Correct Gateway IATA" : "Set Gateway IATA"}
+              </button>
             ) : null}
           </div>
         </div>
@@ -480,7 +543,15 @@ export default function AdminShipmentDetailsPage() {
             ) : null}
             {actionMode ? (
              <section className="border  bg-white p-5 rounded-2xl border-amber-300">
-                <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_220px_auto] lg:items-end">
+                <div className={`grid gap-4 lg:items-start ${
+                  actionMode === "status"
+                    ? nextStatus === "DESTINATION_ARRIVED"
+                      ? "lg:grid-cols-2 xl:grid-cols-[200px_minmax(0,1fr)_180px_170px_210px_auto]"
+                      : "lg:grid-cols-[200px_minmax(0,1fr)_180px_210px_auto]"
+                    : actionMode === "gateway"
+                      ? "sm:grid-cols-[minmax(0,1fr)_190px_auto]"
+                    : "lg:grid-cols-[220px_minmax(0,1fr)_220px_auto]"
+                }`}>
                   {actionMode === "hold" ? (
                     <label>
                       <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Hold Reason</span>
@@ -506,7 +577,11 @@ export default function AdminShipmentDetailsPage() {
                       <div className="relative mt-2">
                         <select
                           value={nextStatus}
-                          onChange={(event) => setNextStatus(event.target.value as ShipmentOperationalStatus)}
+                          onChange={(event) => {
+                            const status = event.target.value as ShipmentOperationalStatus;
+                            setNextStatus(status);
+                            setActionGatewayCode(status === "DESTINATION_ARRIVED" && isUkRoute ? "LHR" : "");
+                          }}
                           className="h-10 w-full appearance-none border rounded-xl border-slate-300 bg-white px-3 pr-9 text-sm font-semibold text-slate-900 focus:border-blue-900 focus:outline-none"
                         >
                           {statusChoices.map((option) => (
@@ -516,10 +591,10 @@ export default function AdminShipmentDetailsPage() {
                               // A stage the shipment has not reached yet. Shown rather
                               // than hidden so the whole journey stays visible and the
                               // outstanding step explains itself.
-                              disabled={option.missing.length > 0}
+                              disabled={option.completed || option.missing.length > 0}
                             >
                               {option.label}
-                              {option.missing.length ? "- not yet reached" : ""}
+                              {option.completed ? " — completed" : option.missing.length ? " — not yet reached" : ""}
                             </option>
                           ))}
                         </select>
@@ -538,15 +613,22 @@ export default function AdminShipmentDetailsPage() {
                         </p>
                       ) : null}
                     </label>
+                  ) : actionMode === "gateway" ? (
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Actual Arrival Gateway</p>
+                      <p className="mt-2 text-sm font-semibold text-slate-950">
+                        Correct the IATA without adding or changing a timeline event.
+                      </p>
+                    </div>
                   ) : (
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Release Action</p>
                       <p className="mt-2 text-sm font-semibold text-slate-950">Release shipment from hold</p>
                     </div>
                   )}
-                  <label>
+                  {actionMode !== "gateway" ? <label>
                     <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      {actionMode === "hold" ? "Hold Note" : "Release Note"}
+                      {actionMode === "hold" ? "Hold Note" : actionMode === "release" ? "Release Note" : "Status Note"}
                     </span>
                     <input
                       value={actionNote}
@@ -554,8 +636,8 @@ export default function AdminShipmentDetailsPage() {
                       placeholder={actionMode === "hold" ? "Explain why this shipment is on hold" : actionMode === "release" ? "Explain why this shipment can continue" : "Optional status note"}
                       className="mt-2 h-10 w-full border border-slate-300 px-3  rounded-xl text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
                     />
-                  </label>
-                  <label>
+                  </label> : null}
+                  {actionMode !== "gateway" ? <label>
                     <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Location <span className="font-normal normal-case text-slate-400">(optional)</span>
                     </span>
@@ -563,19 +645,49 @@ export default function AdminShipmentDetailsPage() {
                       value={actionLocation}
                       onChange={(event) => setActionLocation(event.target.value)}
                       maxLength={120}
-                      placeholder="Delhi Hub"
+                      placeholder={nextStatus === "DESTINATION_ARRIVED" ? "Toronto Gateway" : "Delhi Hub"}
                       title="Where this scan happened. Shown to the customer as the shipment's current location."
                       className="mt-2 h-10 w-full border border-slate-300 px-3 rounded-xl text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
                     />
-                  </label>
-                  <div className="flex gap-2">
+                  </label> : null}
+                  {actionMode === "gateway" || (actionMode === "status" && nextStatus === "DESTINATION_ARRIVED") ? (
+                    <GatewayIataInput
+                      value={actionGatewayCode}
+                      onChange={setActionGatewayCode}
+                      ukRoute={isUkRoute}
+                    />
+                  ) : null}
+                  {actionMode === "status" ? (
+                    <label>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Status Date <span className="font-normal normal-case text-slate-400">(optional)</span>
+                      </span>
+                      <input
+                        type="datetime-local"
+                        value={actionAt}
+                        onChange={(event) => setActionAt(event.target.value)}
+                        max={currentDateTimeLocal()}
+                        title="When this scan actually happened. Leave empty to record it as happening now."
+                        className="mt-2 h-10 w-full border border-slate-300 px-3 rounded-xl text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
+                      />
+                      <span className="mt-1 block text-xs font-medium leading-4 text-slate-500">
+                        Shown on the timeline instead of the moment you press Update.
+                      </span>
+                    </label>
+                  ) : null}
+                  <div className="flex gap-2 lg:mt-6">
                     <button
                       type="button"
                       onClick={handleShipmentAction}
-                      disabled={actionBusy || ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3) || (actionMode === "hold" && !holdReason) || (actionMode === "status" && Boolean(blockedStatus?.missing.length))}
+                      disabled={actionBusy
+                        || ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3)
+                        || (actionMode === "hold" && !holdReason)
+                        || (actionMode === "status" && Boolean(blockedStatus?.completed || blockedStatus?.missing.length))
+                        || ((actionMode === "gateway" || (actionMode === "status" && nextStatus === "DESTINATION_ARRIVED"))
+                          && !isValidGatewayIata(isUkRoute ? "LHR" : actionGatewayCode))}
                       className="h-10 bg-blue-900 px-4  rounded-2xl text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                     >
-                      {actionBusy ? "Saving..." : actionMode === "hold" ? "Hold" : actionMode === "release" ? "Release" : "Update"}
+                      {actionBusy ? "Saving..." : actionMode === "hold" ? "Hold" : actionMode === "release" ? "Release" : actionMode === "gateway" ? "Save Gateway" : "Update"}
                     </button>
                     <button
                       type="button"
@@ -583,6 +695,8 @@ export default function AdminShipmentDetailsPage() {
                         setActionMode(null);
                         setActionNote("");
                         setActionLocation("");
+                        setActionGatewayCode("");
+                        setActionAt("");
                       }}
                       className="h-10 border     border-slate-300 px-4  rounded-2xl text-sm font-semibold text-slate-700 hover:border-slate-500"
                     >

@@ -26,7 +26,7 @@ export const csbTypeOptions: Array<{ value: CsbType; label: string; description:
   {
     value: "CSB_V",
     label: "CSB-V",
-    description: `Adds a flat ₹${csbVClearanceCharge.toLocaleString("en-IN")} clearance charge per shipment, plus GST.`
+    description: `Adds a flat GST-inclusive ₹${csbVClearanceCharge.toLocaleString("en-IN")} clearance charge per shipment.`
   }
 ];
 

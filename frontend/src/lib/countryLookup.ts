@@ -1,4 +1,4 @@
-import { portalCountries, type PortalCountry } from "@/lib/portalCountries";
+import { countries, countryAliases, type Country, type CountryAliases } from "@/lib/countries";
 
 /**
  * Matches what a person types to a country.
@@ -9,27 +9,10 @@ import { portalCountries, type PortalCountry } from "@/lib/portalCountries";
  * to a customer and "GB" to the standard, the United States is "USA", and the
  * United Arab Emirates is "UAE". Matching on the code alone therefore fails on
  * exactly the destinations that get typed most.
- */
-
-/**
- * Everyday names that are not the country's own name or its code.
  *
- * Deliberately short. Every entry here is a term a customer would actually
- * type into a destination field, not an exhaustive list of endonyms- a long
- * speculative list would only add ways for two countries to collide.
+ * The ranking is generic over the catalogue and the alias table so a narrower
+ * list can reuse it without inheriting this one's vocabulary.
  */
-const aliases: Record<string, string[]> = {
-  gb: ["uk", "britain", "great britain", "england", "scotland", "wales", "northern ireland"],
-  us: ["usa", "america", "united states of america"],
-  ae: ["uae", "emirates", "dubai", "abu dhabi"],
-  nl: ["holland"],
-  kr: ["korea", "republic of korea"],
-  sa: ["ksa"],
-  cn: ["prc", "mainland china"],
-  in: ["bharat"],
-  za: ["rsa"],
-  nz: ["aotearoa"]
-};
 
 /** How well a country matched, lowest first. Decides suggestion order. */
 const enum Rank {
@@ -41,13 +24,9 @@ const enum Rank {
   NameContains = 5
 }
 
-function aliasesFor(country: PortalCountry) {
-  return aliases[country.iso2] ?? [];
-}
-
-function rank(country: PortalCountry, query: string): Rank | null {
+function rank(country: Country, query: string, aliases: CountryAliases): Rank | null {
   const name = country.name.toLowerCase();
-  const list = aliasesFor(country);
+  const list = aliases[country.iso2] ?? [];
 
   if (country.iso2 === query) return Rank.ExactCode;
   if (name === query) return Rank.ExactName;
@@ -60,46 +39,63 @@ function rank(country: PortalCountry, query: string): Rank | null {
 }
 
 /**
- * Countries matching a typed query, best match first.
+ * Countries from `list` matching a typed query, best match first.
  *
- * An empty query returns the whole list, so opening the field shows the
- * options rather than nothing.
+ * An empty query returns the whole list, so opening a field shows the options
+ * rather than nothing.
  */
-export function findCountries(query: string): PortalCountry[] {
+export function rankCountries<T extends Country>(
+  list: readonly T[],
+  query: string,
+  aliases: CountryAliases = countryAliases
+): T[] {
   const needle = query.trim().toLowerCase();
-  if (!needle) return portalCountries;
+  if (!needle) return [...list];
 
-  return portalCountries
-    .map((country) => ({ country, score: rank(country, needle) }))
-    .filter((entry): entry is { country: PortalCountry; score: Rank } => entry.score !== null)
+  return list
+    .map((country) => ({ country, score: rank(country, needle, aliases) }))
+    .filter((entry): entry is { country: T; score: Rank } => entry.score !== null)
     .sort((a, b) => a.score - b.score || a.country.name.localeCompare(b.country.name))
     .map((entry) => entry.country);
 }
 
 /**
- * The single country a typed value unambiguously means, or null.
+ * The single country in `list` a typed value unambiguously means, or null.
  *
- * Only an exact hit counts- a code, a full name, or a known alias. A prefix
- * is deliberately not enough: "united" would otherwise silently resolve to
- * whichever of the three "United …" countries happens to sort first.
+ * Only an exact hit counts- a code, a full name, or a known alias. A prefix is
+ * deliberately not enough: "united" would otherwise silently resolve to
+ * whichever of the three "United ..." countries happens to sort first.
  */
-export function resolveCountry(value: string): PortalCountry | null {
+export function resolveIn<T extends Country>(
+  list: readonly T[],
+  value: string,
+  aliases: CountryAliases = countryAliases
+): T | null {
   const needle = value.trim().toLowerCase();
   if (!needle) return null;
 
-  return portalCountries.find((country) => {
-    const score = rank(country, needle);
+  return list.find((country) => {
+    const score = rank(country, needle, aliases);
     return score === Rank.ExactCode || score === Rank.ExactName || score === Rank.ExactAlias;
   }) ?? null;
+}
+
+/** Countries matching a typed query, best match first. */
+export function findCountries(query: string): Country[] {
+  return rankCountries(countries, query);
+}
+
+/** The single country a typed value unambiguously means, or null. */
+export function resolveCountry(value: string): Country | null {
+  return resolveIn(countries, value);
 }
 
 /**
  * The country code to submit for a typed value.
  *
- * Falls back to the raw text, uppercased, when nothing matched. The portal
- * ships a short country list but the rate cards and route records behind these
- * fields do not, so a code we do not list is passed through for the database to
- * answer rather than rejected here.
+ * Falls back to the raw text, uppercased, when nothing matched, so a code the
+ * catalogue does not list is passed through for the database to answer rather
+ * than rejected here.
  */
 export function toCountryCode(value: string): string {
   return resolveCountry(value)?.iso2.toUpperCase() ?? value.trim().toUpperCase();

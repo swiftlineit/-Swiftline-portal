@@ -200,13 +200,13 @@ export function buildTermsLines(share: IRateCardShare) {
     `This rate card is valid from ${date(terms.validFrom)} to ${date(terms.validUntil)} and supersedes all previous rate cards.`
   ];
 
-  if (terms.fuelSurchargePercent > 0) lines.push(`A fuel surcharge of ${terms.fuelSurchargePercent}% applies on the net freight and is revised monthly.`);
-  if (terms.gstPercent > 0) lines.push(`GST at ${terms.gstPercent}% is charged additionally as applicable under Indian tax law.`);
+  if (terms.fuelSurchargePercent > 0) lines.push(`A fuel surcharge of ${terms.fuelSurchargePercent}% applies on the GST-inclusive freight rate and is revised monthly.`);
+  if (terms.gstPercent > 0) lines.push(`Published rates and route charges include GST at ${terms.gstPercent}% as applicable under Indian tax law.`);
   if (terms.minChargeableWeightKg > 0) lines.push(`Minimum chargeable weight is ${terms.minChargeableWeightKg} kg per shipment.`);
   if (terms.volumetricDivisor > 0) lines.push(`Chargeable weight is the greater of actual weight and volumetric weight (L x W x H in cm / ${terms.volumetricDivisor}).`);
 
   lines.push(
-    "Rates exclude duties, taxes, customs clearance charges and any charges levied at destination.",
+    "Rates exclude duties, destination-country taxes, customs clearance charges and any charges levied at destination.",
     "Rates are subject to revision on account of carrier tariff changes, currency movement or regulatory action.",
     "Shipments are accepted subject to Swiftline's standard terms and conditions of carriage."
   );

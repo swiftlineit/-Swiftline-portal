@@ -3,24 +3,24 @@
 import {
   ChangeEvent,
   FormEvent,
-  KeyboardEvent,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { toast } from "react-toastify";
-import { FiDownload, FiEdit2, FiShare2, FiTrash2 } from "react-icons/fi";
+import { FiChevronRight, FiDownload, FiSearch, FiShare2, FiTrash2, FiUploadCloud } from "react-icons/fi";
 import { MdOutlineKeyboardDoubleArrowRight } from "react-icons/md";
 
-import { FlagImage, type CountryIso2 } from "react-international-phone";
 import { DashboardLoading } from "@/components/DashboardShell";
 import { BiSolidEdit } from "react-icons/bi";
 import ShareRateCardDialog from "@/components/rate-cards/ShareRateCardDialog";
+import RateCardImportDialog from "@/components/rate-cards/RateCardImportDialog";
+import RateCardCountryPicker from "@/components/rate-cards/RateCardCountryPicker";
+import CountryFlag from "@/components/CountryFlag";
 import RouteChargesForm from "@/components/rate-cards/RouteChargesForm";
 import RateCardAssignments from "@/components/rate-cards/RateCardAssignments";
-import { countryOptions } from "@/lib/branches";
-import { portalCountries } from "@/lib/portalCountries";
+import { countryName } from "@/lib/countries";
+import { resolveCountry } from "@/lib/countryLookup";
 import {
   buildCountryRateCardCsv,
   CountryRateCard,
@@ -41,7 +41,8 @@ import { RATE_CARD_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 
 type FormState = {
-  countryCode: string;
+  /** The text in the country field. The ISO code is derived from it. */
+  countryQuery: string;
   service: CountryRateService;
   fromKg: string;
   toKg: string;
@@ -49,8 +50,11 @@ type FormState = {
   maxBoxKg: string;
 };
 
+// The country field starts empty. It used to default to the United Kingdom,
+// which made the quickest way to use the form also the quickest way to save a
+// UK rate by accident.
 const defaultForm: FormState = {
-  countryCode: "GB",
+  countryQuery: "",
   service: "COURIER",
   fromKg: "",
   toKg: "",
@@ -58,39 +62,20 @@ const defaultForm: FormState = {
   maxBoxKg: "",
 };
 
-// The rate-card picker: the shared shortlist plus Poland, and an "Other" entry
-// that staff resolve against the full portal country list before saving.
-const rateCardCountryOptions = [
-  ...countryOptions,
-  { code: "PL", name: "Poland" },
-  { code: "OTHER", name: "Other" }
-];
+/** One country and service, with its weight slabs. How the table is grouped. */
+type RateGroup = {
+  key: string;
+  countryCode: string;
+  countryName: string;
+  service: CountryRateService;
+  rates: CountryRateCard[];
+};
 
-function findRateCardCountry(countryCode: string) {
-  const shortlist = rateCardCountryOptions.find(
-    (country) => country.code === countryCode,
-  );
-  if (shortlist) return shortlist;
-
-  const portal = portalCountries.find(
-    (country) => country.iso2.toUpperCase() === countryCode,
-  );
-  return portal ? { code: portal.iso2.toUpperCase(), name: portal.name } : null;
-}
-
-function getCountryName(countryCode: string) {
-  return findRateCardCountry(countryCode)?.name ?? countryCode;
-}
-
-function getCountryIso2(countryCode: string) {
-  return countryCode.toLowerCase() as CountryIso2;
-}
-
-function toPayload(form: FormState, band: RateCardBand): CountryRateCardInput {
+function toPayload(form: FormState, countryCode: string, band: RateCardBand): CountryRateCardInput {
   return {
     band,
-    countryCode: form.countryCode,
-    countryName: getCountryName(form.countryCode),
+    countryCode,
+    countryName: countryName(countryCode),
     service: form.service,
     fromKg: Number(form.fromKg),
     toKg: Number(form.toKg),
@@ -106,15 +91,93 @@ export default function CountryRateCardPage() {
   const [selectedBand, setSelectedBand] = useState<RateCardBand>("BAND_A");
   const [form, setForm] = useState<FormState>(defaultForm);
   const [editingRateId, setEditingRateId] = useState("");
+  const [countryError, setCountryError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [sharing, setSharing] = useState(false);
-  const visibleRates = useMemo(
+  const [importing, setImporting] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [serviceFilter, setServiceFilter] = useState<CountryRateService | "">("");
+  // Only the groups the operator has opened or closed by hand; everything else
+  // follows the default for the current list length.
+  const [overriddenGroups, setOverriddenGroups] = useState<Record<string, boolean>>({});
+
+  // Derived rather than stored beside the text: holding the code and the text
+  // as two pieces of state is what makes this kind of field drift, where the
+  // box says one country and the rate is saved against another.
+  const selectedCountry = useMemo(
+    () => resolveCountry(form.countryQuery),
+    [form.countryQuery],
+  );
+  const countryCode = selectedCountry?.iso2.toUpperCase() ?? "";
+
+  const bandRates = useMemo(
     () => rates.filter((rate) => rate.band === selectedBand),
     [rates, selectedBand],
   );
+
+  const visibleRates = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+
+    return bandRates.filter((rate) => {
+      if (serviceFilter && rate.service !== serviceFilter) return false;
+      if (!needle) return true;
+      return rate.countryName.toLowerCase().includes(needle)
+        || rate.countryCode.toLowerCase().includes(needle);
+    });
+  }, [bandRates, search, serviceFilter]);
+
+  // Grouped by destination and service: a full rate list runs to nine hundred
+  // slabs on one band, and a flat table of that length cannot be read.
+  const groups = useMemo(() => {
+    const byKey = new Map<string, RateGroup>();
+
+    for (const rate of visibleRates) {
+      const key = `${rate.countryCode}:${rate.service}`;
+      const group = byKey.get(key);
+      if (group) {
+        group.rates.push(rate);
+        continue;
+      }
+
+      byKey.set(key, {
+        key,
+        countryCode: rate.countryCode,
+        countryName: rate.countryName,
+        service: rate.service,
+        rates: [rate],
+      });
+    }
+
+    return [...byKey.values()]
+      .map((group) => ({
+        ...group,
+        rates: [...group.rates].sort((a, b) => a.fromKg - b.fromKg),
+      }))
+      .sort((a, b) => a.countryName.localeCompare(b.countryName) || a.service.localeCompare(b.service));
+  }, [visibleRates]);
+
+  // A short list is easier to read open; a long one is unusable open. A search
+  // that narrows to a handful therefore opens them without a second click.
+  //
+  // Only groups the operator has actually clicked are remembered, and they are
+  // remembered as a state rather than as membership of a list. Storing "these
+  // are open" instead would invert every one of them the moment a search
+  // changed what the default is.
+  const expandedByDefault = groups.length <= 8;
+  function isExpanded(key: string) {
+    return overriddenGroups[key] ?? expandedByDefault;
+  }
+
+  function toggleGroup(key: string) {
+    setOverriddenGroups((current) => ({
+      ...current,
+      [key]: !(current[key] ?? expandedByDefault),
+    }));
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -144,6 +207,13 @@ export default function CountryRateCardPage() {
     void loadRates();
   }, [user]);
 
+  // Debounced so a long rate card is not regrouped on every keystroke, matching
+  // the shipments list.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 250);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
   function updateField<K extends keyof FormState>(
     field: K,
     value: FormState[K],
@@ -161,19 +231,21 @@ export default function CountryRateCardPage() {
   function resetForm() {
     setForm(defaultForm);
     setEditingRateId("");
+    setCountryError("");
     setMessage("");
   }
 
   function editRate(rate: CountryRateCard) {
     setEditingRateId(rate._id);
     setForm({
-      countryCode: rate.countryCode,
+      countryQuery: countryName(rate.countryCode),
       service: rate.service,
       fromKg: String(rate.fromKg),
       toKg: String(rate.toKg),
       chargesPerKg: String(rate.chargesPerKg),
       maxBoxKg: String(rate.maxBoxKg),
     });
+    setCountryError("");
     setMessage("");
   }
 
@@ -189,17 +261,24 @@ export default function CountryRateCardPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (form.countryCode === "OTHER") {
-      setError("Add the country from the Other option before saving.");
+    // A rate is keyed by ISO-3166 alpha-2, so there is nothing to submit until
+    // the typed text resolves to a country.
+    if (!countryCode) {
+      setCountryError(
+        form.countryQuery.trim()
+          ? `We could not match "${form.countryQuery.trim()}" to a country. Pick one from the list.`
+          : "Pick a country from the list.",
+      );
       return;
     }
 
     setBusy(true);
+    setCountryError("");
     setError("");
     setMessage("");
 
     try {
-      await saveCountryRateCard(toPayload(form, selectedBand), editingRateId || undefined);
+      await saveCountryRateCard(toPayload(form, countryCode, selectedBand), editingRateId || undefined);
       await refreshRates();
       resetForm();
       toast.success(editingRateId ? "Rate card updated." : "Rate card added.");
@@ -277,6 +356,14 @@ export default function CountryRateCardPage() {
           </label>
           <button
             type="button"
+            onClick={() => setImporting(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-slate-500"
+          >
+            <FiUploadCloud aria-hidden="true" className="h-4 w-4" />
+            Import Excel
+          </button>
+          <button
+            type="button"
             onClick={exportRates}
             disabled={!visibleRates.length}
             className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-slate-500 disabled:cursor-not-allowed disabled:text-slate-400"
@@ -287,7 +374,7 @@ export default function CountryRateCardPage() {
           <button
             type="button"
             onClick={() => setSharing(true)}
-            disabled={!visibleRates.length}
+            disabled={!bandRates.length}
             className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0a0e66] disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             <FiShare2 aria-hidden="true" className="h-4 w-4" />
@@ -298,6 +385,15 @@ export default function CountryRateCardPage() {
 
       {sharing ? (
         <ShareRateCardDialog rates={rates} initialBand={selectedBand} onClose={() => setSharing(false)} />
+      ) : null}
+
+      {importing ? (
+        <RateCardImportDialog
+          initialBand={selectedBand}
+          existingRates={rates}
+          onClose={() => setImporting(false)}
+          onImported={() => void refreshRates()}
+        />
       ) : null}
 
       {error ? (
@@ -321,105 +417,131 @@ export default function CountryRateCardPage() {
           Add multiple non-overlapping slabs for the same country and service.
         </p>
         <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-7 items-end">
-  <CountryRateSelect
-    value={form.countryCode}
-    onChange={(countryCode) => updateField("countryCode", countryCode)}
-  />
+          <RateCardCountryPicker
+            value={form.countryQuery}
+            onChange={(value) => {
+              updateField("countryQuery", value);
+              setCountryError("");
+            }}
+            invalid={Boolean(countryError)}
+          />
 
-  <label>
-    <span className="text-xs font-semibold uppercase text-slate-500">
-      Service
-    </span>
+          <label>
+            <span className="text-xs font-semibold uppercase text-slate-500">
+              Service
+            </span>
 
-    <div className="relative mt-2">
-      <select
-        value={form.service}
-        onChange={handleInput("service")}
-        className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
-      >
-        {countryRateServices.map((service) => (
-          <option key={service} value={service}>
-            {formatCountryRateService(service)}
-          </option>
-        ))}
-      </select>
+            <div className="relative mt-2">
+              <select
+                value={form.service}
+                onChange={handleInput("service")}
+                className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
+              >
+                {countryRateServices.map((service) => (
+                  <option key={service} value={service}>
+                    {formatCountryRateService(service)}
+                  </option>
+                ))}
+              </select>
 
-      <span className="pointer-events-none absolute right-3 top-1/2 h-0 w-0 -translate-y-1/2 border-x-[5px] border-t-[6px] border-x-transparent border-t-slate-500" />
-    </div>
-  </label>
+              <span className="pointer-events-none absolute right-3 top-1/2 h-0 w-0 -translate-y-1/2 border-x-[5px] border-t-[6px] border-x-transparent border-t-slate-500" />
+            </div>
+          </label>
 
-  <RateInput
-    label="From KG"
-    value={form.fromKg}
-    onChange={handleInput("fromKg")}
-  />
+          <RateInput
+            label="From KG"
+            value={form.fromKg}
+            onChange={handleInput("fromKg")}
+          />
 
-  <RateInput
-    label="To KG"
-    value={form.toKg}
-    onChange={handleInput("toKg")}
-  />
+          <RateInput
+            label="To KG"
+            value={form.toKg}
+            onChange={handleInput("toKg")}
+          />
 
-  <RateInput
-    label="Charges / KG"
-    value={form.chargesPerKg}
-    onChange={handleInput("chargesPerKg")}
-  />
+          <RateInput
+            label="Charges / KG"
+            value={form.chargesPerKg}
+            onChange={handleInput("chargesPerKg")}
+          />
 
-  <RateInput
-    label="Max Box KG"
-    value={form.maxBoxKg}
-    onChange={handleInput("maxBoxKg")}
-  />
+          <RateInput
+            label="Max Box KG"
+            value={form.maxBoxKg}
+            onChange={handleInput("maxBoxKg")}
+          />
 
-  <div className="flex flex-col justify-end gap-2">
-    <button
-      type="submit"
-      disabled={busy}
-      className="h-10 rounded-4xl bg-blue-900 px-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-    >
-      {busy ? "Saving..." : editingRateId ? "Update Rate" : " + Add Rate"}
-    </button>
-
-    {editingRateId ? (
-      <button
-        type="button"
-        onClick={resetForm}
-        className="h-10 rounded-4xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
-      >
-        Cancel Edit
-      </button>
-    ) : null}
-  </div>
-</div>
-        {/* <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            type="submit"
-            disabled={busy}
-            className="h-10 bg-blue-900 px-4 text-sm font-semibold rounded-4xl text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-          >
-            {busy ? "Saving..." : editingRateId ? "Update Rate" : "Add Rate"}
-          </button>
-          {editingRateId ? (
+          <div className="flex flex-col justify-end gap-2">
             <button
-              type="button"
-              onClick={resetForm}
-              className="h-10 border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
+              type="submit"
+              disabled={busy}
+              className="h-10 rounded-4xl bg-blue-900 px-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
             >
-              Cancel Edit
+              {busy ? "Saving..." : editingRateId ? "Update Rate" : " + Add Rate"}
             </button>
-          ) : null}
-        </div> */}
+
+            {editingRateId ? (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="h-10 rounded-4xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
+              >
+                Cancel Edit
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {countryError ? (
+          <p className="mt-3 text-xs font-semibold text-red-600">{countryError}</p>
+        ) : null}
       </form>
 
       {/* Keyed to the country selected above; service targeting is handled inside
           the route-charge section so it can update Courier and Cargo together. */}
       <RouteChargesForm
         band={selectedBand}
-        countryCode={form.countryCode}
-        countryName={getCountryName(form.countryCode)}
+        countryCode={countryCode}
+        countryName={countryCode ? countryName(countryCode) : ""}
         onSaved={() => void refreshRates()}
       />
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <FiSearch
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+          />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Search a country or code"
+            aria-label="Search rate card countries"
+            className="h-10 w-full rounded-2xl border border-slate-300 bg-white pl-9 pr-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
+          />
+        </div>
+
+        <select
+          value={serviceFilter}
+          onChange={(event) => setServiceFilter(event.target.value as CountryRateService | "")}
+          aria-label="Filter by service"
+          className="h-10 rounded-2xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
+        >
+          <option value="">All services</option>
+          {countryRateServices.map((service) => (
+            <option key={service} value={service}>{formatCountryRateService(service)}</option>
+          ))}
+        </select>
+
+        <p className="text-xs font-semibold text-slate-500">
+          {visibleRates.length === bandRates.length
+            ? `${bandRates.length} slab${bandRates.length === 1 ? "" : "s"}`
+            : `${visibleRates.length} of ${bandRates.length} slabs`}
+          {groups.length ? ` · ${groups.length} destination${groups.length === 1 ? "" : "s"}` : ""}
+        </p>
+      </div>
 
       <div className="overflow-x-auto border border-slate-200 bg-white rounded-2xl ">
         <table className="min-w-full text-left text-sm">
@@ -437,80 +559,141 @@ export default function CountryRateCardPage() {
           <tbody>
             {dataLoading ? (
               <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-8 text-center text-slate-500"
-                >
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                   Loading rate cards...
                 </td>
               </tr>
-            ) : visibleRates.length === 0 ? (
+            ) : groups.length === 0 ? (
               <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-8 text-center text-slate-500"
-                >
-                  No country rate cards found.
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  {bandRates.length ? "No rates match this search." : "No country rate cards found."}
                 </td>
               </tr>
             ) : (
-              visibleRates.map((rate) => (
-                <tr
-                  key={rate._id}
-                  className="border-b border-slate-100 last:border-b-0"
-                >
-                  <td className="px-4 py-3">
-                    <p className="flex items-center gap-2 font-semibold text-slate-950">
-                      <span className="flex h-5 w-7 items-center justify-center overflow-hidden [&_img]:rounded-none">
-                        <FlagImage
-                          iso2={getCountryIso2(rate.countryCode)}
-                          size="20px"
-                        />
-                      </span>
-                      <span>{rate.countryName}</span>
-                    </p>
-                  </td>
-                  <td className="px-4 py-3">
-                    {formatCountryRateService(rate.service)}
-                  </td>
-                  <td className="px-4 py-3 ">{rate.fromKg}<span><MdOutlineKeyboardDoubleArrowRight className="mx-1 mb-1 inline h-4 w-4 text-green-800"
-                   /></span>{rate.toKg}</td>
-                  <td className="px-4 py-3 font-semibold">
-                    {rate.chargesPerKg}
-                  </td>
-                  <td className="px-4 py-3">{rate.maxBoxKg}</td>
-                  <td className="px-4 py-3 text-xs max-w-5 text-slate-600">
-                    {formatRouteChargeSummary(routeCharges.find((charge) =>
-                      charge.band === selectedBand && charge.countryCode === rate.countryCode && charge.service === rate.service
-                    ))}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={() => editRate(rate)}
-                        className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700"
-                      >
-                        <BiSolidEdit  aria-hidden="true" className="h-4 w-4" />
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void removeRate(rate._id)}
-                        disabled={busy}
-                        className="inline-flex items-center gap-1 font-semibold text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:text-slate-400"
-                      >
-                        <FiTrash2 aria-hidden="true" className="h-4 w-4" />
-                        Remove
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+              groups.map((group) => {
+                const open = isExpanded(group.key);
+                const routeCharge = routeCharges.find((charge) =>
+                  charge.band === selectedBand
+                  && charge.countryCode === group.countryCode
+                  && charge.service === group.service
+                );
+                const cheapest = Math.min(...group.rates.map((rate) => rate.chargesPerKg));
+                const dearest = Math.max(...group.rates.map((rate) => rate.chargesPerKg));
+
+                return (
+                  <GroupRows
+                    key={group.key}
+                    group={group}
+                    open={open}
+                    onToggle={() => toggleGroup(group.key)}
+                    routeChargeSummary={formatRouteChargeSummary(routeCharge)}
+                    cheapest={cheapest}
+                    dearest={dearest}
+                    busy={busy}
+                    onEdit={editRate}
+                    onRemove={(rateId) => void removeRate(rateId)}
+                  />
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+function GroupRows({
+  group,
+  open,
+  onToggle,
+  routeChargeSummary,
+  cheapest,
+  dearest,
+  busy,
+  onEdit,
+  onRemove,
+}: {
+  group: RateGroup;
+  open: boolean;
+  onToggle: () => void;
+  routeChargeSummary: string;
+  cheapest: number;
+  dearest: number;
+  busy: boolean;
+  onEdit: (rate: CountryRateCard) => void;
+  onRemove: (rateId: string) => void;
+}) {
+  return (
+    <>
+      <tr className="border-b border-slate-100 bg-slate-50/70">
+        <td colSpan={7} className="p-0">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left"
+          >
+            <FiChevronRight
+              aria-hidden="true"
+              className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
+            />
+            <CountryFlag code={group.countryCode} size={20} />
+            <span className="font-semibold text-slate-950">{group.countryName}</span>
+            <span className="rounded-full border border-slate-300 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+              {formatCountryRateService(group.service)}
+            </span>
+            <span className="text-xs text-slate-500">
+              {group.rates.length} slab{group.rates.length === 1 ? "" : "s"}
+              {" · "}
+              {dearest === cheapest ? `${cheapest} / kg` : `${dearest} to ${cheapest} / kg`}
+            </span>
+            <span className="ml-auto hidden max-w-80 truncate text-xs text-slate-500 sm:block">
+              {routeChargeSummary === "-" ? "No route charges" : routeChargeSummary}
+            </span>
+          </button>
+        </td>
+      </tr>
+
+      {open
+        ? group.rates.map((rate) => (
+            <tr key={rate._id} className="border-b border-slate-100">
+              <td className="px-4 py-3 pl-11 text-slate-500">{rate.countryCode}</td>
+              <td className="px-4 py-3">{formatCountryRateService(rate.service)}</td>
+              <td className="px-4 py-3">
+                {rate.fromKg}
+                <span>
+                  <MdOutlineKeyboardDoubleArrowRight className="mx-1 mb-1 inline h-4 w-4 text-green-800" />
+                </span>
+                {rate.toKg}
+              </td>
+              <td className="px-4 py-3 font-semibold">{rate.chargesPerKg}</td>
+              <td className="px-4 py-3">{rate.maxBoxKg}</td>
+              <td className="px-4 py-3 max-w-5 text-xs text-slate-600">{routeChargeSummary}</td>
+              <td className="px-4 py-3">
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => onEdit(rate)}
+                    className="inline-flex items-center gap-1 font-semibold text-blue-900 hover:text-blue-700"
+                  >
+                    <BiSolidEdit aria-hidden="true" className="h-4 w-4" />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(rate._id)}
+                    disabled={busy}
+                    className="inline-flex items-center gap-1 font-semibold text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:text-slate-400"
+                  >
+                    <FiTrash2 aria-hidden="true" className="h-4 w-4" />
+                    Remove
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))
+        : null}
     </>
   );
 }
@@ -535,197 +718,6 @@ function formatRouteChargeSummary(routeCharge: CountryRouteCharge | undefined) {
   if (routeCharge.discountPercent > 0) details.push(`Discount ${routeCharge.discountPercent}%`);
 
   return details.length ? details.join(" · ") : "-";
-}
-
-function CountryRateSelect({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const [open, setOpen] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [otherQuery, setOtherQuery] = useState("");
-  const [otherError, setOtherError] = useState("");
-  const isOther = value === "OTHER";
-  const selectedCountry = isOther
-    ? null
-    : findRateCardCountry(value) ?? rateCardCountryOptions[0];
-
-  useEffect(() => {
-    if (!open) return;
-
-    function handlePointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [open]);
-
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`[data-index="${highlightedIndex}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [highlightedIndex]);
-
-  function selectCountry(country: (typeof rateCardCountryOptions)[number]) {
-    onChange(country.code);
-    setOpen(false);
-    setOtherError("");
-  }
-
-  function confirmOther() {
-    const target = otherQuery.trim();
-    if (!target) {
-      setOtherError("Enter a country name.");
-      return;
-    }
-
-    const match = portalCountries.find(
-      (country) => country.name.toLowerCase() === target.toLowerCase(),
-    );
-    if (!match) {
-      setOtherError(`"${target}" is not in our countries list.`);
-      return;
-    }
-
-    onChange(match.iso2.toUpperCase());
-    setOtherQuery("");
-    setOtherError("");
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (!open && ["ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
-      event.preventDefault();
-      setOpen(true);
-      return;
-    }
-
-    if (event.key === "Escape") {
-      setOpen(false);
-      return;
-    }
-
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlightedIndex((current) =>
-        Math.min(current + 1, rateCardCountryOptions.length - 1),
-      );
-    }
-
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlightedIndex((current) => Math.max(current - 1, 0));
-    }
-
-    if (event.key === "Enter" && rateCardCountryOptions[highlightedIndex]) {
-      event.preventDefault();
-      selectCountry(rateCardCountryOptions[highlightedIndex]);
-    }
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative min-w-0"
-      onKeyDown={handleKeyDown}
-    >
-      <span className="text-xs font-semibold uppercase text-slate-500">
-        Country
-      </span>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label="Country"
-        onClick={() => {
-          setOpen((current) => !current);
-          setHighlightedIndex(0);
-        }}
-        className="mt-2 flex h-10 w-full rounded-2xl items-center gap-3 border border-slate-300 bg-white px-3 text-left text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
-      >
-        <span className="flex h-5 w-7 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
-          {selectedCountry ? (
-            <FlagImage iso2={getCountryIso2(selectedCountry.code)} size="20px" />
-          ) : null}
-        </span>
-        <span className="min-w-0 flex-1 truncate">
-          {selectedCountry?.name ?? "Other"}
-        </span>
-      </button>
-
-      {isOther ? (
-        <div className="mt-2">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              list="portal-countries"
-              value={otherQuery}
-              onChange={(event) => {
-                setOtherQuery(event.target.value);
-                setOtherError("");
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  confirmOther();
-                }
-              }}
-              placeholder="Type a country from our list"
-              className="h-10 w-full rounded-2xl border border-slate-300 px-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
-            />
-            <button
-              type="button"
-              onClick={confirmOther}
-              className="h-10 shrink-0 rounded-2xl border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:border-slate-500"
-            >
-              Add
-            </button>
-          </div>
-          <datalist id="portal-countries">
-            {portalCountries.map((country) => (
-              <option key={country.iso2} value={country.name} />
-            ))}
-          </datalist>
-          {otherError ? (
-            <p className="mt-1 text-xs font-semibold text-red-600">{otherError}</p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {open ? (
-        <div
-          ref={listRef}
-          className="absolute top-full z-50 mt-1 max-h-64 w-full overflow-y-auto border border-slate-200 bg-white shadow-lg"
-        >
-          {rateCardCountryOptions.map((country, index) => (
-            <button
-              key={country.code}
-              type="button"
-              data-index={index}
-              onMouseEnter={() => setHighlightedIndex(index)}
-              onClick={() => selectCountry(country)}
-              className={`flex h-11 w-full items-center gap-3 px-3 text-left text-sm ${
-                highlightedIndex === index
-                  ? "bg-blue-50 text-blue-900"
-                  : "text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              <span className="flex h-5 w-7 shrink-0 items-center justify-center overflow-hidden [&_img]:rounded-none">
-                {country.code === "OTHER" ? null : (
-                  <FlagImage iso2={getCountryIso2(country.code)} size="20px" />
-                )}
-              </span>
-              <span className="truncate">{country.name}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 function RateInput({

@@ -56,6 +56,7 @@ function breakdown(input: {
   insuranceOptIn?: boolean;
   declaredGoodsValue?: number;
   charges?: Partial<RouteCharges>;
+  gstRate?: number;
 } = {}) {
   return calculateChargeBreakdown({
     freightAmount: input.freightAmount ?? 1000,
@@ -67,7 +68,7 @@ function breakdown(input: {
     insuranceOptIn: input.insuranceOptIn ?? false,
     declaredGoodsValue: input.declaredGoodsValue ?? 0,
     routeCharges: routeCharges(input.charges),
-    gstRate: 0.18
+    gstRate: input.gstRate ?? 0.18
   });
 }
 
@@ -92,21 +93,24 @@ describe("remote area postcode matching", () => {
 });
 
 describe("shipment charge breakdown", () => {
-  test("an unconfigured route prices exactly as it did before route charges existed", () => {
+  test("extracts GST from an inclusive rate instead of adding it", () => {
     const result = breakdown({ freightAmount: 1000 });
 
-    assert.equal(result.baseAmount, 1000);
-    assert.equal(result.gstAmount, 180);
-    assert.equal(result.totalAmount, 1180);
+    assert.equal(result.baseAmount, 847.46);
+    assert.equal(result.gstAmount, 152.54);
+    assert.equal(result.totalAmount, 1000);
+    assert.equal(result.inclusiveAmounts.freightAmount, 1000);
     assert.deepEqual(result.lines.map((line) => line.code), ["FREIGHT", "GST"]);
   });
 
-  test("CSB-V adds its flat clearance charge once, before GST", () => {
+  test("CSB-V adds its flat GST-inclusive clearance charge once", () => {
     const result = breakdown({ freightAmount: 1000, csbType: "CSB_V" });
 
-    assert.equal(result.csbClearanceAmount, 1800);
-    assert.equal(result.baseAmount, 2800);
-    assert.equal(result.totalAmount, 3304);
+    assert.equal(result.csbClearanceAmount, 1525.42);
+    assert.equal(result.inclusiveAmounts.csbClearanceAmount, 1800);
+    assert.equal(result.baseAmount, 2372.88);
+    assert.equal(result.gstAmount, 427.12);
+    assert.equal(result.totalAmount, 2800);
   });
 
   test("fuel is a percentage of freight only, not of the other charges", () => {
@@ -117,8 +121,9 @@ describe("shipment charge breakdown", () => {
     });
 
     // 15% of 1000 freight, not of the 2800 that includes clearance.
-    assert.equal(result.fuelSurchargeAmount, 150);
-    assert.equal(result.baseAmount, 2950);
+    assert.equal(result.inclusiveAmounts.fuelSurchargeAmount, 150);
+    assert.equal(result.fuelSurchargeAmount, 127.12);
+    assert.equal(result.totalAmount, 2950);
   });
 
   test("the remote area charge applies only to a matching postcode", () => {
@@ -126,7 +131,8 @@ describe("shipment charge breakdown", () => {
 
     const remote = breakdown({ destinationPostcode: "HS1 2AB", charges });
     assert.equal(remote.remoteAreaApplied, true);
-    assert.equal(remote.remoteAreaAmount, 750);
+    assert.equal(remote.inclusiveAmounts.remoteAreaAmount, 750);
+    assert.equal(remote.remoteAreaAmount, 635.59);
 
     const mainland = breakdown({ destinationPostcode: "EH1 1AA", charges });
     assert.equal(mainland.remoteAreaApplied, false);
@@ -170,10 +176,28 @@ describe("shipment charge breakdown", () => {
     });
 
     // Subtotal 1000 freight + 100 fuel + 1800 clearance = 2900.
-    assert.equal(result.discountAmount, 290);
-    assert.equal(result.baseAmount, 2610);
-    assert.equal(result.gstAmount, 469.8);
-    assert.equal(result.totalAmount, 3079.8);
+    assert.equal(result.inclusiveAmounts.discountAmount, 290);
+    assert.equal(result.discountAmount, 245.76);
+    assert.equal(result.baseAmount, 2211.86);
+    assert.equal(result.gstAmount, 398.14);
+    assert.equal(result.totalAmount, 2610);
+  });
+
+  test("uses the official 18 over 118 split for a four-thousand-rupee total", () => {
+    const result = breakdown({ freightAmount: 4000 });
+
+    assert.equal(result.baseAmount, 3389.83);
+    assert.equal(result.gstAmount, 610.17);
+    assert.equal(result.totalAmount, 4000);
+  });
+
+  test("a no-GST account pays the same inclusive commercial total", () => {
+    const result = breakdown({ freightAmount: 4000, gstRate: 0 });
+
+    assert.equal(result.baseAmount, 4000);
+    assert.equal(result.gstAmount, 0);
+    assert.equal(result.totalAmount, 4000);
+    assert.deepEqual(result.lines.map((line) => line.code), ["FREIGHT"]);
   });
 
   test("a full discount floors the taxable base at zero rather than going negative", () => {
@@ -303,6 +327,28 @@ describe("price lock", () => {
     const after = pricingEstimate({ pricingBasis: { ...before.pricingBasis, rateCardBand: "BAND_C" } });
     assert.equal(before.totalAmount, after.totalAmount);
     assert.notEqual(buildPricingHash(before), buildPricingHash(after));
+  });
+
+  test("turning GST on for an eligible no-GST account changes the breakdown but not the total", () => {
+    const withoutGst = pricingEstimate({
+      ...breakdown({ freightAmount: 4000, gstRate: 0 }),
+      gstRate: 0,
+      taxTreatment: "NO_GST",
+      noGstEligible: true,
+      gstForced: false
+    });
+    const withGst = pricingEstimate({
+      ...breakdown({ freightAmount: 4000, gstRate: 0.18 }),
+      gstRate: 0.18,
+      taxTreatment: "GST_APPLICABLE",
+      noGstEligible: true,
+      gstForced: true
+    });
+
+    assert.equal(withoutGst.totalAmount, 4000);
+    assert.equal(withGst.totalAmount, 4000);
+    assert.notEqual(withoutGst.gstAmount, withGst.gstAmount);
+    assert.notEqual(buildPricingHash(withoutGst), buildPricingHash(withGst));
   });
 
   test("a booking that matches the accepted price is allowed through", () => {

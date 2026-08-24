@@ -124,10 +124,13 @@ export type ShipmentPricingEstimate = {
     rateToKg: number | null;
     chargesPerKg: number | null;
     maxBoxKg: number | null;
+    /** Tax-exclusive freight printed on the GST invoice. */
     baseAmount: number;
+    /** Commercial rate-card amount before the included GST is extracted. */
+    inclusiveBaseAmount?: number;
     exceedsMaxBoxKg: boolean;
   }>;
-  // Freight only: the sum of the per-parcel rate card amounts.
+  // Tax-exclusive freight: the sum of the per-parcel invoice amounts.
   freightAmount: number;
   // Percentage of freight, per the route configuration.
   fuelSurchargeAmount: number;
@@ -144,14 +147,13 @@ export type ShipmentPricingEstimate = {
   insuranceApplied: boolean;
   // What the insurance premium is calculated from: quantity x unit rate across all items.
   declaredGoodsValue: number;
-  // Route-level discount taken off the pre-tax subtotal. Positive; it is subtracted.
+  // Route-level discount taken off the GST-inclusive subtotal. Positive; it is subtracted.
   discountAmount: number;
   /**
-   * Taxable base that GST is charged on: every charge above, less the discount.
+   * Taxable value extracted from the GST-inclusive charge total after discount.
    *
-   * On a route with no surcharge configuration this is freight + CSB-V clearance,
-   * which is exactly what it meant before route charges existed. Stored pricing
-   * snapshots and the invoice keep reading it unchanged.
+   * Stored historical snapshots keep their original meaning and values; newly
+   * calculated snapshots use this field as the invoice's tax-exclusive value.
    */
   baseAmount: number;
   gstAmount: number;
@@ -178,6 +180,24 @@ export type ShipmentPricingEstimate = {
   gstForced?: boolean;
   /** Account GST-billing version used to calculate the price. */
   gstBillingVersion?: number;
+  /**
+   * Commercial amounts exactly as configured in the rate card and route.
+   *
+   * Newly calculated rates are GST-inclusive. Keeping the inclusive components
+   * beside their tax-exclusive invoice values makes the pricing snapshot
+   * auditable and lets staff quote forms reopen with the amounts they entered.
+   * Optional so historical snapshots remain readable unchanged.
+   */
+  inclusiveAmounts?: {
+    freightAmount: number;
+    fuelSurchargeAmount: number;
+    remoteAreaAmount: number;
+    csbClearanceAmount: number;
+    handlingAmount: number;
+    insuranceAmount: number;
+    discountAmount: number;
+    totalAmount: number;
+  };
   /** Every non-zero component in presentation order, including GST. */
   lines: ShipmentChargeLine[];
   /**
@@ -223,6 +243,66 @@ export function billableWeightKg(weightKg: number) {
 
 function toMinor(amount: number) {
   return Math.round(amount * 100);
+}
+
+function fromMinor(amountMinor: number) {
+  return amountMinor / 100;
+}
+
+/**
+ * Extracts tax from a GST-inclusive amount using Rule 35: rate / (1 + rate).
+ *
+ * The subtraction is performed in paise so taxable value + GST always equals
+ * the commercial total exactly, including awkward totals that do not divide
+ * evenly by 1.18.
+ */
+export function splitGstInclusiveAmountMinor(totalMinor: number, gstRate: number) {
+  const safeTotalMinor = Math.max(0, Math.round(totalMinor));
+  if (!(gstRate > 0) || safeTotalMinor === 0) {
+    return { taxableMinor: safeTotalMinor, gstMinor: 0, totalMinor: safeTotalMinor };
+  }
+
+  const gstMinor = Math.round(safeTotalMinor * gstRate / (1 + gstRate));
+  return {
+    taxableMinor: safeTotalMinor - gstMinor,
+    gstMinor,
+    totalMinor: safeTotalMinor
+  };
+}
+
+/**
+ * Converts inclusive component amounts to tax-exclusive invoice amounts while
+ * making their rounded paise add up to one authoritative target.
+ */
+function allocateTaxExclusiveAmounts(
+  inclusiveAmounts: number[],
+  targetTaxableMinor: number,
+  gstRate: number
+) {
+  return allocateTaxExclusiveComponentMinors(
+    inclusiveAmounts.map(toMinor),
+    targetTaxableMinor,
+    gstRate
+  ).map(fromMinor);
+}
+
+/** Splits several inclusive components while preserving their exact combined base. */
+export function allocateTaxExclusiveComponentMinors(
+  inclusiveMinors: number[],
+  targetTaxableMinor: number,
+  gstRate: number
+) {
+  if (!(gstRate > 0)) return inclusiveMinors.map((amount) => Math.round(amount));
+
+  const allocatedMinor = inclusiveMinors.map((amount) => (
+    splitGstInclusiveAmountMinor(amount, gstRate).taxableMinor
+  ));
+  const difference = targetTaxableMinor - allocatedMinor.reduce((sum, amount) => sum + amount, 0);
+  const adjustmentIndex = allocatedMinor.findIndex((amount) => amount > 0);
+  if (difference !== 0 && adjustmentIndex >= 0) {
+    allocatedMinor[adjustmentIndex] = (allocatedMinor[adjustmentIndex] ?? 0) + difference;
+  }
+  return allocatedMinor;
 }
 
 function percentageOf(amount: number, percent: number) {
@@ -426,7 +506,7 @@ export async function calculateShipmentPricingEstimate(
       : emptyRouteCharges
   );
 
-  const parcels = input.parcels.map((parcel, index) => {
+  const inclusiveParcels = input.parcels.map((parcel, index) => {
     const actualWeightKg = numeric(parcel.weightKg);
     const volumetricWeightKg = calculateParcelVolumetricWeight(parcel, input.serviceType);
     // Rounded up here rather than at the amount, so the slab lookup, the max-box
@@ -455,15 +535,19 @@ export async function calculateShipmentPricingEstimate(
       exceedsMaxBoxKg: Boolean(rate && chargeableWeightKg > rate.maxBoxKg)
     };
   });
-  const freightAmount = roundShipmentMoney(parcels.reduce((total, parcel) => total + parcel.baseAmount, 0));
-  const missingRate = parcels.some((parcel) => parcel.chargesPerKg === null && parcel.chargeableWeightKg > 0);
+  const inclusiveFreightAmount = roundShipmentMoney(
+    inclusiveParcels.reduce((total, parcel) => total + parcel.baseAmount, 0)
+  );
+  const missingRate = inclusiveParcels.some(
+    (parcel) => parcel.chargesPerKg === null && parcel.chargeableWeightKg > 0
+  );
 
   const breakdown = calculateChargeBreakdown({
-    freightAmount,
+    freightAmount: inclusiveFreightAmount,
     missingRate,
-    parcelCount: parcels.length,
+    parcelCount: inclusiveParcels.length,
     chargeableWeightTotal: roundShipmentMoney(
-      parcels.reduce((total, parcel) => total + parcel.chargeableWeightKg, 0)
+      inclusiveParcels.reduce((total, parcel) => total + parcel.chargeableWeightKg, 0)
     ),
     csbType,
     destinationPostcode: input.destinationPostcode,
@@ -474,6 +558,17 @@ export async function calculateShipmentPricingEstimate(
     routeCharges,
     gstRate
   });
+
+  const parcelTaxableAmounts = allocateTaxExclusiveAmounts(
+    inclusiveParcels.map((parcel) => parcel.baseAmount),
+    toMinor(breakdown.freightAmount),
+    gstRate
+  );
+  const parcels = inclusiveParcels.map((parcel, index) => ({
+    ...parcel,
+    baseAmount: parcelTaxableAmounts[index] ?? 0,
+    inclusiveBaseAmount: parcel.baseAmount
+  }));
 
   return {
     parcels,
@@ -502,8 +597,8 @@ export async function calculateShipmentPricingEstimate(
  *
  * Deliberately pure: it takes the freight it was handed and the configuration to
  * apply, touches no database, and is the single place the order of operations
- * lives. That order is load-bearing- the discount comes off the subtotal of all
- * charges, and GST is charged on what remains- so it is unit tested directly in
+ * lives. That order is load-bearing- the discount comes off the GST-inclusive
+ * subtotal, and GST is then extracted from what remains- so it is unit tested directly in
  * `shipmentCostEstimator.test.ts` rather than only through a booking.
  */
 export function calculateChargeBreakdown(input: {
@@ -518,20 +613,20 @@ export function calculateChargeBreakdown(input: {
   routeCharges: RouteCharges;
   gstRate: number;
 }) {
-  const { freightAmount, routeCharges, gstRate, csbType, declaredGoodsValue } = input;
+  const { freightAmount: inclusiveFreightAmount, routeCharges, gstRate, csbType, declaredGoodsValue } = input;
 
   // Every add-on is suppressed when no rate applies, so an unpriceable route never
   // quotes a surcharge or a clearance charge on freight it could not calculate.
   const priceable = !input.missingRate;
-  const csbClearanceAmount = priceable ? getCsbClearanceCharge(csbType) : 0;
-  const fuelSurchargeAmount = priceable
-    ? percentageOf(freightAmount, routeCharges.fuelSurchargePercent)
+  const inclusiveCsbClearanceAmount = priceable ? getCsbClearanceCharge(csbType) : 0;
+  const inclusiveFuelSurchargeAmount = priceable
+    ? percentageOf(inclusiveFreightAmount, routeCharges.fuelSurchargePercent)
     : 0;
   const remoteAreaApplied = priceable
     && routeCharges.remoteAreaCharge > 0
     && isRemoteAreaPostcode(input.destinationPostcode, routeCharges.remoteAreaPostcodes);
-  const remoteAreaAmount = remoteAreaApplied ? roundShipmentMoney(routeCharges.remoteAreaCharge) : 0;
-  const handlingAmount = priceable ? roundShipmentMoney(routeCharges.handlingCharge) : 0;
+  const inclusiveRemoteAreaAmount = remoteAreaApplied ? roundShipmentMoney(routeCharges.remoteAreaCharge) : 0;
+  const inclusiveHandlingAmount = priceable ? roundShipmentMoney(routeCharges.handlingCharge) : 0;
 
   // Shipment insurance is switched off portal-wide while the product is
   // unfinished, so nothing new is ever priced with cover. The premium is still
@@ -546,26 +641,52 @@ export function calculateChargeBreakdown(input: {
     routeCharges.insuranceMinimum
   );
   const insuranceApplied = false;
-  const insuranceAmount = 0;
+  const inclusiveInsuranceAmount = 0;
 
-  const chargesSubtotal = roundShipmentMoney(
-    freightAmount
-    + fuelSurchargeAmount
-    + remoteAreaAmount
-    + csbClearanceAmount
-    + handlingAmount
-    + insuranceAmount
+  const inclusiveChargesSubtotal = roundShipmentMoney(
+    inclusiveFreightAmount
+    + inclusiveFuelSurchargeAmount
+    + inclusiveRemoteAreaAmount
+    + inclusiveCsbClearanceAmount
+    + inclusiveHandlingAmount
+    + inclusiveInsuranceAmount
   );
-  // Applied to the whole pre-tax subtotal, not to freight alone, so the percentage
+  // Applied to the whole inclusive subtotal, not to freight alone, so the percentage
   // an operator configures is the percentage the customer actually saves. Capped at
-  // the subtotal so a 100% discount cannot produce a negative taxable base.
-  const discountAmount = priceable
-    ? Math.min(percentageOf(chargesSubtotal, routeCharges.discountPercent), chargesSubtotal)
+  // the subtotal so a 100% discount cannot produce a negative payable amount.
+  const inclusiveDiscountAmount = priceable
+    ? Math.min(
+        percentageOf(inclusiveChargesSubtotal, routeCharges.discountPercent),
+        inclusiveChargesSubtotal
+      )
     : 0;
 
-  const baseAmount = roundShipmentMoney(chargesSubtotal - discountAmount);
-  const gstAmount = roundShipmentMoney(baseAmount * gstRate);
-  const totalAmount = roundShipmentMoney(baseAmount + gstAmount);
+  const totalAmount = roundShipmentMoney(inclusiveChargesSubtotal - inclusiveDiscountAmount);
+  const split = splitGstInclusiveAmountMinor(toMinor(totalAmount), gstRate);
+  const inclusiveDiscountSplit = splitGstInclusiveAmountMinor(toMinor(inclusiveDiscountAmount), gstRate);
+  const taxExclusiveCharges = allocateTaxExclusiveAmounts(
+    [
+      inclusiveFreightAmount,
+      inclusiveFuelSurchargeAmount,
+      inclusiveRemoteAreaAmount,
+      inclusiveCsbClearanceAmount,
+      inclusiveHandlingAmount,
+      inclusiveInsuranceAmount
+    ],
+    split.taxableMinor + inclusiveDiscountSplit.taxableMinor,
+    gstRate
+  );
+  const [
+    freightAmount = 0,
+    fuelSurchargeAmount = 0,
+    remoteAreaAmount = 0,
+    csbClearanceAmount = 0,
+    handlingAmount = 0,
+    insuranceAmount = 0
+  ] = taxExclusiveCharges;
+  const discountAmount = fromMinor(inclusiveDiscountSplit.taxableMinor);
+  const baseAmount = fromMinor(split.taxableMinor);
+  const gstAmount = fromMinor(split.gstMinor);
 
   const lines: ShipmentChargeLine[] = [];
   const addLine = (
@@ -630,14 +751,14 @@ export function calculateChargeBreakdown(input: {
     "Discount",
     "DEDUCTION",
     discountAmount,
-    `${routeCharges.discountPercent}% off charges before GST`
+    `${routeCharges.discountPercent}% off GST-inclusive charges`
   );
   addLine(
     "GST",
     `GST ${Math.round(gstRate * 100)}%`,
     "TAX",
     gstAmount,
-    "Charged on all taxable charges after discount"
+    "Included in all applicable charges after discount"
   );
 
   return {
@@ -655,6 +776,16 @@ export function calculateChargeBreakdown(input: {
     baseAmount,
     gstAmount,
     totalAmount,
+    inclusiveAmounts: {
+      freightAmount: inclusiveFreightAmount,
+      fuelSurchargeAmount: inclusiveFuelSurchargeAmount,
+      remoteAreaAmount: inclusiveRemoteAreaAmount,
+      csbClearanceAmount: inclusiveCsbClearanceAmount,
+      handlingAmount: inclusiveHandlingAmount,
+      insuranceAmount: inclusiveInsuranceAmount,
+      discountAmount: inclusiveDiscountAmount,
+      totalAmount
+    },
     lines
   };
 }

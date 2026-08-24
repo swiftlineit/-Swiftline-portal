@@ -17,18 +17,20 @@ import {
 } from "../services/quoteDocuments.service.js";
 
 describe("shipment quote policy", () => {
-  it("adds configured charges before applying 18 percent GST", () => {
+  it("extracts GST from staff-entered inclusive quote charges", () => {
     const result = calculatePublishedQuotePricing({
       freightMinor: 100_000,
       fuelSurchargeMinor: 5_000,
       taxableAddOnsMinor: 2_500
     });
-    assert.equal(result.taxableSubtotalMinor, 107_500);
-    assert.equal(result.gstMinor, 19_350);
-    assert.equal(result.totalMinor, 126_850);
+    assert.equal(result.taxableSubtotalMinor, 91_102);
+    assert.equal(result.gstMinor, 16_398);
+    assert.equal(result.totalMinor, 107_500);
+    assert.equal(result.inclusiveSubtotalMinor, 107_500);
     assert.deepEqual(Object.keys(result).sort(), [
-      "currency", "freightMinor", "fuelSurchargeMinor", "gstMinor", "gstRate", "taxTreatment",
-      "taxableAddOnsMinor", "taxableSubtotalMinor", "totalMinor"
+      "currency", "freightMinor", "fuelSurchargeMinor", "gstMinor", "gstRate",
+      "inclusiveFreightMinor", "inclusiveFuelSurchargeMinor", "inclusiveSubtotalMinor",
+      "inclusiveTaxableAddOnsMinor", "taxTreatment", "taxableAddOnsMinor", "taxableSubtotalMinor", "totalMinor"
     ]);
   });
 
@@ -42,6 +44,19 @@ describe("shipment quote policy", () => {
     assert.equal(result.taxTreatment, "NO_GST");
     assert.equal(result.gstMinor, 0);
     assert.equal(result.totalMinor, 107_500);
+    assert.equal(result.taxableSubtotalMinor, 107_500);
+  });
+
+  it("splits a four-thousand-rupee published quote without changing its total", () => {
+    const result = calculatePublishedQuotePricing({
+      freightMinor: 400_000,
+      fuelSurchargeMinor: 0,
+      taxableAddOnsMinor: 0
+    });
+
+    assert.equal(result.taxableSubtotalMinor, 338_983);
+    assert.equal(result.gstMinor, 61_017);
+    assert.equal(result.totalMinor, 400_000);
   });
 
   it("reports an elapsed published quote as expired", () => {

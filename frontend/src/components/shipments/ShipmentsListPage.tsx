@@ -7,10 +7,11 @@ import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
-import { SortableHeader, TableToolbar, type TableColumnOption } from "@/components/ui/TableToolbar";
+import { SortableHeader, TableToolbar, defaultPageSizeOptions, type TableColumnOption } from "@/components/ui/TableToolbar";
 import { ScheduleChip } from "@/components/shipments/ShipmentJourney";
+import GatewayIataInput, { isValidGatewayIata } from "@/components/shipments/GatewayIataInput";
 import { emptyDateRange } from "@/lib/dateRange";
-import { formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
+import { currentDateTimeLocal, dateTimeLocalToIso, formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatCsbType } from "@/lib/csbType";
 import { createBulkShipmentManifest, manifestsHref } from "@/lib/shipmentManifests";
 import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
@@ -101,6 +102,15 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   const [bulkStatus, setBulkStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [bulkStatusNote, setBulkStatusNote] = useState("");
   const [bulkStatusLocation, setBulkStatusLocation] = useState("");
+  const [bulkStatusGatewayCode, setBulkStatusGatewayCode] = useState("");
+  /**
+   * When these scans actually happened, as a datetime-local value.
+   *
+   * Optional. Left empty, each event is stamped with the moment it is recorded,
+   * exactly as before. Filled in, that is the time the customer's timeline
+   * shows- which is how a batch keyed in a day late still reads correctly.
+   */
+  const [bulkStatusAt, setBulkStatusAt] = useState("");
   const [bulkStatusBusy, setBulkStatusBusy] = useState(false);
   const [bulkStatusResult, setBulkStatusResult] = useState<BulkShipmentStatusResult | null>(null);
   /**
@@ -114,6 +124,9 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
+  // Rows per page. 20 is what this table has always opened at; the toolbar
+  // offers the larger sizes for working a whole day's shipments in one screen.
+  const [limit, setLimit] = useState(defaultPageSizeOptions[0]);
   // Newest booking first, the order this table has always opened in.
   const [sort, setSort] = useState("booked:desc");
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -161,7 +174,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     setLoading(true);
     setError("");
     try {
-      const data = await listShipments(audience, { page, status, search, dateRange, businessAccountId, sort });
+      const data = await listShipments(audience, { page, limit, status, search, dateRange, businessAccountId, sort });
       setShipments(data.shipments);
       setPagination(data.pagination);
       // Refresh or drop only the selections that belong to this page - a shipment
@@ -183,7 +196,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     } finally {
       setLoading(false);
     }
-  }, [audience, businessAccountId, dateRange, page, search, sort, status]);
+  }, [audience, businessAccountId, dateRange, limit, page, search, sort, status]);
 
   // Deferred so the fetch's setState lands after the first paint rather than
   // cascading a render, matching the other listing screens.
@@ -252,9 +265,22 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     () => [...new Set(statusSelection.map((shipment) => shipment.status))],
     [statusSelection]
   );
+  const selectedDestinationCountries = useMemo(
+    () => [...new Set(statusSelection.map((shipment) => shipment.destinationCountry.trim()).filter(Boolean))],
+    [statusSelection]
+  );
   const mixedStatusSelection = selectedStages.length > 1;
   const alreadyAtBulkStatus = selectedStages.length === 1 && selectedStages[0] === bulkStatus;
-  const bulkStatusBlocked = mixedStatusSelection || alreadyAtBulkStatus;
+  const isBulkGatewayStatus = bulkStatus === "DESTINATION_ARRIVED";
+  const mixedGatewayDestinations = isBulkGatewayStatus && selectedDestinationCountries.length > 1;
+  const bulkIsUkRoute = selectedDestinationCountries.length === 1
+    && ["GB", "UK", "UNITED KINGDOM"].includes(selectedDestinationCountries[0]?.toUpperCase() ?? "");
+  const bulkGatewayInvalid = isBulkGatewayStatus
+    && !isValidGatewayIata(bulkIsUkRoute ? "LHR" : bulkStatusGatewayCode);
+  const bulkStatusBlocked = mixedStatusSelection
+    || alreadyAtBulkStatus
+    || mixedGatewayDestinations
+    || bulkGatewayInvalid;
 
   const allSelected = selectable.length > 0 && selectable.every((shipment) => selected.has(shipment.id));
 
@@ -315,13 +341,19 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
         shipmentDraftIds,
         status: bulkStatus,
         note: bulkStatusNote,
-        location: bulkStatusLocation
+        location: bulkStatusLocation,
+        gatewayCode: isBulkGatewayStatus
+          ? (bulkIsUkRoute ? "LHR" : bulkStatusGatewayCode)
+          : undefined,
+        eventAt: dateTimeLocalToIso(bulkStatusAt)
       });
       setBulkStatusResult(result);
       toast.success(result.message);
       setActiveFlow(null);
       setBulkStatusNote("");
       setBulkStatusLocation("");
+      setBulkStatusGatewayCode("");
+      setBulkStatusAt("");
       setSelected(new Map());
       await load();
     } catch (caught) {
@@ -628,6 +660,19 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
               </p>
             ) : null}
 
+            {mixedGatewayDestinations ? (
+              <p className="mt-1 text-xs font-semibold leading-5 text-amber-700">
+                Destination arrival can assign one gateway only to shipments for one destination country.
+                Split {[...selectedDestinationCountries].sort().join(", ")} into separate updates.
+              </p>
+            ) : null}
+
+            {isBulkGatewayStatus && !mixedGatewayDestinations ? (
+              <p className="mt-1 text-xs font-medium leading-5 text-slate-600">
+                One IATA will apply to every selected shipment. Include only shipments that arrived through the same gateway.
+              </p>
+            ) : null}
+
           </div>
 
           <span className="w-fit shrink-0 rounded-full border border-[#0D1282]/15 bg-white px-3 py-1.5 text-xs font-semibold text-[#0D1282]">
@@ -635,7 +680,11 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
           </span>
         </div>
 
-        <div className="grid gap-4 px-5 py-5 lg:grid-cols-3 xl:grid-cols-[minmax(200px,1fr)_minmax(240px,1.15fr)_minmax(220px,1fr)_auto] xl:items-end">
+        <div className={`grid gap-4 px-5 py-5 lg:grid-cols-2 xl:items-start ${
+          isBulkGatewayStatus
+            ? "xl:grid-cols-[minmax(180px,1fr)_minmax(210px,1.1fr)_minmax(170px,0.9fr)_150px_minmax(190px,1fr)_auto]"
+            : "xl:grid-cols-[minmax(190px,1fr)_minmax(220px,1.1fr)_minmax(190px,1fr)_minmax(210px,1fr)_auto]"
+        }`}>
           <label className="block min-w-0">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               New Status
@@ -644,9 +693,10 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
             <div className="relative mt-2">
               <select
                 value={bulkStatus}
-                onChange={(event) =>
-                  setBulkStatus(event.target.value as ShipmentOperationalStatus)
-                }
+                onChange={(event) => {
+                  setBulkStatus(event.target.value as ShipmentOperationalStatus);
+                  setBulkStatusGatewayCode("");
+                }}
                 className="h-11 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
               >
                 {shipmentOperationalStatusOptions.map((option) => (
@@ -662,6 +712,14 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
               />
             </div>
           </label>
+
+          {isBulkGatewayStatus ? (
+            <GatewayIataInput
+              value={bulkStatusGatewayCode}
+              onChange={setBulkStatusGatewayCode}
+              ukRoute={bulkIsUkRoute}
+            />
+          ) : null}
 
           <label className="block min-w-0">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -697,7 +755,28 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
             />
           </label>
 
-          <div className="flex gap-2 lg:col-span-3 xl:col-span-1">
+          <label className="block min-w-0">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Status Date{" "}
+              <span className="font-normal normal-case text-slate-400">
+                (optional)
+              </span>
+            </span>
+
+            <input
+              type="datetime-local"
+              value={bulkStatusAt}
+              onChange={(event) => setBulkStatusAt(event.target.value)}
+              max={currentDateTimeLocal()}
+              title="When these scans actually happened. Leave empty to record them as happening now."
+              className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+            />
+            <span className="mt-1 block text-xs font-medium leading-4 text-slate-500">
+              Shown on the timeline instead of the moment you press Update.
+            </span>
+          </label>
+
+          <div className="flex gap-2 lg:col-span-2 xl:col-span-1 xl:mt-6">
             <button
               type="button"
               onClick={handleBulkStatusUpdate}
@@ -713,6 +792,8 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
                 setActiveFlow(null);
                 setBulkStatusNote("");
                 setBulkStatusLocation("");
+                setBulkStatusGatewayCode("");
+                setBulkStatusAt("");
               }}
               className="h-11 flex-1 rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 xl:flex-none"
             >
@@ -739,6 +820,8 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
             setActiveFlow(null);
             setBulkStatusNote("");
             setBulkStatusLocation("");
+            setBulkStatusGatewayCode("");
+            setBulkStatusAt("");
           }}
           className="h-10 shrink-0 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
         >
@@ -760,6 +843,13 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
           columns={columnOptions}
           hiddenColumns={hiddenColumns}
           onHiddenColumnsChange={setHiddenColumns}
+          pageSize={limit}
+          onPageSizeChange={(next) => {
+            setLimit(next);
+            // A bigger page starts at the top: page four of the old size is
+            // somewhere in the middle of the new one.
+            setPage(1);
+          }}
         />
       </div>
 

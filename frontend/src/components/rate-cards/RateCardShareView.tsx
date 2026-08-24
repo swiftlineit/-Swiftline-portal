@@ -166,7 +166,7 @@ export default function RateCardShareView({
         ) : null}
 
         <p className="border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500">
-          Rates exclude duties, taxes, customs clearance charges and any charges levied at destination, and are
+          Rates exclude duties, destination-country taxes, customs clearance charges and any charges levied at destination, and are
           subject to revision on account of carrier tariff changes, currency movement or regulatory action.
           Shipments are accepted subject to Swiftline&apos;s standard terms and conditions of carriage.
         </p>
@@ -285,10 +285,10 @@ function TermsSection({ share }: { share: RateCardShare }) {
   const terms = [
     { label: "Currency", value: `${share.currency} per kilogram` },
     share.terms.fuelSurchargePercent > 0
-      ? { label: "Fuel surcharge", value: `${share.terms.fuelSurchargePercent}% on net freight` }
+      ? { label: "Fuel surcharge", value: `${share.terms.fuelSurchargePercent}% on GST-inclusive freight` }
       : null,
     share.terms.gstPercent > 0
-      ? { label: "GST", value: `${share.terms.gstPercent}% extra as applicable` }
+      ? { label: "GST", value: `${share.terms.gstPercent}% included as applicable` }
       : null,
     share.terms.minChargeableWeightKg > 0
       ? { label: "Min chargeable weight", value: `${share.terms.minChargeableWeightKg} kg per shipment` }

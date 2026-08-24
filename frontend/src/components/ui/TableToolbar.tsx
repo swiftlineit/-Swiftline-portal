@@ -14,6 +14,13 @@ import { downloadTableExport, type TableExportFormat } from "@/lib/tableExport";
  * heading itself.
  */
 
+/**
+ * Page sizes on offer. 20 stays first because it is the size every list has
+ * always opened at; the larger two are for working a whole day's shipments
+ * without paging through them.
+ */
+export const defaultPageSizeOptions = [20, 50, 100];
+
 export type TableColumnOption = {
   /** Stable key, also what the hidden set stores. */
   key: string;
@@ -29,6 +36,9 @@ export function TableToolbar({
   columns,
   hiddenColumns,
   onHiddenColumnsChange,
+  pageSize,
+  pageSizeOptions = defaultPageSizeOptions,
+  onPageSizeChange,
   rowCount,
   children
 }: {
@@ -39,6 +49,13 @@ export function TableToolbar({
   columns?: TableColumnOption[];
   hiddenColumns?: Set<string>;
   onHiddenColumnsChange?: (next: Set<string>) => void;
+  /**
+   * Rows per page. Both of these are supplied together or not at all- a table
+   * whose page size is fixed simply omits them and the control is not rendered.
+   */
+  pageSize?: number;
+  pageSizeOptions?: number[];
+  onPageSizeChange?: (next: number) => void;
   /** Total matching rows, so the export can warn when it will be capped. */
   rowCount?: number;
   /** Filters and search, rendered to the left of the shared controls. */
@@ -89,6 +106,22 @@ export function TableToolbar({
       <div className="flex min-w-0 flex-wrap items-center gap-3">{children}</div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {onPageSizeChange ? (
+          <label className="inline-flex h-10 items-center gap-2 rounded-4xl border border-slate-300 pl-4 pr-2 text-sm font-semibold text-slate-700">
+            <span className="whitespace-nowrap text-slate-500">Rows per page</span>
+            <select
+              value={pageSize ?? pageSizeOptions[0]}
+              onChange={(event) => onPageSizeChange(Number(event.target.value))}
+              aria-label="Rows per page"
+              className="h-8 cursor-pointer rounded-3xl bg-transparent pl-1 pr-6 text-sm font-semibold text-slate-900 outline-none"
+            >
+              {pageSizeOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
         {selectable.length ? (
           <div className="relative" ref={pickerRef}>
             <button

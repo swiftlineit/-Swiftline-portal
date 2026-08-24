@@ -7,7 +7,7 @@ import { FiChevronDown } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
 import CountryFlag from "@/components/CountryFlag";
-import { countryOptions } from "@/lib/branches";
+import { countryCodeOptions } from "@/lib/countries";
 import {
   createOperationsManifest,
   listManifestBranches,
@@ -95,7 +95,7 @@ function CountrySelect({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
-  const selected = countryOptions.find((item) => item.code === value);
+  const selected = countryCodeOptions.find((item) => item.code === value);
 
   useEffect(() => {
     if (!open) return;
@@ -141,7 +141,7 @@ function CountrySelect({
           role="listbox"
           className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
         >
-          {countryOptions.map((item) => (
+          {countryCodeOptions.map((item) => (
             <button
               key={item.code}
               type="button"

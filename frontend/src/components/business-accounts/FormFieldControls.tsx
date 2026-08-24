@@ -5,7 +5,7 @@ import { CountrySelector, FlagImage, defaultCountries, parseCountry, type Countr
 import { FiAlertCircle, FiAlertTriangle, FiCheckCircle, FiChevronDown, FiLoader } from "react-icons/fi";
 import InfoTooltip from "@/components/ui/InfoTooltip";
 import { usTaxIdTypeOptions } from "@/lib/usTaxId";
-import { portalCountries } from "@/lib/portalCountries";
+import { countries } from "@/lib/countries";
 import { contactTooltips } from "@/lib/businessAccountTooltips";
 import {
   BusinessAccount,
@@ -39,11 +39,11 @@ export const businessAccountSteps = ["Contact Details", "Company Details", "Uplo
 // same choices; re-exported here so the wizard's imports are unchanged.
 export { departments, industries, shipmentVolumes } from "@/lib/businessAccountOptions";
 
-// Derived from the canonical list in `lib/portalCountries`, which the geography
-// lookup also reads- so an option can never appear here without the state and
-// city data behind it, or vice versa.
+// Derived from the shared country catalogue, which the geography lookup also
+// reads- so a destination offered here is one the state and city lookup will
+// answer for, and a customer can hold an address anywhere Swiftline prices.
 export const countryOptions: SelectOption[] = [
-  ...portalCountries.map((country): SelectOption => ({
+  ...countries.map((country): SelectOption => ({
     value: country.name,
     label: country.name,
     iso2: country.iso2 as CountryIso2

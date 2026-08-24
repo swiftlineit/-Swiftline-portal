@@ -36,6 +36,27 @@ export const journeyStages: ReadonlyArray<{ label: string; statuses: readonly st
 
 export type JourneyEvent = { status: string; eventAt: string };
 
+export type TrackingProfile = "UK" | "USA" | "CANADA" | "EUROPE" | "OTHER";
+
+export type TrackingJourneyContext = {
+  profile: TrackingProfile;
+  originHubName: string;
+  destinationCountryName: string;
+  gatewayCode: string;
+  gatewayName: string;
+  gatewayLabel: string;
+  deliveryPartnerName: string;
+  deliveryPartnerCode: string;
+  routeSegments: string[];
+};
+
+export type TrackingJourney = {
+  version: 2;
+  context: TrackingJourneyContext;
+  stages: Array<ResolvedJourneyStage & { key: string }>;
+  milestones: Array<ResolvedJourneyStage & { key: string }>;
+};
+
 export type ResolvedJourneyStage = {
   label: string;
   /** When the stage was first reached, or null if it has not been. */
@@ -53,7 +74,11 @@ export type ResolvedJourneyStage = {
  * before progress was recorded in order, and for the driver paths that can still
  * post a later scan without an earlier one.
  */
-export function resolveJourneyStages(events: readonly JourneyEvent[]): ResolvedJourneyStage[] {
+export function resolveJourneyStages(
+  events: readonly JourneyEvent[],
+  journey?: TrackingJourney | null
+): ResolvedJourneyStage[] {
+  if (journey?.version === 2 && journey.stages.length) return journey.stages;
   const reachedAt = new Map<string, string>();
 
   for (const event of events) {

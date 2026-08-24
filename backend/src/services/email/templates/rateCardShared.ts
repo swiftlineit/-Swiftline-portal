@@ -65,7 +65,7 @@ export function rateCardSharedTemplate(context: EmailTemplateContext): EmailCont
     },
     {
       kind: "note",
-      text: "Rates exclude duties, taxes, customs clearance charges and any charges levied at destination, and are subject to revision on account of carrier tariff changes, currency movement or regulatory action. Shipments are accepted subject to Swiftline's standard terms and conditions of carriage."
+      text: "Rates exclude duties, destination-country taxes, customs clearance charges and any charges levied at destination, and are subject to revision on account of carrier tariff changes, currency movement or regulatory action. Shipments are accepted subject to Swiftline's standard terms and conditions of carriage."
     },
     { kind: "paragraph", text: `We look forward to handling your shipments.` },
     { kind: "paragraph", text: `Warm regards,\n${senderName}\nSwiftline` }

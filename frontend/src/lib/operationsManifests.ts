@@ -81,6 +81,12 @@ export type ManifestDetail = {
   scans: OperationsScan[];
   latestScan: OperationsScan | null;
   sealingIssues: string[];
+  dispatchIssues: Array<{
+    shipmentDraftId: string;
+    reference: string;
+    reason: string;
+    missingStatuses: string[];
+  }>;
 };
 export type OperationsScanSession = {
   id: string;

@@ -168,14 +168,30 @@ describe("ALS create_docket payload", () => {
     );
   });
 
-  test("rejects a parcel with no HS code before anything is sent", () => {
-    const draft = draftFixture() as unknown as { parcelList: Array<{ items: Array<{ hsnCode: string }> }> };
+  test("rejects a CSB-V parcel with no HS code before anything is sent", () => {
+    const draft = draftFixture() as unknown as {
+      csbType: string;
+      parcelList: Array<{ items: Array<{ hsnCode: string }> }>;
+    };
+    draft.csbType = "CSB_V";
     draft.parcelList[0]!.items[0]!.hsnCode = "";
 
     assert.throws(
       () => buildAlsCreateDocketPayload({ draft: draft as never, ...payloadInput }),
       /HS code/
     );
+  });
+
+  test("sends a CSB-IV line with no HS code as an empty one rather than refusing", () => {
+    // CSB-IV senders are not asked for a code, so the declaration carries what
+    // they declared. Nothing is substituted on their behalf.
+    const draft = draftFixture() as unknown as { parcelList: Array<{ items: Array<{ hsnCode: string }> }> };
+    draft.parcelList[0]!.items[0]!.hsnCode = "";
+
+    const payload = buildAlsCreateDocketPayload({ draft: draft as never, ...payloadInput });
+    assert.equal(payload.free_form_line_items.length, 1);
+    assert.equal(payload.free_form_line_items[0]!.hscode, "");
+    assert.equal(payload.free_form_line_items[0]!.description, "Cotton shirts");
   });
 
   test("keeps contact details out of the stored request snapshot", async () => {

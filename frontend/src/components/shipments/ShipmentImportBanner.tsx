@@ -21,7 +21,7 @@ export default function ShipmentImportBanner({ summary }: { summary: ShipmentImp
           </p>
           <p className="mt-1 text-xs leading-5 text-blue-900">
             Review before booking - especially the shipment type (CSB-IV / CSB-V), weights and item
-            values. CSB-V adds a flat Rs {csbVClearanceCharge.toLocaleString("en-IN")} clearance charge plus GST.
+            values. CSB-V adds a flat GST-inclusive Rs {csbVClearanceCharge.toLocaleString("en-IN")} clearance charge.
           </p>
         </div>
       </div>

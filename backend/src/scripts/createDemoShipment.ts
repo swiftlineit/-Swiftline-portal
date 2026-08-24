@@ -7,7 +7,11 @@ import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js"
 import { DpdShipment } from "../models/dpdShipment.model.js";
 import { ShipmentChargeVerification } from "../models/shipmentChargeVerification.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
-import { ShipmentEvent, type ShipmentEventStatus } from "../models/shipmentEvent.model.js";
+import {
+  ShipmentEvent,
+  shipmentMilestoneKey,
+  type ShipmentEventStatus
+} from "../models/shipmentEvent.model.js";
 import { User } from "../models/user.model.js";
 import {
   closeCreditBillingCycle,
@@ -33,6 +37,9 @@ const demoShipmentReference = process.env.DEMO_SHIPMENT_REFERENCE || demoShipmen
 const finalizeForBilling = process.env.DEMO_FINALIZE_FOR_BILLING === "true";
 const closeBillingCycle = process.env.DEMO_CLOSE_BILLING_CYCLE === "true";
 const smallShipment = process.env.DEMO_SMALL_SHIPMENT === "true";
+const nonBillableTest = process.env.DEMO_NON_BILLABLE_TEST === "true";
+const destinationCode = (process.env.DEMO_DESTINATION_COUNTRY_CODE || "GB").trim().toUpperCase();
+const smallShipmentWeightKg = Number(process.env.DEMO_WEIGHT_KG || 5);
 const billingClosingDate = process.env.DEMO_BILLING_CLOSING_DATE
   ? new Date(process.env.DEMO_BILLING_CLOSING_DATE)
   : null;
@@ -113,6 +120,9 @@ async function main() {
   if (closeBillingCycle && !finalizeForBilling) {
     throw new Error("DEMO_CLOSE_BILLING_CYCLE requires DEMO_FINALIZE_FOR_BILLING=true.");
   }
+  if (!Number.isFinite(smallShipmentWeightKg) || smallShipmentWeightKg <= 0) {
+    throw new Error("DEMO_WEIGHT_KG must be a positive number.");
+  }
 
   await mongoose.connect(mongoUri(), { family: 4, retryWrites: false });
 
@@ -140,19 +150,36 @@ async function main() {
   const actorId = await resolveActor(account._id as mongoose.Types.ObjectId, account.createdBy);
   const now = new Date();
 
+  const destinationPresets: Record<string, {
+    countryName: string;
+    townOrCity: string;
+    county: string;
+    postcode: string;
+    mobileCountryCode: string;
+    mobileNumber: string;
+    addressLine1: string;
+  }> = {
+    GB: { countryName: "United Kingdom", townOrCity: "London", county: "Greater London", postcode: "E16 1XL", mobileCountryCode: "+44", mobileNumber: "7700900456", addressLine1: "Warehouse Gate 3, Royal Victoria Dock" },
+    US: { countryName: "United States", townOrCity: "New York", county: "New York", postcode: "10001", mobileCountryCode: "+1", mobileNumber: "2025550123", addressLine1: "350 Fifth Avenue" },
+    CA: { countryName: "Canada", townOrCity: "Toronto", county: "Ontario", postcode: "M5V 2T6", mobileCountryCode: "+1", mobileNumber: "4165550123", addressLine1: "290 Bremner Boulevard" },
+    DE: { countryName: "Germany", townOrCity: "Frankfurt", county: "Hesse", postcode: "60311", mobileCountryCode: "+49", mobileNumber: "15123456789", addressLine1: "10 Test Logistics Strasse" }
+  };
+  const destination = destinationPresets[destinationCode];
+  if (!destination) throw new Error(`Unsupported DEMO_DESTINATION_COUNTRY_CODE: ${destinationCode}`);
+
   const destinationAddress = {
     companyName: demoShipmentName,
     contactName: "Avery Testing",
-    email: "testing.shipment@example.com",
-    mobileCountryCode: "+44",
-    mobileNumber: "7700900456",
-    countryCode: "GB",
-    countryName: "United Kingdom",
-    postcode: "E16 1XL",
-    addressLine1: "Warehouse Gate 3, Royal Victoria Dock",
+    email: `testing.shipment+${destinationCode.toLowerCase()}@example.com`,
+    mobileCountryCode: destination.mobileCountryCode,
+    mobileNumber: destination.mobileNumber,
+    countryCode: destinationCode,
+    countryName: destination.countryName,
+    postcode: destination.postcode,
+    addressLine1: destination.addressLine1,
     addressLine2: "Testing Delivery Suite",
-    townOrCity: "London",
-    county: "Greater London",
+    townOrCity: destination.townOrCity,
+    county: destination.county,
     deliveryInstructions: "Testing shipment only. Call before delivery and collect signature at reception."
   };
 
@@ -203,11 +230,12 @@ async function main() {
         parcelList: smallShipment ? [
           {
             sequence: 1,
-            weightKg: 5,
+            weightKg: smallShipmentWeightKg,
             lengthCm: 10,
             widthCm: 10,
             heightCm: 10,
             shipmentContentType: "PARCEL",
+            items: [{ description: "Testing documents", hsnCode: "49019900", unitType: "PCS", quantity: 2, unitRate: 500 }],
             contentsDescription: "Grace-period booking test documents",
             shipmentReference1: demoShipmentReference,
             shipmentReference2: demoInvoiceNumber
@@ -220,6 +248,7 @@ async function main() {
             widthCm: 35,
             heightCm: 30,
             shipmentContentType: "PARCEL",
+            items: [{ description: "Testing apparel samples", hsnCode: "61091000", unitType: "PCS", quantity: 2, unitRate: 500 }],
             contentsDescription: "Testing shipment apparel samples",
             shipmentReference1: demoShipmentReference,
             shipmentReference2: demoInvoiceNumber
@@ -231,6 +260,7 @@ async function main() {
             widthCm: 30,
             heightCm: 25,
             shipmentContentType: "MERCHANDISE",
+            items: [{ description: "Testing packaged accessories", hsnCode: "42029900", unitType: "PCS", quantity: 3, unitRate: 250 }],
             contentsDescription: "Testing shipment packaged accessories",
             shipmentReference1: `${demoShipmentReference}-BOX-2`,
             shipmentReference2: demoInvoiceNumber
@@ -255,11 +285,13 @@ async function main() {
 
   // The carrier response is mocked, but customer billing follows the same
   // reservation and conversion services used by a normal shipment booking.
-  const reservationResult = await reserveShipmentBookingCharge({
-    draft: shipmentDraft,
-    createdBy: actorId,
-    bookingAttemptId: `DEMO-${String(shipmentDraft._id)}`
-  });
+  const reservationResult = nonBillableTest
+    ? null
+    : await reserveShipmentBookingCharge({
+      draft: shipmentDraft,
+      createdBy: actorId,
+      bookingAttemptId: `DEMO-${String(shipmentDraft._id)}`
+    });
 
   const dpdShipment = await DpdShipment.findOneAndUpdate(
     { shipmentDraftId: shipmentDraft._id },
@@ -284,7 +316,7 @@ async function main() {
           status: "LABEL_RECEIVED",
           labelCount: shipmentDraft.parcelList.length
         },
-        paymentSource: "BUSINESS_ACCOUNT",
+        paymentSource: nonBillableTest ? "TEST" : "BUSINESS_ACCOUNT",
         status: "LABEL_RECEIVED"
       }
     },
@@ -359,22 +391,25 @@ async function main() {
     carrierShipmentId: dpdShipment.dpdShipmentId ?? "",
     carrierTransactionId: dpdShipment.dpdTransactionId ?? "",
     carrierParcelNumbers: [],
-    advanceAmountMinor: reservationResult.reservation?.advanceAmountMinor ?? 0,
-    creditAmountMinor: reservationResult.reservation?.creditAmountMinor
+    advanceAmountMinor: reservationResult?.reservation?.advanceAmountMinor ?? 0,
+    creditAmountMinor: reservationResult?.reservation?.creditAmountMinor
       ?? Math.round(demoPricing.totalAmount * 100)
   });
   dpdShipment.bookingSnapshot = demoSnapshot as never;
   dpdShipment.currentShipmentSnapshot = demoSnapshot as never;
+  dpdShipment.swiftlineTrackingNumber = swiftlineTrackingNumber;
   await dpdShipment.save();
 
   shipmentDraft.bookingState = "BOOKED";
   await shipmentDraft.save();
 
-  await completeShipmentBookingCharge({
-    shipmentDraftId: shipmentDraft._id as mongoose.Types.ObjectId,
-    dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
-    createdBy: actorId
-  });
+  if (!nonBillableTest) {
+    await completeShipmentBookingCharge({
+      shipmentDraftId: shipmentDraft._id as mongoose.Types.ObjectId,
+      dpdShipmentId: dpdShipment._id as mongoose.Types.ObjectId,
+      createdBy: actorId
+    });
+  }
 
   const eventStatuses = getSeedEventStatuses();
 
@@ -386,6 +421,7 @@ async function main() {
     {
       $set: {
         dpdShipmentId: dpdShipment._id,
+        milestoneKey: shipmentMilestoneKey(status),
         note: "",
         customerVisible: true,
         createdBy: actorId,
@@ -466,7 +502,9 @@ async function main() {
   console.log(`Branch: ${String(branchId)}`);
   console.log(`Shipment draft: ${String(shipmentDraft._id)}`);
   console.log(`DPD shipment: ${String(dpdShipment._id)}`);
-  console.log("Billing: BUSINESS_ACCOUNT");
+  console.log(`Swiftline AWB: ${swiftlineTrackingNumber}`);
+  console.log(`Destination: ${destination.countryName} (${destinationCode})`);
+  console.log(`Billing: ${nonBillableTest ? "TEST (non-billable)" : "BUSINESS_ACCOUNT"}`);
 }
 
 main()

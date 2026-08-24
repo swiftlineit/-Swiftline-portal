@@ -17,6 +17,12 @@ import {
 } from "../services/shipmentTracking.service.js";
 import { resolveShipmentEventNote } from "../services/shipmentEventCopy.service.js";
 import { formatShipmentEventLabel } from "../services/shipmentStatusSequence.service.js";
+import {
+  formatTrackingEventLabel,
+  loadShipmentJourney,
+  type TrackingJourney
+} from "../services/shipmentJourney.service.js";
+import { buildTrackingPosition } from "../services/shipmentPosition.service.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
   createShipmentImportBatch,
@@ -945,13 +951,15 @@ function serializeClientShipmentEvent(event: {
   location?: string;
   customerVisible: boolean;
   eventAt: Date;
-}) {
+}, journey?: TrackingJourney) {
   return {
     id: String(event._id),
     shipmentDraftId: String(event.shipmentDraftId),
     dpdShipmentId: event.dpdShipmentId ? String(event.dpdShipmentId) : null,
     status: event.status,
-    statusLabel: formatShipmentEventLabel(event.status),
+    statusLabel: journey
+      ? formatTrackingEventLabel(event.status, journey)
+      : formatShipmentEventLabel(event.status),
     holdReason: event.holdReason ?? null,
     note: resolveShipmentEventNote(event.note, event.status),
     location: event.location ?? "",
@@ -1033,8 +1041,9 @@ function serializeClientShipmentDetails(params: {
   }>;
   currentInvoiceRevision?: number;
   currentInvoiceNumber?: string;
+  journey?: TrackingJourney;
 }) {
-  const { draft, dpdShipment, labels, events, currentInvoiceRevision, currentInvoiceNumber } = params;
+  const { draft, dpdShipment, labels, events, currentInvoiceRevision, currentInvoiceNumber, journey } = params;
   const currentEvent = events[0] ?? null;
   const originalBookingSnapshot = readShipmentBookingSnapshot(dpdShipment?.bookingSnapshot);
   const snapshotIsCurrent = (currentInvoiceRevision ?? 1) <= (dpdShipment?.snapshotRevision ?? 1);
@@ -1097,8 +1106,9 @@ function serializeClientShipmentDetails(params: {
       : null,
     taxInvoiceNumber: currentInvoiceNumber ?? "",
     labels: labels.map(serializeClientLabel),
-    currentEvent: currentEvent ? serializeClientShipmentEvent(currentEvent) : null,
-    events: events.map(serializeClientShipmentEvent)
+    currentEvent: currentEvent ? serializeClientShipmentEvent(currentEvent, journey) : null,
+    events: events.map((event) => serializeClientShipmentEvent(event, journey)),
+    trackingJourney: journey ?? null
   };
 }
 
@@ -1125,7 +1135,7 @@ export async function getClientShipmentDetails(request: Request, response: Respo
     });
   }
 
-  const [labels, events, currentInvoice] = await Promise.all([
+  const [labels, events, currentInvoice, originBranch] = await Promise.all([
     dpdShipment
       ? LabelDocument.find({
           dpdShipmentId: dpdShipment._id,
@@ -1137,7 +1147,10 @@ export async function getClientShipmentDetails(request: Request, response: Respo
       .lean()
       .exec()
     ,
-    ShipmentInvoice.findOne({ shipmentDraftId: draft._id }).select("invoiceNumber revision").lean().exec()
+    ShipmentInvoice.findOne({ shipmentDraftId: draft._id }).select("invoiceNumber revision").lean().exec(),
+    draft.branchId
+      ? Branch.findById(draft.branchId).select("address.city").lean().exec()
+      : Promise.resolve(null)
   ]);
 
   /**
@@ -1148,6 +1161,14 @@ export async function getClientShipmentDetails(request: Request, response: Respo
    * for shipments booked before routes existed. A lane with no route configured
    * yields null, and the tracking page shows no date rather than a guessed one.
    */
+  const journey = await loadShipmentJourney({
+    shipmentDraftId: draft._id,
+    destinationCountryCode: draft.consigneeEnteredAddress?.countryCode ?? "",
+    destinationCountryName: draft.consigneeEnteredAddress?.countryName ?? "",
+    service: draft.serviceType === "CARGO" ? "CARGO" : "COURIER",
+    events,
+    originHubFallback: originBranch?.address?.city ? `${originBranch.address.city} Hub` : ""
+  });
   const deliveryEstimate = await buildDeliveryEstimate({ draft, events });
 
   return response.status(200).json({
@@ -1159,13 +1180,20 @@ export async function getClientShipmentDetails(request: Request, response: Respo
         labels,
         events,
         currentInvoiceRevision: currentInvoice?.revision ?? 1,
-        currentInvoiceNumber: currentInvoice?.invoiceNumber ?? ""
+        currentInvoiceNumber: currentInvoice?.invoiceNumber ?? "",
+        journey
       }),
       deliveryEstimate,
       trackingSummary: buildTrackingSummary({ draft, dpdShipment, events }),
       // What the customer has to do, if anything. Null on a shipment that is
       // simply moving, which is most of them.
-      trackingAttention: buildTrackingAttention(events)
+      trackingAttention: buildTrackingAttention(events),
+      trackingPosition: buildTrackingPosition({
+        events,
+        journey,
+        destinationCity: draft.consigneeEnteredAddress?.townOrCity ?? "",
+        audience: "AUTHENTICATED"
+      })
     }
   });
 }

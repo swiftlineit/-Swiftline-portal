@@ -2,7 +2,11 @@
 
 import { FiCheck, FiClock } from "react-icons/fi";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
-import { resolveJourneyStages, type DeliveryEstimate } from "@/lib/shipmentJourney";
+import {
+  resolveJourneyStages,
+  type DeliveryEstimate,
+  type TrackingJourney
+} from "@/lib/shipmentJourney";
 
 /**
  * The shipment's journey as a row of stages, and whether it is going to arrive
@@ -103,15 +107,28 @@ export function EstimatedDelivery({ estimate }: { estimate: DeliveryEstimate | n
  * rather than stalling at the missing step.
  */
 export function ShipmentJourney({
-  events
+  events,
+  journey
 }: {
   events: Array<{ status: string; eventAt: string }>;
+  journey?: TrackingJourney | null;
 }) {
-  const stages = resolveJourneyStages(events);
+  const stages = resolveJourneyStages(events, journey);
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shipment journey</h2>
+
+      {journey?.context.routeSegments.length ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-600">
+          {journey.context.routeSegments.map((segment, index) => (
+            <span key={`${segment}-${index}`} className="contents">
+              {index ? <span aria-hidden="true" className="text-slate-300">→</span> : null}
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">{segment}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <ol className="mt-4 flex flex-col gap-0 md:flex-row md:gap-0">
         {stages.map((stage, index) => {

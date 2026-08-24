@@ -454,7 +454,9 @@ describe("Swiftline tracking sequence", () => {
     assert.equal(first.reused, false);
     assert.equal(first.labels.length, 2);
     assert.ok(first.labels.every((label) => label.labelType === "SWIFTLINE"));
-    assert.equal(first.shipmentInvoice.totalAmountMinor, 424800);
+    assert.equal(first.shipmentInvoice.taxableValueMinor, 305085);
+    assert.equal(first.shipmentInvoice.totalTaxAmountMinor, 54915);
+    assert.equal(first.shipmentInvoice.totalAmountMinor, 360000);
     const invoicePricing = first.shipmentInvoice.pricingSnapshot as { parcels: unknown[] };
     assert.equal(invoicePricing.parcels.length, 2);
 
@@ -561,16 +563,16 @@ describe("Swiftline tracking sequence", () => {
     assert.ok(originalSnapshot);
     const revisedPricing = {
       ...originalSnapshot.pricing,
-      baseAmount: 4000,
-      gstAmount: 720,
-      totalAmount: 4720
+      baseAmount: 3389.83,
+      gstAmount: 610.17,
+      totalAmount: 4000
     };
     const revisedSnapshot = buildRevisedShipmentSnapshot({
       previousSnapshot: originalSnapshot,
       draft: amendedDraft,
       pricing: revisedPricing,
       advanceAmountMinor: 0,
-      creditAmountMinor: 472000
+      creditAmountMinor: 400000
     });
     const amendedShipment = await DpdShipment.findById(first.dpdShipment._id).orFail().exec();
     amendedShipment.currentShipmentSnapshot = revisedSnapshot as unknown as Record<string, unknown>;

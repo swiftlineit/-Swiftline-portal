@@ -3,6 +3,7 @@ import type {
   ShipmentAddressSnapshot,
   ShipmentParcel
 } from "../../models/shipmentDraft.model.js";
+import { normalizeCsbType } from "../csbType.service.js";
 import {
   getDeclaredGoodsValue,
   getParcelItemAmount,
@@ -176,7 +177,11 @@ function indiaDateParts(value: Date) {
  * "SHIPMENT INVOICE are mandatory". This is the goods declaration, not the
  * Swiftline GST invoice, which is issued separately and stays in INR.
  */
-function freeFormLineItems(parcels: ShipmentParcel[], inrPerGbp: number): AlsFreeFormLineItem[] {
+function freeFormLineItems(
+  parcels: ShipmentParcel[],
+  inrPerGbp: number,
+  requireHsnCode: boolean
+): AlsFreeFormLineItem[] {
   return parcels.flatMap((parcel, parcelIndex) => {
     const items = normalizeParcelItems(parcel);
     if (!items.length) {
@@ -192,7 +197,13 @@ function freeFormLineItems(parcels: ShipmentParcel[], inrPerGbp: number): AlsFre
     return items.map((item, itemIndex) => {
       const itemLabel = `Parcel ${parcelIndex + 1} item ${itemIndex + 1}`;
       if (!item.description.trim()) throw new AlsPayloadError(`${itemLabel} needs a description for the DPD label.`);
-      if (!item.hsnCode.trim()) throw new AlsPayloadError(`${itemLabel} needs an HS code for the DPD label.`);
+      // CSB-IV does not require an HS code, so the line goes out with an empty
+      // one rather than being blocked here: the declaration carries what the
+      // sender declared and nothing invented on their behalf. CSB-V clears on the
+      // full customs checklist and is still refused without a code.
+      if (requireHsnCode && !item.hsnCode.trim()) {
+        throw new AlsPayloadError(`${itemLabel} needs an HS code for the DPD label.`);
+      }
       if (!item.unitType.trim()) throw new AlsPayloadError(`${itemLabel} needs a unit type for the DPD label.`);
 
       return {
@@ -361,7 +372,11 @@ export function buildAlsCreateDocketPayload(input: {
         number_of_boxes: "1" as const
       };
     }),
-    free_form_line_items: freeFormLineItems(draft.parcelList, inrPerGbp)
+    free_form_line_items: freeFormLineItems(
+      draft.parcelList,
+      inrPerGbp,
+      normalizeCsbType(draft.csbType) === "CSB_V"
+    )
   };
 }
 

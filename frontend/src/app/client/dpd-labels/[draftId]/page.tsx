@@ -247,7 +247,8 @@ function isParcelEmpty(parcel: ParcelForm) {
 function getReviewIssueDetail(
   addressForm: AddressForm,
   contactForm: ContactForm,
-  parcelForms: ParcelForm[]
+  parcelForms: ParcelForm[],
+  csbType: CsbType
 ): ShipmentFormIssues {
   const missing: string[] = [];
   const invalid: string[] = [];
@@ -292,7 +293,9 @@ function getReviewIssueDetail(
     }
     if (!parcel.shipmentContentType) missing.push(`${label}: shipment content type is required`);
     if (!parcel.shipmentReference1.trim()) missing.push(`${label}: reference is required`);
-    // Every declared item needs a description and a valid HSN code for customs.
+    // Every declared item needs a description. The HS code is a CSB-V customs
+    // requirement, so CSB-IV senders may leave it blank.
+    const requireHsnCode = csbType === "CSB_V";
     const items = parcel.items.filter((item) => item.description.trim() || item.hsnCode.trim());
     if (!items.length) {
       missing.push(`${label}: contents are required`);
@@ -307,7 +310,7 @@ function getReviewIssueDetail(
       }
       // Each of these reports a blank and a malformed value differently, so the
       // empty check decides which bucket the message lands in.
-      const hsnError = getHsnCodeError(item.hsnCode);
+      const hsnError = getHsnCodeError(item.hsnCode, requireHsnCode);
       if (hsnError) {
         (item.hsnCode.trim() ? invalid : missing).push(`${itemLabel}: ${hsnError.replace(/\.$/, "").toLowerCase()}`);
       }
@@ -327,8 +330,13 @@ function getReviewIssueDetail(
 }
 
 /** Every review-form problem, blank fields included. Use before booking. */
-function getReviewIssues(addressForm: AddressForm, contactForm: ContactForm, parcelForms: ParcelForm[]) {
-  return allShipmentFormIssues(getReviewIssueDetail(addressForm, contactForm, parcelForms));
+function getReviewIssues(
+  addressForm: AddressForm,
+  contactForm: ContactForm,
+  parcelForms: ParcelForm[],
+  csbType: CsbType
+) {
+  return allShipmentFormIssues(getReviewIssueDetail(addressForm, contactForm, parcelForms, csbType));
 }
 
 function findIssue(issues: string[], patterns: string[]) {
@@ -460,8 +468,8 @@ export default function ClientDpdDraftReviewPage() {
   }, [addressForm.addressLine1, addressForm.postcode, consignorForm.addressLine1, consignorForm.contactName, consignorForm.postcode, contactForm.contactName]);
 
   const currentReviewIssues = useMemo(
-    () => getReviewIssues(addressForm, contactForm, parcelForms),
-    [addressForm, contactForm, parcelForms]
+    () => getReviewIssues(addressForm, contactForm, parcelForms, csbType),
+    [addressForm, contactForm, csbType, parcelForms]
   );
 
   const consignorChanged = useMemo(
@@ -932,7 +940,7 @@ export default function ClientDpdDraftReviewPage() {
     }
 
     const { invalid } = mergeShipmentFormIssues(
-      getReviewIssueDetail(addressForm, contactForm, parcelForms),
+      getReviewIssueDetail(addressForm, contactForm, parcelForms, csbType),
       getConsignorFormIssueDetail(consignorForm, consigneeContactFrom(contactForm))
     );
     if (invalid.length) {
@@ -969,7 +977,7 @@ export default function ClientDpdDraftReviewPage() {
     if (!draft) return;
 
     const issues = [
-      ...getReviewIssues(addressForm, contactForm, parcelForms),
+      ...getReviewIssues(addressForm, contactForm, parcelForms, csbType),
       ...getConsignorFormIssues(consignorForm, consigneeContactFrom(contactForm)),
       ...getKycIssues({
         csbType,
@@ -1407,6 +1415,7 @@ export default function ClientDpdDraftReviewPage() {
                             items={parcel.items}
                             onChange={(items) => handleParcelItemsChange(index, items)}
                             revealError={submitAttempted}
+                            requireHsnCode={csbType === "CSB_V"}
                           />
                         </div>
                       </div>

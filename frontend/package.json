@@ -7,7 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ui:shots": "node scripts/ui-shots.mjs"
+    "ui:shots": "node scripts/ui-shots.mjs",
+    "sync:flags": "node scripts/sync-flags.mjs",
+    "test:countries": "tsx --test src/lib/countries.test.ts",
+    "test:rate-card-import-match": "tsx --test src/lib/rateCardImportMatch.test.ts",
+    "test:shipment-quotes": "tsx --test src/lib/shipmentQuotes.test.ts",
+    "sync:countries": "node scripts/sync-country-catalogue.mjs",
+    "test:regions": "tsx --test src/lib/rateCardRegions.test.ts"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",
@@ -24,10 +30,12 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "country-flag-icons": "^1.6.20",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "playwright": "^1.62.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }

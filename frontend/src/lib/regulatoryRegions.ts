@@ -1,9 +1,9 @@
-import { portalCountries } from "@/lib/portalCountries";
+import { countries } from "@/lib/countries";
 
 /**
  * The Country / Region options a customs & regulatory update can target.
  *
- * Countries are derived from `portalCountries` so the two can never disagree.
+ * Countries are derived from the shared catalogue so the two can never disagree.
  * The bloc entries above them exist because customs rules are usually announced
  * for a trading bloc rather than a single country- filing one EU reform
  * separately against every member state would bury it.
@@ -24,7 +24,7 @@ export const regulatoryBlocRegions: RegulatoryRegion[] = [
 
 export const regulatoryRegions: RegulatoryRegion[] = [
   ...regulatoryBlocRegions,
-  ...portalCountries.map((country) => ({ code: country.iso2.toUpperCase(), label: country.name }))
+  ...countries.map((country) => ({ code: country.iso2.toUpperCase(), label: country.name }))
 ];
 
 export function regulatoryRegionLabel(code: string): string {

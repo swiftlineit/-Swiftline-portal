@@ -23,13 +23,18 @@ import { DpdShipment } from "../models/dpdShipment.model.js";
 import { consignorCountryName, ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { resolveShipmentEventNote } from "../services/shipmentEventCopy.service.js";
-import { formatShipmentEventLabel } from "../services/shipmentStatusSequence.service.js";
 import {
   buildDeliveryEstimate,
   buildTrackingSummary,
   resolveShipmentByTrackingNumber
 } from "../services/shipmentTracking.service.js";
 import { findRoute } from "../services/swiftlineRoute.service.js";
+import {
+  formatTrackingEventLabel,
+  loadShipmentJourney,
+  type TrackingJourney
+} from "../services/shipmentJourney.service.js";
+import { buildTrackingPosition } from "../services/shipmentPosition.service.js";
 
 /**
  * What a tracking reference may look like, checked before any query runs.
@@ -82,10 +87,9 @@ function originStationCode(trackingNumber: string, branchCode: string): string {
 /**
  * What a shipment on hold says to someone with no account.
  *
- * The hold reason itself is deliberately not published. `buildTrackingAttention`
- * writes for a signed-in client- "Settle it to release the shipment"- which is
- * both meaningless to a consignee and, for a payment hold, a commercial matter
- * between Swiftline and the sender that the recipient has no business seeing.
+ * The detailed signed-in instruction is deliberately not published. The
+ * position resolver may show a separate standardized customer-safe category,
+ * but commercial or operational notes never leave this endpoint.
  */
 const PUBLIC_HOLD_NOTICE = {
   label: "Shipment on hold",
@@ -96,6 +100,7 @@ const PUBLIC_HOLD_NOTICE = {
 type PublicEvent = {
   status: string;
   statusLabel: string;
+  holdReason?: string | null;
   eventAt: Date;
   location: string;
   note: string;
@@ -126,6 +131,7 @@ function serializePublicTracking(input: {
   summary: ReturnType<typeof buildTrackingSummary>;
   deliveryEstimate: Awaited<ReturnType<typeof buildDeliveryEstimate>>;
   routeCountryName: string;
+  journey: TrackingJourney;
   /** Branch code and city only - never its name, which is internal. */
   origin: { stationCode: string; city: string };
   onHold: boolean;
@@ -133,13 +139,14 @@ function serializePublicTracking(input: {
   const { draft, events } = input;
   const newest = events[0] ?? null;
 
-  // The newest scan that recorded a place. Events without one leave the last
-  // known location standing rather than blanking it, which is how both signed-in
-  // trackers read the same field.
-  const currentLocation = events.find((event) => event.location)?.location ?? "";
-
   const destinationCountryName = input.routeCountryName
     || toTitleCase(draft.consigneeEnteredAddress?.countryName ?? "");
+  const currentPosition = buildTrackingPosition({
+    events,
+    journey: input.journey,
+    destinationCity: toTitleCase(draft.consigneeEnteredAddress?.townOrCity ?? ""),
+    audience: "PUBLIC"
+  });
 
   return {
     trackedNumber: input.trackedNumber,
@@ -149,8 +156,8 @@ function serializePublicTracking(input: {
     isParcelLevel: input.trackedNumber.toUpperCase() !== input.trackingNumber.toUpperCase(),
 
     status: newest?.status ?? "SHIPMENT_BOOKED",
-    statusLabel: formatShipmentEventLabel(newest?.status ?? "SHIPMENT_BOOKED"),
-    currentLocation,
+    statusLabel: formatTrackingEventLabel(newest?.status ?? "SHIPMENT_BOOKED", input.journey),
+    currentPosition,
 
     serviceType: input.summary.serviceType,
     carrierName: input.summary.carrierName,
@@ -173,6 +180,7 @@ function serializePublicTracking(input: {
     lastUpdateAt: input.summary.lastUpdateAt,
     deliveryEstimate: input.deliveryEstimate,
     attention: input.onHold ? PUBLIC_HOLD_NOTICE : null,
+    journey: input.journey,
 
     events: events.map((event) => ({
       status: event.status,
@@ -209,7 +217,7 @@ export async function trackPublicShipment(request: Request, response: Response):
     // query, which applies none.
     ShipmentEvent.find({ shipmentDraftId: draft._id, customerVisible: true })
       .sort({ eventAt: -1, createdAt: -1 })
-      .select("status note location eventAt")
+      .select("status holdReason note location eventAt gatewayCode gatewayName partnerName partnerCode")
       .lean()
       .exec(),
     // Only the code and the city are selected, so the branch's name cannot leak
@@ -219,14 +227,6 @@ export async function trackPublicShipment(request: Request, response: Response):
       : Promise.resolve(null)
   ]);
 
-  const publicEvents: PublicEvent[] = events.map((event) => ({
-    status: event.status,
-    statusLabel: formatShipmentEventLabel(event.status),
-    eventAt: event.eventAt,
-    location: event.location ?? "",
-    note: resolveShipmentEventNote(event.note, event.status)
-  }));
-
   // The lane, purely so the header can name the destination country the way
   // Operations spelled it. A shipment on an unconfigured lane still tracks; it
   // just falls back to the country recorded on the shipment itself.
@@ -234,6 +234,24 @@ export async function trackPublicShipment(request: Request, response: Response):
     destinationCountryCode: draft.consigneeEnteredAddress?.countryCode ?? "",
     service: draft.serviceType === "CARGO" ? "CARGO" : "COURIER"
   });
+
+  const journey = await loadShipmentJourney({
+    shipmentDraftId: draft._id,
+    destinationCountryCode: draft.consigneeEnteredAddress?.countryCode ?? "",
+    destinationCountryName: draft.consigneeEnteredAddress?.countryName ?? "",
+    service: draft.serviceType === "CARGO" ? "CARGO" : "COURIER",
+    events,
+    route,
+    originHubFallback: branch?.address?.city ? `${toTitleCase(branch.address.city)} Hub` : ""
+  });
+  const publicEvents: PublicEvent[] = events.map((event) => ({
+    status: event.status,
+    statusLabel: formatTrackingEventLabel(event.status, journey),
+    holdReason: event.holdReason ?? null,
+    eventAt: event.eventAt,
+    location: event.location ?? "",
+    note: resolveShipmentEventNote(event.note, event.status)
+  }));
 
   const deliveryEstimate = await buildDeliveryEstimate({ draft, events: publicEvents, route });
 
@@ -251,6 +269,7 @@ export async function trackPublicShipment(request: Request, response: Response):
       events: publicEvents,
       summary: buildTrackingSummary({ draft, dpdShipment, events: publicEvents }),
       deliveryEstimate,
+      journey,
       routeCountryName: route?.destinationCountryName ?? "",
       origin: {
         stationCode: originStationCode(trackingNumber, branch?.code ?? ""),

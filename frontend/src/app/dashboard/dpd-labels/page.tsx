@@ -28,6 +28,7 @@ import {
   downloadDpdLabel,
   findMissingStatusPrerequisites,
   firstAllowedOperationalStatus,
+  hasRecordedOperationalStatus,
   holdDpdShipment,
   listDpdShipments,
   releaseDpdShipment,
@@ -35,7 +36,7 @@ import {
   shipmentOperationalStatusOptions,
   updateDpdShipmentOperationalStatus,
 } from "@/lib/dpdLabels";
-import { formatDashboardDateTime } from "@/lib/dateFormat";
+import { currentDateTimeLocal, dateTimeLocalToIso, formatDashboardDateTime } from "@/lib/dateFormat";
 import {
   downloadShipmentInvoicePdf,
   shipmentInvoicePageUrl,
@@ -118,6 +119,11 @@ export default function DpdLabelsPage() {
   const [nextStatus, setNextStatus] =
     useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [actionNote, setActionNote] = useState("");
+  /**
+   * When this scan actually happened, as a datetime-local value. Optional-
+   * empty stamps the event with the moment it is saved, exactly as before.
+   */
+  const [actionAt, setActionAt] = useState("");
 
   /**
    * Every status the shipment in the action row has recorded, which decides how
@@ -133,6 +139,7 @@ export default function DpdLabelsPage() {
   const statusChoices = useMemo(
     () => shipmentOperationalStatusOptions.map((option) => ({
       ...option,
+      completed: hasRecordedOperationalStatus(option.value, recordedStatuses),
       missing: findMissingStatusPrerequisites(option.value, recordedStatuses),
     })),
     [recordedStatuses],
@@ -367,11 +374,13 @@ export default function DpdLabelsPage() {
           dpdShipmentId: shipmentAction.shipment.dpdShipment.id,
           status: nextStatus,
           note: actionNote,
+          eventAt: dateTimeLocalToIso(actionAt),
         });
       }
 
       setShipmentAction(null);
       setActionNote("");
+      setActionAt("");
       await refreshHistory();
     } catch (caughtError) {
       setError(
@@ -597,7 +606,11 @@ export default function DpdLabelsPage() {
         </div>
         {shipmentAction ? (
           <div className="border-b border-slate-200 bg-slate-50 p-4">
-            <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_auto] lg:items-end">
+            <div className={`grid gap-4 lg:items-start ${
+              shipmentAction.mode === "status"
+                ? "lg:grid-cols-[220px_minmax(0,1fr)_210px_auto]"
+                : "lg:grid-cols-[220px_minmax(0,1fr)_auto]"
+            }`}>
               {shipmentAction.mode === "hold" ? (
                 <label>
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -645,10 +658,10 @@ export default function DpdLabelsPage() {
                           // A stage the shipment has not reached yet. Shown rather
                           // than hidden so the whole journey stays visible and the
                           // outstanding step explains itself.
-                          disabled={option.missing.length > 0}
+                          disabled={option.completed || option.missing.length > 0}
                         >
                           {option.label}
-                          {option.missing.length ? "- not yet reached" : ""}
+                          {option.completed ? " — completed" : option.missing.length ? " — not yet reached" : ""}
                         </option>
                       ))}
                     </select>
@@ -701,7 +714,28 @@ export default function DpdLabelsPage() {
                   className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
                 />
               </label>
-              <div className="flex gap-2">
+              {shipmentAction.mode === "status" ? (
+                <label>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Status Date{" "}
+                    <span className="font-normal normal-case text-slate-400">
+                      (optional)
+                    </span>
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={actionAt}
+                    onChange={(event) => setActionAt(event.target.value)}
+                    max={currentDateTimeLocal()}
+                    title="When this scan actually happened. Leave empty to record it as happening now."
+                    className="mt-2 h-10 w-full border border-slate-300 px-3 text-sm text-slate-900 focus:border-blue-900 focus:outline-none"
+                  />
+                  <span className="mt-1 block text-xs font-medium leading-4 text-slate-500">
+                    Shown on the timeline instead of the moment you press Update.
+                  </span>
+                </label>
+              ) : null}
+              <div className="flex gap-2 lg:mt-6">
                 <button
                   type="button"
                   onClick={handleShipmentAction}
@@ -710,7 +744,7 @@ export default function DpdLabelsPage() {
                     (shipmentAction.mode !== "status" &&
                       actionNote.trim().length < 3) ||
                     (shipmentAction.mode === "status" &&
-                      Boolean(blockedStatus?.missing.length))
+                      Boolean(blockedStatus?.completed || blockedStatus?.missing.length))
                   }
                   className="h-10 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
@@ -727,6 +761,7 @@ export default function DpdLabelsPage() {
                   onClick={() => {
                     setShipmentAction(null);
                     setActionNote("");
+                    setActionAt("");
                   }}
                   className="h-10 border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:border-slate-500"
                 >
@@ -881,6 +916,7 @@ export default function DpdLabelsPage() {
                                 shipment: item,
                               });
                               setActionNote("");
+                              setActionAt("");
                             }}
                             className="font-semibold text-emerald-700 hover:text-emerald-800"
                           >
@@ -903,6 +939,7 @@ export default function DpdLabelsPage() {
                                   ),
                                 );
                                 setActionNote("");
+                                setActionAt("");
                               }}
                               className="font-semibold text-blue-900 hover:text-blue-700"
                             >
@@ -916,6 +953,7 @@ export default function DpdLabelsPage() {
                                   shipment: item,
                                 });
                                 setActionNote("");
+                                setActionAt("");
                               }}
                               className="font-semibold text-amber-700 hover:text-amber-800"
                             >

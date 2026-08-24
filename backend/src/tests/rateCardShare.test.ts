@@ -240,7 +240,7 @@ test("rows group by country and service with slabs in weight order", () => {
 test("terms that were never set are omitted rather than printed as zero", () => {
   const withTerms = buildTermsLines(makeShare()).join("\n");
   assert.match(withTerms, /fuel surcharge of 12%/i);
-  assert.match(withTerms, /GST at 18%/);
+  assert.match(withTerms, /include GST at 18%/);
   assert.match(withTerms, /Minimum chargeable weight is 0\.5 kg/);
   assert.match(withTerms, /\/ 5000\)/);
   assert.match(withTerms, /Transit time is 4-6 working days/);
@@ -254,7 +254,7 @@ test("terms that were never set are omitted rather than printed as zero", () => 
   assert.doesNotMatch(bare, /GST at/);
   assert.doesNotMatch(bare, /Minimum chargeable weight/);
   // The exclusions clause is unconditional: it is what makes the sheet safe.
-  assert.match(bare, /exclude duties, taxes/);
+  assert.match(bare, /exclude duties, destination-country taxes/);
 });
 
 /* ------------------------------- Documents ------------------------------ */
@@ -334,6 +334,8 @@ test("an adjusted WhatsApp share is clearly labelled as an external proposal", (
   assert.ok(message.includes(links.pdf));
   assert.ok(message.includes(links.excel));
   assert.match(message, /Aman Negi/);
+  assert.match(message, /GST: 18% included as applicable/);
+  assert.doesNotMatch(message, /GST: 18% extra/);
   // The teaser quotes the customer's rate, not the base rate.
   assert.match(message, /330\.00/);
   assert.doesNotMatch(message, /300\.00/);

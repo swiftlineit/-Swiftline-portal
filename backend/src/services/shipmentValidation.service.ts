@@ -7,6 +7,7 @@ import {
   type ShipmentParcel
 } from "../models/shipmentDraft.model.js";
 import { isValidAadhaarNumber } from "./aadhaarValidation.service.js";
+import { normalizeCsbType } from "./csbType.service.js";
 import { isValidHsnCode, normalizeParcelItems } from "./parcelItems.service.js";
 import { findRestrictedCategories } from "./restrictedGoods.service.js";
 
@@ -172,7 +173,12 @@ function validateKycDocuments(draft: IShipmentDraft): string[] {
   return issues;
 }
 
-function validateParcel(parcel: ShipmentParcel, index: number, requireItemHsnCodes: boolean): string[] {
+function validateParcel(
+  parcel: ShipmentParcel,
+  index: number,
+  requireItemDetails: boolean,
+  requireHsnCode: boolean
+): string[] {
   const label = `Parcel ${index + 1}`;
   const issues: string[] = [];
 
@@ -215,19 +221,22 @@ function validateParcel(parcel: ShipmentParcel, index: number, requireItemHsnCod
         issues.push(`${itemLabel}: ${restricted.join(", ")} is a restricted item and cannot be shipped`);
       }
     }
-    // A blank HS code is only an issue where the code is required. Shipments
-    // booked before HS capture existed have none, and an amendment to one of
-    // those must not be blocked by a field that did not exist at booking time.
+    // A blank HS code is only an issue where the code is required. CSB-V clears
+    // on the full customs checklist and needs one on every line; CSB-IV does not,
+    // so the field is offered there but never demanded. Shipments booked before HS
+    // capture existed have none either, and an amendment to one of those must not
+    // be blocked by a field that did not exist at booking time.
     if (!hasText(item.hsnCode)) {
-      if (requireItemHsnCodes) issues.push(`${itemLabel}: HS code is required`);
+      if (requireHsnCode) issues.push(`${itemLabel}: HS code is required`);
     } else if (!isValidHsnCode(item.hsnCode)) {
-      // A present but malformed code is always rejected, legacy or not.
+      // A present but malformed code is always rejected, optional or not.
       issues.push(`${itemLabel}: enter a valid 4, 6, 8 or 10 digit HS code`);
     }
 
-    // Quantity and unit rate print on the customs invoice, so they are demanded
-    // alongside the HS code and skipped on the same legacy path.
-    if (requireItemHsnCodes) {
+    // Quantity and unit rate print on the customs invoice for both CSB routes, so
+    // they stay required even where the HS code is optional, and are skipped only
+    // on the legacy amendment path.
+    if (requireItemDetails) {
       if (!(item.quantity > 0)) issues.push(`${itemLabel}: quantity must be greater than zero`);
       if (!(item.unitRate > 0)) issues.push(`${itemLabel}: unit rate must be greater than zero`);
       if (!hasText(item.unitType)) issues.push(`${itemLabel}: unit type is required`);
@@ -240,7 +249,7 @@ function validateParcel(parcel: ShipmentParcel, index: number, requireItemHsnCod
 
   // The customer's own reference is required for new bookings; it is skipped on
   // the legacy amendment path alongside HS codes, quantity and unit rate.
-  if (requireItemHsnCodes && !hasText(parcel.shipmentReference1)) {
+  if (requireItemDetails && !hasText(parcel.shipmentReference1)) {
     issues.push(`${label}: reference is required`);
   }
 
@@ -252,6 +261,12 @@ export function validateShipmentDraftFields(
   options: {
     requireValidatedAddress?: boolean;
     requireConsignorDetails?: boolean;
+    /**
+     * Requires the per-item fields added with the customs invoice: quantity, unit
+     * rate, unit type and the parcel reference. Amendments to shipments booked
+     * before those fields existed pass false. It does NOT govern the HS code,
+     * which is required by CSB type instead.
+     */
     requireItemHsnCodes?: boolean;
   } = {}
 ): string[] {
@@ -315,8 +330,14 @@ export function validateShipmentDraftFields(
     sequences.add(sequence);
   });
 
+  // The HS code is a CSB-V customs requirement. CSB-IV is the simplified low
+  // value route and does not demand one, so the field is captured when the sender
+  // knows it and left blank when they do not.
+  const requireItemDetails = options.requireItemHsnCodes !== false;
+  const requireHsnCode = requireItemDetails && normalizeCsbType(draft.csbType) === "CSB_V";
+
   draft.parcelList.forEach((parcel, index) => {
-    issues.push(...validateParcel(parcel, index, options.requireItemHsnCodes !== false));
+    issues.push(...validateParcel(parcel, index, requireItemDetails, requireHsnCode));
   });
 
   if (options.requireValidatedAddress && draft.addressValidationStatus !== "VALIDATED") {

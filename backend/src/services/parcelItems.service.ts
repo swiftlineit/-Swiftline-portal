@@ -1,7 +1,8 @@
 // Per-parcel content items.
 //
-// A parcel can hold several distinct goods ("cookies", "clothes"), and Indian
-// customs needs an HSN code for each one. Those items live in `parcel.items`.
+// A parcel can hold several distinct goods ("cookies", "clothes"). CSB-V needs an
+// HSN code for each one; CSB-IV does not, so a code may be absent there. Those
+// items live in `parcel.items`.
 //
 // `parcel.contentsDescription` is kept as the DERIVED single-line summary of those
 // items. Every downstream consumer- the customs EDI export, the operations

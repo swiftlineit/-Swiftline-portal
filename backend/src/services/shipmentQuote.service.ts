@@ -12,7 +12,12 @@ import { normalizeQuoteDocuments, type QuoteDocumentCode } from "./quoteDocument
 import { defaultParcelItemUnitType } from "./parcelItems.service.js";
 import { createBlankShipmentDraft } from "./manualShipmentDraft.service.js";
 import { notifyActiveAdmins, notifyBusinessQuoteMembers } from "./portalNotification.service.js";
-import { calculateShipmentPricingEstimate, defaultShipmentGstRate } from "./shipmentPricing.service.js";
+import {
+  allocateTaxExclusiveComponentMinors,
+  calculateShipmentPricingEstimate,
+  defaultShipmentGstRate,
+  splitGstInclusiveAmountMinor
+} from "./shipmentPricing.service.js";
 import { findRoute } from "./swiftlineRoute.service.js";
 import { validateShipmentDraftFields } from "./shipmentValidation.service.js";
 
@@ -174,16 +179,32 @@ export async function calculateQuoteEstimate(context: QuoteContext, input: Shipm
     destinationCountryCode: input.destinationCountryCode,
     destinationCountryName: input.destinationCountryName,
     serviceType: input.serviceType,
-    parcels: pricing.parcels.map((parcel) => ({ ...parcel, baseAmountMinor: minor(parcel.baseAmount) })),
+    parcels: pricing.parcels.map((parcel) => ({
+      ...parcel,
+      // The per-box quote is the commercial GST-inclusive rate-card amount.
+      // Tax-exclusive parcel values remain in the pricing snapshot for invoices.
+      baseAmountMinor: minor(parcel.inclusiveBaseAmount ?? parcel.baseAmount)
+    })),
     freightMinor: minor(pricing.freightAmount),
+    inclusiveFreightMinor: minor(pricing.inclusiveAmounts?.freightAmount ?? pricing.freightAmount),
     // Flat CSB-V clearance charge for the whole shipment; zero on CSB-IV.
     csbType: pricing.csbType,
     csbClearanceMinor: minor(pricing.csbClearanceAmount),
+    inclusiveCsbClearanceMinor: minor(
+      pricing.inclusiveAmounts?.csbClearanceAmount ?? pricing.csbClearanceAmount
+    ),
     fuelSurchargeMinor: minor(pricing.fuelSurchargeAmount),
+    inclusiveFuelSurchargeMinor: minor(
+      pricing.inclusiveAmounts?.fuelSurchargeAmount ?? pricing.fuelSurchargeAmount
+    ),
     // Everything taxable that is neither freight, clearance nor fuel: handling,
     // and any route discount netted off. A quote has no destination postcode and
     // no insurance choice yet, so remote area and insurance never apply here.
     taxableAddOnsMinor: minor(pricing.handlingAmount - pricing.discountAmount),
+    inclusiveTaxableAddOnsMinor: minor(
+      (pricing.inclusiveAmounts?.handlingAmount ?? pricing.handlingAmount)
+      - (pricing.inclusiveAmounts?.discountAmount ?? pricing.discountAmount)
+    ),
     // The full breakdown, so the quote shows the same charges the booking will.
     lines: pricing.lines,
     gstRate: pricing.gstRate,
@@ -258,19 +279,28 @@ export function calculatePublishedQuotePricing(input: {
   freightMinor: number; fuelSurchargeMinor: number; taxableAddOnsMinor: number;
   gstRate?: number;
 }) {
-  const taxableSubtotalMinor = input.freightMinor + input.fuelSurchargeMinor + input.taxableAddOnsMinor;
+  const inclusiveSubtotalMinor = input.freightMinor + input.fuelSurchargeMinor + input.taxableAddOnsMinor;
   const gstRate = input.gstRate ?? defaultShipmentGstRate;
-  const gstMinor = Math.round(taxableSubtotalMinor * gstRate);
+  const split = splitGstInclusiveAmountMinor(inclusiveSubtotalMinor, gstRate);
+  const [freightMinor = 0, fuelSurchargeMinor = 0, taxableAddOnsMinor = 0] = allocateTaxExclusiveComponentMinors(
+    [input.freightMinor, input.fuelSurchargeMinor, input.taxableAddOnsMinor],
+    split.taxableMinor,
+    gstRate
+  );
   return {
     currency: "INR" as const,
-    freightMinor: input.freightMinor,
-    fuelSurchargeMinor: input.fuelSurchargeMinor,
-    taxableAddOnsMinor: input.taxableAddOnsMinor,
-    taxableSubtotalMinor,
+    freightMinor,
+    fuelSurchargeMinor,
+    taxableAddOnsMinor,
+    taxableSubtotalMinor: split.taxableMinor,
+    inclusiveFreightMinor: input.freightMinor,
+    inclusiveFuelSurchargeMinor: input.fuelSurchargeMinor,
+    inclusiveTaxableAddOnsMinor: input.taxableAddOnsMinor,
+    inclusiveSubtotalMinor,
     gstRate,
     taxTreatment: gstRate === 0 ? "NO_GST" as const : "GST_APPLICABLE" as const,
-    gstMinor,
-    totalMinor: taxableSubtotalMinor + gstMinor
+    gstMinor: split.gstMinor,
+    totalMinor: split.totalMinor
   };
 }
 

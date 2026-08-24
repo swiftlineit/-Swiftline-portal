@@ -9,6 +9,7 @@ import {
 } from "@/components/client/ClientDashboardShell";
 import CreditStatusBadge from "@/components/credit/CreditStatusBadge";
 import CreditLimitIncreasePanel from "@/components/credit/CreditLimitIncreasePanel";
+import CreditPaymentStatusBanner from "@/components/credit/CreditPaymentStatusBanner";
 import CreditSummaryCards from "@/components/credit/CreditSummaryCards";
 import {
   CreditAgreement,
@@ -230,21 +231,7 @@ export default function ClientCreditPage() {
               canRequest={permissions.includes("requestCredit")}
             />
 
-            {creditAccount.restriction &&
-            creditAccount.restriction.level !== "NONE" ? (
-              <section
-                className={`border p-4 text-sm ${creditAccount.restriction.level === "GRACE_WARNING" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-700"}`}
-              >
-                <p className="font-semibold">Overdue credit statement</p>
-                <p className="mt-1">{creditAccount.restriction.message}</p>
-                <Link
-                  href="/client/credit/statements"
-                  className="mt-3 inline-flex font-semibold text-blue-900"
-                >
-                  Review statements
-                </Link>
-              </section>
-            ) : null}
+            <CreditPaymentStatusBanner account={creditAccount} businessAccountId={selectedId} />
 
             {permissions.includes("viewCreditDetails") ? (
               <section className="flex flex-wrap items-center justify-between gap-4 border rounded-2xl border-slate-200 bg-white p-5">

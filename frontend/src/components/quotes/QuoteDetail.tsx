@@ -15,6 +15,7 @@ import {
   convertShipmentQuote,
   formatQuoteMoney,
   publishShipmentQuote,
+  splitInclusiveQuoteAmountMinor,
   updateShipmentQuoteStatus,
   type QuoteAudience,
   type ShipmentQuote,
@@ -32,10 +33,14 @@ export default function QuoteDetail({
   const [quote, setQuote] = useState(initialQuote);
   const [busy, setBusy] = useState("");
   const [freight, setFreight] = useState(
-    String((quote.estimate.freightMinor || 0) / 100),
+    String((quote.estimate.inclusiveFreightMinor ?? quote.estimate.freightMinor ?? 0) / 100),
   );
-  const [fuel, setFuel] = useState("0");
-  const [addons, setAddons] = useState("0");
+  const [fuel, setFuel] = useState(
+    String((quote.estimate.inclusiveFuelSurchargeMinor ?? quote.estimate.fuelSurchargeMinor ?? 0) / 100),
+  );
+  const [addons, setAddons] = useState(
+    String((quote.estimate.inclusiveTaxableAddOnsMinor ?? quote.estimate.taxableAddOnsMinor ?? 0) / 100),
+  );
   const [validUntil, setValidUntil] = useState(() => {
     const value = new Date();
     value.setDate(value.getDate() + 7);
@@ -44,13 +49,13 @@ export default function QuoteDetail({
   const [customerNote, setCustomerNote] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const preview = useMemo(() => {
-    const taxable = [freight, fuel, addons].reduce(
+    const inclusiveTotal = [freight, fuel, addons].reduce(
       (sum, value) => sum + Math.max(0, Math.round((Number(value) || 0) * 100)),
       0,
     );
-    const gst = Math.round(taxable * 0.18);
-    return { taxable, gst, total: taxable + gst };
-  }, [addons, freight, fuel]);
+    const split = splitInclusiveQuoteAmountMinor(inclusiveTotal, quote.estimate.gstRate);
+    return { taxable: split.taxableMinor, gst: split.gstMinor, total: split.totalMinor };
+  }, [addons, freight, fuel, quote.estimate.gstRate]);
 
   async function markReview() {
     setBusy("review");
@@ -302,13 +307,16 @@ export default function QuoteDetail({
                   the freight and clearance split on quotes estimated before route
                   charges existed. */}
               {!displayedPricing && quote.estimate.lines?.length ? (
-                quote.estimate.lines.map((line) => (
-                  <MoneyLine
-                    key={line.code}
-                    label={line.label}
-                    value={line.kind === "DEDUCTION" ? -line.amountMinor : line.amountMinor}
-                  />
-                ))
+                <>
+                  {quote.estimate.lines.map((line) => (
+                    <MoneyLine
+                      key={line.code}
+                      label={line.label}
+                      value={line.kind === "DEDUCTION" ? -line.amountMinor : line.amountMinor}
+                    />
+                  ))}
+                  {quote.estimate.gstRate === 0 ? <MoneyLine label="GST" value={null} /> : null}
+                </>
               ) : (
                 <>
                   <MoneyLine

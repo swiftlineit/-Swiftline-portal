@@ -15,6 +15,7 @@ import {
 } from "../models/operationsManifestScan.model.js";
 import { OperationsManifestScanSession } from "../models/operationsManifestScanSession.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
+import { ShipmentCancellation } from "../models/shipmentCancellation.model.js";
 import { ShipmentManifest, type IShipmentManifest } from "../models/shipmentManifest.model.js";
 import {
   buildManifestLine,
@@ -35,6 +36,11 @@ import {
   type ShipmentBookingSnapshot
 } from "./shipmentBookingSnapshot.service.js";
 import { dateRangeCondition } from "../utils/dateRangeFilter.js";
+import {
+  findMissingPrerequisites,
+  formatShipmentEventLabel
+} from "./shipmentStatusSequence.service.js";
+import { resolveShipmentEventNote } from "./shipmentEventCopy.service.js";
 
 export class OperationsManifestServiceError extends Error {
   constructor(message: string, public readonly statusCode = 400) {
@@ -788,6 +794,101 @@ function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: stri
   return issues;
 }
 
+export type ManifestDispatchIssue = {
+  shipmentDraftId: string;
+  reference: string;
+  reason: string;
+  missingStatuses: string[];
+};
+
+export function buildManifestDispatchIssues(input: {
+  consignments: Array<{ shipmentDraftId: unknown; consignmentNumber: string }>;
+  events: Array<{ shipmentDraftId: unknown; status: string; eventAt: Date }>;
+  cancellations?: Array<{ shipmentDraftId: unknown; status: string }>;
+}): ManifestDispatchIssue[] {
+  const statusesByDraft = new Map<string, Set<string>>();
+  const latestByDraft = new Map<string, { status: string; eventAt: Date }>();
+  for (const event of input.events) {
+    const draftId = String(event.shipmentDraftId);
+    const statuses = statusesByDraft.get(draftId) ?? new Set<string>();
+    statuses.add(event.status);
+    statusesByDraft.set(draftId, statuses);
+    const latest = latestByDraft.get(draftId);
+    if (!latest || event.eventAt.getTime() > latest.eventAt.getTime()) latestByDraft.set(draftId, event);
+  }
+  const cancellationByDraft = new Map(
+    (input.cancellations ?? []).map((item) => [String(item.shipmentDraftId), item.status])
+  );
+
+  return input.consignments.flatMap((consignment) => {
+    const draftId = String(consignment.shipmentDraftId);
+    const reference = consignment.consignmentNumber || draftId;
+    const cancellation = cancellationByDraft.get(draftId);
+    if (cancellation) {
+      return [{
+        shipmentDraftId: draftId,
+        reference,
+        reason: cancellation === "COMPLETED"
+          ? "Shipment is cancelled."
+          : "Shipment has a pending cancellation request.",
+        missingStatuses: []
+      }];
+    }
+    if (latestByDraft.get(draftId)?.status === "ON_HOLD") {
+      return [{ shipmentDraftId: draftId, reference, reason: "Shipment is on hold.", missingStatuses: [] }];
+    }
+    const missing = findMissingPrerequisites("ORIGIN_HUB_DISPATCHED", statusesByDraft.get(draftId) ?? []);
+    return missing.length ? [{
+      shipmentDraftId: draftId,
+      reference,
+      reason: `Missing ${missing.map(formatShipmentEventLabel).join(", ")}.`,
+      missingStatuses: missing
+    }] : [];
+  });
+}
+
+async function loadManifestDispatchIssues(
+  consignments: Array<{ shipmentDraftId: mongoose.Types.ObjectId; consignmentNumber: string }>,
+  session?: mongoose.ClientSession
+) {
+  if (!consignments.length) return [];
+  const shipmentDraftIds = consignments.map((item) => item.shipmentDraftId);
+  const [events, cancellations] = await Promise.all([
+    ShipmentEvent.find({ shipmentDraftId: { $in: shipmentDraftIds } })
+      .select("shipmentDraftId status eventAt")
+      .lean()
+      .session(session ?? null)
+      .exec(),
+    ShipmentCancellation.find({
+      shipmentDraftId: { $in: shipmentDraftIds },
+      status: { $in: ["REQUESTED", "COMPLETED"] }
+    }).select("shipmentDraftId status").lean().session(session ?? null).exec()
+  ]);
+  return buildManifestDispatchIssues({ consignments, events, cancellations });
+}
+
+export function buildManifestDispatchTrackingEvent(input: {
+  shipmentDraftId: mongoose.Types.ObjectId;
+  dpdShipmentId: mongoose.Types.ObjectId;
+  manifestId: mongoose.Types.ObjectId;
+  userId: mongoose.Types.ObjectId;
+  dispatchedAt: Date;
+}) {
+  return {
+    shipmentDraftId: input.shipmentDraftId,
+    dpdShipmentId: input.dpdShipmentId,
+    status: "ORIGIN_HUB_DISPATCHED" as const,
+    milestoneKey: "ORIGIN_HUB_DISPATCHED",
+    note: resolveShipmentEventNote("", "ORIGIN_HUB_DISPATCHED"),
+    location: "",
+    customerVisible: true,
+    source: "MANIFEST" as const,
+    sourceReference: String(input.manifestId),
+    createdBy: input.userId,
+    eventAt: input.dispatchedAt
+  };
+}
+
 export async function sealOperationsManifest(manifestIdValue: string, userId: mongoose.Types.ObjectId) {
   const manifestId = asObjectId(manifestIdValue, "Operations manifest");
   const session = await mongoose.startSession();
@@ -870,18 +971,95 @@ export async function sealOperationsManifest(manifestIdValue: string, userId: mo
 }
 
 export async function dispatchOperationsManifest(manifestIdValue: string, userId: mongoose.Types.ObjectId) {
-  const manifest = await OperationsManifest.findById(asObjectId(manifestIdValue, "Operations manifest")).exec();
-  if (!manifest || manifest.status !== "SEALED") throw new OperationsManifestServiceError("Only a sealed manifest can be dispatched.", 409);
-  manifest.status = "DISPATCHED";
-  manifest.dispatchedAt = new Date();
-  manifest.dispatchedBy = userId;
-  await manifest.save();
-  await OperationsManifestScanSession.updateMany(
-    { manifestId: manifest._id, status: { $ne: "ENDED" } },
-    { $set: { status: "ENDED", activeBagId: null, endedAt: new Date(), endedReason: "Manifest dispatched." } }
-  ).exec();
-  await audit("OPERATIONS_MANIFEST_DISPATCHED", manifest._id as mongoose.Types.ObjectId, userId, { dispatchedAt: manifest.dispatchedAt });
-  return manifest;
+  const manifestId = asObjectId(manifestIdValue, "Operations manifest");
+  const session = await mongoose.startSession();
+  let dispatched: IOperationsManifest | null = null;
+
+  try {
+    await session.withTransaction(async () => {
+      const manifest = await OperationsManifest.findById(manifestId).session(session).exec();
+      if (!manifest || manifest.status !== "SEALED") {
+        throw new OperationsManifestServiceError("Only a sealed manifest can be dispatched.", 409);
+      }
+
+      const dispatchedAt = new Date();
+      const consignments = await OperationsManifestConsignment.find({
+        manifestId: manifest._id,
+        status: { $ne: "REMOVED" }
+      }).select("shipmentDraftId dpdShipmentId consignmentNumber").session(session).lean().exec();
+
+      const dispatchIssues = await loadManifestDispatchIssues(consignments, session);
+      if (dispatchIssues.length) {
+        const visible = dispatchIssues.slice(0, 8).map((issue) => `${issue.reference}: ${issue.reason}`);
+        const remainder = dispatchIssues.length - visible.length;
+        throw new OperationsManifestServiceError(
+          `Manifest cannot be dispatched. ${visible.join(" ")}`
+            + (remainder > 0 ? ` ${remainder} more shipment(s) need attention.` : ""),
+          409
+        );
+      }
+
+      manifest.status = "DISPATCHED";
+      manifest.dispatchedAt = dispatchedAt;
+      manifest.dispatchedBy = userId;
+      await manifest.save({ session });
+
+      if (consignments.length) {
+        // Run these sequentially on the transaction session. Mongoose 9 can
+        // silently omit a bulk update whose only mutation is `$setOnInsert`,
+        // reporting zero matches and zero upserts while allowing the manifest
+        // transaction to commit. A direct updateOne reliably performs the
+        // idempotent upsert and keeps manifest dispatch and tracking atomic.
+        for (const consignment of consignments) {
+          const result = await ShipmentEvent.updateOne(
+            {
+              shipmentDraftId: consignment.shipmentDraftId,
+              $or: [
+                { milestoneKey: "ORIGIN_HUB_DISPATCHED" },
+                { status: { $in: ["ORIGIN_HUB_DISPATCHED", "FLIGHT_DEPARTED"] } }
+              ]
+            },
+            {
+              $setOnInsert: buildManifestDispatchTrackingEvent({
+                shipmentDraftId: consignment.shipmentDraftId,
+                dpdShipmentId: consignment.dpdShipmentId,
+                manifestId: manifest._id as mongoose.Types.ObjectId,
+                userId,
+                dispatchedAt
+              })
+            },
+            { session, upsert: true }
+          ).exec();
+
+          if (!result.acknowledged || (result.matchedCount === 0 && result.upsertedCount === 0)) {
+            throw new OperationsManifestServiceError(
+              `Dispatch tracking could not be recorded for ${consignment.consignmentNumber}. The manifest was not dispatched.`,
+              500
+            );
+          }
+        }
+      }
+
+      await OperationsManifestScanSession.updateMany(
+        { manifestId: manifest._id, status: { $ne: "ENDED" } },
+        { $set: { status: "ENDED", activeBagId: null, endedAt: dispatchedAt, endedReason: "Manifest dispatched." } },
+        { session }
+      ).exec();
+      await audit(
+        "OPERATIONS_MANIFEST_DISPATCHED",
+        manifest._id as mongoose.Types.ObjectId,
+        userId,
+        { dispatchedAt, consignmentsChecked: consignments.length },
+        session
+      );
+      dispatched = manifest;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  if (!dispatched) throw new OperationsManifestServiceError("Manifest could not be dispatched.", 500);
+  return dispatched;
 }
 
 export async function cancelOperationsManifest(manifestIdValue: string, reason: string, userId: mongoose.Types.ObjectId) {
@@ -991,6 +1169,9 @@ export async function getOperationsManifestDetail(manifestIdValue: string, optio
       .exec()
   ]);
   if (!manifest) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
+  const dispatchIssues = manifest.status === "SEALED"
+    ? await loadManifestDispatchIssues(consignments)
+    : [];
   const branch = await Branch.findById(manifest.branchId).select("name code address contact").lean().exec();
   const bagNumberById = new Map(bags.map((bag) => [String(bag._id), bag.bagNumber]));
   const latestScan = options?.latestScanId
@@ -1027,7 +1208,8 @@ export async function getOperationsManifestDetail(manifestIdValue: string, optio
       manifest as unknown as IOperationsManifest,
       bags.filter((bag) => bag.status !== "CANCELLED"),
       consignments
-    )
+    ),
+    dispatchIssues
   };
 }
 

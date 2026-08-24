@@ -15,6 +15,7 @@ import {
   getParcelItemAmount,
   getPositiveNumberError,
   maxParcelItems,
+  sanitizeParcelItemDescription,
   parcelItemUnitTypeValues,
   type ParcelItem,
 } from "@/lib/parcelItems";
@@ -31,16 +32,22 @@ const rowGrid = "lg:grid-cols-[minmax(0,1fr)_120px_88px_74px_96px_96px_44px]";
  * Restricted descriptions highlight red and raise a toast on blur. The joined
  * descriptions become the parcel's contentsDescription on save, which is what the
  * EDI export, manifest, carrier payload and labels keep reading.
+ *
+ * `requireHsnCode` follows the shipment's CSB type: CSB-V clears on the full
+ * customs checklist and needs a code on every line, CSB-IV does not. A code that
+ * IS entered is format-checked either way.
  */
 export function ParcelItemsEditor({
   items,
   onChange,
   revealError = false,
+  requireHsnCode = true,
   maxItems = maxParcelItems,
 }: {
   items: ParcelItem[];
   onChange: (items: ParcelItem[]) => void;
   revealError?: boolean;
+  requireHsnCode?: boolean;
   maxItems?: number;
 }) {
   // The description being typed drives the HS code suggestions below it. Only
@@ -127,7 +134,7 @@ export function ParcelItemsEditor({
         className={`mt-2 hidden gap-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 lg:grid ${rowGrid}`}
       >
         <span>Description</span>
-        <span>HS Code</span>
+        <span>HS Code{requireHsnCode ? "" : " (Optional)"}</span>
         <span>Unit Type</span>
         <span>Qty</span>
         <span>Unit Rate</span>
@@ -138,7 +145,7 @@ export function ParcelItemsEditor({
       <div className="mt-1 space-y-2">
         {items.map((item, index) => {
           const restricted = findRestrictedCategories(item.description);
-          const hsnError = getHsnCodeError(item.hsnCode);
+          const hsnError = getHsnCodeError(item.hsnCode, requireHsnCode);
           const quantityError = getPositiveNumberError(
             item.quantity,
             "Quantity",
@@ -165,8 +172,14 @@ export function ParcelItemsEditor({
                 <input
                   type="text"
                   value={item.description}
+                  // Letters only: the numbers on a customs line belong to the
+                  // quantity and unit rate beside it, never to the goods name.
                   onChange={(event) =>
-                    updateItem(index, "description", event.target.value.toUpperCase())
+                    updateItem(
+                      index,
+                      "description",
+                      sanitizeParcelItemDescription(event.target.value).toUpperCase(),
+                    )
                   }
                   onFocus={() => setActiveRow(index)}
                   onBlur={() => {
@@ -183,6 +196,7 @@ export function ParcelItemsEditor({
                     }
                   }}
                   placeholder={`Item ${index + 1} description`}
+                  title="Letters only - record quantities in the Qty and Unit Rate columns."
                   maxLength={120}
                   aria-label={`Item ${index + 1} description`}
                   aria-invalid={showDescriptionError}
@@ -242,7 +256,7 @@ export function ParcelItemsEditor({
                   if (hsnError && item.hsnCode.trim())
                     toast.error(hsnError, { toastId: hsnError });
                 }}
-                placeholder="HS code"
+                placeholder={requireHsnCode ? "HS code" : "HS code (optional)"}
                 aria-label={`Item ${index + 1} HS code`}
                 aria-invalid={showHsnError}
                 className={`h-11 w-full min-w-0 rounded-xl border px-3.5 text-sm outline-none transition focus:ring-2 ${

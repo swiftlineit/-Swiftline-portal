@@ -48,13 +48,28 @@ export function getDeclaredGoodsValue(parcels: Array<{ items: ParcelItem[] }>): 
   ));
 }
 
+/**
+ * An item description as it is allowed to be stored: no digits.
+ *
+ * Customs reads the description as the *name* of the good- "COTTON SHIRTS"- while
+ * quantity and unit rate carry every number the invoice needs. A "500" typed into
+ * the description only ever restated one of those fields, so digits are dropped as
+ * they are typed rather than rejected after the fact.
+ */
+export function sanitizeParcelItemDescription(value: string): string {
+  return value.replace(/[0-9]/g, "");
+}
+
 export function isValidHsnCode(value: unknown): boolean {
   return typeof value === "string" && hsnCodePattern.test(value.trim());
 }
 
 /**
  * Validation message for a single HSN code, or "" when it is acceptable.
- * `required` is false on shipments booked before HSN capture existed.
+ *
+ * `required` is false on CSB-IV, which does not ask for a code per line, and on
+ * shipments booked before HSN capture existed. A code that IS entered is
+ * format-checked either way.
  */
 export function getHsnCodeError(value: string, required = true): string {
   const trimmed = value.trim();

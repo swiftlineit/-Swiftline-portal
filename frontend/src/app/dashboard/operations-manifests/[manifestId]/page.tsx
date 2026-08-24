@@ -393,6 +393,23 @@ export default function OperationsManifestWorkspace() {
           </section>
         ) : null}
 
+        {data.manifest.status === "SEALED" && data.dispatchIssues.length ? (
+          <section className="mb-5 rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:p-5">
+            <h2 className="text-sm font-semibold text-amber-950">Dispatch is waiting on shipment updates</h2>
+            <p className="mt-1 text-sm leading-6 text-amber-800">
+              Complete the missing milestones below. The manifest will stay sealed until every shipment is ready.
+            </p>
+            <ul className="mt-3 grid gap-2 md:grid-cols-2">
+              {data.dispatchIssues.map((issue) => (
+                <li key={`${issue.shipmentDraftId}-${issue.reason}`} className="rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm text-slate-700">
+                  <span className="font-semibold text-slate-950">{issue.reference}</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-amber-800">{issue.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         <div className="mb-5 grid grid-cols-2 overflow-hidden rounded-xl border border-[#EEEDED] bg-white shadow-sm md:grid-cols-4">
           <Metric label="Bags" value={manifest.totalBags} />
           <Metric label="Consignments" value={manifest.totalConsignments} />
@@ -752,7 +769,9 @@ function ManifestHeader({
         {manifest.status === "SEALED" ? (
           <button
             onClick={onDispatch}
-            className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90"
+            disabled={busy || data.dispatchIssues.length > 0}
+            title={data.dispatchIssues.length ? "Complete all missing shipment milestones before dispatch." : undefined}
+            className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0D1282]/90 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             < IoMdSend />
             Dispatch

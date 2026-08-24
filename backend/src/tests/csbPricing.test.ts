@@ -7,6 +7,10 @@ import {
   normalizeCsbType
 } from "../services/csbType.service.js";
 import {
+  calculateChargeBreakdown,
+  splitGstInclusiveAmountMinor
+} from "../services/shipmentPricing.service.js";
+import {
   composeContentsDescription,
   contentsDescriptionMaxLength,
   isValidHsnCode,
@@ -34,21 +38,43 @@ describe("CSB type", () => {
   });
 });
 
-// The pricing maths CSB-V introduces, verified independently of the database so
-// these run without a Mongo connection. calculateShipmentPricingEstimate applies
-// exactly this arithmetic on top of the rate card lookup.
+const emptyRouteCharges = {
+  fuelSurchargePercent: 0,
+  remoteAreaCharge: 0,
+  remoteAreaPostcodes: [] as string[],
+  handlingCharge: 0,
+  insurancePercent: 0,
+  insuranceMinimum: 0,
+  discountPercent: 0,
+  updatedAt: null
+};
+
+const price = (freightAmount: number, csbType: "CSB_IV" | "CSB_V", missingRate = false) => (
+  calculateChargeBreakdown({
+    freightAmount,
+    missingRate,
+    parcelCount: 1,
+    chargeableWeightTotal: 10,
+    csbType,
+    destinationPostcode: "",
+    insuranceOptIn: false,
+    declaredGoodsValue: 0,
+    routeCharges: emptyRouteCharges,
+    gstRate: 0.18
+  })
+);
+
+// The flat CSB-V charge and the freight rate are both commercial GST-inclusive
+// amounts. The invoice extracts their taxable value and GST without increasing
+// the amount the customer was quoted.
 describe("CSB-V charge arithmetic", () => {
-  const gstRate = 0.18;
+  test("adds the inclusive 1800 charge once and extracts GST from the combined total", () => {
+    const result = price(2000, "CSB_V");
 
-  test("adds 1800 once per shipment, then GST on the combined base", () => {
-    // The worked example: 2000 freight across a 5 kg shipment.
-    const freight = 2000;
-    const base = freight + getCsbClearanceCharge("CSB_V");
-    const gst = base * gstRate;
-
-    assert.equal(base, 3800);
-    assert.equal(gst, 684);
-    assert.equal(base + gst, 4484);
+    assert.equal(result.inclusiveAmounts.csbClearanceAmount, 1800);
+    assert.equal(result.baseAmount, 3220.34);
+    assert.equal(result.gstAmount, 579.66);
+    assert.equal(result.totalAmount, 3800);
   });
 
   test("the charge does not scale with parcel count or weight", () => {
@@ -58,39 +84,33 @@ describe("CSB-V charge arithmetic", () => {
     assert.equal(onePercel, fiveParcels);
   });
 
-  test("CSB-IV prices exactly as before the charge existed", () => {
-    const freight = 2000;
-    const base = freight + getCsbClearanceCharge("CSB_IV");
-    assert.equal(base, freight);
-    assert.equal(base + base * gstRate, 2360);
+  test("CSB-IV extracts GST from the inclusive freight rate", () => {
+    const result = price(2000, "CSB_IV");
+    assert.equal(result.csbClearanceAmount, 0);
+    assert.equal(result.baseAmount, 1694.92);
+    assert.equal(result.gstAmount, 305.08);
+    assert.equal(result.totalAmount, 2000);
   });
 });
 
-// The review shipment form prices in the browser via the frontend's own copy of
-// this maths (frontend/src/lib/shipmentPricing.ts). The two drifting apart once
-// already showed a customer 2,360 on screen while the backend charged 4,484, so
-// the shared rule is pinned here: the charge is added to freight BEFORE GST, once
-// per shipment, and is suppressed when no rate applies.
-describe("frontend/backend pricing parity rule", () => {
-  const gstRate = 0.18;
-  const price = (freight: number, csbType: "CSB_IV" | "CSB_V", missingRate = false) => {
-    const csb = missingRate ? 0 : getCsbClearanceCharge(csbType);
-    const base = freight + csb;
-    return { csb, base, gst: base * gstRate, total: base + base * gstRate };
-  };
-
+describe("inclusive pricing parity rule", () => {
   test("the screenshot case: 10 kg to GB at 200/kg on CSB-V", () => {
     const result = price(2000, "CSB_V");
-    assert.deepEqual(result, { csb: 1800, base: 3800, gst: 684, total: 4484 });
+    assert.equal(result.totalAmount, 3800);
+    assert.deepEqual(splitGstInclusiveAmountMinor(380000, 0.18), {
+      taxableMinor: 322034,
+      gstMinor: 57966,
+      totalMinor: 380000
+    });
   });
 
-  test("the same shipment on CSB-IV is unchanged", () => {
+  test("the same shipment on CSB-IV keeps the published freight total", () => {
     const result = price(2000, "CSB_IV");
-    assert.deepEqual(result, { csb: 0, base: 2000, gst: 360, total: 2360 });
+    assert.equal(result.totalAmount, 2000);
   });
 
   test("no rate available never quotes the clearance charge alone", () => {
-    assert.equal(price(0, "CSB_V", true).total, 0);
+    assert.equal(price(0, "CSB_V", true).totalAmount, 0);
   });
 });
 

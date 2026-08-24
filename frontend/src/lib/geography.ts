@@ -9,7 +9,7 @@
 
 import { fetchWithAuth } from "@/lib/shipmentsList";
 import { readJsonSafely } from "@/lib/auth";
-import { getPortalCountryCode } from "@/lib/portalCountries";
+import { resolveCountry } from "@/lib/countryLookup";
 
 export type GeographyState = { name: string; code: string };
 
@@ -17,7 +17,12 @@ const statesCache = new Map<string, GeographyState[]>();
 const citiesCache = new Map<string, string[]>();
 const inFlight = new Map<string, Promise<unknown>>();
 
-const getCountryCode = getPortalCountryCode;
+// Resolved against the full country catalogue rather than a short address list:
+// the reference dataset already holds states for 229 countries, and the only
+// thing that used to stop Croatia getting a real state dropdown was a name this
+// lookup did not recognise. A country the dataset does not cover still returns
+// an empty list, and the caller falls back to a free-text field.
+const getCountryCode = (countryName: string) => resolveCountry(countryName)?.iso2.toUpperCase() ?? "";
 
 // One request per key, even when several controls mount at once.
 function dedupe<T>(key: string, run: () => Promise<T>): Promise<T> {

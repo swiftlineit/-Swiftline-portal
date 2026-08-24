@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { FiCheckCircle, FiMapPin, FiTruck, FiUser } from "react-icons/fi";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
-import { labelStatus } from "@/lib/shipmentJourney";
+import { labelStatus, type TrackingJourney } from "@/lib/shipmentJourney";
+import type { TrackingPosition } from "@/lib/shipmentTracking";
 import {
   ActionRequiredChip,
   EstimatedDelivery,
@@ -62,6 +63,8 @@ export type TrackingResultRecord = {
   deliveryEstimate: DeliveryEstimate | null;
   summary: TrackingResultSummary | null;
   attention: { label: string; detail: string } | null;
+  journey?: TrackingJourney | null;
+  position?: TrackingPosition | null;
 };
 
 /**
@@ -101,7 +104,7 @@ function shipmentFacts(result: TrackingResultRecord): Array<{ label: string; val
 
   return [
     { label: "AWB / Tracking No.", value: result.swiftlineTrackingNumber || "AWB Pending" },
-    { label: "Service Partner", value: summary?.carrierName || "Not assigned" },
+    { label: "Service Partner", value: result.journey?.context.deliveryPartnerName || summary?.carrierName || "Not assigned" },
     { label: "Service Type", value: result.service ? labelStatus(result.service) : "Not available" },
     { label: "Pieces", value: String(summary?.pieces ?? result.parcelCount) },
     { label: "Actual Weight", value: weightLabel(summary?.actualWeightKg) },
@@ -133,11 +136,6 @@ export default function TrackingResult({
   const timeline = [...record.events].sort(
     (left, right) => new Date(left.eventAt).getTime() - new Date(right.eventAt).getTime(),
   );
-  // The newest event that recorded a place. Events without one leave the
-  // shipment's last known location standing rather than blanking it.
-  const currentLocation = [...record.events]
-    .sort((left, right) => new Date(right.eventAt).getTime() - new Date(left.eventAt).getTime())
-    .find((event) => event.location)?.location ?? "";
   const facts = shipmentFacts(record);
   const parcelNumbers = record.parcelNumbers ?? [];
   // A parcel-level search is one whose number belongs to a piece rather than the
@@ -162,7 +160,10 @@ export default function TrackingResult({
 
       {/* The journey and the promised date lead, because "where is it and will
           it arrive on time" is the whole reason anyone opens this. */}
-      <ShipmentJourney events={record.events.map((event) => ({ status: event.status, eventAt: event.eventAt }))} />
+      <ShipmentJourney
+        events={record.events.map((event) => ({ status: event.status, eventAt: event.eventAt }))}
+        journey={record.journey}
+      />
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
         <section className="rounded-2xl border border-slate-200 bg-white">
@@ -177,11 +178,21 @@ export default function TrackingResult({
                   {record.swiftlineTrackingNumber || record.carrierShipmentNumber}
                 </p>
               ) : null}
-              {currentLocation ? (
-                <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-slate-700">
-                  <FiMapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  {currentLocation}
-                </p>
+              {record.position ? (
+                <div className="mt-2">
+                  <p className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                    <FiMapPin aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span>Current position: {record.position.label}</span>
+                  </p>
+                  {record.position.source === "INFERRED" ? (
+                    <p className="mt-1 pl-5 text-xs text-slate-500">Based on latest update</p>
+                  ) : null}
+                  {record.position.holdReasonLabel ? (
+                    <p className="mt-1 pl-5 text-xs font-medium text-amber-700">
+                      Hold reason: {record.position.holdReasonLabel}
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">

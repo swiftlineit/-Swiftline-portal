@@ -12,11 +12,85 @@ import { normalizePortalRole } from "../utils/portalRole.js";
 import {
   buildOperationsManifestExcel,
   buildOperationsManifestPdf,
+  buildManifestDispatchIssues,
+  buildManifestDispatchTrackingEvent,
   calculateScannedParcelWeight,
   formatOperationsBagNumber,
   isOperationsBagWeightAllowed,
   summarizeBagComposition
 } from "../services/operationsManifest.service.js";
+
+describe("operations manifest dispatch readiness", () => {
+  const firstDraftId = new mongoose.Types.ObjectId();
+  const secondDraftId = new mongoose.Types.ObjectId();
+  const readyStatuses = [
+    "WAREHOUSE_SCAN_IN",
+    "ORIGIN_HUB_PROCESSED",
+    "READY_FOR_EXPORT"
+  ];
+  const eventsFor = (shipmentDraftId: mongoose.Types.ObjectId, statuses: string[]) =>
+    statuses.map((status, index) => ({ shipmentDraftId, status, eventAt: new Date(2026, 7, 22, 8, index) }));
+
+  it("creates only the dispatch tracking milestone and carries no manifest IATA", () => {
+    const event = buildManifestDispatchTrackingEvent({
+      shipmentDraftId: firstDraftId,
+      dpdShipmentId: new mongoose.Types.ObjectId(),
+      manifestId: new mongoose.Types.ObjectId(),
+      userId: new mongoose.Types.ObjectId(),
+      dispatchedAt: new Date("2026-08-22T08:00:00.000Z")
+    });
+
+    assert.equal(event.status, "ORIGIN_HUB_DISPATCHED");
+    assert.equal(event.location, "");
+    assert.equal("gatewayCode" in event, false);
+  });
+
+  it("allows dispatch when every packed shipment has completed the origin steps", () => {
+    assert.deepEqual(buildManifestDispatchIssues({
+      consignments: [
+        { shipmentDraftId: firstDraftId, consignmentNumber: "SLC-READY-01" },
+        { shipmentDraftId: secondDraftId, consignmentNumber: "SLC-READY-02" }
+      ],
+      events: [
+        ...eventsFor(firstDraftId, readyStatuses),
+        ...eventsFor(secondDraftId, readyStatuses)
+      ]
+    }), []);
+  });
+
+  it("blocks the entire dispatch and names each shipment with missing milestones", () => {
+    const issues = buildManifestDispatchIssues({
+      consignments: [
+        { shipmentDraftId: firstDraftId, consignmentNumber: "SLC-READY-01" },
+        { shipmentDraftId: secondDraftId, consignmentNumber: "SLC-GAP-02" }
+      ],
+      events: [
+        ...eventsFor(firstDraftId, readyStatuses),
+        ...eventsFor(secondDraftId, ["WAREHOUSE_SCAN_IN"])
+      ]
+    });
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0]?.reference, "SLC-GAP-02");
+    assert.deepEqual(issues[0]?.missingStatuses, ["ORIGIN_HUB_PROCESSED", "READY_FOR_EXPORT"]);
+  });
+
+  it("blocks held and cancelled consignments before manifest mutation", () => {
+    const issues = buildManifestDispatchIssues({
+      consignments: [
+        { shipmentDraftId: firstDraftId, consignmentNumber: "SLC-HOLD-01" },
+        { shipmentDraftId: secondDraftId, consignmentNumber: "SLC-CANCEL-02" }
+      ],
+      events: [
+        ...eventsFor(firstDraftId, readyStatuses),
+        { shipmentDraftId: firstDraftId, status: "ON_HOLD", eventAt: new Date(2026, 7, 22, 9) },
+        ...eventsFor(secondDraftId, readyStatuses)
+      ],
+      cancellations: [{ shipmentDraftId: secondDraftId, status: "COMPLETED" }]
+    });
+    assert.match(issues.find((issue) => issue.reference === "SLC-HOLD-01")?.reason ?? "", /on hold/);
+    assert.match(issues.find((issue) => issue.reference === "SLC-CANCEL-02")?.reason ?? "", /cancelled/);
+  });
+});
 
 function sealedManifest() {
   const manifestId = new mongoose.Types.ObjectId();

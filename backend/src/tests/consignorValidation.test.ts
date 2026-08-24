@@ -208,17 +208,42 @@ describe("consignor draft validation", () => {
   // A fully specified item, so tests can vary one field at a time.
   const completeItem = { description: "Cookies", hsnCode: "19053100", unitType: "Pkt", quantity: 2, unitRate: 50 };
 
-  test("requires an HS code on every declared item", () => {
+  // One item complete, one with the HS code left blank. Only the CSB type decides
+  // whether the blank is a problem.
+  const parcelWithBlankHsCode = [{
+    sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
+    items: [completeItem, { ...completeItem, description: "Clothes", hsnCode: "" }],
+    contentsDescription: "Cookies, Clothes"
+  }];
+
+  test("requires an HS code on every declared item for CSB-V", () => {
     const issues = validateShipmentDraftFields(draftWith({
-      parcels: [{
-        sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
-        items: [completeItem, { ...completeItem, description: "Clothes", hsnCode: "" }],
-        contentsDescription: "Cookies, Clothes"
-      }]
+      csbType: "CSB_V",
+      parcels: parcelWithBlankHsCode
     }));
     assert.ok(issues.includes("Parcel 1 item 2: HS code is required"));
     // The complete item raises nothing.
     assert.equal(issues.some((issue) => issue.startsWith("Parcel 1 item 1")), false);
+  });
+
+  test("leaves the HS code optional on CSB-IV", () => {
+    // CSB-IV is the simplified low value route: customs does not ask for a code
+    // per line, so a sender who does not know one is not blocked by it.
+    const issues = validateShipmentDraftFields(draftWith({ parcels: parcelWithBlankHsCode }));
+    assert.equal(issues.some((issue) => issue.includes("HS code is required")), false);
+    // Everything else the customs invoice needs is still demanded.
+    assert.equal(issues.some((issue) => issue.startsWith("Parcel 1 item")), false);
+  });
+
+  test("rejects a malformed HS code on CSB-IV even though it is optional", () => {
+    const issues = validateShipmentDraftFields(draftWith({
+      parcels: [{
+        sequence: 1, weightKg: 5, lengthCm: 10, widthCm: 10, heightCm: 10, shipmentContentType: "PARCEL",
+        items: [{ ...completeItem, hsnCode: "190" }],
+        contentsDescription: "Cookies"
+      }]
+    }));
+    assert.ok(issues.includes("Parcel 1 item 1: enter a valid 4, 6, 8 or 10 digit HS code"));
   });
 
   test("accepts a 10 digit HS code", () => {

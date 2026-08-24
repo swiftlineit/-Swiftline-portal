@@ -1,6 +1,7 @@
 import { listBranches } from "@/lib/branches";
 import { listBusinessAccounts, type BusinessAccount } from "@/lib/businessAccounts";
 import { listAdminCreditAccounts } from "@/lib/creditAccounts";
+import { countCreditAccountsAtRisk } from "@/lib/creditPaymentStatus";
 import { listDpdShipments, listShipmentAmendments, type DpdShipmentHistoryItem } from "@/lib/dpdLabels";
 import { listOperationsManifests, type ManifestStatus, type OperationsManifest } from "@/lib/operationsManifests";
 import { listShipmentCancellations } from "@/lib/shipmentCancellations";
@@ -132,6 +133,8 @@ export type FinanceOverview = {
   approvedLimitMinor: number;
   activeFacilities: number;
   restrictedFacilities: number;
+  /** Heading for a block but not there yet - a customer to chase, not one already stopped. */
+  atRiskFacilities: number;
 };
 
 export type ApprovalOverview = {
@@ -225,12 +228,18 @@ const shipmentStages: Array<{ key: string; label: string; statuses: string[] }> 
     label: "In transit",
     statuses: [
       "RELEASED_FROM_HOLD",
+      "ORIGIN_HUB_PROCESSED",
+      "READY_FOR_EXPORT",
+      "ORIGIN_HUB_DISPATCHED",
       "EXPORT_CUSTOMS_CLEARED",
       "FLIGHT_ASSIGNED",
       "FLIGHT_DEPARTED",
       "IN_TRANSIT",
       "DESTINATION_ARRIVED",
-      "IMPORT_CUSTOMS_CLEARANCE"
+      "IMPORT_CUSTOMS_CLEARANCE",
+      "IMPORT_CUSTOMS_CLEARED",
+      "DELIVERY_PARTNER_TRANSFERRED",
+      "DELIVERY_HUB_ARRIVED"
     ]
   },
   { key: "OUT_FOR_DELIVERY", label: "Out for delivery", statuses: ["OUT_FOR_DELIVERY"] },
@@ -556,7 +565,8 @@ export async function loadDashboardOverview(role?: string): Promise<DashboardOve
       unbilledMinor: credit.reduce((sum, account) => sum + (account.unbilledCreditMinor ?? 0), 0),
       approvedLimitMinor: credit.reduce((sum, account) => sum + (account.approvedCreditLimitMinor ?? 0), 0),
       activeFacilities: credit.filter((account) => account.status === "ACTIVE").length,
-      restrictedFacilities: credit.filter((account) => account.restriction && account.restriction.level !== "NONE").length
+      restrictedFacilities: credit.filter((account) => account.restriction && account.restriction.level !== "NONE").length,
+      atRiskFacilities: countCreditAccountsAtRisk(credit)
     }
     : null;
 
@@ -696,14 +706,24 @@ function buildTasks(input: {
     });
   }
 
-  if (finance?.restrictedFacilities) {
+  if (finance?.restrictedFacilities || finance?.atRiskFacilities) {
+    const restricted = finance.restrictedFacilities;
+    const atRisk = finance.atRiskFacilities;
     tasks.push({
       id: "credit",
-      label: "Credit facilities restricted",
-      detail: "Overdue balances are blocking new bookings",
-      count: finance.restrictedFacilities,
+      label: restricted
+        ? "Credit facilities restricted"
+        : "Credit facilities at risk",
+      // Both halves are named when both exist, so the count and the sentence
+      // never disagree about what the number refers to.
+      detail: restricted && atRisk
+        ? `${restricted} blocked by overdue balances, ${atRisk} due soon`
+        : restricted
+          ? "Overdue balances are blocking new bookings"
+          : "Payment due soon - chase before bookings stop",
+      count: restricted + atRisk,
       href: "/dashboard/credit-accounts",
-      tone: "critical"
+      tone: restricted ? "critical" : "warning"
     });
   }
 

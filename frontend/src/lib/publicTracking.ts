@@ -1,5 +1,7 @@
 import { apiUrl } from "@/lib/api";
 import type { DeliveryEstimate } from "@/components/shipments/ShipmentJourney";
+import type { TrackingJourney } from "@/lib/shipmentJourney";
+import type { TrackingPosition } from "@/lib/shipmentTracking";
 
 /**
  * The tracking card as someone with no account sees it.
@@ -26,7 +28,7 @@ export type PublicTracking = {
 
   status: string;
   statusLabel: string;
-  currentLocation: string;
+  currentPosition: TrackingPosition;
 
   serviceType: string;
   carrierName: string;
@@ -45,6 +47,7 @@ export type PublicTracking = {
   lastUpdateAt: string | null;
   deliveryEstimate: DeliveryEstimate | null;
   attention: { label: string; detail: string } | null;
+  journey: TrackingJourney;
 
   events: PublicTrackingEvent[];
 };

@@ -41,9 +41,13 @@ import { notifyBusinessShipmentMembers } from "./portalNotification.service.js";
  * still on the ground and still ours to weigh.
  */
 const afterDepartureStatuses: ShipmentEventStatus[] = [
+  "ORIGIN_HUB_DISPATCHED",
   "FLIGHT_DEPARTED",
   "DESTINATION_ARRIVED",
   "IMPORT_CUSTOMS_CLEARANCE",
+  "IMPORT_CUSTOMS_CLEARED",
+  "DELIVERY_PARTNER_TRANSFERRED",
+  "DELIVERY_HUB_ARRIVED",
   // Off the operational ladder, so the status endpoint cannot record it today.
   // Listed anyway: it means the same thing as the statuses around it, and this
   // gate should not depend on which statuses happen to be selectable.
@@ -113,7 +117,10 @@ async function assertVerificationWindow(
   shipmentDraftId: mongoose.Types.ObjectId,
   session?: mongoose.ClientSession
 ) {
-  const collectedQuery = ShipmentEvent.exists({ shipmentDraftId, status: "PARCEL_COLLECTED" });
+  const collectedQuery = ShipmentEvent.exists({
+    shipmentDraftId,
+    status: { $in: ["PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN"] }
+  });
   const departedQuery = ShipmentEvent.exists({ shipmentDraftId, status: { $in: afterDepartureStatuses } });
   const amendmentQuery = ShipmentAmendment.exists({ shipmentDraftId, status: "REQUESTED" });
   const cancellationQuery = ShipmentCancellation.findOne({
@@ -132,7 +139,10 @@ async function assertVerificationWindow(
   const pendingAmendment = await amendmentQuery.exec();
   const cancellation = await cancellationQuery.exec();
   if (!collected) {
-    throw new ShipmentChargeVerificationError(409, "Final charge verification is available after Parcel Collected.");
+    throw new ShipmentChargeVerificationError(
+      409,
+      "Final charge verification is available after collection or receipt at the origin hub."
+    );
   }
   if (departed) {
     throw new ShipmentChargeVerificationError(409, "The shipment has departed, so its final weight can no longer be corrected.");

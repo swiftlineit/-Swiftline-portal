@@ -19,9 +19,11 @@ import { markShipmentChargeFinalized } from "./shipmentInvoice.service.js";
 import { notifyBusinessShipmentMembers, notifyOperationsStaff, notifyPortalUsers } from "./portalNotification.service.js";
 
 const pickupBlockedStatuses: ShipmentEventStatus[] = [
-  "SHIPMENT_CANCELLED", "PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN", "EXPORT_CUSTOMS_CLEARED",
-  "FLIGHT_ASSIGNED", "FLIGHT_DEPARTED", "DESTINATION_ARRIVED", "IMPORT_CUSTOMS_CLEARANCE",
-  "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED", "RETURNED", "LOST", "DAMAGED"
+  "SHIPMENT_CANCELLED", "PARCEL_COLLECTED", "WAREHOUSE_SCAN_IN", "ORIGIN_HUB_PROCESSED",
+  "READY_FOR_EXPORT", "ORIGIN_HUB_DISPATCHED", "EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED",
+  "FLIGHT_DEPARTED", "DESTINATION_ARRIVED", "IMPORT_CUSTOMS_CLEARANCE", "IMPORT_CUSTOMS_CLEARED",
+  "DELIVERY_PARTNER_TRANSFERRED", "DELIVERY_HUB_ARRIVED", "IN_TRANSIT", "OUT_FOR_DELIVERY",
+  "DELIVERED", "RETURNED", "LOST", "DAMAGED"
 ];
 
 export class PickupServiceError extends Error {
@@ -817,6 +819,8 @@ export async function completePickupAttempt(input: { attemptId: string; driverUs
           status: "PARCEL_COLLECTED",
           note: `Collected under pickup ${request.requestNumber}.`,
           customerVisible: true,
+          source: "PICKUP",
+          sourceReference: String(request._id),
           createdBy: input.driverUserId,
           eventAt: now
         })), { session });

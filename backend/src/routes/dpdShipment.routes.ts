@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createDpdLabelAccessUrl,
+  correctDpdShipmentGateway,
   downloadDpdLabel,
   downloadDpdLabelWithToken,
   getDpdShipment,
@@ -63,5 +64,6 @@ dpdShipmentRouter.post("/:id/hold", requireOperations, holdDpdShipment);
 dpdShipmentRouter.post("/:id/release", requireOperations, releaseDpdShipment);
 dpdShipmentRouter.post("/:id/reconcile-documents", requireOperations, reconcileDpdShipmentDocuments);
 dpdShipmentRouter.post("/:id/status-events", requireOperations, updateDpdShipmentOperationalStatus);
+dpdShipmentRouter.patch("/:id/gateway", requireOperations, correctDpdShipmentGateway);
 dpdShipmentRouter.get("/:id/label-access", requireOperations, createDpdLabelAccessUrl);
 dpdShipmentRouter.get("/:id/label", requireOperations, downloadDpdLabel);

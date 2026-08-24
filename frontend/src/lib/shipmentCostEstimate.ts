@@ -45,6 +45,7 @@ export type ShipmentEstimateParcel = {
   chargesPerKg: number | null;
   maxBoxKg: number | null;
   baseAmount: number;
+  inclusiveBaseAmount?: number;
   exceedsMaxBoxKg: boolean;
 };
 
@@ -109,6 +110,16 @@ export type ShipmentPricing = {
   noGstEligible?: boolean;
   gstForced?: boolean;
   gstBillingVersion?: number;
+  inclusiveAmounts?: {
+    freightAmount: number;
+    fuelSurchargeAmount: number;
+    remoteAreaAmount: number;
+    csbClearanceAmount: number;
+    handlingAmount: number;
+    insuranceAmount: number;
+    discountAmount: number;
+    totalAmount: number;
+  };
   lines: ShipmentChargeLine[];
 };
 

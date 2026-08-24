@@ -453,22 +453,22 @@ export default function RegulatoryUpdatesManager() {
               {regulatoryShipmentDirections.map((direction) => {
                 const selected = form.affectedShipments.includes(direction);
                 return (
-                  <label
+                  <button
                     key={direction}
-                    className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => updateField(
+                      "affectedShipments",
+                      toggleMultiSelect(form.affectedShipments, direction, "ALL")
+                    )}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                       selected
                         ? "border-[#0D1282] bg-[#0D1282]/[0.08] text-[#0D1282]"
                         : "border-slate-300 text-slate-500 hover:border-slate-400"
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => updateField("affectedShipments", toggleMultiSelect(form.affectedShipments, direction, "ALL"))}
-                      className="sr-only"
-                    />
                     {regulatoryShipmentDirectionLabels[direction]}
-                  </label>
+                  </button>
                 );
               })}
             </div>
@@ -480,22 +480,22 @@ export default function RegulatoryUpdatesManager() {
               {regulatoryShipmentTypes.map((shipmentType) => {
                 const selected = form.shipmentTypes.includes(shipmentType);
                 return (
-                  <label
+                  <button
                     key={shipmentType}
-                    className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => updateField(
+                      "shipmentTypes",
+                      toggleMultiSelect(form.shipmentTypes, shipmentType, "ALL")
+                    )}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                       selected
                         ? "border-[#0D1282] bg-[#0D1282]/[0.08] text-[#0D1282]"
                         : "border-slate-300 text-slate-500 hover:border-slate-400"
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selected}
-                      onChange={() => updateField("shipmentTypes", toggleMultiSelect(form.shipmentTypes, shipmentType, "ALL"))}
-                      className="sr-only"
-                    />
                     {regulatoryShipmentTypeLabels[shipmentType]}
-                  </label>
+                  </button>
                 );
               })}
             </div>

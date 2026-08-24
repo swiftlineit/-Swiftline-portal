@@ -1,16 +1,21 @@
 import mongoose from "mongoose";
 import { AuditLog } from "../models/auditLog.model.js";
 import { DpdShipment } from "../models/dpdShipment.model.js";
+import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentCancellation } from "../models/shipmentCancellation.model.js";
-import { ShipmentEvent } from "../models/shipmentEvent.model.js";
+import { ShipmentEvent, shipmentMilestoneKey } from "../models/shipmentEvent.model.js";
 import { resolveShipmentEventNote } from "./shipmentEventCopy.service.js";
 import { chargeFinalizingStatuses, markShipmentChargeFinalized } from "./shipmentInvoice.service.js";
 import {
+  describeEventDateProblem,
+  describeAlreadyRecorded,
   describeMissingPrerequisites,
+  equivalentMilestoneStatuses,
   findMissingPrerequisites,
   formatShipmentEventLabel,
   type ShipmentOperationalStatus
 } from "./shipmentStatusSequence.service.js";
+import { resolveBulkTrackingGatewayCode } from "./shipmentGateway.service.js";
 
 export type BulkStatusSkip = {
   shipmentDraftId: string;
@@ -94,7 +99,15 @@ export function statusUpdateBlockReason(input: {
   shipmentExists: boolean;
   cancellationStatus?: string;
   onHold: boolean;
+  alreadyRecordedAt?: Date | null;
   missingPrerequisites: ShipmentOperationalStatus[];
+  /**
+   * Why the stated status date will not do for this shipment, or null.
+   *
+   * Per shipment rather than per batch: one date is applied across the
+   * selection, and each shipment's own history decides whether it can take it.
+   */
+  eventDateProblem?: string | null;
   status: ShipmentOperationalStatus;
 }): BulkStatusBlock {
   if (!input.shipmentExists) {
@@ -110,11 +123,17 @@ export function statusUpdateBlockReason(input: {
   if (input.onHold) {
     return { reason: "Release the shipment before updating its status." };
   }
+  if (input.alreadyRecordedAt) {
+    return { reason: describeAlreadyRecorded(input.status, input.alreadyRecordedAt) };
+  }
   if (input.missingPrerequisites.length) {
     return {
       reason: describeMissingPrerequisites(input.status, input.missingPrerequisites),
       missingStatuses: input.missingPrerequisites
     };
+  }
+  if (input.eventDateProblem) {
+    return { reason: input.eventDateProblem };
   }
   return null;
 }
@@ -133,6 +152,11 @@ export async function bulkRecordOperationalStatus(input: {
   status: ShipmentOperationalStatus;
   note?: string;
   location?: string;
+  /** When the scan happened. Omitted, each event is stamped with the time it is written. */
+  eventAt?: Date;
+  gatewayCode?: string;
+  partnerName?: string;
+  partnerCode?: string;
   userId: mongoose.Types.ObjectId;
 }): Promise<{ updatedCount: number; skipped: BulkStatusSkip[] }> {
   const uniqueIds = [...new Set(input.shipmentDraftIds)];
@@ -141,7 +165,11 @@ export async function bulkRecordOperationalStatus(input: {
   const shipments = await DpdShipment.find({ shipmentDraftId: { $in: draftObjectIds } }).lean().exec();
   const shipmentByDraft = new Map(shipments.map((shipment) => [String(shipment.shipmentDraftId), shipment]));
 
-  const [cancellations, events] = await Promise.all([
+  const [drafts, cancellations, events] = await Promise.all([
+    ShipmentDraft.find({ _id: { $in: draftObjectIds } })
+      .select("consigneeEnteredAddress.countryCode")
+      .lean()
+      .exec(),
     ShipmentCancellation.find({
       shipmentDraftId: { $in: draftObjectIds },
       status: { $in: ["REQUESTED", "COMPLETED"] }
@@ -151,7 +179,7 @@ export async function bulkRecordOperationalStatus(input: {
       .exec(),
     ShipmentEvent.find({ shipmentDraftId: { $in: draftObjectIds } })
       .sort({ eventAt: -1, createdAt: -1 })
-      .select("shipmentDraftId status")
+      .select("shipmentDraftId status eventAt")
       .lean()
       .exec()
   ]);
@@ -159,17 +187,29 @@ export async function bulkRecordOperationalStatus(input: {
   const cancellationByDraft = new Map<string, string>(
     cancellations.map((cancellation) => [String(cancellation.shipmentDraftId), cancellation.status])
   );
+  const destinationCountryByDraft = new Map(
+    drafts.map((draft) => [String(draft._id), draft.consigneeEnteredAddress?.countryCode ?? ""])
+  );
 
   // The event list is newest-first, so the first row per draft is its latest
   // status and the distinct set is its recorded history- both in one query.
   const latestStatusByDraft = new Map<string, string>();
+  const latestEventAtByDraft = new Map<string, Date>();
   const recordedByDraft = new Map<string, Set<string>>();
+  const targetEventAtByDraft = new Map<string, Date>();
+  const targetStatuses = new Set(equivalentMilestoneStatuses(input.status));
   for (const event of events) {
     const draftId = String(event.shipmentDraftId);
-    if (!latestStatusByDraft.has(draftId)) latestStatusByDraft.set(draftId, event.status);
+    if (!latestStatusByDraft.has(draftId)) {
+      latestStatusByDraft.set(draftId, event.status);
+      latestEventAtByDraft.set(draftId, event.eventAt);
+    }
     const recorded = recordedByDraft.get(draftId) ?? new Set<string>();
     recorded.add(event.status);
     recordedByDraft.set(draftId, recorded);
+    if (targetStatuses.has(event.status) && !targetEventAtByDraft.has(draftId)) {
+      targetEventAtByDraft.set(draftId, event.eventAt);
+    }
   }
 
   // Judged only over shipments that are actually booked. An unbooked row stays
@@ -181,6 +221,15 @@ export async function bulkRecordOperationalStatus(input: {
     input.status
   );
   if (selectionBlock) throw new BulkStatusSelectionError(selectionBlock);
+
+  const gateway = resolveBulkTrackingGatewayCode({
+    status: input.status,
+    destinationCountryCodes: uniqueIds
+      .filter((draftId) => shipmentByDraft.has(draftId))
+      .map((draftId) => destinationCountryByDraft.get(draftId) ?? ""),
+    gatewayCode: input.gatewayCode
+  });
+  if (gateway.error) throw new BulkStatusSelectionError(gateway.error);
 
   const note = resolveShipmentEventNote(input.note, input.status);
   let updatedCount = 0;
@@ -197,7 +246,14 @@ export async function bulkRecordOperationalStatus(input: {
       shipmentExists: true,
       cancellationStatus: cancellationByDraft.get(draftId),
       onHold: latestStatusByDraft.get(draftId) === "ON_HOLD",
+      alreadyRecordedAt: targetEventAtByDraft.get(draftId),
       missingPrerequisites: findMissingPrerequisites(input.status, recordedByDraft.get(draftId) ?? []),
+      eventDateProblem: input.eventAt
+        ? describeEventDateProblem({
+          eventAt: input.eventAt,
+          previousEventAt: latestEventAtByDraft.get(draftId) ?? null
+        })
+        : null,
       status: input.status
     });
 
@@ -211,16 +267,36 @@ export async function bulkRecordOperationalStatus(input: {
       continue;
     }
 
-    const event = await ShipmentEvent.create({
-      shipmentDraftId: shipment.shipmentDraftId,
-      dpdShipmentId: shipment._id,
-      status: input.status,
-      note,
-      location: input.location ?? "",
-      customerVisible: true,
-      createdBy: input.userId,
-      eventAt: new Date()
-    });
+    let event;
+    try {
+      event = await ShipmentEvent.create({
+        shipmentDraftId: shipment.shipmentDraftId,
+        dpdShipmentId: shipment._id,
+        status: input.status,
+        milestoneKey: shipmentMilestoneKey(input.status),
+        note,
+        location: input.location ?? "",
+        source: "MANUAL",
+        gatewayCode: gateway.gatewayCode,
+        partnerName: input.partnerName ?? "",
+        partnerCode: input.partnerCode ?? "",
+        customerVisible: true,
+        createdBy: input.userId,
+        // One stated date across the batch- the same-day, same-flight scan they
+        // are all recording. Omitted, each row is stamped as it is written.
+        eventAt: input.eventAt ?? new Date()
+      });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === 11000) {
+        skipped.push({
+          shipmentDraftId: draftId,
+          swiftlineTrackingNumber: shipment.swiftlineTrackingNumber,
+          reason: describeAlreadyRecorded(input.status)
+        });
+        continue;
+      }
+      throw error;
+    }
 
     // Collection settles the charge, exactly as it does on the single-shipment
     // update- see chargeFinalizingStatuses.
@@ -241,6 +317,10 @@ export async function bulkRecordOperationalStatus(input: {
         shipmentDraftId: draftId,
         status: input.status,
         note,
+        gatewayCode: gateway.gatewayCode,
+        // performedAt above stays the real moment; together the two show a
+        // backdated batch for what it is.
+        eventAt: event.eventAt,
         source: "BULK"
       }
     });

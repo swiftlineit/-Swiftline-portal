@@ -1,8 +1,10 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { FiAlertTriangle, FiLock } from "react-icons/fi";
+import CountryFlag from "@/components/CountryFlag";
 import InfoTooltip from "@/components/ui/InfoTooltip";
-import { formatCountryRateService, getCountryFlag } from "@/lib/countryRateCards";
+import { formatCountryRateService } from "@/lib/countryRateCards";
 import type { ShipmentServiceType } from "@/lib/dpdLabels";
 import {
   formatEstimateMoney,
@@ -51,7 +53,12 @@ export default function ShipmentCostEstimatePanel({
         <DetailRow label="Service" value={formatCountryRateService(serviceType)} />
         <DetailRow
           label="Destination"
-          value={`${getCountryFlag(countryCode)} ${countryName || "Not set"}`.trim()}
+          value={
+            <span className="inline-flex items-center gap-1.5">
+              <CountryFlag code={countryCode} />
+              {countryName || "Not set"}
+            </span>
+          }
         />
         <DetailRow
           label="Volumetric Divisor"
@@ -105,6 +112,7 @@ export default function ShipmentCostEstimatePanel({
                 {pricing.lines.map((line) => (
                   <ChargeRow key={line.code} line={line} />
                 ))}
+                {pricing.gstRate === 0 ? <ZeroGstRow /> : null}
               </dl>
 
               <div className="mt-3 flex items-start justify-between gap-3 border-t border-slate-200 pt-3">
@@ -139,6 +147,15 @@ export default function ShipmentCostEstimatePanel({
           <span className="h-6 w-11 rounded-full bg-slate-300 transition peer-checked:bg-[#0D1282] peer-focus-visible:ring-2 peer-focus-visible:ring-[#F0DE36] peer-disabled:cursor-not-allowed after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-5" />
         </label>
       </div>
+    </div>
+  );
+}
+
+function ZeroGstRow() {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <dt className="text-sm font-medium text-slate-700">GST</dt>
+      <dd className="whitespace-nowrap text-sm font-semibold text-slate-950">-</dd>
     </div>
   );
 }
@@ -236,7 +253,7 @@ function DetailRow({
   tooltip
 }: {
   label: string;
-  value?: string | number | null;
+  value?: ReactNode;
   tooltip?: string;
 }) {
   return (

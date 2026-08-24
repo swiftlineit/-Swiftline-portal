@@ -24,3 +24,11 @@ export type TrackingAttention = {
   detail: string;
   holdReason: string;
 };
+
+/** The best customer-safe answer to where the shipment is now. */
+export type TrackingPosition = {
+  label: string;
+  source: "RECORDED" | "INFERRED" | "PENDING";
+  basisStatus: string;
+  holdReasonLabel: string;
+};

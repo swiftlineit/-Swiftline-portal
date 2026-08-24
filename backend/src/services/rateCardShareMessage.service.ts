@@ -74,7 +74,7 @@ export function buildWhatsAppMessage(input: {
 
   const extras = [
     share.terms.fuelSurchargePercent > 0 ? `• Fuel surcharge: ${share.terms.fuelSurchargePercent}%` : "",
-    share.terms.gstPercent > 0 ? `• GST: ${share.terms.gstPercent}% extra as applicable` : "",
+    share.terms.gstPercent > 0 ? `• GST: ${share.terms.gstPercent}% included as applicable` : "",
     share.terms.minChargeableWeightKg > 0 ? `• Min chargeable weight: ${share.terms.minChargeableWeightKg} kg` : ""
   ].filter(Boolean);
 
@@ -99,7 +99,7 @@ export function buildWhatsAppMessage(input: {
     `*Download Excel*`,
     links.excel,
     "",
-    `Rates exclude duties, taxes and destination charges. Happy to walk you through the details.`,
+    `Rates exclude duties, destination-country taxes and destination charges. Happy to walk you through the details.`,
     "",
     `Regards,`,
     senderName,

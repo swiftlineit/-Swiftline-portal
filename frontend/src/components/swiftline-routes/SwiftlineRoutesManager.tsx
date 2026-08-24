@@ -1,24 +1,29 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { FiChevronDown, FiEdit3, FiGlobe, FiPlus, FiSave, FiSearch, FiTrash2 } from "react-icons/fi";
+import { FiAlertTriangle, FiChevronDown, FiEdit3, FiGlobe, FiPlus, FiSave, FiSearch, FiTrash2 } from "react-icons/fi";
+import CountryFlag from "@/components/CountryFlag";
+import BulkRouteDialog, { type BulkRouteCandidate } from "@/components/swiftline-routes/BulkRouteDialog";
 import {
   countryRateServices,
   formatCountryRateService,
-  getCountryFlag,
   type CountryRateService
 } from "@/lib/countryRateCards";
-import { portalCountries } from "@/lib/portalCountries";
+import { countries } from "@/lib/countries";
 import {
   deleteSwiftlineRoute,
   formatTransitTime,
   listSwiftlineRoutes,
+  type RateCardCoverage,
   routeTransitBases,
   routeTransitBasisLabels,
+  trackingProfiles,
+  trackingProfileLabels,
   saveSwiftlineRoute,
   type RouteTransitBasis,
   type SwiftlineRoute,
-  type SwiftlineRouteInput
+  type SwiftlineRouteInput,
+  type TrackingProfileSetting
 } from "@/lib/swiftlineRoutes";
 
 /**
@@ -32,6 +37,8 @@ import {
 
 type FormState = {
   destinationCountryCode: string;
+  trackingProfile: TrackingProfileSetting;
+  originHubName: string;
   /** Ordered transit stops between origin and destination. */
   viaCountryCodes: string[];
   service: CountryRateService;
@@ -47,6 +54,8 @@ type FormState = {
 function blankForm(): FormState {
   return {
     destinationCountryCode: "",
+    trackingProfile: "AUTO",
+    originHubName: "Delhi Hub",
     viaCountryCodes: [],
     service: "COURIER",
     transitDaysMin: "",
@@ -62,6 +71,8 @@ function blankForm(): FormState {
 function loadRouteIntoForm(route: SwiftlineRoute): FormState {
   return {
     destinationCountryCode: route.destinationCountryCode,
+    trackingProfile: route.trackingProfile ?? "AUTO",
+    originHubName: route.originHubName || "Delhi Hub",
     viaCountryCodes: route.viaCountryCodes ?? [],
     service: route.service,
     transitDaysMin: String(route.transitDaysMin),
@@ -75,10 +86,12 @@ function loadRouteIntoForm(route: SwiftlineRoute): FormState {
 }
 
 function toRouteInput(form: FormState): SwiftlineRouteInput {
-  const country = portalCountries.find((entry) => entry.iso2 === form.destinationCountryCode);
+  const country = countries.find((entry) => entry.iso2.toUpperCase() === form.destinationCountryCode);
 
   return {
     destinationCountryCode: form.destinationCountryCode,
+    trackingProfile: form.trackingProfile,
+    originHubName: form.originHubName.trim() || "Delhi Hub",
     viaCountryCodes: form.viaCountryCodes.filter(Boolean),
     // The name travels with the code so the list reads without a second lookup,
     // and stays correct if the reference list is edited later.
@@ -132,6 +145,10 @@ function RoutePath({ route }: { route: SwiftlineRoute }) {
 
 export default function SwiftlineRoutesManager() {
   const [routes, setRoutes] = useState<SwiftlineRoute[]>([]);
+  // Destinations that have published rates, so the screen can show which of
+  // them still have no lane.
+  const [coverage, setCoverage] = useState<RateCardCoverage[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [form, setForm] = useState<FormState>(blankForm());
   const [editingLane, setEditingLane] = useState<string | null>(null);
   const [serviceFilter, setServiceFilter] = useState("");
@@ -144,6 +161,7 @@ export default function SwiftlineRoutesManager() {
   const refresh = useCallback(async () => {
     const result = await listSwiftlineRoutes();
     setRoutes(result.routes);
+    setCoverage(result.coverage ?? []);
     return result.routes;
   }, []);
 
@@ -155,6 +173,7 @@ export default function SwiftlineRoutesManager() {
         const result = await listSwiftlineRoutes();
         if (!active) return;
         setRoutes(result.routes);
+        setCoverage(result.coverage ?? []);
         setError("");
       } catch (caughtError) {
         if (!active) return;
@@ -167,6 +186,42 @@ export default function SwiftlineRoutesManager() {
     void load();
     return () => { active = false; };
   }, []);
+
+  /**
+   * Every destination that has rates, with the services it does and does not
+   * have a lane for.
+   *
+   * A rate without a lane is invisible from either list on its own: the rate
+   * card looks complete, and the route list simply has one fewer row. What it
+   * actually costs is a missing transit estimate on the serviceability checker
+   * and a customer tracking page that falls back to generic copy instead of
+   * naming the real origin hub.
+   */
+  const bulkCandidates = useMemo<BulkRouteCandidate[]>(() => {
+    const laneKeys = new Set(routes.map((route) => `${route.destinationCountryCode}:${route.service}`));
+    const byCountry = new Map<string, BulkRouteCandidate>();
+
+    for (const entry of coverage) {
+      const candidate = byCountry.get(entry.countryCode) ?? {
+        countryCode: entry.countryCode,
+        countryName: entry.countryName,
+        missingServices: [],
+        existingServices: []
+      };
+
+      if (laneKeys.has(`${entry.countryCode}:${entry.service}`)) candidate.existingServices.push(entry.service);
+      else candidate.missingServices.push(entry.service);
+
+      byCountry.set(entry.countryCode, candidate);
+    }
+
+    return [...byCountry.values()].sort((a, b) => a.countryName.localeCompare(b.countryName));
+  }, [coverage, routes]);
+
+  const routeGaps = useMemo(
+    () => bulkCandidates.filter((candidate) => candidate.missingServices.length),
+    [bulkCandidates]
+  );
 
   // Filtering runs here rather than round-tripping: the whole route list is
   // already loaded, and a lane count in the low hundreds filters instantly.
@@ -294,9 +349,9 @@ export default function SwiftlineRoutesManager() {
                 className={selectClass}
               >
                 <option value="">Select a destination</option>
-                {portalCountries.map((country) => (
-                  <option key={country.iso2} value={country.iso2}>
-                    {country.name} ({country.iso2})
+                {countries.map((country) => (
+                  <option key={country.iso2} value={country.iso2.toUpperCase()}>
+                    {country.name} ({country.iso2.toUpperCase()})
                   </option>
                 ))}
               </select>
@@ -307,6 +362,33 @@ export default function SwiftlineRoutesManager() {
               service replaces its transit time.
             </span>
           </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className={labelClass}>Tracking flow</span>
+              <div className="relative">
+                <select value={form.trackingProfile} onChange={handleTextChange("trackingProfile")} className={selectClass}>
+                  {trackingProfiles.map((profile) => (
+                    <option key={profile} value={profile}>{trackingProfileLabels[profile]}</option>
+                  ))}
+                </select>
+                <FiChevronDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 mt-1 -translate-y-1/2 text-slate-400" />
+              </div>
+            </label>
+            <label className="block">
+              <span className={labelClass}>Origin hub</span>
+              <input
+                required
+                maxLength={120}
+                value={form.originHubName}
+                onChange={handleTextChange("originHubName")}
+                className={inputClass}
+              />
+            </label>
+          </div>
+          <p className="-mt-2 text-xs leading-5 text-slate-400">
+            Automatic selects UK, USA, Canada or Europe from the destination. Every UK lane is shown as LHR Gateway and DPD Network.
+          </p>
 
           {/* Transit stops, in travel order. A direct lane simply has none. */}
           <div>
@@ -330,9 +412,9 @@ export default function SwiftlineRoutesManager() {
                       className={selectClass}
                     >
                       <option value="">Select a country</option>
-                      {portalCountries.map((country) => (
-                        <option key={country.iso2} value={country.iso2}>
-                          {country.name} ({country.iso2})
+                      {countries.map((country) => (
+                        <option key={country.iso2} value={country.iso2.toUpperCase()}>
+                          {country.name} ({country.iso2.toUpperCase()})
                         </option>
                       ))}
                     </select>
@@ -500,6 +582,22 @@ export default function SwiftlineRoutesManager() {
         </div>
       </form>
 
+      <MissingRoutesPanel
+        candidates={routeGaps}
+        onOpenBulk={() => setBulkOpen(true)}
+      />
+
+      {bulkOpen ? (
+        <BulkRouteDialog
+          candidates={routeGaps}
+          onClose={() => setBulkOpen(false)}
+          onSaved={() => {
+            void refresh();
+            setMessage("Lanes updated.");
+          }}
+        />
+      ) : null}
+
       <section className="rounded-2xl border border-slate-200 bg-white">
         <div className="grid gap-3 border-b border-slate-200 px-4 py-3 md:grid-cols-[minmax(0,1fr)_200px]">
           <label className="relative">
@@ -565,10 +663,13 @@ export default function SwiftlineRoutesManager() {
                   <tr key={route._id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/70">
                     <td className="px-4 py-3">
                       <span className="block font-semibold text-slate-900">
-                        <span aria-hidden="true">{getCountryFlag(route.destinationCountryCode)}</span>{" "}
+                        <CountryFlag code={route.destinationCountryCode} className="mr-1.5 align-[-1px]" />
                         {route.destinationCountryName}
                       </span>
                       <RoutePath route={route} />
+                      <span className="mt-1 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-800">
+                        {trackingProfileLabels[route.trackingProfile ?? "AUTO"]}
+                      </span>
                       {route.restrictions ? (
                         <span className="mt-1 block text-xs text-amber-700">{route.restrictions}</span>
                       ) : null}
@@ -635,5 +736,66 @@ function SkeletonRows() {
         </tr>
       ))}
     </>
+  );
+}
+
+/**
+ * Destinations that are priced but not routed.
+ *
+ * Shown above the lane list rather than inside it, because it is a list of
+ * things that are absent- a row that is missing cannot draw attention to
+ * itself. Hidden entirely once every priced destination has a lane, so a
+ * healthy screen is not carrying an empty panel.
+ */
+function MissingRoutesPanel({
+  candidates,
+  onOpenBulk
+}: {
+  candidates: BulkRouteCandidate[];
+  onOpenBulk: () => void;
+}) {
+  if (!candidates.length) return null;
+
+  const laneCount = candidates.reduce((running, entry) => running + entry.missingServices.length, 0);
+
+  return (
+    <section className="rounded-2xl border border-amber-300 bg-amber-50/70 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+            <FiAlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0" />
+            {candidates.length} destination{candidates.length === 1 ? "" : "s"} priced but not routed
+          </h2>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-amber-800">
+            These have published rates but no lane, so serviceability cannot quote a transit time for them and
+            their tracking pages fall back to generic wording instead of naming the origin hub.
+            {laneCount === candidates.length ? "" : ` ${laneCount} lanes are missing in total across both services.`}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenBulk}
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-4xl bg-[#0D1282] px-4 text-sm font-semibold text-white transition hover:bg-[#0a0e66]"
+        >
+          <FiPlus aria-hidden="true" className="h-4 w-4" />
+          Open {laneCount} lane{laneCount === 1 ? "" : "s"}
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {candidates.map((entry) => (
+          <span
+            key={entry.countryCode}
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-white px-2.5 py-1 text-xs font-medium text-amber-900"
+          >
+            <CountryFlag code={entry.countryCode} size={12} />
+            {entry.countryName}
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+              {entry.missingServices.map((service) => formatCountryRateService(service)).join(" + ")}
+            </span>
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }

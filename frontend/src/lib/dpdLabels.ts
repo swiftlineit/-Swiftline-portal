@@ -4,6 +4,7 @@ import { getAccessToken, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
 import { toDpdLabelUnavailableError, toPriceChangedError } from "@/lib/shipmentCostEstimate";
 import type { TrackingAttention, TrackingSummary } from "@/lib/shipmentTracking";
+import type { TrackingJourney } from "@/lib/shipmentJourney";
 
 /**
  * Destinations a DPD carrier label is produced for.
@@ -481,6 +482,8 @@ export type DpdShipmentHistoryItem = {
   } | null;
   trackingSummary?: TrackingSummary | null;
   trackingAttention?: TrackingAttention | null;
+  trackingJourney?: TrackingJourney | null;
+  trackingPosition?: import("@/lib/shipmentTracking").TrackingPosition | null;
 };
 
 export type ShipmentBookingConfirmation = {
@@ -512,6 +515,12 @@ export type ShipmentEvent = {
   customerVisible: boolean;
   eventAt: string;
   createdBy?: string;
+  source?: "MANUAL" | "PICKUP" | "MANIFEST" | "DELIVERY" | "CARRIER" | "SYSTEM";
+  sourceReference?: string;
+  gatewayCode?: string;
+  gatewayName?: string;
+  partnerName?: string;
+  partnerCode?: string;
 };
 
 export const shipmentHoldReasonOptions = [
@@ -529,13 +538,16 @@ export const shipmentHoldReasonOptions = [
 export type ShipmentHoldReason = (typeof shipmentHoldReasonOptions)[number]["value"];
 
 export const shipmentOperationalStatusOptions = [
-  { value: "PARCEL_COLLECTED", label: "Parcel Collected" },
-  { value: "WAREHOUSE_SCAN_IN", label: "Warehouse Scan In" },
-  { value: "EXPORT_CUSTOMS_CLEARED", label: "Export Customs Cleared" },
-  { value: "FLIGHT_ASSIGNED", label: "Flight Assigned" },
-  { value: "FLIGHT_DEPARTED", label: "Flight Departed" },
-  { value: "DESTINATION_ARRIVED", label: "Destination Arrived" },
-  { value: "IMPORT_CUSTOMS_CLEARANCE", label: "Import Customs Clearance" },
+  { value: "PARCEL_COLLECTED", label: "Shipment Collected" },
+  { value: "WAREHOUSE_SCAN_IN", label: "Shipment Received at Delhi Hub" },
+  { value: "ORIGIN_HUB_PROCESSED", label: "Shipment Processed at Delhi Hub" },
+  { value: "READY_FOR_EXPORT", label: "Ready for Export" },
+  { value: "ORIGIN_HUB_DISPATCHED", label: "Dispatched from Delhi Hub" },
+  { value: "DESTINATION_ARRIVED", label: "Arrived at Destination Gateway" },
+  { value: "IMPORT_CUSTOMS_CLEARANCE", label: "Customs Clearance in Progress" },
+  { value: "IMPORT_CUSTOMS_CLEARED", label: "Customs Cleared" },
+  { value: "DELIVERY_PARTNER_TRANSFERRED", label: "Transferred to Delivery Partner" },
+  { value: "DELIVERY_HUB_ARRIVED", label: "Arrived at Delivery Hub" },
   { value: "OUT_FOR_DELIVERY", label: "Out for Delivery" },
   { value: "DELIVERED", label: "Delivered" }
 ] as const;
@@ -560,7 +572,26 @@ export function findMissingStatusPrerequisites(
   if (index < 0) return [];
 
   const already = new Set(recorded);
-  return ladder.slice(0, index).filter((status) => !already.has(status));
+  const legacyAliases: Partial<Record<ShipmentOperationalStatus, readonly string[]>> = {
+    READY_FOR_EXPORT: ["EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED"],
+    ORIGIN_HUB_DISPATCHED: ["FLIGHT_DEPARTED"]
+  };
+  return ladder.slice(0, index).filter((status) => status !== "PARCEL_COLLECTED").filter((status) => (
+    !already.has(status)
+    && !(legacyAliases[status] ?? []).some((alias) => already.has(alias))
+  ));
+}
+
+export function hasRecordedOperationalStatus(
+  target: ShipmentOperationalStatus,
+  recorded: Iterable<string>
+): boolean {
+  const already = new Set(recorded);
+  const legacyAliases: Partial<Record<ShipmentOperationalStatus, readonly string[]>> = {
+    READY_FOR_EXPORT: ["EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED"],
+    ORIGIN_HUB_DISPATCHED: ["FLIGHT_DEPARTED"]
+  };
+  return [target, ...(legacyAliases[target] ?? [])].some((status) => already.has(status));
 }
 
 /**
@@ -574,7 +605,8 @@ export function firstAllowedOperationalStatus(
   const already = [...recorded];
   return shipmentOperationalStatusOptions
     .map((option) => option.value)
-    .find((status) => findMissingStatusPrerequisites(status, already).length === 0)
+    .find((status) => !hasRecordedOperationalStatus(status, already)
+      && findMissingStatusPrerequisites(status, already).length === 0)
     ?? "PARCEL_COLLECTED";
 }
 
@@ -995,11 +1027,42 @@ export async function updateDpdShipmentOperationalStatus(input: {
   status: ShipmentOperationalStatus;
   note?: string;
   location?: string;
+  /** Actual destination gateway. Supplied only for DESTINATION_ARRIVED. */
+  gatewayCode?: string;
+  /**
+   * When the scan actually happened, as an ISO string. Omitted, the server
+   * stamps the event with the moment it is recorded- which is what a status
+   * keyed in late or early would otherwise put on the customer's timeline.
+   */
+  eventAt?: string;
 }) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/dpd-shipments/${input.dpdShipmentId}/status-events`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status: input.status, note: input.note, location: input.location ?? "" })
+    body: JSON.stringify({
+      status: input.status,
+      note: input.note,
+      location: input.location ?? "",
+      ...(input.gatewayCode ? { gatewayCode: input.gatewayCode } : {}),
+      ...(input.eventAt ? { eventAt: input.eventAt } : {})
+    })
+  });
+
+  return parseApiResponse<{
+    success: true;
+    message: string;
+    event: ShipmentEvent;
+  }>(response);
+}
+
+export async function correctDpdShipmentGateway(input: {
+  dpdShipmentId: string;
+  gatewayCode: string;
+}) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/dpd-shipments/${input.dpdShipmentId}/gateway`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ gatewayCode: input.gatewayCode })
   });
 
   return parseApiResponse<{
@@ -1034,6 +1097,10 @@ export async function bulkUpdateDpdShipmentOperationalStatus(input: {
   status: ShipmentOperationalStatus;
   note?: string;
   location?: string;
+  /** One actual gateway shared by this destination-arrival batch. */
+  gatewayCode?: string;
+  /** One scan time across the batch, as an ISO string. See the single update above. */
+  eventAt?: string;
 }) {
   const response = await fetchWithAuth(apiUrl("/api/v1/dpd-shipments/bulk-status"), {
     method: "POST",
@@ -1042,7 +1109,9 @@ export async function bulkUpdateDpdShipmentOperationalStatus(input: {
       shipmentDraftIds: input.shipmentDraftIds,
       status: input.status,
       note: input.note ?? "",
-      location: input.location ?? ""
+      location: input.location ?? "",
+      ...(input.gatewayCode ? { gatewayCode: input.gatewayCode } : {}),
+      ...(input.eventAt ? { eventAt: input.eventAt } : {})
     })
   });
 

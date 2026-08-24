@@ -12,6 +12,7 @@ import { labelContentType, labelFileExtension } from "../services/labelStorage.s
 import {
   ShipmentEvent,
   shipmentHoldReasonValues,
+  shipmentMilestoneKey,
   shipmentOperationalStatusValues,
   type IShipmentEvent
 } from "../models/shipmentEvent.model.js";
@@ -34,7 +35,10 @@ import {
   buildTrackingSummary
 } from "../services/shipmentTracking.service.js";
 import {
+  describeEventDateProblem,
+  describeAlreadyRecorded,
   describeMissingPrerequisites,
+  equivalentMilestoneStatuses,
   findMissingPrerequisites,
   formatShipmentEventLabel
 } from "../services/shipmentStatusSequence.service.js";
@@ -57,6 +61,13 @@ import {
 import { objectExists, streamObjectToResponse } from "../services/storage/storage.service.js";
 import { buildPricingHash, ShipmentPriceChangedError } from "../services/shipmentCostEstimate.service.js";
 import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
+import {
+  formatTrackingEventLabel,
+  loadShipmentJourney,
+  type TrackingJourney
+} from "../services/shipmentJourney.service.js";
+import { buildTrackingPosition } from "../services/shipmentPosition.service.js";
+import { resolveTrackingGatewayCode } from "../services/shipmentGateway.service.js";
 
 // Where the scan happened. Optional on every action: Operations records it when
 // they know it, and an event without one is still a valid event.
@@ -73,10 +84,26 @@ const releaseShipmentSchema = z.object({
   location: eventLocationSchema
 });
 
+/**
+ * When the scan actually happened, as Operations states it.
+ *
+ * Optional everywhere: left out, the event is stamped with the moment it was
+ * recorded, exactly as it always has been. Supplied, that is what the customer's
+ * timeline shows- see describeEventDateProblem for the two limits on it.
+ */
+const eventAtSchema = z.coerce.date().optional();
+const gatewayCodeSchema = z.string().trim().toUpperCase().max(3).optional().default("");
+const eventPartnerNameSchema = z.string().trim().max(120).optional().default("");
+const eventPartnerCodeSchema = z.string().trim().toUpperCase().max(30).optional().default("");
+
 const updateShipmentStatusSchema = z.object({
   status: z.enum(shipmentOperationalStatusValues),
   note: z.string().trim().max(500).optional().default(""),
-  location: eventLocationSchema
+  location: eventLocationSchema,
+  eventAt: eventAtSchema,
+  gatewayCode: gatewayCodeSchema,
+  partnerName: eventPartnerNameSchema,
+  partnerCode: eventPartnerCodeSchema
 });
 
 const bulkStatusUpdateSchema = z.object({
@@ -85,8 +112,14 @@ const bulkStatusUpdateSchema = z.object({
   ).min(1, "Select at least one shipment.").max(200, "A bulk update can cover up to 200 shipments."),
   status: z.enum(shipmentOperationalStatusValues),
   note: z.string().trim().max(500).optional().default(""),
-  location: eventLocationSchema
+  location: eventLocationSchema,
+  eventAt: eventAtSchema,
+  gatewayCode: gatewayCodeSchema,
+  partnerName: eventPartnerNameSchema,
+  partnerCode: eventPartnerCodeSchema
 });
+
+const correctShipmentGatewaySchema = z.object({ gatewayCode: gatewayCodeSchema });
 
 // The price the customer accepted, as returned by the cost estimate endpoint.
 // Optional: booking paths that were never quoted through the estimator have no
@@ -229,19 +262,33 @@ function serializeShipmentEvent(event: {
   customerVisible: boolean;
   eventAt: Date;
   createdBy: unknown;
-}) {
+  source?: string;
+  sourceReference?: string;
+  gatewayCode?: string;
+  gatewayName?: string;
+  partnerName?: string;
+  partnerCode?: string;
+}, journey?: TrackingJourney) {
   return {
     id: event._id,
     shipmentDraftId: event.shipmentDraftId,
     dpdShipmentId: event.dpdShipmentId ?? null,
     status: event.status,
-    statusLabel: formatShipmentEventLabel(event.status),
+    statusLabel: journey
+      ? formatTrackingEventLabel(event.status, journey)
+      : formatShipmentEventLabel(event.status),
     holdReason: event.holdReason ?? null,
     note: resolveShipmentEventNote(event.note, event.status),
     location: event.location ?? "",
     customerVisible: event.customerVisible,
     eventAt: event.eventAt,
-    createdBy: event.createdBy
+    createdBy: event.createdBy,
+    source: event.source ?? "MANUAL",
+    sourceReference: event.sourceReference ?? "",
+    gatewayCode: event.gatewayCode ?? "",
+    gatewayName: event.gatewayName ?? "",
+    partnerName: event.partnerName ?? "",
+    partnerCode: event.partnerCode ?? ""
   };
 }
 
@@ -749,11 +796,22 @@ export async function listDpdShipments(request: Request, response: Response): Pr
    * tracking searches a single tracking number, so it pays for one.
    */
   const estimatesByDraftId = new Map<string, Awaited<ReturnType<typeof buildDeliveryEstimate>>>();
+  const journeysByDraftId = new Map<string, TrackingJourney>();
   if (request.query.withEstimate === "1") {
     await Promise.all(shipments.map(async (shipment) => {
       const draft = draftsById.get(String(shipment.shipmentDraftId));
       if (!draft) return;
+      const branch = branchesById.get(String(draft.branchId));
       const events = eventsByDraftId.get(String(shipment.shipmentDraftId)) ?? [];
+      const journey = await loadShipmentJourney({
+        shipmentDraftId: shipment.shipmentDraftId,
+        destinationCountryCode: draft.consigneeEnteredAddress?.countryCode ?? "",
+        destinationCountryName: draft.consigneeEnteredAddress?.countryName ?? "",
+        service: draft.serviceType === "CARGO" ? "CARGO" : "COURIER",
+        events,
+        originHubFallback: branch?.address?.city ? `${branch.address.city} Hub` : ""
+      });
+      journeysByDraftId.set(String(shipment.shipmentDraftId), journey);
       estimatesByDraftId.set(
         String(shipment.shipmentDraftId),
         await buildDeliveryEstimate({ draft, events })
@@ -768,6 +826,7 @@ export async function listDpdShipments(request: Request, response: Response): Pr
       const branch = draft ? branchesById.get(String(draft.branchId)) : null;
       const events = eventsByDraftId.get(String(shipment.shipmentDraftId)) ?? [];
       const currentEvent = getCurrentShipmentEvent(events);
+      const journey = journeysByDraftId.get(String(shipment.shipmentDraftId));
       const shipmentInvoice = shipmentInvoicesByDraftId.get(String(shipment.shipmentDraftId));
 
       return {
@@ -791,8 +850,9 @@ export async function listDpdShipments(request: Request, response: Response): Pr
         labels: (labelsByShipment.get(String(shipment._id)) ?? [])
           .filter((label) => label.labelVersion === (shipment.snapshotRevision || 1))
           .map(serializeLabel),
-        currentEvent: currentEvent ? serializeShipmentEvent(currentEvent) : null,
-        events: events.map(serializeShipmentEvent),
+        currentEvent: currentEvent ? serializeShipmentEvent(currentEvent, journey) : null,
+        events: events.map((event) => serializeShipmentEvent(event, journey)),
+        trackingJourney: journey ?? null,
         // Staff tracking shows the same schedule, weights and required action
         // the client sees, so Operations and the customer never read two
         // different accounts of the same shipment.
@@ -800,7 +860,15 @@ export async function listDpdShipments(request: Request, response: Response): Pr
         trackingSummary: draft
           ? buildTrackingSummary({ draft, dpdShipment: shipment, events })
           : null,
-        trackingAttention: buildTrackingAttention(events)
+        trackingAttention: buildTrackingAttention(events),
+        trackingPosition: draft && journey
+          ? buildTrackingPosition({
+            events,
+            journey,
+            destinationCity: draft.consigneeEnteredAddress?.townOrCity ?? "",
+            audience: "AUTHENTICATED"
+          })
+          : null
       };
     })
   });
@@ -815,7 +883,7 @@ export async function getDpdShipment(request: Request, response: Response): Prom
   const shipment = await DpdShipment.findById(dpdShipmentId).lean().exec();
   if (!shipment) return response.status(404).json({ success: false, message: "Shipment not found" });
 
-  const [labels, events] = await Promise.all([
+  const [labels, events, draft] = await Promise.all([
     LabelDocument.find({
       dpdShipmentId: shipment._id,
       labelVersion: shipment.snapshotRevision || 1
@@ -823,16 +891,39 @@ export async function getDpdShipment(request: Request, response: Response): Prom
     ShipmentEvent.find({ shipmentDraftId: shipment.shipmentDraftId })
       .sort({ eventAt: -1, createdAt: -1 })
       .lean()
-      .exec()
+      .exec(),
+    ShipmentDraft.findById(shipment.shipmentDraftId).lean().exec()
   ]);
+  const originBranch = draft?.branchId
+    ? await Branch.findById(draft.branchId).select("address.city").lean().exec()
+    : null;
   const currentEvent = getCurrentShipmentEvent(events);
+  const journey = draft
+    ? await loadShipmentJourney({
+      shipmentDraftId: shipment.shipmentDraftId,
+      destinationCountryCode: draft.consigneeEnteredAddress?.countryCode ?? "",
+      destinationCountryName: draft.consigneeEnteredAddress?.countryName ?? "",
+      service: draft.serviceType === "CARGO" ? "CARGO" : "COURIER",
+      events,
+      originHubFallback: originBranch?.address?.city ? `${originBranch.address.city} Hub` : ""
+    })
+    : undefined;
 
   return response.status(200).json({
     success: true,
     dpdShipment: serializeDpdShipment(shipment),
     labels: labels.map(serializeLabel),
-    currentEvent: currentEvent ? serializeShipmentEvent(currentEvent) : null,
-    events: events.map(serializeShipmentEvent)
+    currentEvent: currentEvent ? serializeShipmentEvent(currentEvent, journey) : null,
+    events: events.map((event) => serializeShipmentEvent(event, journey)),
+    trackingJourney: journey ?? null,
+    trackingPosition: draft && journey
+      ? buildTrackingPosition({
+        events,
+        journey,
+        destinationCity: draft.consigneeEnteredAddress?.townOrCity ?? "",
+        audience: "AUTHENTICATED"
+      })
+      : null
   });
 }
 
@@ -885,6 +976,7 @@ export async function holdDpdShipment(request: Request, response: Response): Pro
     holdReason: parsed.data.reason,
     note: parsed.data.note,
     location: parsed.data.location,
+    source: "MANUAL",
     customerVisible: true,
     createdBy: userId,
     eventAt: new Date()
@@ -1003,10 +1095,26 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
   const shipment = await DpdShipment.findById(dpdShipmentId).lean().exec();
   if (!shipment) return response.status(404).json({ success: false, message: "Shipment not found" });
 
-  const cancellation = await ShipmentCancellation.findOne({
-    shipmentDraftId: shipment.shipmentDraftId,
-    status: { $in: ["REQUESTED", "COMPLETED"] }
-  }).select("status").lean().exec();
+  const [draft, cancellation] = await Promise.all([
+    ShipmentDraft.findById(shipment.shipmentDraftId)
+      .select("consigneeEnteredAddress.countryCode")
+      .lean()
+      .exec(),
+    ShipmentCancellation.findOne({
+      shipmentDraftId: shipment.shipmentDraftId,
+      status: { $in: ["REQUESTED", "COMPLETED"] }
+    }).select("status").lean().exec()
+  ]);
+  if (!draft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+
+  const gateway = resolveTrackingGatewayCode({
+    status: parsed.data.status,
+    destinationCountryCode: draft.consigneeEnteredAddress?.countryCode,
+    gatewayCode: parsed.data.gatewayCode
+  });
+  if (gateway.error) {
+    return response.status(400).json({ success: false, message: gateway.error });
+  }
   if (cancellation) {
     return response.status(409).json({
       success: false,
@@ -1024,6 +1132,18 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
     return response.status(409).json({ success: false, message: "Release the shipment before updating its status." });
   }
 
+  // A stated date is held to the same order the statuses themselves are: it can
+  // correct when a scan happened, but not move the shipment backwards in time.
+  const eventDateProblem = parsed.data.eventAt
+    ? describeEventDateProblem({
+      eventAt: parsed.data.eventAt,
+      previousEventAt: latestEvent?.eventAt ?? null
+    })
+    : null;
+  if (eventDateProblem) {
+    return response.status(409).json({ success: false, message: eventDateProblem });
+  }
+
   /**
    * Progress is recorded in order, so the timeline can never claim a shipment
    * reached a stage it has no record of passing through.
@@ -1037,9 +1157,20 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
    * internal scan still happened, and hiding an event from customers must not
    * also hide it from this check.
    */
-  const recordedStatuses = await ShipmentEvent.distinct("status", {
-    shipmentDraftId: shipment.shipmentDraftId
-  });
+  const [recordedStatuses, recordedMilestone] = await Promise.all([
+    ShipmentEvent.distinct("status", { shipmentDraftId: shipment.shipmentDraftId }),
+    ShipmentEvent.findOne({
+      shipmentDraftId: shipment.shipmentDraftId,
+      status: { $in: equivalentMilestoneStatuses(parsed.data.status) }
+    }).sort({ eventAt: 1, createdAt: 1 }).select("eventAt").lean().exec()
+  ]);
+  if (recordedMilestone) {
+    return response.status(409).json({
+      success: false,
+      code: "STATUS_ALREADY_RECORDED",
+      message: describeAlreadyRecorded(parsed.data.status, recordedMilestone.eventAt)
+    });
+  }
   const missingPrerequisites = findMissingPrerequisites(parsed.data.status, recordedStatuses);
   if (missingPrerequisites.length) {
     return response.status(409).json({
@@ -1049,16 +1180,35 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
     });
   }
 
-  const event = await ShipmentEvent.create({
-    shipmentDraftId: shipment.shipmentDraftId,
-    dpdShipmentId: shipment._id,
-    status: parsed.data.status,
-    note: resolveShipmentEventNote(parsed.data.note, parsed.data.status),
-    location: parsed.data.location,
-    customerVisible: true,
-    createdBy: userId,
-    eventAt: new Date()
-  });
+  let event;
+  try {
+    event = await ShipmentEvent.create({
+      shipmentDraftId: shipment.shipmentDraftId,
+      dpdShipmentId: shipment._id,
+      status: parsed.data.status,
+      milestoneKey: shipmentMilestoneKey(parsed.data.status),
+      note: resolveShipmentEventNote(parsed.data.note, parsed.data.status),
+      location: parsed.data.location,
+      source: "MANUAL",
+      gatewayCode: gateway.gatewayCode,
+      partnerName: parsed.data.partnerName,
+      partnerCode: parsed.data.partnerCode,
+      customerVisible: true,
+      createdBy: userId,
+      // What the timeline shows. Falls back to now, which is what every update
+      // that does not state a date has always been stamped with.
+      eventAt: parsed.data.eventAt ?? new Date()
+    });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === 11000) {
+      return response.status(409).json({
+        success: false,
+        code: "STATUS_ALREADY_RECORDED",
+        message: describeAlreadyRecorded(parsed.data.status)
+      });
+    }
+    throw error;
+  }
 
   // Collecting the parcel settles its charge- see chargeFinalizingStatuses.
   // Final weight verification may still follow- it is an optional correction,
@@ -1080,7 +1230,11 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
     metadata: {
       shipmentDraftId: shipment.shipmentDraftId,
       status: parsed.data.status,
-      note: parsed.data.note
+      note: parsed.data.note,
+      gatewayCode: gateway.gatewayCode,
+      // Kept apart from performedAt above, which stays the real moment: together
+      // they show a backdated update for what it is.
+      eventAt: event.eventAt
     }
   });
 
@@ -1088,6 +1242,89 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
     success: true,
     message: "Shipment status updated.",
     event: serializeShipmentEvent(event)
+  });
+}
+
+/**
+ * Corrects structured gateway metadata on an existing arrival milestone.
+ * The event itself is retained: its status, time, note and location are audit
+ * history and must not be duplicated or rewritten just to fix an IATA code.
+ */
+export async function correctDpdShipmentGateway(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const dpdShipmentId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!mongoose.Types.ObjectId.isValid(dpdShipmentId)) {
+    return response.status(404).json({ success: false, message: "Shipment not found" });
+  }
+
+  const parsed = correctShipmentGatewaySchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({ success: false, message: "Enter a valid three-letter gateway IATA code." });
+  }
+
+  const shipment = await DpdShipment.findById(dpdShipmentId).lean().exec();
+  if (!shipment) return response.status(404).json({ success: false, message: "Shipment not found" });
+
+  const [draft, arrivalEvent] = await Promise.all([
+    ShipmentDraft.findById(shipment.shipmentDraftId)
+      .select("consigneeEnteredAddress.countryCode")
+      .lean()
+      .exec(),
+    ShipmentEvent.findOne({
+      shipmentDraftId: shipment.shipmentDraftId,
+      status: "DESTINATION_ARRIVED"
+    }).sort({ eventAt: -1, createdAt: -1 }).exec()
+  ]);
+  if (!draft) return response.status(404).json({ success: false, message: "Shipment draft not found" });
+  if (!arrivalEvent) {
+    return response.status(409).json({
+      success: false,
+      message: "Record Arrived at Destination Gateway before setting its IATA code."
+    });
+  }
+
+  const gateway = resolveTrackingGatewayCode({
+    status: "DESTINATION_ARRIVED",
+    destinationCountryCode: draft.consigneeEnteredAddress?.countryCode,
+    gatewayCode: parsed.data.gatewayCode
+  });
+  if (gateway.error) return response.status(400).json({ success: false, message: gateway.error });
+
+  const previousGatewayCode = arrivalEvent.gatewayCode ?? "";
+  if (previousGatewayCode === gateway.gatewayCode && !arrivalEvent.gatewayName) {
+    return response.status(200).json({
+      success: true,
+      message: `Gateway IATA is already ${gateway.gatewayCode}.`,
+      event: serializeShipmentEvent(arrivalEvent)
+    });
+  }
+
+  arrivalEvent.gatewayCode = gateway.gatewayCode;
+  // A name saved for the previous code must not survive a correction. Known
+  // codes are presented through the central IATA map; unknown ones stay honest.
+  arrivalEvent.gatewayName = "";
+  await arrivalEvent.save();
+
+  await AuditLog.create({
+    action: "SHIPMENT_GATEWAY_CORRECTED",
+    entityType: "DPD_SHIPMENT",
+    entityId: shipment._id,
+    performedBy: userId,
+    performedAt: new Date(),
+    metadata: {
+      shipmentDraftId: shipment.shipmentDraftId,
+      shipmentEventId: arrivalEvent._id,
+      previousGatewayCode,
+      gatewayCode: gateway.gatewayCode
+    }
+  });
+
+  return response.status(200).json({
+    success: true,
+    message: `Gateway IATA updated to ${gateway.gatewayCode}.`,
+    event: serializeShipmentEvent(arrivalEvent)
   });
 }
 
@@ -1110,6 +1347,10 @@ export async function bulkUpdateDpdShipmentOperationalStatus(request: Request, r
       status: parsed.data.status,
       note: parsed.data.note,
       location: parsed.data.location,
+      eventAt: parsed.data.eventAt,
+      gatewayCode: parsed.data.gatewayCode,
+      partnerName: parsed.data.partnerName,
+      partnerCode: parsed.data.partnerCode,
       userId
     });
 

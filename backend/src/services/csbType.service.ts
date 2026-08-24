@@ -5,7 +5,7 @@
 //
 // The charge is per SHIPMENT, not per parcel and not per kg: a five box, 40 kg
 // shipment attracts the same single charge as a one box, 1 kg shipment. It is
-// added to the taxable base, so the existing 18% GST applies on top of it.
+// a GST-inclusive amount, so applicable GST is extracted rather than added.
 
 export const csbTypeValues = ["CSB_IV", "CSB_V"] as const;
 export type CsbType = (typeof csbTypeValues)[number];

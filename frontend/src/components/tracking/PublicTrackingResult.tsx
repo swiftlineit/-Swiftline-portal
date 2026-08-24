@@ -241,14 +241,14 @@ function TrackingHeader({ tracking }: { tracking: PublicTracking }) {
                 </span>
               </div>
 
-              {tracking.currentLocation ? (
+              {tracking.currentPosition.label ? (
                 <div className="flex items-center gap-2">
                   <span className="h-1 w-1 rounded-full bg-white/30" />
 
                   <span>
-                    Currently at{" "}
+                    Current position{" "}
                     <strong className="font-semibold text-white">
-                      {tracking.currentLocation}
+                      {tracking.currentPosition.label}
                     </strong>
                   </span>
                 </div>
@@ -289,7 +289,7 @@ function SummaryBand({ tracking }: { tracking: PublicTracking }) {
       <SummaryCard
         label="Current Status"
         value={tracking.statusLabel}
-        hint={tracking.currentLocation || "Awaiting first scan"}
+        hint={tracking.currentPosition.label}
         accent
       />
 
@@ -391,50 +391,77 @@ function ParcelNotice({ tracking }: { tracking: PublicTracking }) {
  * never claim a step the shipment's history does not have.
  */
 function JourneyRail({ tracking }: { tracking: PublicTracking }) {
-  const stages = resolveJourneyStages(tracking.events);
+  const stages = resolveJourneyStages(tracking.events, tracking.journey);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d71920]">
-            Shipment progress
-          </p>
+   <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+  <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
+    <div className="min-w-0">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#d71920]">
+        Shipment progress
+      </p>
 
-          <h2 className="mt-1 text-base font-semibold text-slate-950">
-            Shipment journey
-          </h2>
-        </div>
+      <h2 className="mt-1 text-base font-semibold text-slate-950">
+        Shipment journey
+      </h2>
+    </div>
 
-        <FiTruck
-          aria-hidden="true"
-          className="h-5 w-5 shrink-0 text-[#0D1282]"
-        />
-      </div>
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0D1282]/5">
+      <FiTruck
+        aria-hidden="true"
+        className="h-4 w-4 text-[#0D1282]"
+      />
+    </div>
+  </div>
 
-      <div className="overflow-x-auto px-5 py-6 sm:px-6">
-        <ol className="flex min-w-0 flex-col md:flex-row">
-          {stages.map((stage, index) => {
-            const reached = stage.reachedAt !== null;
-
-            return (
-              <li
-                key={stage.label}
-                className="relative flex flex-1 gap-4 pb-6 last:pb-0 md:min-w-30 md:flex-col md:gap-3 md:pb-0"
-              >
-                {index < stages.length - 1 ? (
-                  <span
-                    aria-hidden="true"
-                    className={`absolute left-3.5 top-7 h-[calc(100%-4px)] w-px md:left-7 md:top-3.5  md:h-px md:w-[calc(100%-28px)] ${
-                      stages[index + 1].reachedAt
-                        ? "bg-emerald-400"
-                        : "bg-slate-200"
-                    }`}
-                  />
-                ) : null}
-
+  <div className="px-5 py-5 sm:px-6 sm:py-6">
+    {tracking.journey?.context.routeSegments.length ? (
+      <div className="mb-6 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-600">
+          {tracking.journey.context.routeSegments.map((segment, index) => (
+            <span key={`${segment}-${index}`} className="contents">
+              {index ? (
                 <span
-                  className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 transition ${
+                  aria-hidden="true"
+                  className="text-slate-300"
+                >
+                  →
+                </span>
+              ) : null}
+
+              <span className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+                {segment}
+              </span>
+            </span>
+          ))}
+        </div>
+      </div>
+    ) : null}
+
+    <div className="overflow-x-auto">
+      <ol className="flex min-w-0 flex-col md:min-w-[760px] md:flex-row">
+        {stages.map((stage, index) => {
+          const reached = stage.reachedAt !== null;
+
+          return (
+            <li
+              key={stage.label}
+              className="relative flex flex-1 gap-4 pb-7 last:pb-0 md:min-w-0 md:flex-col md:gap-3 md:pb-0"
+            >
+              {index < stages.length - 1 ? (
+                <span
+                  aria-hidden="true"
+                  className={`absolute left-3.5 top-7 h-[calc(100%-4px)] w-px md:left-7 md:top-3.5 md:h-px md:w-[calc(100%-28px)] ${
+                    stages[index + 1].reachedAt
+                      ? "bg-emerald-400"
+                      : "bg-slate-200"
+                  }`}
+                />
+              ) : null}
+
+              <div className="relative z-10 flex shrink-0 md:h-7">
+                <span
+                  className={`flex h-7 w-7 items-center justify-center rounded-full border-2 transition ${
                     reached
                       ? stage.isCurrent
                         ? "border-[#0D1282] bg-[#0D1282] text-white shadow-[0_0_0_4px_rgba(13,18,130,0.08)]"
@@ -443,31 +470,46 @@ function JourneyRail({ tracking }: { tracking: PublicTracking }) {
                   }`}
                 >
                   {reached ? (
-                    <FiCheckCircle aria-hidden="true" className="h-3.5 w-3.5" />
-                  ) : null}
+                    <FiCheckCircle
+                      aria-hidden="true"
+                      className="h-3.5 w-3.5"
+                    />
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                  )}
                 </span>
+              </div>
 
-                <div className="min-w-0 md:pr-4">
-                  <p
-                    className={`text-xs font-semibold leading-5 ${
-                      reached ? "text-slate-900" : "text-slate-400"
-                    }`}
-                  >
-                    {stage.label}
-                  </p>
+              <div className="min-w-0 md:pr-5">
+                <p
+                  className={`text-xs font-semibold leading-5 ${
+                    reached
+                      ? stage.isCurrent
+                        ? "text-[#0D1282]"
+                        : "text-slate-900"
+                      : "text-slate-400"
+                  }`}
+                >
+                  {stage.label}
+                </p>
 
-                  <p className="mt-0.5 text-[11px] leading-4 text-slate-400">
-                    {reached
-                      ? formatDashboardDateTime(stage.reachedAt)
-                      : "Pending"}
-                  </p>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-    </section>
+                <p
+                  className={`mt-1 text-[11px] leading-4 ${
+                    reached ? "text-slate-500" : "text-slate-400"
+                  }`}
+                >
+                  {reached
+                    ? formatDashboardDateTime(stage.reachedAt)
+                    : "Pending"}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  </div>
+</section>
   );
 }
 
@@ -507,7 +549,7 @@ function StatusCard({ tracking }: { tracking: PublicTracking }) {
 
           <div>
             <p className="text-xs font-medium text-slate-400">
-              Current location
+              Current position
             </p>
 
             <p className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -516,8 +558,18 @@ function StatusCard({ tracking }: { tracking: PublicTracking }) {
                 className="h-4 w-4 shrink-0 text-[#d71920]"
               />
 
-              {tracking.currentLocation || "Awaiting first scan"}
+              {tracking.currentPosition.label}
             </p>
+
+            {tracking.currentPosition.source === "INFERRED" ? (
+              <p className="mt-1 text-xs text-slate-500">Based on latest update</p>
+            ) : null}
+
+            {tracking.currentPosition.holdReasonLabel ? (
+              <p className="mt-1 text-xs font-medium text-amber-700">
+                Hold reason: {tracking.currentPosition.holdReasonLabel}
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -652,7 +704,7 @@ function FactsGrid({ tracking }: { tracking: PublicTracking }) {
     },
     {
       label: "Service Partner",
-      value: tracking.carrierName || "Not assigned",
+      value: tracking.journey?.context.deliveryPartnerName || tracking.carrierName || "Not assigned",
     },
     {
       label: "Service Type",

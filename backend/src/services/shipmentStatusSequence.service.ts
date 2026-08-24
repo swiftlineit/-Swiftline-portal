@@ -24,6 +24,29 @@ import {
 
 export type ShipmentOperationalStatus = (typeof shipmentOperationalStatusValues)[number];
 
+/**
+ * Older events remain valid evidence for the equivalent stage in the new
+ * customer journey. They are aliases, not rewritten records: audit history and
+ * every historical timestamp stay exactly as recorded.
+ */
+const legacyStatusAliases: Partial<Record<ShipmentOperationalStatus, readonly ShipmentEventStatus[]>> = {
+  READY_FOR_EXPORT: ["EXPORT_CUSTOMS_CLEARED", "FLIGHT_ASSIGNED"],
+  ORIGIN_HUB_DISPATCHED: ["FLIGHT_DEPARTED"]
+};
+
+/** Every stored name that proves the requested current milestone happened. */
+export function equivalentMilestoneStatuses(status: ShipmentOperationalStatus): readonly ShipmentEventStatus[] {
+  return [status, ...(legacyStatusAliases[status] ?? [])];
+}
+
+export function hasRecordedMilestone(
+  status: ShipmentOperationalStatus,
+  recorded: Iterable<ShipmentEventStatus | string>
+): boolean {
+  const already = new Set(recorded);
+  return equivalentMilestoneStatuses(status).some((candidate) => already.has(candidate));
+}
+
 export function isOperationalStatus(value: string): value is ShipmentOperationalStatus {
   return (shipmentOperationalStatusValues as readonly string[]).includes(value);
 }
@@ -57,27 +80,39 @@ export function findMissingPrerequisites(
 ): ShipmentOperationalStatus[] {
   if (!isOperationalStatus(target)) return [];
 
-  const already = new Set(recorded);
+  const already = [...recorded];
 
   return shipmentOperationalStatusValues
     .slice(0, shipmentOperationalStatusValues.indexOf(target))
-    .filter((status) => !already.has(status));
+    // Collection is a real milestone for pickup shipments, but counter drop-
+    // offs legitimately enter the journey at the hub and have no collection
+    // event to record.
+    .filter((status) => status !== "PARCEL_COLLECTED")
+    .filter((status) => !hasRecordedMilestone(status, already));
 }
 
 /**
  * The statuses this shipment may record right now.
  *
- * Used by the staff form to grey out the rest. A status that is already recorded
- * stays selectable- a repeated scan is a real operational event, and the rule
- * only concerns what came before.
+ * Used by the staff form to grey out both future steps and completed milestones.
+ * A raw barcode may be scanned repeatedly, but the customer journey milestone
+ * it proves is recorded once; raw scanner history belongs to its scan/audit log.
  */
 export function allowedOperationalStatuses(
   recorded: Iterable<ShipmentEventStatus | string>
 ): ShipmentOperationalStatus[] {
   const already = [...recorded];
   return shipmentOperationalStatusValues.filter(
-    (status) => findMissingPrerequisites(status, already).length === 0
+    (status) => !hasRecordedMilestone(status, already)
+      && findMissingPrerequisites(status, already).length === 0
   );
+}
+
+export function describeAlreadyRecorded(status: ShipmentOperationalStatus, eventAt?: Date | null): string {
+  const when = eventAt && !Number.isNaN(eventAt.getTime())
+    ? ` on ${formatEventTimestamp(eventAt)}`
+    : "";
+  return `${formatShipmentEventLabel(status)} was already recorded${when}. Refresh the shipment before updating it again.`;
 }
 
 /**
@@ -99,4 +134,59 @@ export function describeMissingPrerequisites(
   return `${formatShipmentEventLabel(target)} cannot be recorded yet. `
     + `${list} ${labels.length > 1 ? "are" : "is"} still outstanding- `
     + "shipment progress must be recorded in order.";
+}
+
+/**
+ * When a recorded event happened, spelled the way the portal writes dates.
+ *
+ * Kept local rather than borrowed from the email formatters: this string only
+ * ever appears inside the message below, and the two have no reason to move
+ * together.
+ */
+function formatEventTimestamp(value: Date): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata"
+  }).format(value);
+}
+
+/**
+ * Why an operator-supplied status date cannot stand, or null when it can.
+ *
+ * Operations record a status when they get round to it, which is not always when
+ * the scan actually happened- a parcel collected on Monday can be keyed in on
+ * Wednesday. The date is therefore theirs to state, and the timeline shows what
+ * they state rather than the moment the button was pressed. Two limits keep the
+ * result readable:
+ *
+ * - **Not in the future.** A tracking timeline says what has happened. A scan
+ *   dated tomorrow reads as broken to every customer who opens it.
+ * - **Not before the last recorded event.** Every reader takes the newest event
+ *   as the shipment's current stage, ordering on `eventAt`. A date slipped in
+ *   behind an existing event would quietly rewind the shipment to a stage it has
+ *   already left.
+ *
+ * An omitted date is not this function's business- callers fall back to the
+ * current time and never call in.
+ */
+export function describeEventDateProblem(input: {
+  eventAt: Date;
+  previousEventAt?: Date | null;
+  now?: Date;
+}): string | null {
+  if (Number.isNaN(input.eventAt.getTime())) return "Enter a valid status date.";
+
+  const now = input.now ?? new Date();
+  if (input.eventAt.getTime() > now.getTime()) {
+    return "A status date cannot be in the future. Leave it empty to record this update as happening now.";
+  }
+
+  const previous = input.previousEventAt;
+  if (previous && input.eventAt.getTime() < previous.getTime()) {
+    return "A status date cannot be earlier than this shipment's last recorded update on "
+      + `${formatEventTimestamp(previous)}. Shipment progress is recorded in order.`;
+  }
+
+  return null;
 }

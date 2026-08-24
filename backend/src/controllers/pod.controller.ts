@@ -13,7 +13,7 @@ import { DpdShipment } from "../models/dpdShipment.model.js";
 import { DriverProfile } from "../models/driverProfile.model.js";
 import { DeliveryAssignment, DeliveryAttempt, PodDispute, PodRevision, deliveryAssignmentStatusValues, deliveryFailureReasonValues, podRecipientRelationshipValues } from "../models/pod.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
-import { ShipmentEvent } from "../models/shipmentEvent.model.js";
+import { ShipmentEvent, shipmentMilestoneKey } from "../models/shipmentEvent.model.js";
 import { User } from "../models/user.model.js";
 import { matchesDeclaredType } from "../services/storage/fileSignature.js";
 import {
@@ -27,6 +27,11 @@ import {
 import { resolveEvidenceKey } from "../services/storage/legacyKeys.js";
 import { emailValidationMessage, isValidBusinessContactEmail } from "../services/businessAccountRules.js";
 import { notifyBusinessShipmentMembers, notifyOperationsStaff, notifyPortalUsers } from "../services/portalNotification.service.js";
+import {
+  describeMissingPrerequisites,
+  findMissingPrerequisites,
+  type ShipmentOperationalStatus
+} from "../services/shipmentStatusSequence.service.js";
 
 type Actor = { id: mongoose.Types.ObjectId; role: string; branches: string[] };
 function actor(request: Request): Actor | null {
@@ -51,6 +56,28 @@ function handle(error: unknown, response: Response, next: NextFunction) {
   return next(error);
 }
 function fail(status: number, message: string): never { throw new Error(`POD:${status}:${message}`); }
+
+function statusesForDeliveryValidation(recorded: readonly string[]): string[] {
+  const statuses = [...recorded];
+  const legacyCustomsComplete = !statuses.some((value) => [
+    "ORIGIN_HUB_PROCESSED",
+    "READY_FOR_EXPORT",
+    "ORIGIN_HUB_DISPATCHED",
+    "IMPORT_CUSTOMS_CLEARED"
+  ].includes(value)) && statuses.includes("IMPORT_CUSTOMS_CLEARANCE");
+  if (legacyCustomsComplete) statuses.push("IMPORT_CUSTOMS_CLEARED");
+  return statuses;
+}
+
+async function requireDeliveryMilestoneReady(
+  shipmentDraftId: mongoose.Types.ObjectId,
+  target: ShipmentOperationalStatus
+) {
+  const recorded = await ShipmentEvent.distinct("status", { shipmentDraftId });
+  const missing = findMissingPrerequisites(target, statusesForDeliveryValidation(recorded));
+  if (missing.length) fail(409, describeMissingPrerequisites(target, missing));
+  return recorded;
+}
 
 const partnerSchema = z.object({ name: z.string().trim().min(2).max(120), code: z.string().trim().min(2).max(24), countries: z.array(z.string().trim().length(2)).min(1), contactName: z.string().trim().max(120).default(""), email: z.union([z.literal(""), z.string().trim().email().refine(isValidBusinessContactEmail, emailValidationMessage)]), phone: z.string().trim().max(30).default(""), contractReference: z.string().trim().max(80).default(""), podSlaHours: z.coerce.number().int().min(1).max(720).default(48) });
 const assignmentSchema = z.object({ shipmentDraftId: z.string(), deliveryPersonProfileId: z.string(), deliveryPartnerId: z.string().nullable().optional(), parcelNumbers: z.array(z.string().trim().min(1)).min(1), partnerReference: z.string().trim().min(2).max(120), expectedDeliveryAt: z.coerce.date().nullable().optional() });
@@ -196,7 +223,76 @@ export async function listMyDeliveries(request: Request, response: Response, nex
 }
 async function myAssignment(userId: mongoose.Types.ObjectId, assignmentId: string) { const profile = await profileForUser(userId); if (!profile || profile.deliverySubrole !== "DELIVERY_PERSON") fail(403, "Delivery-person access is required."); const row = await DeliveryAssignment.findOne({ _id: assignmentId, currentDeliveryPersonProfileId: profile._id }).lean().exec(); if (!row) fail(404, "Delivery assignment was not found."); return row; }
 export async function getMyDelivery(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const row = await myAssignment(user.id, String(request.params.assignmentId)); return response.json({ success: true, assignment: await loadDetail(String(row._id)) }); } catch (error) { return handle(error, response, next); } }
-export async function updateMyDeliveryStatus(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const row = await myAssignment(user.id, String(request.params.assignmentId)); const status = z.enum(["ACCEPTED", "OUT_FOR_DELIVERY"]).parse(request.body?.status); const allowed: Record<string, string> = { ASSIGNED: "ACCEPTED", ACCEPTED: "OUT_FOR_DELIVERY" }; if (allowed[row.status] !== status) fail(409, "Complete the delivery steps in order."); if (!await ShipmentEvent.exists({ shipmentDraftId: row.shipmentDraftId, status: { $in: ["IMPORT_CUSTOMS_CLEARANCE", "OUT_FOR_DELIVERY", "DELIVERED"] } })) fail(409, "Delivery work is locked until destination import customs clearance is recorded."); await DeliveryAssignment.updateOne({ _id: row._id }, { $set: { status, ...(status === "ACCEPTED" ? { acceptedAt: new Date() } : { outForDeliveryAt: new Date() }) } }); await AuditLog.create({ action: "POD_ASSIGNMENT_UPDATED", entityType: "POD_ASSIGNMENT", entityId: row._id, performedBy: user.id, performedAt: new Date(), metadata: { status } }); return response.json({ success: true, message: "Delivery status updated.", assignment: await loadDetail(String(row._id)) }); } catch (error) { return handle(error, response, next); } }
+export async function updateMyDeliveryStatus(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request);
+    if (!user) return response.status(401).json({ success: false });
+
+    const row = await myAssignment(user.id, String(request.params.assignmentId));
+    const status = z.enum(["ACCEPTED", "OUT_FOR_DELIVERY"]).parse(request.body?.status);
+    const allowed: Record<string, string> = { ASSIGNED: "ACCEPTED", ACCEPTED: "OUT_FOR_DELIVERY" };
+    if (allowed[row.status] !== status) fail(409, "Complete the delivery steps in order.");
+
+    const trackingStatus = status === "ACCEPTED" ? "DELIVERY_PARTNER_TRANSFERRED" : "OUT_FOR_DELIVERY";
+    await requireDeliveryMilestoneReady(row.shipmentDraftId, trackingStatus);
+
+    const [partner, now] = await Promise.all([
+      row.deliveryPartnerId
+        ? DeliveryPartner.findById(row.deliveryPartnerId).select("name code").lean().exec()
+        : Promise.resolve(null),
+      Promise.resolve(new Date())
+    ]);
+    await DeliveryAssignment.updateOne(
+      { _id: row._id },
+      { $set: { status, ...(status === "ACCEPTED" ? { acceptedAt: now } : { outForDeliveryAt: now }) } }
+    ).exec();
+
+    await ShipmentEvent.findOneAndUpdate(
+      {
+        shipmentDraftId: row.shipmentDraftId,
+        $or: [
+          { milestoneKey: shipmentMilestoneKey(trackingStatus) },
+          { status: trackingStatus }
+        ]
+      },
+      {
+        $setOnInsert: {
+          shipmentDraftId: row.shipmentDraftId,
+          dpdShipmentId: row.dpdShipmentId,
+          status: trackingStatus,
+          milestoneKey: shipmentMilestoneKey(trackingStatus),
+          note: status === "ACCEPTED"
+            ? "Shipment transferred to the destination delivery network."
+            : "Shipment is out for delivery.",
+          customerVisible: true,
+          source: "DELIVERY",
+          sourceReference: `${row._id}:${status}`,
+          partnerName: partner?.name ?? "",
+          partnerCode: partner?.code ?? "",
+          createdBy: user.id,
+          eventAt: now
+        }
+      },
+      { upsert: true }
+    ).exec();
+
+    await AuditLog.create({
+      action: "POD_ASSIGNMENT_UPDATED",
+      entityType: "POD_ASSIGNMENT",
+      entityId: row._id,
+      performedBy: user.id,
+      performedAt: now,
+      metadata: { status, trackingStatus }
+    });
+    return response.json({
+      success: true,
+      message: "Delivery status updated.",
+      assignment: await loadDetail(String(row._id))
+    });
+  } catch (error) {
+    return handle(error, response, next);
+  }
+}
 
 async function writableRevision(assignment: any, userId: mongoose.Types.ObjectId, source: "DELIVERY_PERSON" | "OPERATIONS_UPLOAD") {
   const latest = await PodRevision.findOne({ assignmentId: assignment._id }).sort({ revisionNumber: -1 }).exec();
@@ -278,6 +374,7 @@ export async function submitPod(request: Request, response: Response, next: Next
     if (!normalStatus && !(assignment.status === "DELIVERED" && correctionExists)) {
       fail(409, "Mark the delivery out for delivery before submitting POD.");
     }
+    await requireDeliveryMilestoneReady(assignment.shipmentDraftId, "DELIVERED");
 
     const revision = await PodRevision.findOne({ assignmentId: assignment._id, status: "DRAFT" })
       .sort({ revisionNumber: -1 })
@@ -303,8 +400,33 @@ export async function submitPod(request: Request, response: Response, next: Next
         ...(complete ? { deliveredAt: revision.deliveredAt } : {})
       }
     });
-    if (complete && !await ShipmentEvent.exists({ shipmentDraftId: assignment.shipmentDraftId, status: "DELIVERED" })) {
-      await ShipmentEvent.create({ shipmentDraftId: assignment.shipmentDraftId, dpdShipmentId: assignment.dpdShipmentId, status: "DELIVERED", note: "Destination delivery completed; POD is under Swiftline review.", customerVisible: true, createdBy: user.id, eventAt: revision.deliveredAt });
+    if (complete) {
+      const partner = assignment.deliveryPartnerId
+        ? await DeliveryPartner.findById(assignment.deliveryPartnerId).select("name code").lean().exec()
+        : null;
+      await ShipmentEvent.findOneAndUpdate(
+        {
+          shipmentDraftId: assignment.shipmentDraftId,
+          $or: [{ milestoneKey: "DELIVERED" }, { status: "DELIVERED" }]
+        },
+        {
+          $setOnInsert: {
+            shipmentDraftId: assignment.shipmentDraftId,
+            dpdShipmentId: assignment.dpdShipmentId,
+            status: "DELIVERED",
+            milestoneKey: "DELIVERED",
+            note: "Destination delivery completed; POD is under Swiftline review.",
+            customerVisible: true,
+            source: "DELIVERY",
+            sourceReference: `${assignment._id}:DELIVERED`,
+            partnerName: partner?.name ?? "",
+            partnerCode: partner?.code ?? "",
+            createdBy: user.id,
+            eventAt: revision.deliveredAt
+          }
+        },
+        { upsert: true }
+      ).exec();
     }
     await AuditLog.create({ action: "POD_SUBMITTED", entityType: "POD_REVISION", entityId: revision._id, performedBy: user.id, performedAt: new Date(), metadata: { parcelNumbers: revision.parcelNumbers, correction: correctionExists } });
     await notifyBusinessShipmentMembers(assignment.businessAccountId, { type: "DELIVERY_COMPLETED", title: complete ? "Shipment delivered" : "Shipment partially delivered", message: "Proof of delivery has been submitted and is under review.", href: `/client/shipments/${assignment.shipmentDraftId}`, idempotencyKey: `pod-submitted-client:${revision._id}`, businessAccountId: assignment.businessAccountId });
@@ -319,7 +441,90 @@ export async function recordFailedDelivery(request: Request, response: Response,
 
 export async function reviewPod(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await DeliveryAssignment.findById(request.params.assignmentId).lean().exec(); if (!assignment || !await canManage(user, assignment)) fail(404, "Delivery assignment was not found."); const data = z.object({ approved: z.boolean(), reason: z.string().trim().max(1000).default("") }).parse(request.body); if (!data.approved && data.reason.length < 3) fail(400, "Enter the reason the POD needs correction."); const revision = await PodRevision.findOne({ assignmentId: assignment._id, status: { $in: ["SUBMITTED", "UNDER_REVIEW"] } }).sort({ revisionNumber: -1 }).exec(); if (!revision) fail(404, "No POD is awaiting review."); if (String(revision.submittedBy) === String(user.id)) fail(409, "A different authorized user must review this POD."); revision.status = data.approved ? "VERIFIED" : "ACTION_REQUIRED"; revision.reviewedBy = user.id; revision.reviewedAt = new Date(); revision.reviewReason = data.reason; if (data.approved) { const retention = new Date(); retention.setUTCFullYear(retention.getUTCFullYear() + 8); revision.retentionUntil = retention; } await revision.save(); if (data.approved) await PodRevision.updateMany({ assignmentId: assignment._id, _id: { $ne: revision._id }, status: "VERIFIED" }, { $set: { status: "SUPERSEDED" } }); await AuditLog.create({ action: "POD_REVIEWED", entityType: "POD_REVISION", entityId: revision._id, performedBy: user.id, performedAt: new Date(), metadata: { approved: data.approved, reason: data.reason, retentionUntil: revision.retentionUntil } }); const deliveryProfile = await DriverProfile.findById(assignment.currentDeliveryPersonProfileId).lean().exec(); if (deliveryProfile) await notifyPortalUsers([deliveryProfile.userId], { type: data.approved ? "POD_VERIFIED" : "POD_ACTION_REQUIRED", title: data.approved ? "POD verified" : "POD correction required", message: data.approved ? "Your proof of delivery was verified." : data.reason, href: `/driver/deliveries/${assignment._id}`, idempotencyKey: `pod-review-person:${revision._id}:${data.approved}` }); if (data.approved) await notifyBusinessShipmentMembers(assignment.businessAccountId, { type: "POD_VERIFIED", title: "Verified POD available", message: "Verified proof of delivery is now available for your shipment.", href: `/client/shipments/${assignment.shipmentDraftId}`, idempotencyKey: `pod-verified-client:${revision._id}`, businessAccountId: assignment.businessAccountId }); return response.json({ success: true, message: data.approved ? "POD verified." : "POD returned for correction.", assignment: await loadDetail(String(assignment._id)) }); } catch (error) { return handle(error, response, next); } }
 
-export async function submitManagedPod(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await DeliveryAssignment.findById(request.params.assignmentId).lean().exec(); if (!assignment || !await canManage(user, assignment)) fail(404, "Delivery assignment was not found."); const data = podSchema.extend({ manualSourceNote: z.string().trim().min(3).max(500), originalReceivedAt: z.coerce.date() }).parse(request.body); if (data.parcelNumbers.some((item) => !assignment.parcelNumbers.includes(item))) fail(400, "Every parcel must belong to this shipment assignment."); const revision = await writableRevision(assignment, user.id, "OPERATIONS_UPLOAD"); Object.assign(revision, data); revision.submissionSource = "OPERATIONS_UPLOAD"; revision.submittedBy = user.id; if (!revision.evidence.some((item: any) => item.type === "PHOTO")) fail(409, "Upload the required delivery photo."); if (!revision.evidence.some((item: any) => item.type === "SIGNATURE") && revision.signatureExceptionStatus !== "APPROVED") fail(409, "Upload the recipient signature or approve a signature exception."); revision.status = "SUBMITTED"; revision.submittedAt = new Date(); await revision.save(); const delivered = [...new Set([...assignment.deliveredParcelNumbers, ...revision.parcelNumbers])]; const complete = assignment.parcelNumbers.every((item) => delivered.includes(item)); await DeliveryAssignment.updateOne({ _id: assignment._id }, { $set: { deliveredParcelNumbers: delivered, status: complete ? "DELIVERED" : "PARTIALLY_DELIVERED", ...(complete ? { deliveredAt: revision.deliveredAt } : {}) } }); if (complete && !await ShipmentEvent.exists({ shipmentDraftId: assignment.shipmentDraftId, status: "DELIVERED" })) await ShipmentEvent.create({ shipmentDraftId: assignment.shipmentDraftId, dpdShipmentId: assignment.dpdShipmentId, status: "DELIVERED", note: "Destination delivery completed; POD uploaded by Swiftline Operations and is under review.", customerVisible: true, createdBy: user.id, eventAt: revision.deliveredAt }); await AuditLog.create({ action: "POD_SUBMITTED", entityType: "POD_REVISION", entityId: revision._id, performedBy: user.id, performedAt: new Date(), metadata: { source: "OPERATIONS_UPLOAD", manualSourceNote: data.manualSourceNote } }); await notifyBusinessShipmentMembers(assignment.businessAccountId, { type: "DELIVERY_COMPLETED", title: complete ? "Shipment delivered" : "Shipment partially delivered", message: "Proof of delivery is under Swiftline review.", href: `/client/shipments/${assignment.shipmentDraftId}`, idempotencyKey: `pod-manual-submitted-client:${revision._id}`, businessAccountId: assignment.businessAccountId }); return response.json({ success: true, message: "Partner POD recorded and submitted for independent review.", assignment: await loadDetail(String(assignment._id)) }); } catch (error) { return handle(error, response, next); } }
+export async function submitManagedPod(request: Request, response: Response, next: NextFunction) {
+  try {
+    const user = actor(request);
+    if (!user) return response.status(401).json({ success: false });
+    const assignment = await DeliveryAssignment.findById(request.params.assignmentId).lean().exec();
+    if (!assignment || !await canManage(user, assignment)) fail(404, "Delivery assignment was not found.");
+    const data = podSchema.extend({
+      manualSourceNote: z.string().trim().min(3).max(500),
+      originalReceivedAt: z.coerce.date()
+    }).parse(request.body);
+    if (data.parcelNumbers.some((item) => !assignment.parcelNumbers.includes(item))) {
+      fail(400, "Every parcel must belong to this shipment assignment.");
+    }
+    await requireDeliveryMilestoneReady(assignment.shipmentDraftId, "DELIVERED");
+
+    const revision = await writableRevision(assignment, user.id, "OPERATIONS_UPLOAD");
+    Object.assign(revision, data);
+    revision.submissionSource = "OPERATIONS_UPLOAD";
+    revision.submittedBy = user.id;
+    if (!revision.evidence.some((item: any) => item.type === "PHOTO")) fail(409, "Upload the required delivery photo.");
+    if (!revision.evidence.some((item: any) => item.type === "SIGNATURE") && revision.signatureExceptionStatus !== "APPROVED") {
+      fail(409, "Upload the recipient signature or approve a signature exception.");
+    }
+    revision.status = "SUBMITTED";
+    revision.submittedAt = new Date();
+    await revision.save();
+
+    const delivered = [...new Set([...assignment.deliveredParcelNumbers, ...revision.parcelNumbers])];
+    const complete = assignment.parcelNumbers.every((item) => delivered.includes(item));
+    await DeliveryAssignment.updateOne({ _id: assignment._id }, {
+      $set: {
+        deliveredParcelNumbers: delivered,
+        status: complete ? "DELIVERED" : "PARTIALLY_DELIVERED",
+        ...(complete ? { deliveredAt: revision.deliveredAt } : {})
+      }
+    });
+    if (complete) {
+      const partner = assignment.deliveryPartnerId
+        ? await DeliveryPartner.findById(assignment.deliveryPartnerId).select("name code").lean().exec()
+        : null;
+      await ShipmentEvent.findOneAndUpdate(
+        { shipmentDraftId: assignment.shipmentDraftId, $or: [{ milestoneKey: "DELIVERED" }, { status: "DELIVERED" }] },
+        { $setOnInsert: {
+          shipmentDraftId: assignment.shipmentDraftId,
+          dpdShipmentId: assignment.dpdShipmentId,
+          status: "DELIVERED",
+          milestoneKey: "DELIVERED",
+          note: "Destination delivery completed; POD uploaded by Swiftline Operations and is under review.",
+          customerVisible: true,
+          source: "DELIVERY",
+          sourceReference: `${assignment._id}:DELIVERED`,
+          partnerName: partner?.name ?? "",
+          partnerCode: partner?.code ?? "",
+          createdBy: user.id,
+          eventAt: revision.deliveredAt
+        } },
+        { upsert: true }
+      ).exec();
+    }
+    await AuditLog.create({
+      action: "POD_SUBMITTED",
+      entityType: "POD_REVISION",
+      entityId: revision._id,
+      performedBy: user.id,
+      performedAt: new Date(),
+      metadata: { source: "OPERATIONS_UPLOAD", manualSourceNote: data.manualSourceNote }
+    });
+    await notifyBusinessShipmentMembers(assignment.businessAccountId, {
+      type: "DELIVERY_COMPLETED",
+      title: complete ? "Shipment delivered" : "Shipment partially delivered",
+      message: "Proof of delivery is under Swiftline review.",
+      href: `/client/shipments/${assignment.shipmentDraftId}`,
+      idempotencyKey: `pod-manual-submitted-client:${revision._id}`,
+      businessAccountId: assignment.businessAccountId
+    });
+    return response.json({
+      success: true,
+      message: "Partner POD recorded and submitted for independent review.",
+      assignment: await loadDetail(String(assignment._id))
+    });
+  } catch (error) {
+    return handle(error, response, next);
+  }
+}
 
 export async function getClientPod(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await DeliveryAssignment.findOne({ shipmentDraftId: request.params.shipmentId }).populate("deliveryPartnerId", "name code").lean().exec(); if (!assignment || !await canClientAccess(user.id, assignment)) fail(404, "POD was not found."); const [booking, revisions] = await Promise.all([DpdShipment.findById(assignment.dpdShipmentId).select("swiftlineTrackingNumber dpdShipmentId").lean().exec(), PodRevision.find({ assignmentId: assignment._id, status: "VERIFIED" }).sort({ revisionNumber: -1 }).lean().exec()]); return response.json({ success: true, pod: { id: String(assignment._id), shipmentDraftId: String(assignment.shipmentDraftId), status: assignment.status, partnerReference: assignment.partnerReference, parcelNumbers: assignment.parcelNumbers, deliveredParcelNumbers: assignment.deliveredParcelNumbers, deliveryPartnerId: assignment.deliveryPartnerId, booking, revisions: revisions.map((revision: any) => ({ id: String(revision._id), revisionNumber: revision.revisionNumber, status: revision.status, parcelNumbers: revision.parcelNumbers, recipientName: revision.recipientName, recipientRelationship: revision.recipientRelationship, deliveredAt: revision.deliveredAt, destinationTimeZone: revision.destinationTimeZone, partnerReference: revision.partnerReference, evidence: revision.evidence.map((item: any) => ({ id: String(item._id), type: item.type, originalName: item.originalName, mimeType: item.mimeType, size: item.size, capturedAt: item.capturedAt })) })) } }); } catch (error) { return handle(error, response, next); } }
 export async function createPodDispute(request: Request, response: Response, next: NextFunction) { try { const user = actor(request); if (!user) return response.status(401).json({ success: false }); const assignment = await DeliveryAssignment.findOne({ shipmentDraftId: request.params.shipmentId }).lean().exec(); if (!assignment || !await canClientAccess(user.id, assignment)) fail(404, "POD was not found."); const revision = await PodRevision.findOne({ assignmentId: assignment._id, status: "VERIFIED" }).sort({ revisionNumber: -1 }).lean().exec(); if (!revision) fail(409, "A verified POD is required before reporting an issue."); const data = z.object({ category: z.enum(["WRONG_RECIPIENT", "MISSING_PARCEL", "DAMAGED_PARCEL", "INCORRECT_LOCATION", "SIGNATURE_CONCERN", "PHOTO_CONCERN", "NOT_RECEIVED", "OTHER"]), details: z.string().trim().min(5).max(2000) }).parse(request.body); const dispute = await PodDispute.create({ assignmentId: assignment._id, podRevisionId: revision._id, shipmentDraftId: assignment.shipmentDraftId, businessAccountId: assignment.businessAccountId, ...data, reportedBy: user.id }); await AuditLog.create({ action: "POD_DISPUTED", entityType: "POD_DISPUTE", entityId: dispute._id, performedBy: user.id, performedAt: new Date(), metadata: { category: data.category } }); await notifyOperationsStaff({ type: "POD_DISPUTED", title: "POD issue reported", message: data.details, href: `/dashboard/pod?assignment=${assignment._id}`, idempotencyKey: `pod-dispute:${dispute._id}` }); return response.status(201).json({ success: true, message: "POD issue reported to Swiftline.", dispute }); } catch (error) { return handle(error, response, next); } }

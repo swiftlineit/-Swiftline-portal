@@ -2,12 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FiTag, FiMinus, FiPlus, FiSend, FiTruck, FiChevronDown  } from "react-icons/fi";
+import { FiMinus, FiPlus, FiTruck, FiChevronDown } from "react-icons/fi";
 import { IoIosAirplane, IoMdSend } from "react-icons/io";
 import { BiMath } from "react-icons/bi";
 
 import { toast } from "react-toastify";
-import { countryOptions } from "@/lib/branches";
+import { countryCodeOptions } from "@/lib/countries";
 import CountryFlag from "@/components/CountryFlag";
 import { findRestrictedCategories } from "@/lib/restrictedGoods";
 import { csbTypeLabels, csbTypeOptions, type CsbType } from "@/lib/csbType";
@@ -173,7 +173,7 @@ export default function QuoteForm({
     initialContext ??
     contexts[0] ??
     null;
-  const country = countryOptions.find((item) => item.code === countryCode);
+  const country = countryCodeOptions.find((item) => item.code === countryCode);
   const totals = useMemo(
     () => ({
       actual: parcels.reduce(
@@ -436,7 +436,7 @@ export default function QuoteForm({
                   className={`${controlClass} appearance-none pr-9 rounded-xl ${countryCode ? "pl-11" : ""}`}
                 >
                   <option value="">Select destination country</option>
-                  {countryOptions.map((item) => (
+                  {countryCodeOptions.map((item) => (
                     <option key={item.code} value={item.code}>
                       {item.name}
                     </option>
@@ -811,13 +811,16 @@ export default function QuoteForm({
                 they are applied. Quotes estimated before route charges existed
                 carry no lines and fall back to the freight and clearance split. */}
             {estimate?.lines?.length ? (
-              estimate.lines.map((line) => (
-                <Line
-                  key={line.code}
-                  label={line.label}
-                  value={`${line.kind === "DEDUCTION" ? "-" : ""}${formatQuoteMoney(line.amountMinor)}`}
-                />
-              ))
+              <>
+                {estimate.lines.map((line) => (
+                  <Line
+                    key={line.code}
+                    label={line.label}
+                    value={`${line.kind === "DEDUCTION" ? "-" : ""}${formatQuoteMoney(line.amountMinor)}`}
+                  />
+                ))}
+                {estimate.gstRate === 0 ? <Line label="GST" value="-" /> : null}
+              </>
             ) : (
               <>
                 <Line

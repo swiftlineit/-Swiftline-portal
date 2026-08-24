@@ -59,11 +59,16 @@ export type QuoteEstimate = {
     exceedsMaxBoxKg: boolean;
   }>;
   freightMinor: number;
+  /** Commercial GST-inclusive amount; absent on historical estimates. */
+  inclusiveFreightMinor?: number;
   // Flat CSB-V clearance charge for the whole shipment; zero on CSB-IV.
   csbType: CsbType;
   csbClearanceMinor: number;
+  inclusiveCsbClearanceMinor?: number;
   fuelSurchargeMinor: number | null;
+  inclusiveFuelSurchargeMinor?: number | null;
   taxableAddOnsMinor: number | null;
+  inclusiveTaxableAddOnsMinor?: number | null;
   // Full charge breakdown. Absent on quotes estimated before route charges
   // existed, which fall back to the freight and clearance figures above.
   lines?: ShipmentChargeLine[];
@@ -88,6 +93,11 @@ export type FinalQuotePricing = {
   fuelSurchargeMinor: number;
   taxableAddOnsMinor: number;
   taxableSubtotalMinor: number;
+  /** Amounts entered by staff, before included GST was extracted. */
+  inclusiveFreightMinor?: number;
+  inclusiveFuelSurchargeMinor?: number;
+  inclusiveTaxableAddOnsMinor?: number;
+  inclusiveSubtotalMinor?: number;
   gstRate: number;
   taxTreatment?: "GST_APPLICABLE" | "NO_GST";
   gstMinor: number;
@@ -208,4 +218,14 @@ export async function convertShipmentQuote(audience: QuoteAudience, quoteId: str
 export function formatQuoteMoney(amountMinor: number | null | undefined) {
   if (amountMinor === null || amountMinor === undefined) return "Not configured";
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(amountMinor / 100);
+}
+
+/** Browser preview of the server's Rule 35 GST-inclusive split. */
+export function splitInclusiveQuoteAmountMinor(totalMinor: number, gstRate: number) {
+  const safeTotalMinor = Math.max(0, Math.round(totalMinor));
+  if (!(gstRate > 0) || safeTotalMinor === 0) {
+    return { taxableMinor: safeTotalMinor, gstMinor: 0, totalMinor: safeTotalMinor };
+  }
+  const gstMinor = Math.round(safeTotalMinor * gstRate / (1 + gstRate));
+  return { taxableMinor: safeTotalMinor - gstMinor, gstMinor, totalMinor: safeTotalMinor };
 }

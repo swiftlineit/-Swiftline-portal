@@ -84,6 +84,12 @@ export default function RouteChargesForm({
   useEffect(() => {
     let active = true;
 
+    // Nothing to load until a country is chosen. The slab form above starts
+    // empty, so this runs with no country on every fresh visit. Whatever the
+    // fields hold meanwhile is never rendered- the component returns the
+    // "select a country" prompt below instead- so there is no state to clear.
+    if (!countryCode) return;
+
     async function loadRouteCharge() {
       setLoading(true);
       setError("");
@@ -167,6 +173,19 @@ export default function RouteChargesForm({
     }
   }
 
+  // These charges belong to a route, so without a country there is no route to
+  // describe. Shown as a prompt rather than as a form full of disabled inputs.
+  if (!countryCode) {
+    return (
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold uppercase text-slate-500">Route Charges</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Select a country above to set its fuel surcharge, remote area and handling charges.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="mb-6 rounded-2xl border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -240,7 +259,7 @@ export default function RouteChargesForm({
         */}
         <ChargeInput
           label="Discount %"
-          hint="Off all charges, pre-GST"
+          hint="Off all GST-inclusive charges"
           value={form.discountPercent}
           onChange={handleInput("discountPercent")}
           max={100}

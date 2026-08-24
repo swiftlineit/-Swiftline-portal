@@ -2,12 +2,16 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 import { AuditLog } from "../models/auditLog.model.js";
-import { countryRateServiceValues } from "../models/countryRateCard.model.js";
+import { CountryRateCard, countryRateServiceValues } from "../models/countryRateCard.model.js";
 import {
   SwiftlineRoute,
-  routeTransitBasisValues
+  routeTransitBasisValues,
+  trackingProfileValues
 } from "../models/swiftlineRoute.model.js";
 import { defaultOriginCountryCode } from "../services/swiftlineRoute.service.js";
+
+/** A destination that has published rates, whether or not a lane exists. */
+type RateCardCoverage = { countryCode: string; countryName: string; service: string };
 
 const countryCodeSchema = z
   .string()
@@ -32,6 +36,8 @@ const routePayloadSchema = z.object({
   transitDaysMin: z.coerce.number().int().min(1).max(120),
   transitDaysMax: z.coerce.number().int().min(1).max(120),
   transitBasis: z.enum(routeTransitBasisValues).default("BUSINESS_DAYS"),
+  trackingProfile: z.enum(trackingProfileValues).default("AUTO"),
+  originHubName: z.string().trim().min(2).max(120).default("Delhi Hub"),
   serviceable: z.coerce.boolean().default(true),
   cutOffTime: z
     .string()
@@ -103,12 +109,35 @@ export async function listSwiftlineRoutes(request: Request, response: Response):
     filters.$or = [{ destinationCountryName: pattern }, { destinationCountryCode: pattern }];
   }
 
-  const routes = await SwiftlineRoute.find(filters)
-    .sort({ destinationCountryName: 1, service: 1 })
-    .lean()
-    .exec();
+  // Coverage is every destination that has published rates, whether or not a
+  // lane exists for it. The screen diffs the two to show which destinations are
+  // priced but unroutable- a gap that costs a transit estimate and leaves the
+  // customer tracking page on generic copy, and that neither list shows alone.
+  const [routes, coverage] = await Promise.all([
+    SwiftlineRoute.find(filters)
+      .sort({ destinationCountryName: 1, service: 1 })
+      .lean()
+      .exec(),
+    CountryRateCard.aggregate<RateCardCoverage>([
+      {
+        $group: {
+          _id: { countryCode: "$countryCode", service: "$service" },
+          countryName: { $first: "$countryName" }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          countryCode: "$_id.countryCode",
+          service: "$_id.service",
+          countryName: 1
+        }
+      },
+      { $sort: { countryName: 1, service: 1 } }
+    ]).exec()
+  ]);
 
-  return response.status(200).json({ success: true, routes });
+  return response.status(200).json({ success: true, routes, coverage });
 }
 
 /**
@@ -191,4 +220,165 @@ export async function deleteSwiftlineRoute(request: Request, response: Response)
   });
 
   return response.status(200).json({ success: true, message: "Route removed." });
+}
+
+/* -------------------------------------------------------------------------
+ * Opening many lanes at once
+ * ---------------------------------------------------------------------- */
+
+/**
+ * One set of route details applied to many destinations.
+ *
+ * A rate list opens thirty destinations at a time, and every one of them needs
+ * a lane before it can quote a transit time or show its real hub on the
+ * customer tracking page. Entering those one at a time is the same twelve
+ * fields typed thirty times, and the fields that actually differ per lane -
+ * restrictions, transit stops - are the ones an operator wants to revisit
+ * afterwards anyway.
+ *
+ * The details are validated per expanded lane through `routePayloadSchema`, the
+ * same schema the single-route form posts to, so bulk and single writes cannot
+ * drift apart or disagree about what a valid lane is.
+ */
+const bulkRoutePayloadSchema = z.object({
+  destinations: z.array(z.object({
+    countryCode: countryCodeSchema,
+    countryName: z.string().trim().min(2).max(80)
+  })).min(1, "Choose at least one destination.").max(300),
+  services: z.array(z.enum(countryRateServiceValues)).min(1, "Choose at least one service."),
+  details: z.object({
+    viaCountryCodes: z.array(countryCodeSchema.or(z.literal(""))).max(4).optional().default([]),
+    transitDaysMin: z.coerce.number().int().min(1).max(120),
+    transitDaysMax: z.coerce.number().int().min(1).max(120),
+    transitBasis: z.enum(routeTransitBasisValues).default("BUSINESS_DAYS"),
+    trackingProfile: z.enum(trackingProfileValues).default("AUTO"),
+    originHubName: z.string().trim().min(2).max(120).default("Delhi Hub"),
+    serviceable: z.coerce.boolean().default(true),
+    cutOffTime: z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/).or(z.literal("")).default(""),
+    restrictions: z.string().trim().max(1000).default(""),
+    notes: z.string().trim().max(1000).default("")
+  }),
+  // Off by default, so the common case- filling in the lanes that do not exist
+  // yet- can never overwrite transit times somebody tuned by hand.
+  overwriteExisting: z.boolean().optional().default(false)
+}).superRefine((payload, context) => {
+  const codes = new Set(payload.destinations.map((destination) => destination.countryCode));
+  if (codes.size !== payload.destinations.length) {
+    context.addIssue({ code: "custom", path: ["destinations"], message: "The same destination appears more than once." });
+  }
+
+  const services = new Set(payload.services);
+  if (services.size !== payload.services.length) {
+    context.addIssue({ code: "custom", path: ["services"], message: "Each service can only be chosen once." });
+  }
+});
+
+export async function bulkSaveSwiftlineRoutes(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = bulkRoutePayloadSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: "These route details are invalid.",
+      errors: getValidationErrors(parsed.error)
+    });
+  }
+
+  const { destinations, services, details, overwriteExisting } = parsed.data;
+
+  // Every lane is validated before any of them is written, so a payload with one
+  // bad entry is rejected whole rather than applied halfway.
+  const lanes: Array<z.infer<typeof routePayloadSchema>> = [];
+  for (const destination of destinations) {
+    for (const service of services) {
+      const lane = routePayloadSchema.safeParse({
+        ...details,
+        destinationCountryCode: destination.countryCode,
+        destinationCountryName: destination.countryName,
+        service
+      });
+
+      if (!lane.success) {
+        return response.status(400).json({
+          success: false,
+          message: `${destination.countryName} could not be routed.`,
+          errors: getValidationErrors(lane.error)
+        });
+      }
+
+      lanes.push(lane.data);
+    }
+  }
+
+  const existing = await SwiftlineRoute.find({
+    originCountryCode: defaultOriginCountryCode,
+    destinationCountryCode: { $in: destinations.map((destination) => destination.countryCode) },
+    service: { $in: services }
+  }).select("destinationCountryCode service").lean().exec();
+
+  const existingKeys = new Set(existing.map((route) => `${route.destinationCountryCode}:${route.service}`));
+
+  const created: Array<{ countryCode: string; countryName: string; service: string }> = [];
+  const updated: Array<{ countryCode: string; countryName: string; service: string }> = [];
+  const skipped: Array<{ countryCode: string; countryName: string; service: string }> = [];
+
+  for (const lane of lanes) {
+    const { originCountryCode, destinationCountryCode, service, ...rest } = lane;
+    const key = `${destinationCountryCode}:${service}`;
+    const summary = {
+      countryCode: destinationCountryCode,
+      countryName: lane.destinationCountryName,
+      service
+    };
+
+    if (existingKeys.has(key) && !overwriteExisting) {
+      skipped.push(summary);
+      continue;
+    }
+
+    const laneKey = { originCountryCode, destinationCountryCode, service };
+    // findOneAndUpdate per lane rather than bulkWrite: the model's
+    // `pre("findOneAndUpdate")` hook is what checks transit ordering and that a
+    // stop is not also an endpoint, and bulkWrite bypasses document middleware
+    // entirely. A few dozen round trips on an admin action is a fair price for
+    // not writing an incoherent lane.
+    const route = await SwiftlineRoute.findOneAndUpdate(
+      laneKey,
+      {
+        $set: { ...rest, updatedBy: userId },
+        $setOnInsert: { ...laneKey, createdBy: userId }
+      },
+      { returnDocument: "after", upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    ).exec();
+
+    if (!route) {
+      return response.status(500).json({ success: false, message: `${summary.countryName} could not be saved.` });
+    }
+
+    const wasExisting = existingKeys.has(key);
+    if (wasExisting) updated.push(summary);
+    else created.push(summary);
+
+    await AuditLog.create({
+      action: wasExisting ? "SWIFTLINE_ROUTE_UPDATED" : "SWIFTLINE_ROUTE_CREATED",
+      entityType: "SWIFTLINE_ROUTE",
+      entityId: route._id,
+      performedBy: userId,
+      performedAt: new Date(),
+      metadata: { after: route.toObject(), bulk: true }
+    });
+  }
+
+  return response.status(200).json({
+    success: true,
+    message: `${created.length} lane${created.length === 1 ? "" : "s"} added`
+      + (updated.length ? `, ${updated.length} updated` : "")
+      + (skipped.length ? `, ${skipped.length} left as they were` : "")
+      + ".",
+    created,
+    updated,
+    skipped
+  });
 }
