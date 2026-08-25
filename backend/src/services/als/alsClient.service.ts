@@ -12,7 +12,7 @@ import {
  * asked for a label only on United Kingdom shipments; every other destination
  * books on Swiftline labels alone and never reaches this module.
  *
- * There is no usable sandbox — ITD have not enabled test.itdservices.in — so
+ * There is no usable sandbox - ITD have not enabled test.itdservices.in - so
  * every call here is a real, chargeable booking. Nothing runs unless the
  * destination qualifies; if it does and the integration cannot serve it, that
  * is reported as a failure rather than passed over in silence.
@@ -56,7 +56,7 @@ export class AlsRequestError extends Error {
 }
 
 /**
- * The request left but its outcome is unknown — a timeout, a dropped socket, or
+ * The request left but its outcome is unknown - a timeout, a dropped socket, or
  * a reply that could not be read.
  *
  * A booking may or may not exist at ALS, so the caller must never retry
@@ -82,7 +82,7 @@ export interface AlsConfiguration {
 /**
  * The master switch for live carrier calls.
  *
- * Off does not mean "book United Kingdom shipments without a label" — it means
+ * Off does not mean "book United Kingdom shipments without a label" - it means
  * a label cannot be produced, which the booker is told about and must decide
  * on. Silently shipping a UK parcel with no carrier label is the one outcome
  * this must never cause.
@@ -250,7 +250,7 @@ async function getAuth(configuration: AlsConfiguration, forceRefresh = false) {
  *
  * ALS sends inline styles and data-URI images with no document shell. A
  * multi-parcel booking arrives as one fragment whose pages are separated by
- * `page-break-after`, so it must not be split — printing the whole document
+ * `page-break-after`, so it must not be split - printing the whole document
  * yields one page per parcel.
  */
 function htmlDocument(fragment: string) {
@@ -386,7 +386,7 @@ async function submitDocket(input: {
   // deliberately not passed through: the shipment was understood and declined,
   // and reporting it as a server error sends everyone looking in the wrong
   // place. Having a parsed body at all is what makes this a decision rather than
-  // an outage — an unreadable reply is treated as uncertain above.
+  // an outage - an unreadable reply is treated as uncertain above.
   throw new AlsRequestError(message, 409, result.body, readCarrierErrors(result.body));
 }
 

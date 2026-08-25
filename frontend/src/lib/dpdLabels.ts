@@ -12,7 +12,7 @@ import type { TrackingJourney } from "@/lib/shipmentJourney";
  * Mirrors `dpdLabelCountryCodes` in backend/src/services/als/alsPayload.service.ts,
  * which is what actually decides whether ALS is called. This copy governs only
  * what the booking panel offers, so a drift between the two shows up as a button
- * that is present or absent when it should not be — never as a wrong booking.
+ * that is present or absent when it should not be - never as a wrong booking.
  *
  * The country selector stores the ISO code "GB"; "UK" is accepted alongside it
  * because imported and hand-keyed addresses use the two interchangeably.

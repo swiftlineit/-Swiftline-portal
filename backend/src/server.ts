@@ -35,14 +35,14 @@ function warnOnMailMisconfiguration(): void {
  */
 function reportDpdLabelling() {
   if (!isAlsEnabled()) {
-    console.log("DPD labelling: OFF (ALS_ENABLED is not true) — UK bookings will ask before continuing without a carrier label.");
+    console.log("DPD labelling: OFF (ALS_ENABLED is not true) - UK bookings will ask before continuing without a carrier label.");
     return;
   }
 
   const settings = readAlsConfiguration();
   console.log(settings.ok
-    ? "DPD labelling: ON — UK shipments will be booked with ALS and carry a DPD label."
-    : `DPD labelling: ON but UNUSABLE — missing ${settings.missing.join(", ")}.`);
+    ? "DPD labelling: ON - UK shipments will be booked with ALS and carry a DPD label."
+    : `DPD labelling: ON but UNUSABLE - missing ${settings.missing.join(", ")}.`);
 }
 
 async function bootstrap(): Promise<void> {

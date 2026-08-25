@@ -187,7 +187,7 @@ async function getReusableShipment(existingShipment: IDpdShipment | null, expect
   if (existingShipment.status === "LABEL_RECEIVED") {
     const labels = await LabelDocument.find({ dpdShipmentId: existingShipment._id }).lean().exec();
     // The completeness invariant is per parcel, so it counts Swiftline labels
-    // only — a DPD label is one document covering the whole shipment.
+    // only - a DPD label is one document covering the whole shipment.
     const swiftlineLabelCount = labels.filter((label) => label.labelType === "SWIFTLINE").length;
     if (!isCompleteLabelSet({ parcelCount: expectedParcelCount, labelCount: swiftlineLabelCount })) {
       throw new DpdShipmentServiceError(
@@ -542,7 +542,7 @@ export async function createLabelForShipmentDraft(
     );
 
     // The DPD label is fetched before anything is consumed or written, so a
-    // carrier failure leaves no booking, no invoice and no spent credit — only
+    // carrier failure leaves no booking, no invoice and no spent credit - only
     // the reserved hold, released below, and a draft that is editable again.
     let dpdDocket: Awaited<ReturnType<typeof createAlsDocket>> | null = null;
     if (wantsDpdLabel) {
@@ -554,7 +554,7 @@ export async function createLabelForShipmentDraft(
         });
       } catch (error) {
         // An uncertain result may have created a booking at the carrier, so it
-        // is never offered as a retry — the shipment is held for review with
+        // is never offered as a retry - the shipment is held for review with
         // the money still reserved against it.
         if (error instanceof AlsUncertainError) throw error;
         if (!(error instanceof AlsRequestError)) throw error;

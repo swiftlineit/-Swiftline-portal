@@ -17,7 +17,7 @@ import {
 
 /**
  * Every case here runs against a stubbed `fetch`. ALS has no sandbox, so a real
- * call is a real chargeable booking — the payload shape, the error mapping and
+ * call is a real chargeable booking - the payload shape, the error mapping and
  * the retry rule are all provable without spending one.
  */
 
@@ -26,7 +26,7 @@ const originalFetch = globalThis.fetch;
 // The whole ALS configuration is pinned rather than read from the developer's
 // .env, so the suite proves the same thing on every machine. Reading it for real
 // made these tests fail the moment someone commented out a credential after a
-// live test — a false alarm that says nothing about the code. The one case that
+// live test - a false alarm that says nothing about the code. The one case that
 // needs the integration switched off toggles it itself.
 //
 // These are deliberately not real credentials: every request is stubbed, and a
@@ -330,7 +330,7 @@ describe("ALS failure semantics", () => {
     }).then(() => null, (caught: unknown) => caught);
 
     assert.ok(error instanceof AlsRequestError, "a parsed refusal is an AlsRequestError");
-    assert.equal(error.statusCode, 409, "not 500 — the shipment was understood and declined");
+    assert.equal(error.statusCode, 409, "not 500 - the shipment was understood and declined");
     assert.deepEqual(error.carrierErrors, ["Customer credit limit is reached"]);
   });
 

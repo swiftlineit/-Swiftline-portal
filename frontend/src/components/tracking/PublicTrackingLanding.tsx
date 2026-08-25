@@ -323,7 +323,7 @@ export default function PublicTrackingLanding() {
 
                 <p>
                   Our tracking platform brings the complete shipment journey
-                  into one interface—from Delhi origin processing to export,
+                  into one interface-from Delhi origin processing to export,
                   destination customs, last-mile handover and final delivery.
                 </p>
 

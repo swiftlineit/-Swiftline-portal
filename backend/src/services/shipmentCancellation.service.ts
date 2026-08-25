@@ -646,6 +646,8 @@ export async function approveShipmentCancellation(input: {
         href: `/client/shipments/${String(cancellation.shipmentDraftId)}#shipment-cancellation`,
         idempotencyKey: `SHIPMENT_CANCELLATION_COMPLETED:${String(cancellation._id)}`
       }, session);
+      const { syncShipmentProfitability } = await import("./shipmentProfitability.service.js");
+      await syncShipmentProfitability(cancellation.shipmentDraftId, { session });
       return cancellation;
     });
   } finally {

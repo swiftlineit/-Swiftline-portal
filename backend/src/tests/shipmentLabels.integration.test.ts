@@ -70,7 +70,7 @@ const kycDocumentsFixture = {
  * a request would be a real, chargeable DPD consignment. That has always been a
  * promise in a comment; this makes it structural. A regression that let a
  * booking reach ALS would otherwise pass silently on a developer machine with
- * working credentials — and bill the company for it.
+ * working credentials - and bill the company for it.
  */
 const attemptedCarrierCalls: string[] = [];
 // Bound, because it is called back through a local reference rather than as a

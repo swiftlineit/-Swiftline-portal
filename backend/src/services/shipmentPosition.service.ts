@@ -78,7 +78,7 @@ function inferredForStatus(status: string, journey: TrackingJourney, destination
     case "ORIGIN_HUB_PROCESSED":
     case "READY_FOR_EXPORT":
     case "EXPORT_CUSTOMS_CLEARED": return originHub;
-    case "FLIGHT_ASSIGNED": return `${originHub} — awaiting departure`;
+    case "FLIGHT_ASSIGNED": return `${originHub} - awaiting departure`;
     case "ORIGIN_HUB_DISPATCHED":
     case "FLIGHT_DEPARTED": return transitPosition(journey);
     case "DESTINATION_ARRIVED":
@@ -87,8 +87,8 @@ function inferredForStatus(status: string, journey: TrackingJourney, destination
     case "DELIVERY_PARTNER_TRANSFERRED": return journey.context.profile === "UK" ? "DPD Network" : partner;
     case "DELIVERY_HUB_ARRIVED": return deliveryHubPosition(journey);
     case "IN_TRANSIT": return "In transit to delivery location";
-    case "OUT_FOR_DELIVERY": return `With ${journey.context.profile === "UK" ? "DPD" : partner} — out for delivery${destinationCity ? ` in ${destinationCity}` : ""}`;
-    case "DELIVERED": return `${destination} — delivered`;
+    case "OUT_FOR_DELIVERY": return `With ${journey.context.profile === "UK" ? "DPD" : partner} - out for delivery${destinationCity ? ` in ${destinationCity}` : ""}`;
+    case "DELIVERED": return `${destination} - delivered`;
     case "RETURNED": return `Returned to sender via ${originHub}`;
     case "LOST": return "Location under investigation";
     default: return "Position not recorded";

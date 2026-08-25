@@ -594,7 +594,7 @@ export default function AdminShipmentDetailsPage() {
                               disabled={option.completed || option.missing.length > 0}
                             >
                               {option.label}
-                              {option.completed ? " — completed" : option.missing.length ? " — not yet reached" : ""}
+                              {option.completed ? " - completed" : option.missing.length ? " - not yet reached" : ""}
                             </option>
                           ))}
                         </select>

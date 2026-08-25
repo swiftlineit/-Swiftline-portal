@@ -15,7 +15,7 @@ import {
  *
  * The country selector stores the ISO code "GB"; "UK" is accepted alongside it
  * because imported and hand-keyed addresses use the two interchangeably. Crown
- * dependencies (IM, JE, GG) are deliberately absent — they are separate ISO
+ * dependencies (IM, JE, GG) are deliberately absent - they are separate ISO
  * codes and have not been confirmed against this account.
  */
 const dpdLabelCountryCodes = new Set(["GB", "UK"]);
@@ -48,7 +48,7 @@ export interface AlsFreeFormLineItem {
  * The create_docket request body.
  *
  * Shaped from a booking ALS actually accepted rather than from the published
- * spec, which is wrong in several places — the literal fields below carry the
+ * spec, which is wrong in several places - the literal fields below carry the
  * corrections inline.
  */
 export interface AlsCreateDocketPayload {
@@ -140,7 +140,7 @@ function decimal(value: number) {
  *
  * ALS validates this against its own list and reports an unrecognised value as
  * a missing one ("SHIPMENT INVOICE UNIT TYPE are mandatory field"), which is
- * what the portal's own vocabulary — Pkt, Pcs, Set, Box, Kg, Pair — was
+ * what the portal's own vocabulary - Pkt, Pcs, Set, Box, Kg, Pair - was
  * rejected for. "Pc" is the only value the ALS documentation shows being
  * accepted, so every line is declared in pieces.
  *
@@ -251,7 +251,7 @@ type AlsShipperFields = Pick<
  * every time keeps the carrier's record stable no matter who is shipping.
  *
  * This is the only place the shipper is decided. The customer's real consignor
- * is untouched everywhere else — the Swiftline label, EDI export, manifests, the
+ * is untouched everywhere else - the Swiftline label, EDI export, manifests, the
  * customs invoice and the GST invoice all read `draft.consignorAddress`.
  */
 const swiftlineShipper: AlsShipperFields = {

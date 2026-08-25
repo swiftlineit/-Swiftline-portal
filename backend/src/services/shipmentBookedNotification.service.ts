@@ -75,7 +75,7 @@ export async function notifyShipmentBooked(input: ShipmentBookedInput) {
       LabelDocument.find({ dpdShipmentId: dpdShipment._id, voidedAt: null })
         .select("_id labelType parcelNumber format")
         // labelType descending puts SWIFTLINE after DPD, which is the order the
-        // attachments are wanted in — see the size-budget note below.
+        // attachments are wanted in - see the size-budget note below.
         .sort({ labelType: -1, parcelNumber: 1 })
         .lean()
         .exec()

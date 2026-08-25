@@ -51,6 +51,7 @@ import {
   pickupManagementRouter,
 } from "./routes/pickup.routes.js";
 import { podDeliveryRouter, podManagementRouter } from "./routes/pod.routes.js";
+import { profitabilityRouter } from "./routes/profitability.routes.js";
 
 export const app = express();
 
@@ -157,6 +158,7 @@ app.use("/api/v1/pod", podManagementRouter);
 app.use("/api/v1/driver/deliveries", podDeliveryRouter);
 app.use("/api/v1/credit-accounts", creditAccountRouter);
 app.use("/api/v1/credit-agreements", creditAgreementRouter);
+app.use("/api/v1/profitability", profitabilityRouter);
 app.use("/api/v1/notifications", notificationRouter);
 
 // There is deliberately no generic file route here. `/api/v1/files` used to

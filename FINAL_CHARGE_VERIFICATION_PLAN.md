@@ -1,4 +1,4 @@
-# Final Weight & Charge — from mandatory gate to optional correction
+# Final Weight & Charge - from mandatory gate to optional correction
 
 Amends the feature described in
 [Swiftline_Credit_Module_Full_Report_v1.1.md §10](Swiftline_Credit_Module_Full_Report_v1.1.md).
@@ -9,14 +9,14 @@ status ladder this change unblocks.
 
 Today a shipment cannot be moved from `PARCEL_COLLECTED` to `WAREHOUSE_SCAN_IN` until
 someone has finalised the Final Weight & Charge. Operations must stop, re-key every
-parcel's weight and all three dimensions, preview, and finalise — even when the parcel
+parcel's weight and all three dimensions, preview, and finalise - even when the parcel
 weighs exactly what the customer declared and nothing about the charge changes.
 
 The intended behaviour is the opposite: the booked weight stands, and the re-weigh is an
 **optional correction** an admin or operations user initiates *only* when the parcel is
-found heavier or lighter than described. Everything downstream of a correction —
+found heavier or lighter than described. Everything downstream of a correction -
 recalculated charge, funding from Customer Advance and credit, the revised invoice, the
-ledger entry, the client notification — stays exactly as it is.
+ledger entry, the client notification - stays exactly as it is.
 
 ### The rule
 
@@ -36,11 +36,11 @@ ledger entry, the client notification — stays exactly as it is.
 
 Concerns 3 and 4 are the ones that make this more than a two-line deletion.
 
-**Concern 3** — the only reason the window never bites today is that scan-in is blocked
+**Concern 3** - the only reason the window never bites today is that scan-in is blocked
 until verification happens. Remove the block and keep the window, and whoever records
 Warehouse Scan In first permanently locks out the re-weigh. The feature becomes a trap.
 
-**Concern 4** — statement lines are selected by *finding verification records in the
+**Concern 4** - statement lines are selected by *finding verification records in the
 period*, then pulling those shipments' invoices. Verification is mandatory today, so every
 credit shipment has one. Make it optional and an unverified shipment never appears on any
 statement. Because `closeCreditBillingCycle` refuses to write a second statement for a
@@ -121,7 +121,7 @@ parcels into the shipment snapshot the manifest and EDI read from.
 
 | Question | Decision |
 |---|---|
-| How long may staff re-weigh? | Until `FLIGHT_DEPARTED` is recorded — the shipment has physically left India |
+| How long may staff re-weigh? | Until `FLIGHT_DEPARTED` is recorded - the shipment has physically left India |
 | What replaces verification as the billing trigger? | A new `chargeFinalizedAt` on `ShipmentInvoice`, set at Warehouse Scan In or verification, whichever comes first |
 | Downward re-weigh on a settled statement? | Refund the difference to Customer Advance |
 
@@ -133,14 +133,14 @@ adjustment path, which already produces a `CreditBillingAdjustment` on the next 
 
 ---
 
-## Step 1 — Remove the status gate
+## Step 1 - Remove the status gate
 
 **[dpdShipment.controller.ts](backend/src/controllers/dpdShipment.controller.ts)**
 Delete the `WAREHOUSE_SCAN_IN` block at lines 1052-1060. Remove the now-unused
 `ShipmentChargeVerification` import at line 29 (it has no other use in the file).
 
 Leave the comment block at lines 1027-1038 in place but drop its reference to the charge
-check — the sequence gate is no longer "the coarser of two gates", it is the only gate.
+check - the sequence gate is no longer "the coarser of two gates", it is the only gate.
 
 **[bulkShipmentStatus.service.ts](backend/src/services/bulkShipmentStatus.service.ts)**
 - Drop `needsChargeVerification` and `chargeVerified` from the `statusUpdateBlockReason`
@@ -150,7 +150,7 @@ check — the sequence gate is no longer "the coarser of two gates", it is the o
 - Drop both fields from the call site at lines 208-212.
 - Remove the model import at line 5.
 
-Update the doc comment above `statusUpdateBlockReason` — it currently advertises "the
+Update the doc comment above `statusUpdateBlockReason` - it currently advertises "the
 Warehouse Scan In charge check" as one of the gates it mirrors.
 
 **[bulkShipmentStatus.test.ts](backend/src/tests/bulkShipmentStatus.test.ts)**
@@ -161,7 +161,7 @@ No frontend change is needed here. The admin status form gates only on sequence
 prerequisites ([page.tsx:575](frontend/src/app/dashboard/shipments/[draftId]/page.tsx#L575));
 the charge check was server-side only.
 
-## Step 2 — Widen the verification window to departure
+## Step 2 - Widen the verification window to departure
 
 **[shipmentChargeVerification.service.ts](backend/src/services/shipmentChargeVerification.service.ts)**
 
@@ -183,7 +183,7 @@ const afterDepartureStatuses: ShipmentEventStatus[] = [
 ```
 
 `IN_TRANSIT` is added deliberately. It is absent from today's list, which is a hole rather
-than a decision — it is not on the operational ladder so the status endpoint's zod schema
+than a decision - it is not on the operational ladder so the status endpoint's zod schema
 cannot write it, but nothing guarantees that stays true.
 
 Update the refusal message at line 121 to
@@ -197,7 +197,7 @@ cancellation gates (lines 123-135) stay exactly as they are.
 ([shipmentChargeVerification.model.ts:47-73](backend/src/models/shipmentChargeVerification.model.ts#L47-L73)).
 A correction to a correction is not supported and is not being added.
 
-## Step 3 — Replace the billing trigger
+## Step 3 - Replace the billing trigger
 
 ### 3a. Schema
 
@@ -218,7 +218,7 @@ shipmentInvoiceSchema.index({ businessAccountId: 1, chargeFinalizedAt: 1, billin
 
 ### 3b. A single place that sets it
 
-**[shipmentInvoice.service.ts](backend/src/services/shipmentInvoice.service.ts)** — new export:
+**[shipmentInvoice.service.ts](backend/src/services/shipmentInvoice.service.ts)** - new export:
 
 ```ts
 /**
@@ -246,17 +246,17 @@ export async function markShipmentChargeFinalized(input: {
 
 ### 3c. Three call sites
 
-Only two code paths ever write a `WAREHOUSE_SCAN_IN` event — verified by auditing every
+Only two code paths ever write a `WAREHOUSE_SCAN_IN` event - verified by auditing every
 `ShipmentEvent` write in the backend. Pickup completion writes `PARCEL_COLLECTED` only
 ([pickup.service.ts:812](backend/src/services/pickup.service.ts#L812)); hold, release, POD
 and cancellation write off-ladder statuses.
 
-1. **[dpdShipment.controller.ts:1062](backend/src/controllers/dpdShipment.controller.ts#L1062)** —
+1. **[dpdShipment.controller.ts:1062](backend/src/controllers/dpdShipment.controller.ts#L1062)** -
    after `ShipmentEvent.create`, when `parsed.data.status === "WAREHOUSE_SCAN_IN"`, call
    `markShipmentChargeFinalized({ shipmentDraftId, finalizedAt: event.eventAt })`.
-2. **[bulkShipmentStatus.service.ts:225](backend/src/services/bulkShipmentStatus.service.ts#L225)** —
+2. **[bulkShipmentStatus.service.ts:225](backend/src/services/bulkShipmentStatus.service.ts#L225)** -
    same call inside the per-shipment loop, guarded on `input.status === "WAREHOUSE_SCAN_IN"`.
-3. **[shipmentChargeVerification.service.ts](backend/src/services/shipmentChargeVerification.service.ts)** —
+3. **[shipmentChargeVerification.service.ts](backend/src/services/shipmentChargeVerification.service.ts)** -
    inside the finalize transaction, passing the session and `verification.verifiedAt`.
 
 The demo seeder also needs it. `createDemoShipment.ts` writes a
@@ -265,11 +265,11 @@ signal moved, the fixture stamps the invoice as well or `DEMO_CLOSE_BILLING_CYCL
 produces "No eligible charges".
 
 `ensureShipmentInvoiceForDraft` does not carry `chargeFinalizedAt` in its `nextValues`,
-so a revision preserves the stamp — verified, not assumed.
+so a revision preserves the stamp - verified, not assumed.
 
 ### 3d. Statement selection
 
-**[creditBillingCycle.service.ts:163-185](backend/src/services/creditBillingCycle.service.ts#L163-L185)** —
+**[creditBillingCycle.service.ts:163-185](backend/src/services/creditBillingCycle.service.ts#L163-L185)** -
 replace the verification lookup with a direct invoice query. The pending-cancellation
 exclusion must be preserved; it just moves to after the invoice fetch.
 
@@ -295,7 +295,7 @@ const invoices = finalizedInvoices.filter(
 );
 ```
 
-Drop the `ShipmentChargeVerification` import at line 9 — this was its only use in the file.
+Drop the `ShipmentChargeVerification` import at line 9 - this was its only use in the file.
 
 ### 3e. Backfill
 
@@ -309,7 +309,7 @@ whose shipment has a `WAREHOUSE_SCAN_IN` event.
 
 **Set `chargeFinalizedAt` to the script's run date, not the historical scan-in date.** A
 historical date would drop these invoices into billing periods that are already closed,
-where they can never be picked up — the exact orphaning this whole step exists to prevent.
+where they can never be picked up - the exact orphaning this whole step exists to prevent.
 Dating them to the run date lands them on the next statement.
 
 Invoices whose shipment was verified but not yet billed already have a verification whose
@@ -328,7 +328,7 @@ that reports invoices with `chargeFinalizedAt: null`, `billingStatementId: null`
 `creditOutstandingMinor > 0` whose shipment passed Warehouse Scan In more than 45 days ago.
 It runs under `job:credit:reconcile`, which is already scheduled.
 
-## Step 4 — Carry the re-weigh into the shipment snapshot
+## Step 4 - Carry the re-weigh into the shipment snapshot
 
 **[shipmentChargeVerification.service.ts](backend/src/services/shipmentChargeVerification.service.ts)**,
 inside the finalize transaction, after `draft.save({ session })` at line 317:
@@ -361,17 +361,17 @@ Three things this must **not** do, unlike the amendment path it borrows from:
 Leaving `snapshotRevision` alone keeps `snapshotIsCurrent` false
 ([client.controller.ts:1040](backend/src/controllers/client.controller.ts#L1040)) once the
 invoice revision outruns it, so the client and admin views keep falling through to the live
-`draft.parcelList` — the same verified numbers. Consistent either way.
+`draft.parcelList` - the same verified numbers. Consistent either way.
 
 `buildRevisedShipmentSnapshot` throws `AMENDED_PARCEL_COUNT_MISMATCH` on a parcel-count
 change. `mergeVerifiedParcels` already guarantees equal counts, so this cannot fire; guard
 the call anyway rather than letting a raw `Error` escape the transaction.
 
-## Step 5 — Refund a post-payment reduction to Customer Advance
+## Step 5 - Refund a post-payment reduction to Customer Advance
 
 **[amendmentBilling.service.ts](backend/src/services/amendmentBilling.service.ts)**
 
-Add `advanceCreditedMinor` to `AmendmentBillingAdjustment` — the part of a reduction that
+Add `advanceCreditedMinor` to `AmendmentBillingAdjustment` - the part of a reduction that
 cannot come off credit or off applied advance because the customer already paid it in cash.
 
 No new input is needed: `previousAmountMinor` is already the invoice total at every
@@ -392,7 +392,7 @@ const paidMinor = input.previousTotalAmountMinor
 
 // A reduction unwinds in the order the money was committed: outstanding credit
 // first, then advance that was applied at booking, and only then cash already
-// paid — which comes back as new Customer Advance rather than as a statement credit.
+// paid - which comes back as new Customer Advance rather than as a statement credit.
 creditReducedMinor   = Math.min(reductionMinor, input.previousCreditOutstandingMinor);
 advanceRefundedMinor = Math.min(reductionMinor - creditReducedMinor, input.previousAdvanceAppliedMinor);
 advanceCreditedMinor = reductionMinor - creditReducedMinor - advanceRefundedMinor;
@@ -408,7 +408,7 @@ advanceAppliedMinor + creditOutstandingMinor + paidMinor - advanceCreditedMinor 
 ```
 
 which reduces to the current check whenever `paidMinor` and `advanceCreditedMinor` are
-zero — i.e. every case that works today behaves identically.
+zero - i.e. every case that works today behaves identically.
 
 The same broken invariant lives one layer up in
 `resolveShipmentInvoicePaymentAllocation`, which asserts
@@ -423,7 +423,7 @@ and is the more likely direction for a re-weigh.
 
 In `applyShipmentBillingAdjustment`, add `advanceCreditedMinor` to the
 `customerAdvanceBalanceMinor` increment at line 374 alongside `advanceRefundedMinor`, and
-make sure it is **excluded** from the statement and `invoicedOutstandingMinor` arithmetic —
+make sure it is **excluded** from the statement and `invoicedOutstandingMinor` arithmetic -
 that money never sat on the open statement.
 
 The ledger entry at lines 397-419 already records `metadata: adjustment`, so the new field
@@ -439,7 +439,7 @@ before finalising.
 This function is shared with amendments, which are blocked after `PARCEL_COLLECTED` and so
 cannot realistically reach a paid statement. The fix is harmless there.
 
-## Step 6 — Present the panel as optional
+## Step 6 - Present the panel as optional
 
 **[ShipmentChargeVerificationPanel.tsx](frontend/src/components/shipments/ShipmentChargeVerificationPanel.tsx)**
 
@@ -452,11 +452,11 @@ cannot realistically reach a paid statement. The fix is harmless there.
 - The `!state?.eligible` branch (lines 180-184) keeps rendering the server's message, which
   now reads correctly for both ends of the wider window.
 
-**[page.tsx:688-694](frontend/src/app/dashboard/shipments/[draftId]/page.tsx#L688-L694)** —
+**[page.tsx:688-694](frontend/src/app/dashboard/shipments/[draftId]/page.tsx#L688-L694)** -
 no change. `onStateChange={setChargeVerified}` still drives the amendment block, which is
 correct: once a charge has been corrected it should not then be amended.
 
-## Step 7 — Documentation
+## Step 7 - Documentation
 
 **[Swiftline_Credit_Module_Full_Report_v1.1.md](Swiftline_Credit_Module_Full_Report_v1.1.md)**
 
@@ -465,13 +465,13 @@ correct: once a charge has been corrected it should not then be amended.
   to Warehouse Scan In or later" from the blocked list.
 - §13: statements bill invoices whose charge was finalised in the period, where finalised
   means Warehouse Scan In *or* an earlier correction.
-- §16: the pending-cancellation lock still blocks verification — unchanged.
+- §16: the pending-cancellation lock still blocks verification - unchanged.
 
 ---
 
 ## What is deliberately unchanged
 
-- Pricing, funding, GST, and the frozen `gstRatePercent` — the whole calculation path.
+- Pricing, funding, GST, and the frozen `gstRatePercent` - the whole calculation path.
 - Invoice revisioning, the immutable pricing snapshot, and the stable invoice number.
 - Credit and Customer Advance deduction on an increase; credit restored first on a decrease.
 - The `SHIPMENT_CHARGE_VERIFIED` notification and the `WEIGHT_DIFFERENCE` client exception
@@ -489,7 +489,7 @@ correct: once a charge has been corrected it should not then be amended.
 | An invoice never gets `chargeFinalizedAt` and is never billed | Only two code paths write the status; reconciliation tripwire in Step 3f catches any that slip |
 | Backfill dates land in closed periods | Script uses the run date, never the historical event date |
 | First statement after backfill is unexpectedly large | Dry run reports count and total value for Finance sign-off before `--apply` |
-| A shipment that never reaches Warehouse Scan In is never billed | Same as today — lost, returned and cancelled shipments settle through their own flows |
+| A shipment that never reaches Warehouse Scan In is never billed | Same as today - lost, returned and cancelled shipments settle through their own flows |
 | Ops stops re-weighing entirely once it is optional | No worklist exists for "collected, not re-weighed". See open item below |
 
 ## Open items, not in scope
@@ -506,12 +506,12 @@ correct: once a charge has been corrected it should not then be amended.
 ## Test status
 
 **Done**
-- `bulkShipmentStatus.test.ts` — the charge gate case is replaced by one asserting
+- `bulkShipmentStatus.test.ts` - the charge gate case is replaced by one asserting
   Warehouse Scan In passes with no verification present.
-- `amendmentBilling.test.ts` — four new cases: reduction on a fully paid invoice, on a
+- `amendmentBilling.test.ts` - four new cases: reduction on a fully paid invoice, on a
   part-paid invoice, an increase on a fully paid invoice, and an unpaid reduction proving
   the original behaviour is untouched.
-- `creditBillingCycle.integration.test.ts` — seeds `chargeFinalizedAt` instead of a
+- `creditBillingCycle.integration.test.ts` - seeds `chargeFinalizedAt` instead of a
   `ShipmentChargeVerification`, and still proves an invoice without one is passed over.
 - Full backend typecheck, plus the credit, shipment, customs-invoice and EDI suites:
   150 tests, all passing against the testing cluster.
@@ -520,7 +520,7 @@ Note: this machine cannot resolve Atlas `mongodb+srv://` URIs; integration runs 
 `dns.setServers(["8.8.8.8"])` preloaded via `node --import`.
 
 **Still worth adding**
-- A `shipmentChargeVerification` integration suite — none exists today. Worth covering
+- A `shipmentChargeVerification` integration suite - none exists today. Worth covering
   that a correction succeeds after Warehouse Scan In and after Flight Assigned, is refused
   after Flight Departed, and that `currentShipmentSnapshot` picks up the corrected weights
   while `snapshotRevision` stays put.

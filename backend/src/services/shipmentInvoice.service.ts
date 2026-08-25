@@ -16,6 +16,14 @@ import {
 } from "./shipmentPricing.service.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 
+async function syncProfitability(
+  shipmentDraftId: mongoose.Types.ObjectId,
+  session?: mongoose.ClientSession
+) {
+  const { syncShipmentProfitability } = await import("./shipmentProfitability.service.js");
+  await syncShipmentProfitability(shipmentDraftId, { session });
+}
+
 export class ShipmentInvoiceServiceError extends Error {
   constructor(message: string, public readonly statusCode = 400) {
     super(message);
@@ -424,6 +432,7 @@ export async function ensureShipmentInvoiceForDraft(input: {
     }
     existing.set(nextValues);
     await existing.save({ session: input.session });
+    await syncProfitability(draft._id as mongoose.Types.ObjectId, input.session);
     return existing;
   }
 
@@ -441,6 +450,7 @@ export async function ensureShipmentInvoiceForDraft(input: {
   });
   try {
     await invoice.save({ session: input.session });
+    await syncProfitability(draft._id as mongoose.Types.ObjectId, input.session);
     return invoice;
   } catch (error) {
     // Concurrent view/download requests may race on the one-invoice-per-shipment index.
@@ -448,7 +458,10 @@ export async function ensureShipmentInvoiceForDraft(input: {
       const concurrentInvoiceQuery = ShipmentInvoice.findOne({ shipmentDraftId: draft._id });
       if (input.session) concurrentInvoiceQuery.session(input.session);
       const concurrentInvoice = await concurrentInvoiceQuery.exec();
-      if (concurrentInvoice) return concurrentInvoice;
+      if (concurrentInvoice) {
+        await syncProfitability(draft._id as mongoose.Types.ObjectId, input.session);
+        return concurrentInvoice;
+      }
     }
     throw error;
   }
