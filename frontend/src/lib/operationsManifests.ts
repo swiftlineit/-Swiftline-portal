@@ -217,6 +217,15 @@ export const getOperationsManifest = (id: string) =>
   request<{ success: true } & ManifestDetail>(
     `/api/v1/operations-manifests/${id}`,
   );
+export const deleteOperationsManifest = (id: string, confirmationManifestNumber: string) =>
+  request<{
+    success: true;
+    message: string;
+    deleted: { manifestNumber: string; status: ManifestStatus; numberWillBeReused: boolean };
+  }>(`/api/v1/operations-manifests/${id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmationManifestNumber })
+  });
 export const createOperationsBag = (id: string) =>
   request(`/api/v1/operations-manifests/${id}/bags`, {
     method: "POST",

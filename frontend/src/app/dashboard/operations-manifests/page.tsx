@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { FiArrowRight, FiPlus, FiChevronDown } from "react-icons/fi";
+import { FiArrowRight, FiPlus, FiChevronDown, FiTrash2 } from "react-icons/fi";
+import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
 import { emptyDateRange } from "@/lib/dateRange";
 import {
+  deleteOperationsManifest,
   listOperationsManifests,
   type ManifestStatus,
   type OperationsManifest,
@@ -32,6 +35,8 @@ export default function OperationsManifestListPage() {
   const [pages, setPages] = useState(1);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<OperationsManifest | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const load = useCallback(async () => {
     setBusy(true);
     setError("");
@@ -59,7 +64,28 @@ export default function OperationsManifestListPage() {
       active = false;
     };
   }, [load, user]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      const result = await deleteOperationsManifest(pendingDelete.id, pendingDelete.manifestNumber);
+      toast.success(result.message);
+      setPendingDelete(null);
+      if (items.length === 1 && page > 1) setPage((current) => current - 1);
+      else await load();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Unable to delete this operations manifest.");
+    } finally {
+      setDeleting(false);
+    }
+  }, [items.length, load, page, pendingDelete]);
+
   if (loading || !user) return <DashboardLoading />;
+
+  const deletedNumberWillBeReused = pendingDelete
+    ? ["DRAFT", "PACKING", "READY_TO_SEAL"].includes(pendingDelete.status)
+    : false;
 
   return (
       <div className="mx-auto max-w-7xl">
@@ -160,12 +186,23 @@ export default function OperationsManifestListPage() {
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <Link
-                        href={`/dashboard/operations-manifests/${item.id}`}
-                        className="inline-flex items-center gap-2 font-semibold text-[#0D1282]"
-                      >
-                        Open <FiArrowRight />
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        <Link
+                          href={`/dashboard/operations-manifests/${item.id}`}
+                          className="inline-flex items-center gap-2 font-semibold text-[#0D1282]"
+                        >
+                          Open <FiArrowRight />
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete(item)}
+                          aria-label={`Delete manifest ${item.manifestNumber}`}
+                          title={`Delete ${item.manifestNumber}`}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 text-red-700 transition hover:border-red-600 hover:bg-red-50"
+                        >
+                          <FiTrash2 aria-hidden="true" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -202,6 +239,25 @@ export default function OperationsManifestListPage() {
             Next
           </button>
         </div>
+        {pendingDelete ? (
+          <ConfirmDialog
+            title={`Delete manifest ${pendingDelete.manifestNumber}?`}
+            description={deletedNumberWillBeReused ? (
+              <>
+                This permanently removes the manifest and its packing/scanner records. Its number will be released, so the next new operations manifest will use <span className="font-semibold text-slate-950">{pendingDelete.manifestNumber}</span>. This action cannot be undone.
+              </>
+            ) : (
+              <>
+                This permanently removes this <span className="font-semibold text-slate-950">{pendingDelete.status.replaceAll("_", " ")}</span> manifest and its downloadable manifest records. Shipment tracking history remains, and <span className="font-semibold text-slate-950">{pendingDelete.manifestNumber}</span> stays permanently reserved. This action cannot be undone.
+              </>
+            )}
+            confirmLabel="Permanently Delete"
+            busyLabel="Deleting..."
+            busy={deleting}
+            onConfirm={confirmDelete}
+            onCancel={() => setPendingDelete(null)}
+          />
+        ) : null}
       </div>
   );
 }

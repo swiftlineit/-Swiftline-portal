@@ -18,11 +18,12 @@ async function writeDeletionAudit(
   action: "SHIPMENT_DRAFT_DELETED" | "SHIPMENT_DRAFT_RESTORED" | "BOOKED_SHIPMENT_DELETED",
   draft: IShipmentDraft,
   userId: mongoose.Types.ObjectId,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
+  session?: mongoose.ClientSession
 ) {
-  await AuditLog.create({
+  const entry = {
     action,
-    entityType: "SHIPMENT_DRAFT",
+    entityType: "SHIPMENT_DRAFT" as const,
     entityId: draft._id,
     performedBy: userId,
     performedAt: new Date(),
@@ -36,7 +37,9 @@ async function writeDeletionAudit(
       parcelCount: draft.parcelList?.length ?? 0,
       ...extra
     }
-  });
+  };
+  if (session) await AuditLog.create([entry], { session });
+  else await AuditLog.create(entry);
 }
 
 /**
@@ -70,6 +73,68 @@ export async function deleteShipmentDraft(input: {
 
   await writeDeletionAudit("SHIPMENT_DRAFT_DELETED", deleted, input.userId);
   return deleted;
+}
+
+/**
+ * Deletes a reviewed group of unbooked drafts as one operation.
+ *
+ * Every draft is checked with the same policy as the single-delete route before
+ * the transaction starts. The conditional update then makes the write
+ * all-or-nothing if a draft changed or was deleted while those checks ran.
+ */
+export async function deleteShipmentDrafts(input: {
+  drafts: IShipmentDraft[];
+  userId: mongoose.Types.ObjectId;
+  portalRole: string;
+}) {
+  if (!input.drafts.length) {
+    throw new ShipmentDraftPolicyError("Select at least one shipment draft.", 400);
+  }
+
+  for (const draft of input.drafts) {
+    await assertShipmentDraftDeletable({
+      draft,
+      userId: input.userId,
+      portalRole: input.portalRole
+    });
+  }
+
+  const draftIds = input.drafts.map((draft) => draft._id as mongoose.Types.ObjectId);
+  const deletedAt = new Date();
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const result = await ShipmentDraft.updateMany(
+        {
+          _id: { $in: draftIds },
+          deletedAt: null,
+          $or: [{ bookingState: "EDITABLE" }, { bookingState: { $exists: false } }]
+        },
+        { $set: { deletedAt, deletedBy: input.userId } },
+        { session }
+      ).exec();
+
+      if (result.modifiedCount !== input.drafts.length) {
+        throw new ShipmentDraftPolicyError(
+          "One or more shipment drafts changed while deletion was being confirmed. Refresh and try again.",
+          409
+        );
+      }
+
+      for (const draft of input.drafts) {
+        draft.deletedAt = deletedAt;
+        draft.deletedBy = input.userId;
+        await writeDeletionAudit("SHIPMENT_DRAFT_DELETED", draft, input.userId, {
+          bulkDelete: true,
+          selectedCount: input.drafts.length
+        }, session);
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return draftIds;
 }
 
 /**

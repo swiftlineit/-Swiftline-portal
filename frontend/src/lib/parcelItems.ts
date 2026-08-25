@@ -15,7 +15,7 @@ export const maxParcelItems = 20;
 // Unit of measure per item line on the customs (shipment) invoice.
 export const parcelItemUnitTypeValues = ["Pkt", "Pcs", "Set", "Box", "Kg", "Pair"] as const;
 export type ParcelItemUnitType = (typeof parcelItemUnitTypeValues)[number];
-export const defaultParcelItemUnitType: ParcelItemUnitType = "Pkt";
+export const defaultParcelItemUnitType: ParcelItemUnitType = "Pcs";
 
 export type ParcelItem = {
   description: string;

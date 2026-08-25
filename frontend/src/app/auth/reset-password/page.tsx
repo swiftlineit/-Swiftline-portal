@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { FormEvent, Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 import { resetPassword } from "@/lib/auth";
 
 function ResetPasswordForm() {
@@ -12,6 +13,8 @@ function ResetPasswordForm() {
   const token = searchParams.get("token") ?? "";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(token ? "" : "Reset token is missing.");
   const [loading, setLoading] = useState(false);
@@ -47,34 +50,58 @@ function ResetPasswordForm() {
         <label htmlFor="password" className="block text-sm font-medium text-gray-800">
           New password
         </label>
-        <input
-          id="password"
-          type="password"
-          autoComplete="new-password"
-          minLength={8}
-          required
-          disabled={!token || Boolean(message)}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          className="mt-2 block w-full border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:bg-gray-50"
-        />
+        <div className="relative mt-2">
+          <input
+            id="password"
+            type={passwordVisible ? "text" : "password"}
+            autoComplete="new-password"
+            minLength={8}
+            required
+            disabled={!token || Boolean(message)}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="block w-full border border-gray-200 bg-white px-4 py-3 pr-12 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:bg-gray-50"
+          />
+          <button
+            type="button"
+            disabled={!token || Boolean(message)}
+            onClick={() => setPasswordVisible((visible) => !visible)}
+            aria-label={passwordVisible ? "Hide new password" : "Show new password"}
+            aria-pressed={passwordVisible}
+            className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center text-gray-400 hover:text-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:opacity-50"
+          >
+            {passwordVisible ? <FiEyeOff aria-hidden="true" /> : <FiEye aria-hidden="true" />}
+          </button>
+        </div>
       </div>
 
       <div>
         <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-800">
           Confirm password
         </label>
-        <input
-          id="confirmPassword"
-          type="password"
-          autoComplete="new-password"
-          minLength={8}
-          required
-          disabled={!token || Boolean(message)}
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          className="mt-2 block w-full border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:bg-gray-50"
-        />
+        <div className="relative mt-2">
+          <input
+            id="confirmPassword"
+            type={confirmPasswordVisible ? "text" : "password"}
+            autoComplete="new-password"
+            minLength={8}
+            required
+            disabled={!token || Boolean(message)}
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            className="block w-full border border-gray-200 bg-white px-4 py-3 pr-12 text-sm text-gray-900 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200 disabled:bg-gray-50"
+          />
+          <button
+            type="button"
+            disabled={!token || Boolean(message)}
+            onClick={() => setConfirmPasswordVisible((visible) => !visible)}
+            aria-label={confirmPasswordVisible ? "Hide confirm password" : "Show confirm password"}
+            aria-pressed={confirmPasswordVisible}
+            className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center text-gray-400 hover:text-gray-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 disabled:opacity-50"
+          >
+            {confirmPasswordVisible ? <FiEyeOff aria-hidden="true" /> : <FiEye aria-hidden="true" />}
+          </button>
+        </div>
       </div>
 
       {message ? <p className="text-sm font-medium text-emerald-700">{message}</p> : null}

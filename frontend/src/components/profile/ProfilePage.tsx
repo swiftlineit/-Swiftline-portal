@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useId, useState } from "react";
 import Image from "next/image";
-import { FiBriefcase, FiCamera, FiChevronDown, FiLock, FiMail, FiMapPin, FiPhone, FiTrash2, FiUser } from "react-icons/fi";
+import { FiBriefcase, FiCamera, FiChevronDown, FiEye, FiEyeOff, FiLock, FiMail, FiMapPin, FiPhone, FiTrash2, FiUser } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { BiSolidEdit } from "react-icons/bi";
 import { SearchableSelect } from "@/components/business-accounts/FormFieldControls";
@@ -113,25 +113,45 @@ function InputField({
   maxLength?: number;
   error?: string;
 }) {
+  const inputId = useId();
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const isPassword = type === "password";
+
   return (
-    <label className="block">
+    <div className="block">
+      <label htmlFor={inputId} className="block">
       <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
         {label}
         {required ? <span className="ml-1 text-red-600">*</span> : null}
       </span>
-      <input
-        type={type}
-        value={value}
-        maxLength={maxLength}
-        onChange={(event) => onChange(event.target.value)}
-        className={`mt-1.5 h-10 w-full rounded-xl border px-3 text-sm text-slate-900 outline-none transition focus:ring-2 ${
-          error
-            ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-            : "border-slate-300 focus:border-[#0D1282] focus:ring-blue-100"
-        }`}
-      />
+      </label>
+      <div className="relative mt-1.5">
+        <input
+          id={inputId}
+          type={isPassword && passwordVisible ? "text" : type}
+          value={value}
+          maxLength={maxLength}
+          onChange={(event) => onChange(event.target.value)}
+          className={`h-10 w-full rounded-xl border px-3 text-sm text-slate-900 outline-none transition focus:ring-2 ${isPassword ? "pr-10" : ""} ${
+            error
+              ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+              : "border-slate-300 focus:border-[#0D1282] focus:ring-blue-100"
+          }`}
+        />
+        {isPassword ? (
+          <button
+            type="button"
+            onClick={() => setPasswordVisible((visible) => !visible)}
+            aria-label={passwordVisible ? `Hide ${label}` : `Show ${label}`}
+            aria-pressed={passwordVisible}
+            className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center text-slate-400 transition hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0D1282]"
+          >
+            {passwordVisible ? <FiEyeOff aria-hidden="true" /> : <FiEye aria-hidden="true" />}
+          </button>
+        ) : null}
+      </div>
       {error ? <span className="mt-1 block text-xs font-medium text-red-600">{error}</span> : null}
-    </label>
+    </div>
   );
 }
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useState, type ReactNode } from "react";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 import { activateInvitation, getInvitation } from "@/lib/auth";
 
 type InvitationDetails = {
@@ -31,6 +32,8 @@ function ActivateClientAccountContent() {
   const [invitation, setInvitation] = useState<InvitationDetails | null>(null);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -105,24 +108,48 @@ function ActivateClientAccountContent() {
             </div>
 
             <form onSubmit={handleActivation} className="mt-6 grid gap-4">
-              <input
-                type="password"
-                value={password}
-                required
-                minLength={8}
-                placeholder="New Password *"
-                onChange={(event) => setPassword(event.target.value)}
-                className="h-12 border border-slate-300 px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-              />
-              <input
-                type="password"
-                value={confirmPassword}
-                required
-                minLength={8}
-                placeholder="Confirm Password *"
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                className="h-12 border border-slate-300 px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
-              />
+              <div className="relative">
+                <input
+                  type={passwordVisible ? "text" : "password"}
+                  value={password}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  placeholder="New Password *"
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="h-12 w-full border border-slate-300 px-3 pr-11 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                  aria-label={passwordVisible ? "Hide new password" : "Show new password"}
+                  aria-pressed={passwordVisible}
+                  className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center text-slate-400 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0D1282]"
+                >
+                  {passwordVisible ? <FiEyeOff aria-hidden="true" /> : <FiEye aria-hidden="true" />}
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  type={confirmPasswordVisible ? "text" : "password"}
+                  value={confirmPassword}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  placeholder="Confirm Password *"
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  className="h-12 w-full border border-slate-300 px-3 pr-11 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setConfirmPasswordVisible((visible) => !visible)}
+                  aria-label={confirmPasswordVisible ? "Hide confirm password" : "Show confirm password"}
+                  aria-pressed={confirmPasswordVisible}
+                  className="absolute right-2 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center text-slate-400 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0D1282]"
+                >
+                  {confirmPasswordVisible ? <FiEyeOff aria-hidden="true" /> : <FiEye aria-hidden="true" />}
+                </button>
+              </div>
               <label className="flex items-start gap-3 text-sm font-medium leading-6 text-slate-700">
                 <input
                   type="checkbox"

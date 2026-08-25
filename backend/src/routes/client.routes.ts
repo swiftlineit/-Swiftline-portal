@@ -10,6 +10,7 @@ import {
   createClientShipmentLabelAccess,
   createClientManualShipmentDraft,
   deleteClientShipmentDraft,
+  deleteClientShipmentDrafts,
   deleteClientShipmentKycDocument,
   deleteClientShipmentParcelKycDocument,
   restoreClientShipmentDraft,
@@ -202,6 +203,7 @@ clientRouter.post("/shipment-imports/batches", shipmentImportUpload, createClien
 clientRouter.get("/shipment-imports/batches/:batchId", getClientShipmentImportBatch);
 clientRouter.post("/shipment-imports/batches/:batchId/create-drafts", createClientShipmentImportDrafts);
 clientRouter.post("/dpd-labels/drafts/manual", createClientManualShipmentDraft);
+clientRouter.post("/dpd-labels/drafts/bulk-delete", deleteClientShipmentDrafts);
 clientRouter.get("/dpd-labels/drafts/:id", getClientShipmentDraft);
 clientRouter.get("/dpd-labels/drafts/:id/rate-card-context", getClientShipmentDraftRateCardContext);
 clientRouter.patch("/dpd-labels/drafts/:id", updateClientShipmentDraft);

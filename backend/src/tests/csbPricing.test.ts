@@ -168,7 +168,7 @@ describe("parcel items", () => {
     // of zero value, so the document can still render them.
     const items = normalizeParcelItems({ contentsDescription: "Handicrafts" });
     assert.deepEqual(items, [
-      { description: "Handicrafts", hsnCode: "", unitType: "Pkt", quantity: 0, unitRate: 0 }
+      { description: "Handicrafts", hsnCode: "", unitType: "Pcs", quantity: 0, unitRate: 0 }
     ]);
   });
 

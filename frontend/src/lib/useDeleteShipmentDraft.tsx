@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import {
   deleteShipmentDraft,
+  deleteShipmentDrafts,
   restoreShipmentDraft,
   type ShipmentDraftActor
 } from "@/lib/shipmentDrafts";
@@ -99,4 +100,72 @@ export function useDeleteShipmentDraft(input: {
   ) : null;
 
   return { requestDelete: setPending, dialog, deleting };
+}
+
+export function useBulkDeleteShipmentDrafts(input: {
+  actor: ShipmentDraftActor;
+  onChanged: () => void | Promise<void>;
+}) {
+  const [pending, setPending] = useState<DeletableDraft[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const { actor, onChanged } = input;
+
+  const undo = useCallback(async (draftIds: string[]) => {
+    const results = await Promise.allSettled(draftIds.map((draftId) => restoreShipmentDraft(actor, draftId)));
+    const restored = results.filter((result) => result.status === "fulfilled").length;
+    if (restored === draftIds.length) toast.success(`${restored} shipment drafts restored.`);
+    else if (restored) toast.warning(`${restored} of ${draftIds.length} shipment drafts were restored.`);
+    else toast.error("Unable to restore the deleted shipment drafts.");
+    await onChanged();
+  }, [actor, onChanged]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pending.length) return;
+
+    setDeleting(true);
+    try {
+      const result = await deleteShipmentDrafts(actor, pending.map((draft) => draft.id));
+      const deletedIds = result.shipmentDraftIds;
+      setPending([]);
+
+      toast.success(
+        ({ closeToast }) => (
+          <span className="flex items-center justify-between gap-3">
+            <span>{deletedIds.length} shipment drafts deleted.</span>
+            <button
+              type="button"
+              onClick={() => {
+                closeToast?.();
+                void undo(deletedIds);
+              }}
+              className="shrink-0 font-semibold text-[#0D1282] underline underline-offset-2"
+            >
+              Undo all
+            </button>
+          </span>
+        ),
+        { autoClose: 8000, closeOnClick: false }
+      );
+      await onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to delete the selected shipment drafts.");
+      setPending([]);
+    } finally {
+      setDeleting(false);
+    }
+  }, [actor, onChanged, pending, undo]);
+
+  const dialog = pending.length ? (
+    <ConfirmDialog
+      title={`Delete ${pending.length} shipment drafts?`}
+      description="All selected drafts will be removed together. Booked, manifested, pickup-linked, or payment-linked shipments remain protected. You can undo this immediately after deletion."
+      confirmLabel="Delete Selected"
+      busyLabel="Deleting..."
+      busy={deleting}
+      onConfirm={confirmDelete}
+      onCancel={() => setPending([])}
+    />
+  ) : null;
+
+  return { requestBulkDelete: setPending, dialog, deleting };
 }

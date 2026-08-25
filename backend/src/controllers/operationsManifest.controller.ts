@@ -12,6 +12,7 @@ import {
   closeOperationsBag,
   createOperationsBag,
   createOperationsManifest,
+  deleteOperationsManifest,
   dispatchOperationsManifest,
   getOperationsManifestDetail,
   listOperationsManifests,
@@ -210,6 +211,30 @@ export async function dispatchManifest(request: Request, response: Response) {
 export async function cancelManifest(request: Request, response: Response) {
   try { const actorId = userId(request); const input = parsedBody(response, reasonSchema, request.body); if (!actorId || !input) return; await cancelOperationsManifest(String(request.params.manifestId), input.reason, actorId); return response.json({ success: true, message: "Manifest cancelled." }); }
   catch (error) { return sendError(response, error); }
+}
+
+export async function deleteManifest(request: Request, response: Response) {
+  try {
+    const actorId = userId(request);
+    const input = parsedBody(
+      response,
+      z.object({ confirmationManifestNumber: z.string().trim().min(1).max(40) }),
+      request.body
+    );
+    if (!actorId || !input) return;
+    const deleted = await deleteOperationsManifest({
+      manifestId: String(request.params.manifestId),
+      confirmationManifestNumber: input.confirmationManifestNumber,
+      userId: actorId
+    });
+    return response.json({
+      success: true,
+      message: deleted.numberWillBeReused
+        ? `${deleted.manifestNumber} deleted. Its number will be used by the next new manifest.`
+        : `${deleted.manifestNumber} deleted. Its number remains permanently reserved.`,
+      deleted
+    });
+  } catch (error) { return sendError(response, error); }
 }
 
 const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";

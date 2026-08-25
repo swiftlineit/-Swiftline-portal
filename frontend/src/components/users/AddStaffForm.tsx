@@ -17,7 +17,6 @@ import {
   ProfileImageUploadField,
   SectionCard,
   SelectField,
-  staffFieldGrid,
   staffPatterns,
   yearsAgo
 } from "@/components/users/StaffFields";
@@ -355,6 +354,7 @@ export default function AddStaffForm({ canGrantAdmin }: { canGrantAdmin: boolean
           <InputField
             label="Temporary password"
             required
+            type="password"
             error={fieldErrors.password}
             value={values.password}
             onChange={(value) => setValue("password", value)}

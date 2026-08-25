@@ -15,10 +15,10 @@
 // the customs invoice for tariff lines that need the fuller classification.
 const hsnCodePattern = /^\d{4}(?:\d{2}(?:\d{2}(?:\d{2})?)?)?$/;
 
-// Unit of measure per item line on the customs invoice. "Pkt" is the common case.
+// Unit of measure per item line on the customs invoice. "Pcs" is the common case.
 export const parcelItemUnitTypeValues = ["Pkt", "Pcs", "Set", "Box", "Kg", "Pair"] as const;
 export type ParcelItemUnitType = (typeof parcelItemUnitTypeValues)[number];
-export const defaultParcelItemUnitType: ParcelItemUnitType = "Pkt";
+export const defaultParcelItemUnitType: ParcelItemUnitType = "Pcs";
 
 // Must stay <= the `contentsDescription` maxlength in shipmentDraft.model.ts and
 // the length the DPD payload validator enforces.

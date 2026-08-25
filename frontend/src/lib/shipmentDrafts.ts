@@ -67,6 +67,23 @@ export async function deleteShipmentDraft(actor: ShipmentDraftActor, shipmentDra
   return parseApiResponse<{ success: true; message: string; shipmentDraftId: string }>(response);
 }
 
+export async function deleteShipmentDrafts(actor: ShipmentDraftActor, shipmentDraftIds: string[]) {
+  const path = actor === "client"
+    ? "/api/v1/client/dpd-labels/drafts/bulk-delete"
+    : "/api/v1/shipment-drafts/bulk-delete";
+  const response = await fetchWithAuth(apiUrl(path), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shipmentDraftIds })
+  });
+
+  return parseApiResponse<{
+    success: true;
+    message: string;
+    shipmentDraftIds: string[];
+  }>(response);
+}
+
 /** Undo for the delete above. Only valid for a short window- see the service. */
 export async function restoreShipmentDraft(actor: ShipmentDraftActor, shipmentDraftId: string) {
   const response = await fetchWithAuth(apiUrl(`${draftPath(actor, shipmentDraftId)}/restore`), {

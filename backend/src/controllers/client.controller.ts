@@ -34,6 +34,7 @@ import {
 import {
   createManualShipmentDraft,
   deleteShipmentDraftHandler,
+  deleteShipmentDraftsHandler,
   getShipmentDraft,
   getShipmentDraftRateCardContext,
   getShipmentDraftCostEstimate,
@@ -778,6 +779,31 @@ export async function deleteClientShipmentDraft(request: Request, response: Resp
   }
 
   return deleteShipmentDraftHandler(request, response);
+}
+
+export async function deleteClientShipmentDrafts(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const shipmentDraftIds = Array.isArray(request.body?.shipmentDraftIds)
+    ? request.body.shipmentDraftIds
+    : [];
+  if (
+    shipmentDraftIds.length < 1
+    || shipmentDraftIds.length > 100
+    || shipmentDraftIds.some((id: unknown) => typeof id !== "string" || !mongoose.Types.ObjectId.isValid(id))
+    || new Set(shipmentDraftIds).size !== shipmentDraftIds.length
+  ) {
+    return response.status(400).json({ success: false, message: "Select valid shipment drafts." });
+  }
+
+  for (const draftId of shipmentDraftIds as string[]) {
+    if (!await clientCanAccessDraft(userId, draftId, true)) {
+      return response.status(404).json({ success: false, message: "One or more shipment drafts were not found." });
+    }
+  }
+
+  return deleteShipmentDraftsHandler(request, response);
 }
 
 /**

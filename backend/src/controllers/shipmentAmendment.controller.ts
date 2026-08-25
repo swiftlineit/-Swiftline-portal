@@ -16,7 +16,7 @@ import {
   type IShipmentDraft
 } from "../models/shipmentDraft.model.js";
 import { normalizeCsbType } from "../services/csbType.service.js";
-import { normalizeParcelItems } from "../services/parcelItems.service.js";
+import { defaultParcelItemUnitType, normalizeParcelItems } from "../services/parcelItems.service.js";
 import { findRestrictedCategories } from "../services/restrictedGoods.service.js";
 import {
   buildPricingInputFromDraft,
@@ -90,7 +90,7 @@ const amendmentParcelSchema = z.object({
   items: z.array(z.object({
     description: z.string().trim().max(120),
     hsnCode: z.string().trim().max(10),
-    unitType: z.string().trim().max(12).default("Pkt"),
+    unitType: z.string().trim().max(12).default(defaultParcelItemUnitType),
     quantity: z.coerce.number().min(0).max(1_000_000).default(0),
     unitRate: z.coerce.number().min(0).max(10_000_000).default(0)
   })).max(20).optional(),

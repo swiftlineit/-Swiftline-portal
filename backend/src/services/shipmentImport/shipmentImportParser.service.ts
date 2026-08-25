@@ -5,7 +5,7 @@ import {
   isAgentInvoiceWorkbook,
   parseAgentInvoiceWorkbook
 } from "./agentInvoiceParser.service.js";
-import { isValidHsnCode } from "../parcelItems.service.js";
+import { defaultParcelItemUnitType, isValidHsnCode } from "../parcelItems.service.js";
 import { getCountryCodeByName } from "../reference/portalCountries.js";
 import type { CsbType } from "../csbType.service.js";
 import type { ShipmentContentType, ShipmentServiceType } from "../../models/shipmentDraft.model.js";
@@ -262,7 +262,7 @@ function parseTemplateWorkbook(workbook: ExcelJS.Workbook): ParsedShipmentImport
       const item = {
         description: raw.description,
         hsnCode: raw.hsnCode.replace(/\D/g, ""),
-        unitType: unitType ?? "Pkt",
+        unitType: unitType ?? defaultParcelItemUnitType,
         quantity: numeric(raw.quantity),
         unitRate: numeric(raw.unitRate)
       };

@@ -69,30 +69,79 @@ function isEditable(manifest: IOperationsManifest) {
 }
 
 export async function allocateOperationsManifestNumber(session?: mongoose.ClientSession) {
-  // A single persistent sequence gives the plain SLC017, SLC018, ... numbers
-  // Operations uses and keeps every related bag/EDI identifier deterministic.
+  // Draft/packing manifests may release their number when deleted. The allocator
+  // always consumes the lowest released number first; otherwise it advances the
+  // high-water mark. Neither path can ever issue a value below SLC017.
   const counter = await OperationsManifestCounter.findOneAndUpdate(
     { _id: "operations-manifest" },
-    // SLC017 is the first system-generated number agreed with Operations. This
-    // protects a missed migration without ever moving an advanced counter back.
-    [{
-      $set: {
-        sequence: {
-          $add: [{ $max: [{ $ifNull: ["$sequence", 0] }, 16] }, 1]
+    [
+      {
+        $set: {
+          sequence: { $max: [{ $ifNull: ["$sequence", 0] }, 16] },
+          reusableSequences: {
+            $filter: {
+              input: { $setUnion: [{ $ifNull: ["$reusableSequences", []] }, []] },
+              as: "candidate",
+              cond: { $gte: ["$$candidate", 17] }
+            }
+          }
+        }
+      },
+      {
+        $set: {
+          lastAllocatedSequence: {
+            $cond: [
+              { $gt: [{ $size: "$reusableSequences" }, 0] },
+              { $min: "$reusableSequences" },
+              { $add: ["$sequence", 1] }
+            ]
+          },
+          sequence: {
+            $cond: [
+              { $gt: [{ $size: "$reusableSequences" }, 0] },
+              "$sequence",
+              { $add: ["$sequence", 1] }
+            ]
+          },
+          reusableSequences: {
+            $cond: [
+              { $gt: [{ $size: "$reusableSequences" }, 0] },
+              {
+                $setDifference: [
+                  "$reusableSequences",
+                  [{ $min: "$reusableSequences" }]
+                ]
+              },
+              "$reusableSequences"
+            ]
+          }
         }
       }
-    }],
+    ],
     // Mongoose rejects array updates unless they are explicitly identified as
     // aggregation pipelines. Keeping this option beside the pipeline prevents
     // manifest creation from failing before the counter write reaches MongoDB.
     { upsert: true, returnDocument: "after", session, updatePipeline: true }
   ).exec();
   if (!counter) throw new OperationsManifestServiceError("Manifest number could not be generated.", 500);
-  return formatOperationsManifestNumber(counter.sequence);
+  return formatOperationsManifestNumber(counter.lastAllocatedSequence ?? counter.sequence);
 }
 
 export function formatOperationsManifestNumber(sequence: number) {
   return `SLC${String(sequence).padStart(3, "0")}`;
+}
+
+const reusableNumberStatuses = new Set(["DRAFT", "PACKING", "READY_TO_SEAL"]);
+
+export function isOperationsManifestNumberReusable(status: string) {
+  return reusableNumberStatuses.has(status);
+}
+
+function operationsManifestSequence(manifestNumber: string) {
+  const match = /^SLC(\d+)$/.exec(manifestNumber.trim().toUpperCase());
+  if (!match) return null;
+  const sequence = Number(match[1]);
+  return Number.isSafeInteger(sequence) && sequence >= 17 ? sequence : null;
 }
 
 async function audit(
@@ -623,7 +672,9 @@ export async function scanOperationsParcel(input: {
     throw new OperationsManifestServiceError(existingRequest.message, 409);
   }
 
-  if (!manifest) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "Operations manifest was not found." });
+  // A manifest can be deleted after branch middleware has admitted the request.
+  // Do not create an orphan rejected-scan row when that race occurs.
+  if (!manifest) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
   if (!isEditable(manifest)) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "This manifest is locked and cannot accept parcel scans." });
 
   if (!label) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "No Swiftline parcel was found for this barcode." });
@@ -1410,6 +1461,73 @@ export async function cancelOperationsManifest(manifestIdValue: string, reason: 
     await session.endSession();
   }
   return manifest;
+}
+
+export async function deleteOperationsManifest(input: {
+  manifestId: string;
+  confirmationManifestNumber: string;
+  userId: mongoose.Types.ObjectId;
+}) {
+  const manifestId = asObjectId(input.manifestId, "Operations manifest");
+  const session = await mongoose.startSession();
+
+  try {
+    const deleted = await session.withTransaction(async () => {
+      const manifest = await OperationsManifest.findById(manifestId).session(session).exec();
+      if (!manifest) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
+      if (input.confirmationManifestNumber.trim().toUpperCase() !== manifest.manifestNumber) {
+        throw new OperationsManifestServiceError("Manifest deletion confirmation did not match.", 409);
+      }
+
+      const sequence = operationsManifestSequence(manifest.manifestNumber);
+      const numberWillBeReused = isOperationsManifestNumberReusable(manifest.status) && sequence !== null;
+
+      // Existing tracking milestones remain as shipment history, but the
+      // manifest workspace and all of its packing/scanner children are removed.
+      // The audit row is intentionally retained after the parent is gone.
+      await audit("OPERATIONS_MANIFEST_DELETED", manifestId, input.userId, {
+        manifestNumber: manifest.manifestNumber,
+        status: manifest.status,
+        branchId: manifest.branchId,
+        totalBags: manifest.totalBags,
+        totalConsignments: manifest.totalConsignments,
+        totalPhysicalParcels: manifest.totalPhysicalParcels,
+        totalWeightKg: manifest.totalWeightKg,
+        numberWillBeReused
+      }, session);
+
+      await OperationsManifestScanSession.deleteMany({ manifestId }, { session }).exec();
+      await OperationsManifestScan.deleteMany({ manifestId }, { session }).exec();
+      await OperationsManifestConsignment.deleteMany({ manifestId }, { session }).exec();
+      await OperationsManifestBag.deleteMany({ manifestId }, { session }).exec();
+      await OperationsManifest.deleteOne({ _id: manifestId }, { session }).exec();
+
+      if (numberWillBeReused && sequence !== null) {
+        await OperationsManifestCounter.updateOne(
+          { _id: "operations-manifest" },
+          [{
+            $set: {
+              sequence: { $max: [{ $ifNull: ["$sequence", 0] }, 16] },
+              reusableSequences: {
+                $setUnion: [{ $ifNull: ["$reusableSequences", []] }, [sequence]]
+              }
+            }
+          }],
+          { upsert: true, session, updatePipeline: true }
+        ).exec();
+      }
+
+      return {
+        manifestNumber: manifest.manifestNumber,
+        status: manifest.status,
+        numberWillBeReused
+      };
+    });
+    if (!deleted) throw new OperationsManifestServiceError("Operations manifest could not be deleted.", 500);
+    return deleted;
+  } finally {
+    await session.endSession();
+  }
 }
 
 async function normalizeEditableManifestData(manifest: IOperationsManifest) {

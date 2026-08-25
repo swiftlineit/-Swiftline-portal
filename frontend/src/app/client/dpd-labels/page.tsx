@@ -29,7 +29,7 @@ import {
 } from "@/lib/clientDashboard";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
-import { useDeleteShipmentDraft } from "@/lib/useDeleteShipmentDraft";
+import { useBulkDeleteShipmentDrafts, useDeleteShipmentDraft } from "@/lib/useDeleteShipmentDraft";
 import { RiMenuAddLine } from "react-icons/ri";
 
 async function loadCurrentUser() {
@@ -77,6 +77,7 @@ export default function ClientDpdLabelsPage() {
   const [shipmentsLoading, setShipmentsLoading] = useState(true);
   const [shipmentError, setShipmentError] = useState("");
   const [shipmentPagination, setShipmentPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 1 });
+  const [selectedDraftIds, setSelectedDraftIds] = useState<string[]>([]);
 
   const selectedAccount = useMemo(
     () => accounts.find((item) => getAccountKey(item) === accountId) ?? accounts[0] ?? null,
@@ -149,6 +150,7 @@ export default function ClientDpdLabelsPage() {
       .then((result) => {
         if (!mounted) return;
         setShipments(result.shipments);
+        setSelectedDraftIds([]);
         setShipmentPagination(result.pagination);
         setShipmentError("");
         if (result.pagination.page !== shipmentPage) setShipmentPage(result.pagination.page);
@@ -188,12 +190,20 @@ export default function ClientDpdLabelsPage() {
   function handleShipmentPageChange(page: number) {
     setShipmentsLoading(true);
     setShipmentError("");
+    setSelectedDraftIds([]);
     setShipmentPage(page);
   }
 
   const { requestDelete: requestDraftDelete, dialog: deleteDraftDialog } = useDeleteShipmentDraft({
     actor: "client",
     onChanged: () => setShipmentRefreshKey((key) => key + 1)
+  });
+  const { requestBulkDelete, dialog: bulkDeleteDraftDialog, deleting: bulkDeleting } = useBulkDeleteShipmentDrafts({
+    actor: "client",
+    onChanged: () => {
+      setSelectedDraftIds([]);
+      setShipmentRefreshKey((key) => key + 1);
+    }
   });
 
   if (loading || !user) return <ClientDashboardLoading />;
@@ -267,9 +277,14 @@ export default function ClientDpdLabelsPage() {
           pagination={shipmentPagination}
           onPageChange={handleShipmentPageChange}
           onDeleteDraft={requestDraftDelete}
+          selectedDraftIds={selectedDraftIds}
+          onSelectedDraftIdsChange={setSelectedDraftIds}
+          onBulkDelete={requestBulkDelete}
+          bulkDeleting={bulkDeleting}
         />
 
         {deleteDraftDialog}
+        {bulkDeleteDraftDialog}
       </div>
   );
 }
@@ -280,7 +295,11 @@ function ClientShipmentTable({
   error,
   pagination,
   onPageChange,
-  onDeleteDraft
+  onDeleteDraft,
+  selectedDraftIds,
+  onSelectedDraftIdsChange,
+  onBulkDelete,
+  bulkDeleting
 }: {
   shipments: ClientShipmentListItem[];
   loading: boolean;
@@ -288,9 +307,17 @@ function ClientShipmentTable({
   pagination: { page: number; limit: number; total: number; totalPages: number };
   onPageChange: (page: number) => void;
   onDeleteDraft: (draft: { id: string; label: string }) => void;
+  selectedDraftIds: string[];
+  onSelectedDraftIdsChange: (ids: string[]) => void;
+  onBulkDelete: (drafts: Array<{ id: string; label: string }>) => void;
+  bulkDeleting: boolean;
 }) {
   const firstItem = pagination.total ? (pagination.page - 1) * pagination.limit + 1 : 0;
   const lastItem = Math.min(pagination.page * pagination.limit, pagination.total);
+  const selectableDrafts = shipments.filter((shipment) => shipment.canDelete);
+  const selectedIdSet = new Set(selectedDraftIds);
+  const allVisibleDraftsSelected = selectableDrafts.length > 0
+    && selectableDrafts.every((shipment) => selectedIdSet.has(shipment.id));
 
   return (
     <section className="mt-6 border border-slate-200 bg-white rounded-2xl">
@@ -299,7 +326,28 @@ function ClientShipmentTable({
           <h2 className="text-lg font-semibold text-slate-950">Your Shipments</h2>
           <p className="mt-1 text-sm text-slate-500">Shipments created for the selected account and branch.</p>
         </div>
-        <p className="text-sm font-semibold text-slate-600">{pagination.total} shipments</p>
+        <div className="flex items-center gap-3">
+          {selectedDraftIds.length ? (
+            <button
+              type="button"
+              disabled={bulkDeleting}
+              onClick={() => onBulkDelete(
+                selectableDrafts
+                  .filter((shipment) => selectedIdSet.has(shipment.id))
+                  .map((shipment) => ({
+                    id: shipment.id,
+                    label: formatCapitalized(
+                      shipment.destination.companyName || shipment.destination.contactName || "This draft"
+                    )
+                  }))
+              )}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-700 transition hover:border-red-600 disabled:opacity-50"
+            >
+              <FiTrash2 aria-hidden="true" /> Delete selected ({selectedDraftIds.length})
+            </button>
+          ) : null}
+          <p className="text-sm font-semibold text-slate-600">{pagination.total} shipments</p>
+        </div>
       </div>
 
       {error ? (
@@ -310,6 +358,18 @@ function ClientShipmentTable({
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
+              <th className="w-12 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={allVisibleDraftsSelected}
+                  disabled={!selectableDrafts.length}
+                  onChange={(event) => onSelectedDraftIdsChange(
+                    event.target.checked ? selectableDrafts.map((shipment) => shipment.id) : []
+                  )}
+                  aria-label="Select all deletable drafts on this page"
+                  className="h-4 w-4 accent-[#0D1282] disabled:opacity-40"
+                />
+              </th>
               <th className="px-4 py-3">AWB / Shipment No.</th>
               <th className="px-4 py-3">Consignee</th>
               <th className="px-4 py-3">Route</th>
@@ -322,11 +382,11 @@ function ClientShipmentTable({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center font-medium text-slate-500">Loading shipments...</td>
+                <td colSpan={8} className="px-4 py-10 text-center font-medium text-slate-500">Loading shipments...</td>
               </tr>
             ) : shipments.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-slate-500">No shipments have been created for this branch.</td>
+                <td colSpan={8} className="px-4 py-10 text-center text-slate-500">No shipments have been created for this branch.</td>
               </tr>
             ) : shipments.map((shipment) => {
               const consignee = shipment.destination.companyName || shipment.destination.contactName || "Not Available";
@@ -342,6 +402,19 @@ function ClientShipmentTable({
 
               return (
                 <tr key={shipment.id} className="border-b border-slate-100 text-slate-700 last:border-b-0">
+                  <td className="px-4 py-3">
+                    {isDraft ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIdSet.has(shipment.id)}
+                        onChange={(event) => onSelectedDraftIdsChange(event.target.checked
+                          ? [...new Set([...selectedDraftIds, shipment.id])]
+                          : selectedDraftIds.filter((id) => id !== shipment.id))}
+                        aria-label={`Select draft for ${formatCapitalized(consignee) || "this consignee"}`}
+                        className="h-4 w-4 accent-[#0D1282]"
+                      />
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-950">{shipment.swiftlineTrackingNumber || "AWB Pending"}</p>
                     <p className="mt-1 text-xs text-slate-500">

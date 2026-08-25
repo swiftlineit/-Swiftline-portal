@@ -3,7 +3,9 @@ import crypto from "node:crypto";
 import { describe, it } from "node:test";
 import ExcelJS from "exceljs";
 import mongoose from "mongoose";
+import { AuditLog } from "../models/auditLog.model.js";
 import { OperationsManifest } from "../models/operationsManifest.model.js";
+import { OperationsManifestBag } from "../models/operationsManifestBag.model.js";
 import { OperationsManifestConsignment } from "../models/operationsManifestConsignment.model.js";
 import { OperationsManifestCounter } from "../models/operationsManifestCounter.model.js";
 import { OperationsManifestScan } from "../models/operationsManifestScan.model.js";
@@ -18,9 +20,11 @@ import {
   allocateOperationsManifestNumber,
   calculateScannedParcelWeight,
   chooseOperationsBagForParcel,
+  deleteOperationsManifest,
   formatOperationsBagNumber,
   formatOperationsManifestNumber,
   isOperationsBagWeightAllowed,
+  isOperationsManifestNumberReusable,
   OPERATIONS_MANIFEST_ORIGIN_ADDRESS,
   shouldReactivateTrailingOperationsBag,
   summarizeBagComposition,
@@ -156,6 +160,84 @@ function sealedManifest() {
       sealedAt: "2026-07-22T10:00:00.000Z"
     }
   });
+}
+
+async function exerciseManifestDeletion(status: "DRAFT" | "SEALED") {
+  const manifestId = new mongoose.Types.ObjectId();
+  const manifestNumber = status === "DRAFT" ? "SLC017" : "SLC018";
+  const manifest = {
+    _id: manifestId,
+    manifestNumber,
+    branchId: new mongoose.Types.ObjectId(),
+    status,
+    totalBags: 1,
+    totalConsignments: status === "DRAFT" ? 0 : 2,
+    totalPhysicalParcels: status === "DRAFT" ? 0 : 3,
+    totalWeightKg: status === "DRAFT" ? 0 : 12
+  };
+  const deletedChildren: string[] = [];
+  let counterUpdate: unknown;
+  let auditEntry: Record<string, unknown> | undefined;
+
+  const originals = {
+    startSession: mongoose.startSession,
+    findById: OperationsManifest.findById,
+    manifestDeleteOne: OperationsManifest.deleteOne,
+    bagDeleteMany: OperationsManifestBag.deleteMany,
+    consignmentDeleteMany: OperationsManifestConsignment.deleteMany,
+    scanDeleteMany: OperationsManifestScan.deleteMany,
+    sessionDeleteMany: OperationsManifestScanSession.deleteMany,
+    counterUpdateOne: OperationsManifestCounter.updateOne,
+    auditCreate: AuditLog.create
+  };
+
+  const deletionQuery = (label: string) => ({
+    exec: async () => {
+      deletedChildren.push(label);
+      return { deletedCount: 1 };
+    }
+  });
+
+  (mongoose as any).startSession = async () => ({
+    withTransaction: async (callback: () => Promise<unknown>) => callback(),
+    endSession: async () => undefined
+  });
+  (OperationsManifest as any).findById = () => ({
+    session() { return this; },
+    exec: async () => manifest
+  });
+  (OperationsManifest as any).deleteOne = () => deletionQuery("manifest");
+  (OperationsManifestBag as any).deleteMany = () => deletionQuery("bags");
+  (OperationsManifestConsignment as any).deleteMany = () => deletionQuery("consignments");
+  (OperationsManifestScan as any).deleteMany = () => deletionQuery("scans");
+  (OperationsManifestScanSession as any).deleteMany = () => deletionQuery("scanSessions");
+  (OperationsManifestCounter as any).updateOne = (_filter: unknown, update: unknown) => {
+    counterUpdate = update;
+    return { exec: async () => ({ acknowledged: true }) };
+  };
+  (AuditLog as any).create = async (entries: Array<Record<string, unknown>>) => {
+    auditEntry = entries[0];
+    return entries;
+  };
+
+  try {
+    const result = await deleteOperationsManifest({
+      manifestId: String(manifestId),
+      confirmationManifestNumber: manifestNumber,
+      userId: new mongoose.Types.ObjectId()
+    });
+    return { result, deletedChildren, counterUpdate, auditEntry };
+  } finally {
+    (mongoose as any).startSession = originals.startSession;
+    (OperationsManifest as any).findById = originals.findById;
+    (OperationsManifest as any).deleteOne = originals.manifestDeleteOne;
+    (OperationsManifestBag as any).deleteMany = originals.bagDeleteMany;
+    (OperationsManifestConsignment as any).deleteMany = originals.consignmentDeleteMany;
+    (OperationsManifestScan as any).deleteMany = originals.scanDeleteMany;
+    (OperationsManifestScanSession as any).deleteMany = originals.sessionDeleteMany;
+    (OperationsManifestCounter as any).updateOne = originals.counterUpdateOne;
+    (AuditLog as any).create = originals.auditCreate;
+  }
 }
 
 /** Three boxes of one shipment: 20 kg and 5 kg in bag 01, 19 kg in bag 02. */
@@ -361,21 +443,50 @@ describe("operations manifest safeguards", () => {
   it("marks the counter update as an aggregation pipeline", async () => {
     const original = OperationsManifestCounter.findOneAndUpdate;
     let capturedOptions: { updatePipeline?: boolean } | undefined;
+    let capturedUpdate: unknown;
     (OperationsManifestCounter as any).findOneAndUpdate = (
       _filter: unknown,
-      _update: unknown,
+      update: unknown,
       options: { updatePipeline?: boolean },
     ) => {
+      capturedUpdate = update;
       capturedOptions = options;
-      return { exec: async () => ({ sequence: 17 }) };
+      return { exec: async () => ({ sequence: 25, lastAllocatedSequence: 17 }) };
     };
 
     try {
       assert.equal(await allocateOperationsManifestNumber(), "SLC017");
       assert.equal(capturedOptions?.updatePipeline, true);
+      assert.match(JSON.stringify(capturedUpdate), /reusableSequences/);
     } finally {
       OperationsManifestCounter.findOneAndUpdate = original;
     }
+  });
+
+  it("reuses only numbers from unfinalized manifest statuses", () => {
+    assert.equal(isOperationsManifestNumberReusable("DRAFT"), true);
+    assert.equal(isOperationsManifestNumberReusable("PACKING"), true);
+    assert.equal(isOperationsManifestNumberReusable("READY_TO_SEAL"), true);
+    assert.equal(isOperationsManifestNumberReusable("SEALED"), false);
+    assert.equal(isOperationsManifestNumberReusable("DISPATCHED"), false);
+    assert.equal(isOperationsManifestNumberReusable("CANCELLED"), false);
+  });
+
+  it("deletes every manifest workspace child and queues a draft number for reuse", async () => {
+    const deleted = await exerciseManifestDeletion("DRAFT");
+    assert.equal(deleted.result.manifestNumber, "SLC017");
+    assert.equal(deleted.result.numberWillBeReused, true);
+    assert.deepEqual(deleted.deletedChildren, ["scanSessions", "scans", "consignments", "bags", "manifest"]);
+    assert.match(JSON.stringify(deleted.counterUpdate), /reusableSequences/);
+    assert.equal(deleted.auditEntry?.action, "OPERATIONS_MANIFEST_DELETED");
+  });
+
+  it("deletes a sealed manifest while permanently reserving its number", async () => {
+    const deleted = await exerciseManifestDeletion("SEALED");
+    assert.equal(deleted.result.manifestNumber, "SLC018");
+    assert.equal(deleted.result.numberWillBeReused, false);
+    assert.equal(deleted.counterUpdate, undefined);
+    assert.deepEqual(deleted.deletedChildren, ["scanSessions", "scans", "consignments", "bags", "manifest"]);
   });
 
   it("enforces idempotent scan request identifiers and active parcel uniqueness", () => {

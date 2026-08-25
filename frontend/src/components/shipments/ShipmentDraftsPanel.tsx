@@ -5,7 +5,7 @@ import Link from "next/link";
 import { FiChevronLeft, FiChevronRight, FiEdit3, FiTrash2 } from "react-icons/fi";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { listEditableShipmentDrafts, type EditableShipmentDraft } from "@/lib/shipmentDrafts";
-import { useDeleteShipmentDraft } from "@/lib/useDeleteShipmentDraft";
+import { useBulkDeleteShipmentDrafts, useDeleteShipmentDraft } from "@/lib/useDeleteShipmentDraft";
 
 function formatCapitalized(value?: string | null) {
   return (value ?? "")
@@ -31,6 +31,7 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   // Identifies the list currently being asked for. Loading is derived by
   // comparing it with the last one that finished, so the effect never has to set
@@ -39,8 +40,15 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
   const [loadedKey, setLoadedKey] = useState("");
   const loading = loadedKey !== requestKey;
 
-  const reload = useCallback(() => setRefreshKey((key) => key + 1), []);
+  const reload = useCallback(() => {
+    setSelectedIds([]);
+    setRefreshKey((key) => key + 1);
+  }, []);
   const { requestDelete, dialog } = useDeleteShipmentDraft({ actor: "admin", onChanged: reload });
+  const { requestBulkDelete, dialog: bulkDialog, deleting: bulkDeleting } = useBulkDeleteShipmentDrafts({
+    actor: "admin",
+    onChanged: reload
+  });
 
   // A branch change resets to the first page, or the list can land on a page
   // that no longer exists for the new filter. Adjusted during render rather than
@@ -49,6 +57,7 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
   if (lastBranchId !== branchId) {
     setLastBranchId(branchId);
     setPage(1);
+    setSelectedIds([]);
   }
 
   useEffect(() => {
@@ -79,6 +88,9 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
   // Nothing to resume and nothing went wrong: stay out of the way entirely.
   if (!loading && !error && drafts.length === 0) return null;
 
+  const selectedIdSet = new Set(selectedIds);
+  const allVisibleSelected = drafts.length > 0 && drafts.every((draft) => selectedIdSet.has(draft.id));
+
   return (
     <section className="mt-6 border border-slate-200 bg-white rounded-2xl">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
@@ -88,7 +100,23 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
             Shipments not yet booked. Continue where you left off, or delete the ones you no longer need.
           </p>
         </div>
-        <p className="text-sm font-semibold text-slate-600">{pagination.total} drafts</p>
+        <div className="flex items-center gap-3">
+          {selectedIds.length ? (
+            <button
+              type="button"
+              disabled={bulkDeleting}
+              onClick={() => requestBulkDelete(
+                drafts
+                  .filter((draft) => selectedIdSet.has(draft.id))
+                  .map((draft) => ({ id: draft.id, label: draftLabel(draft) }))
+              )}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-700 transition hover:border-red-600 disabled:opacity-50"
+            >
+              <FiTrash2 aria-hidden="true" /> Delete selected ({selectedIds.length})
+            </button>
+          ) : null}
+          <p className="text-sm font-semibold text-slate-600">{pagination.total} drafts</p>
+        </div>
       </div>
 
       {error ? (
@@ -99,6 +127,15 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
         <table className="min-w-full text-left text-sm">
           <thead className="border-b border-slate-200 bg-slate-100 text-xs uppercase text-slate-500">
             <tr>
+              <th className="w-12 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={(event) => setSelectedIds(event.target.checked ? drafts.map((draft) => draft.id) : [])}
+                  aria-label="Select all drafts on this page"
+                  className="h-4 w-4 accent-[#0D1282]"
+                />
+              </th>
               <th className="px-4 py-3">AWB / Tracking No.</th>
               <th className="px-4 py-3">Consignee</th>
               <th className="px-4 py-3">Account</th>
@@ -110,10 +147,21 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center font-medium text-slate-500">Loading drafts...</td>
+                <td colSpan={7} className="px-4 py-10 text-center font-medium text-slate-500">Loading drafts...</td>
               </tr>
             ) : drafts.map((draft) => (
               <tr key={draft.id} className="border-b border-slate-100 text-slate-700 last:border-b-0">
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIdSet.has(draft.id)}
+                    onChange={(event) => setSelectedIds((current) => event.target.checked
+                      ? [...new Set([...current, draft.id])]
+                      : current.filter((id) => id !== draft.id))}
+                    aria-label={`Select draft for ${draftLabel(draft)}`}
+                    className="h-4 w-4 accent-[#0D1282]"
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <p className="font-semibold text-slate-950">AWB Pending</p>
                   <p className="mt-1 text-xs text-slate-500">Assigned after booking</p>
@@ -172,7 +220,7 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
               title="Previous page"
               aria-label="Previous page"
               disabled={pagination.page === 1 || loading}
-              onClick={() => setPage(pagination.page - 1)}
+              onClick={() => { setSelectedIds([]); setPage(pagination.page - 1); }}
               className="inline-flex h-9 w-9 items-center justify-center border border-slate-300 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <FiChevronLeft aria-hidden="true" className="h-4 w-4" />
@@ -182,7 +230,7 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
               title="Next page"
               aria-label="Next page"
               disabled={pagination.page === pagination.totalPages || loading}
-              onClick={() => setPage(pagination.page + 1)}
+              onClick={() => { setSelectedIds([]); setPage(pagination.page + 1); }}
               className="inline-flex h-9 w-9 items-center justify-center border border-slate-300 text-slate-700 hover:border-blue-900 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <FiChevronRight aria-hidden="true" className="h-4 w-4" />
@@ -192,6 +240,7 @@ export default function ShipmentDraftsPanel({ branchId }: { branchId?: string })
       ) : null}
 
       {dialog}
+      {bulkDialog}
     </section>
   );
 }

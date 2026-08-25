@@ -3,6 +3,7 @@ import {
   createIndividualShipmentDraftHandler,
   createManualShipmentDraft,
   deleteShipmentDraftHandler,
+  deleteShipmentDraftsHandler,
   getShipmentDraft,
   getShipmentDraftRateCardContext,
   getShipmentDraftCostEstimate,
@@ -44,6 +45,7 @@ shipmentDraftRouter.post("/individual", requireOperations, createIndividualShipm
 // Collection route first: it is answered before the "/:id" guard below, which
 // would otherwise read "editable" as a draft id.
 shipmentDraftRouter.get("/editable", requireOperations, listEditableShipmentDrafts);
+shipmentDraftRouter.post("/bulk-delete", requireOperations, deleteShipmentDraftsHandler);
 shipmentDraftRouter.get("/:id", getShipmentDraft);
 // Only an unbooked draft can be deleted, and deletion is soft- see
 // shipmentDraftDeletion.service.ts. Restore backs the undo on the delete toast.

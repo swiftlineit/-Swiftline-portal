@@ -8,6 +8,7 @@ import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
   deleteShipmentDraft,
+  deleteShipmentDrafts,
   restoreShipmentDraft
 } from "../services/shipmentDraftDeletion.service.js";
 import { ShipmentDraftPolicyError } from "../services/shipmentDraftPolicy.service.js";
@@ -195,5 +196,53 @@ describe("shipment draft deletion", () => {
       deleteAsAdmin(draft),
       (error: unknown) => error instanceof ShipmentDraftPolicyError
     );
+  });
+
+  test("bulk deletes every selected draft and audits each one", async () => {
+    const first = await createDraft();
+    const second = await createDraft();
+
+    const deletedIds = await deleteShipmentDrafts({
+      drafts: [first, second],
+      userId: adminUserId,
+      portalRole: "admin"
+    });
+
+    assert.deepEqual(deletedIds.map(String), [String(first._id), String(second._id)]);
+    assert.equal(await ShipmentDraft.countDocuments({ _id: { $in: deletedIds }, deletedAt: null }), 0);
+    const audits = await AuditLog.find({
+      action: "SHIPMENT_DRAFT_DELETED",
+      entityId: { $in: deletedIds }
+    }).lean().exec();
+    assert.equal(audits.length, 2);
+    assert.ok(audits.every((audit) => audit.metadata.bulkDelete === true));
+  });
+
+  test("bulk deletion changes nothing when one selected draft is protected", async () => {
+    const deletable = await createDraft();
+    const protectedDraft = await createDraft();
+    await DpdShipment.create({
+      shipmentDraftId: protectedDraft._id,
+      idempotencyKey: `DEL-BULK-${String(protectedDraft._id)}`,
+      dpdShipmentId: `TESTBLK-${String(protectedDraft._id).slice(-8)}`,
+      serviceCode: "TEST",
+      paymentSource: "BUSINESS_ACCOUNT",
+      status: "LABEL_RECEIVED"
+    });
+
+    await assert.rejects(
+      deleteShipmentDrafts({
+        drafts: [deletable, protectedDraft],
+        userId: adminUserId,
+        portalRole: "admin"
+      }),
+      (error: unknown) => error instanceof ShipmentDraftPolicyError
+    );
+
+    const stillLive = await ShipmentDraft.countDocuments({
+      _id: { $in: [deletable._id, protectedDraft._id] },
+      deletedAt: null
+    }).exec();
+    assert.equal(stillLive, 2);
   });
 });

@@ -20,6 +20,7 @@ import {
   syncLegacyDraftBookingState
 } from "../services/shipmentDraftPolicy.service.js";
 import {
+  deleteShipmentDrafts as softDeleteShipmentDrafts,
   deleteShipmentDraft as softDeleteShipmentDraft,
   restoreShipmentDraft as undoShipmentDraftDeletion
 } from "../services/shipmentDraftDeletion.service.js";
@@ -42,6 +43,15 @@ const manualDraftSchema = z.object({
   businessAccountId: z.string().trim().min(1),
   branchId: z.string().trim().min(1)
 });
+
+const bulkDraftDeleteSchema = z.object({
+  shipmentDraftIds: z.array(
+    z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Shipment draft id is invalid.")
+  ).min(1, "Select at least one shipment draft.").max(100, "Select no more than 100 shipment drafts.")
+}).refine(
+  (value) => new Set(value.shipmentDraftIds).size === value.shipmentDraftIds.length,
+  { message: "A shipment draft was selected more than once." }
+);
 
 // A walk-in has no account to select, so the payer's identity is captured here
 // instead. Only name and mobile are mandatory: the rest of the address is
@@ -804,6 +814,44 @@ export async function deleteShipmentDraftHandler(request: Request, response: Res
     message: "Shipment draft deleted.",
     shipmentDraftId: draftId
   });
+}
+
+export async function deleteShipmentDraftsHandler(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = bulkDraftDeleteSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: parsed.error.issues[0]?.message ?? "Select valid shipment drafts."
+    });
+  }
+
+  const objectIds = parsed.data.shipmentDraftIds.map((id) => new mongoose.Types.ObjectId(id));
+  const found = await ShipmentDraft.find({ _id: { $in: objectIds }, deletedAt: null }).exec();
+  if (found.length !== objectIds.length) {
+    return response.status(404).json({ success: false, message: "One or more shipment drafts were not found." });
+  }
+  const foundById = new Map(found.map((draft) => [String(draft._id), draft]));
+  const drafts = parsed.data.shipmentDraftIds.map((id) => foundById.get(id)!);
+
+  try {
+    const deletedIds = await softDeleteShipmentDrafts({
+      drafts,
+      userId,
+      portalRole: getAuthenticatedPortalRole(request)
+    });
+    return response.status(200).json({
+      success: true,
+      message: `${deletedIds.length} shipment draft${deletedIds.length === 1 ? "" : "s"} deleted.`,
+      shipmentDraftIds: deletedIds.map(String)
+    });
+  } catch (error) {
+    const handled = sendDraftPolicyError(response, error);
+    if (handled) return handled;
+    throw error;
+  }
 }
 
 export async function restoreShipmentDraftHandler(request: Request, response: Response): Promise<Response> {
