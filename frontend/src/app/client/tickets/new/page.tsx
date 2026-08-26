@@ -1,9 +1,15 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { FiArrowLeft, FiChevronDown, FiSend } from "react-icons/fi";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FiChevronDown } from "react-icons/fi";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
+import {
+  createTicketDraft,
+  getTicketDraft,
+  saveTicketDraft,
+  submitTicketDraft,
+} from "@/lib/supportTicketDrafts";
 import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
@@ -24,9 +30,29 @@ import {
 } from "@/lib/supportTickets";
 import { useClientUser } from "@/lib/useClientUser";
 
-export default function NewSupportTicketPage() {
+function ticketDraftSnapshot(input: {
+  businessAccountId: string;
+  category: TicketCategory;
+  relatedShipmentDraftId?: string | null;
+  subject: string;
+  description: string;
+}) {
+  return JSON.stringify({
+    businessAccountId: input.businessAccountId,
+    category: input.category,
+    relatedShipmentDraftId: input.relatedShipmentDraftId ?? "",
+    subject: input.subject.trim(),
+    description: input.description.trim(),
+  });
+}
+
+function NewSupportTicketForm() {
   const { user, loading } = useClientUser();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialDraftId = searchParams.get("draftId");
+  const [draftId, setDraftId] = useState<string | null>(initialDraftId);
+  const [draftVersion, setDraftVersion] = useState(1);
   const [accounts, setAccounts] = useState<ClientDashboardAccount[]>([]);
   const [shipments, setShipments] = useState<ShipmentListItem[]>([]);
   const [businessAccountId, setBusinessAccountId] = useState("");
@@ -36,12 +62,69 @@ export default function NewSupportTicketPage() {
   const [description, setDescription] = useState("");
   const [pageLoading, setPageLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   // Shipments that already carry an unresolved ticket, so a second one is refused.
   const [blockedShipments, setBlockedShipments] = useState<
     Map<string, string>
   >(new Map());
+
+  const currentSnapshot = useMemo(
+    () => ticketDraftSnapshot({ businessAccountId, category, relatedShipmentDraftId, subject, description }),
+    [businessAccountId, category, relatedShipmentDraftId, subject, description],
+  );
+  const hasUnsavedWork = !submitted && savedSnapshot !== null && currentSnapshot !== savedSnapshot;
+
+  async function persistDraft() {
+    if (!businessAccountId) throw new Error("Select a business account.");
+    const payload = {
+      businessAccountId,
+      category,
+      subject: subject.trim(),
+      description: description.trim(),
+      relatedShipmentDraftId: relatedShipmentDraftId || null,
+    };
+    if (draftId) {
+      const updated = await saveTicketDraft(draftId, { ...payload, version: draftVersion });
+      setDraftVersion(updated.version);
+      setSavedSnapshot(ticketDraftSnapshot(payload));
+      return updated;
+    }
+    const created = await createTicketDraft(payload);
+    setDraftId(created.id);
+    setDraftVersion(created.version);
+    setSavedSnapshot(ticketDraftSnapshot(payload));
+    // Keep URL in sync so a refresh resumes the same draft.
+    router.replace(`/client/tickets/new?draftId=${encodeURIComponent(created.id)}`, { scroll: false });
+    return created;
+  }
+
+  useUnsavedChanges(hasUnsavedWork, {
+    label: "support ticket",
+    saveDraft: async () => {
+      await persistDraft();
+      toast.success("Draft saved.");
+    },
+  });
+
+  useEffect(() => {
+    if (!user || !initialDraftId) return;
+    void getTicketDraft(initialDraftId)
+      .then((draft) => {
+        setDraftId(draft.id);
+        setDraftVersion(draft.version);
+        setBusinessAccountId(draft.businessAccountId);
+        setCategory(draft.category);
+        setSubject(draft.subject ?? "");
+        setDescription(draft.description ?? "");
+        setRelatedShipmentDraftId(draft.relatedShipmentDraftId ?? "");
+        setSavedSnapshot(ticketDraftSnapshot(draft));
+      })
+      .catch(() => toast.error("Could not load ticket draft."));
+  }, [user, initialDraftId]);
 
   useEffect(() => {
     if (!user) return;
@@ -51,7 +134,18 @@ export default function NewSupportTicketPage() {
           (item) => item.membership.status === "active",
         );
         setAccounts(active);
-        if (active[0]) setBusinessAccountId(active[0].account.id);
+        if (active[0]) {
+          setBusinessAccountId(active[0].account.id);
+          if (!initialDraftId) {
+            setSavedSnapshot(JSON.stringify({
+              businessAccountId: active[0].account.id,
+              category: "TRACKING_ISSUE",
+              relatedShipmentDraftId: "",
+              subject: "",
+              description: "",
+            }));
+          }
+        }
       })
       .catch((caught) =>
         setError(
@@ -61,7 +155,7 @@ export default function NewSupportTicketPage() {
         ),
       )
       .finally(() => setPageLoading(false));
-  }, [user]);
+  }, [initialDraftId, user]);
 
   useEffect(() => {
     if (!businessAccountId) return;
@@ -125,7 +219,7 @@ export default function NewSupportTicketPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setSubmitted(true);
+    setAttemptedSubmit(true);
     setError("");
     if (
       !businessAccountId ||
@@ -136,13 +230,19 @@ export default function NewSupportTicketPage() {
       return;
     setSubmitting(true);
     try {
-      const result = await createSupportTicket({
-        businessAccountId,
-        category,
-        subject,
-        description,
-        relatedShipmentDraftId: relatedShipmentDraftId || null,
-      });
+      const result = draftId
+        ? await (async () => {
+            await persistDraft();
+            return submitTicketDraft(draftId);
+          })()
+        : await createSupportTicket({
+            businessAccountId,
+            category,
+            subject,
+            description,
+            relatedShipmentDraftId: relatedShipmentDraftId || null,
+          });
+      setSubmitted(true);
       toast.success(`${result.ticket.ticketNumber} raised successfully.`);
       router.push(`/client/tickets/${result.ticket.id}`);
     } catch (caught) {
@@ -160,13 +260,6 @@ export default function NewSupportTicketPage() {
   if (loading || !user) return <ClientDashboardLoading />;
   return (
       <div className="mx-auto max-w-5xl">
-        <Link
-          href="/client/tickets"
-          className="inline-flex items-center gap-2 text-sm font-semibold text-blue-900"
-        >
-          <FiArrowLeft />
-          Support Tickets
-        </Link>
         <div className="mt-4">
           <h1 className="text-2xl font-semibold text-slate-950">
             Raise Support Ticket
@@ -196,7 +289,7 @@ export default function NewSupportTicketPage() {
               label="Business Account"
               required
               error={
-                submitted && !businessAccountId
+                attemptedSubmit && !businessAccountId
                   ? "Select a business account."
                   : ""
               }
@@ -252,7 +345,7 @@ export default function NewSupportTicketPage() {
               label="Related Shipment"
               required={shipmentRequired}
               error={
-                submitted && missingShipment
+                attemptedSubmit && missingShipment
                   ? "Select the shipment this issue relates to."
                   : ""
               }
@@ -303,7 +396,7 @@ export default function NewSupportTicketPage() {
                 label="Subject"
                 required
                 error={
-                  submitted && subject.trim().length < 5
+                  attemptedSubmit && subject.trim().length < 5
                     ? "Enter at least 5 characters."
                     : ""
                 }
@@ -322,7 +415,7 @@ export default function NewSupportTicketPage() {
                 label="Description"
                 required
                 error={
-                  submitted && description.trim().length < 10
+                  attemptedSubmit && description.trim().length < 10
                     ? "Enter at least 10 characters."
                     : ""
                 }
@@ -341,17 +434,38 @@ export default function NewSupportTicketPage() {
               </Field>
             </div>
           </div>
-          <div className="flex justify-end border-t border-slate-200 px-6 py-4">
+          <div className="flex justify-between border-t border-slate-200 px-6 py-4">
+            <button
+              type="button"
+              disabled={submitting || savingDraft || pageLoading || !businessAccountId}
+              onClick={() => {
+                setSavingDraft(true);
+                void persistDraft()
+                  .then(() => toast.success("Draft saved."))
+                  .catch((e) => toast.error(e instanceof Error ? e.message : "Draft could not be saved."))
+                  .finally(() => setSavingDraft(false));
+              }}
+              className="inline-flex h-11 items-center gap-2 rounded-4xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 hover:border-[#0D1282] hover:text-[#0D1282] disabled:opacity-50"
+            >
+              {savingDraft ? "Saving..." : "Save Draft"}
+            </button>
             <button
               disabled={submitting || pageLoading}
               className="inline-flex h-11 items-center gap-2 bg-blue-950 px-5 rounded-4xl text-sm font-semibold text-white hover:bg-blue-900 disabled:bg-slate-400"
             >
-              {/* <FiSend /> */}
               {submitting ? "Submitting..." : "Raise Ticket"}
             </button>
           </div>
         </form>
       </div>
+  );
+}
+
+export default function NewSupportTicketPage() {
+  return (
+    <Suspense fallback={<ClientDashboardLoading />}>
+      <NewSupportTicketForm />
+    </Suspense>
   );
 }
 

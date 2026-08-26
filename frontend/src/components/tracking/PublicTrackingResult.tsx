@@ -1,7 +1,5 @@
-import Link from "next/link";
 import {
   FiAlertCircle,
-  FiArrowLeft,
   FiCheckCircle,
   FiClock,
   FiMapPin,
@@ -50,9 +48,7 @@ export default function PublicTrackingResult({
   if (!lookup.ok) {
     return (
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-        <BackLink />
-
-        <section className="relative mt-5 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
+        <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]">
           <div className="absolute inset-x-0 top-0 h-0.75 bg-linear-to-r from-[#d71920] via-[#d71920] to-[#0D1282]" />
 
           <div className="relative px-5 py-10 text-center sm:px-10 sm:py-14 lg:px-16">
@@ -92,9 +88,7 @@ export default function PublicTrackingResult({
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-      <BackLink />
-
-      <div className="mt-5 space-y-5 sm:space-y-6">
+      <div className="space-y-5 sm:space-y-6">
         <TrackingHeader tracking={tracking} />
 
         {tracking.isParcelLevel ? <ParcelNotice tracking={tracking} /> : null}
@@ -136,20 +130,6 @@ export default function PublicTrackingResult({
         </div>
       </section>
     </div>
-  );
-}
-
-function BackLink() {
-  return (
-    <Link
-      href="/track"
-      className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-[#0D1282]"
-    >
-      <span className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm">
-        <FiArrowLeft aria-hidden="true" className="h-3.5 w-3.5" />
-      </span>
-      Track a shipment
-    </Link>
   );
 }
 

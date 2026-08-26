@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
-import { FiArrowLeft, FiBriefcase, FiFileText, FiHeart, FiMapPin, FiRefreshCw, FiUser } from "react-icons/fi";
+import { FiBriefcase, FiFileText, FiHeart, FiMapPin, FiRefreshCw, FiUser } from "react-icons/fi";
 import { AddressAutocompleteField } from "@/components/business-accounts/AddressAutocompleteField";
 import {
   BranchField,
@@ -248,21 +248,11 @@ export default function AddStaffForm({ canGrantAdmin }: { canGrantAdmin: boolean
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
   {/* Page heading, matching the other create pages in the dashboard. */}
-  <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
-    <div className="min-w-0">
-      <h1 className="text-2xl font-bold tracking-tight text-slate-950">Create New Staff</h1>
-      <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
-        Add an internal team member, set what they can reach in the portal, and record their KYC documents.
-      </p>
-    </div>
-    <Link
-      href="/dashboard/users"
-      onNavigate={guardNavigate("/dashboard/users")}
-      className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#0D1282] hover:text-[#0D1282]"
-    >
-      <FiArrowLeft aria-hidden="true" className="h-4 w-4" />
-      Back to Users
-    </Link>
+  <div className="border-b border-slate-200 pb-5">
+    <h1 className="text-2xl font-bold tracking-tight text-slate-950">Create New Staff</h1>
+    <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+      Add an internal team member, set what they can reach in the portal, and record their KYC documents.
+    </p>
   </div>
 
   {/* Personal details */}

@@ -15,6 +15,7 @@
     "backfill:shipment-profitability": "tsx src/scripts/backfillShipmentProfitability.ts --apply",
     "migrate:shipment-manifest-indexes": "tsx src/scripts/migrateShipmentManifestIndexes.ts",
     "migrate:shipment-draft-indexes": "tsx src/scripts/migrateShipmentDraftIndexes.ts",
+    "migrate:support-ticket-draft-indexes": "tsx src/scripts/migrateSupportTicketDraftIndexes.ts",
     "migrate:remove-legacy-invoice-upload": "tsx src/scripts/removeLegacyInvoiceUpload.ts",
     "migrate:user-googleid-index": "tsx src/scripts/migrateUserGoogleIdIndex.ts",
     "migrate:rate-card-share-indexes": "tsx src/scripts/migrateRateCardShareIndexes.ts",

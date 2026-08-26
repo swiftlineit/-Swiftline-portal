@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FiArrowLeft, FiChevronDown, FiDownload, FiRefreshCw } from "react-icons/fi";
+import { FiChevronDown, FiDownload, FiRefreshCw } from "react-icons/fi";
 import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
@@ -115,13 +114,7 @@ export default function ClientCreditLedgerPage() {
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <Link
-              href="/client/credit/statements"
-              className="text-sm font-semibold flex gap-2 justify text-blue-900"
-            >
-              <FiArrowLeft /> Back to statements
-            </Link>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-950">
+            <h1 className="text-2xl font-semibold text-slate-950">
               Account Statement
             </h1>
             <p className="mt-1 text-sm text-slate-600">

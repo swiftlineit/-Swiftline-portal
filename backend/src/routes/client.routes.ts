@@ -128,6 +128,7 @@ import { listClientTeam, requestClientTeamInvite, updateClientTeamMemberRole } f
 import { createPodDispute, downloadClientPodPdf, emailClientPod, getClientPod, listClientPodCentre, viewPodEvidence } from "../controllers/pod.controller.js";
 import { addressBookRouter } from "./addressBook.routes.js";
 import { listClientDocuments } from "../controllers/clientDocumentCentre.controller.js";
+import { supportTicketDraftRouter } from "./supportTicketDraft.routes.js";
 
 export const clientRouter = Router();
 
@@ -147,6 +148,7 @@ clientRouter.get("/support-tickets", listClientTickets);
 clientRouter.post("/support-tickets", createClientTicket);
 clientRouter.get("/support-tickets/:ticketId", getClientTicket);
 clientRouter.post("/support-tickets/:ticketId/replies", replyClientTicket);
+clientRouter.use("/support-ticket-drafts", supportTicketDraftRouter);
 
 clientRouter.get("/dashboard", getClientDashboard);
 // The control tower: every dashboard figure counted server-side, plus the

@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { FiArrowLeft } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import { getPaymentTerms, PaymentTerms } from "@/lib/creditAccounts";
@@ -25,8 +23,7 @@ export default function PaymentTermsPage() {
 
   return (
       <article className="mx-auto max-w-4xl">
-        <Link href="/client/credit" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-900 hover:text-blue-700"><FiArrowLeft aria-hidden="true" /> Credit Account</Link>
-        <header className="mt-4 border-b border-slate-200 bg-white px-6 py-7">
+        <header className="border-b border-slate-200 bg-white px-6 py-7">
           <p className="text-xs font-semibold uppercase text-blue-900">Customer Agreement</p>
           <h1 className="mt-2 text-2xl font-semibold text-slate-950">{terms?.title ?? "Payment Terms"}</h1>
           {terms ? <p className="mt-2 text-sm text-slate-500">Version {terms.version} | Effective {new Date(terms.effectiveFrom).toLocaleDateString("en-GB").replaceAll("/", "-")}</p> : null}

@@ -24,6 +24,7 @@ import {
   ticketStatusLabels,
   type SupportTicket,
 } from "@/lib/supportTickets";
+import { deleteTicketDraft, listTicketDrafts, type SupportTicketDraft } from "@/lib/supportTicketDrafts";
 import { useClientUser } from "@/lib/useClientUser";
 
 /**
@@ -67,6 +68,8 @@ export default function ClientTicketsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState("");
+  const [drafts, setDrafts] = useState<SupportTicketDraft[]>([]);
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setDataLoading(true);
@@ -109,6 +112,30 @@ export default function ClientTicketsPage() {
     return () => { active = false; };
   }, [user]);
 
+  const loadDrafts = useCallback(async () => {
+    try {
+      setDrafts(await listTicketDrafts());
+    } catch {
+      setDrafts([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) void Promise.resolve().then(loadDrafts);
+  }, [loadDrafts, user]);
+
+  async function removeDraft(id: string) {
+    setDeletingDraftId(id);
+    try {
+      await deleteTicketDraft(id);
+      setDrafts((current) => current.filter((draft) => draft.id !== id));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Draft could not be deleted.");
+    } finally {
+      setDeletingDraftId(null);
+    }
+  }
+
   const statusCards = [
     { status: "OPEN", label: "Open" },
     { status: "IN_PROGRESS", label: "Under Investigation" },
@@ -139,6 +166,32 @@ export default function ClientTicketsPage() {
             Raise Ticket
           </Link>
         </div>
+
+        {drafts.length ? (
+          <section className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-slate-950">Saved drafts</h2>
+                <p className="mt-1 text-xs text-slate-600">Resume a ticket without losing the details you entered.</p>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">{drafts.length}</span>
+            </div>
+            <div className="mt-3 grid gap-2">
+              {drafts.map((draft) => (
+                <div key={draft.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white px-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{draft.subject || "Untitled ticket"}</p>
+                    <p className="mt-1 text-xs text-slate-500">Updated {new Date(draft.updatedAt).toLocaleString()}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Link href={`/client/tickets/new?draftId=${encodeURIComponent(draft.id)}`} className="rounded-xl bg-blue-950 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-900">Resume</Link>
+                    <button type="button" disabled={deletingDraftId === draft.id} onClick={() => void removeDraft(draft.id)} className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-red-300 hover:text-red-700 disabled:opacity-50">Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {/* Where each ticket stands, so the queue is legible before it is read. */}
         <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

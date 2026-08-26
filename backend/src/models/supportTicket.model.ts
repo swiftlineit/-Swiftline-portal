@@ -120,6 +120,8 @@ export interface ISupportTicket extends mongoose.Document {
   businessAccountId: mongoose.Types.ObjectId;
   branchId: mongoose.Types.ObjectId;
   createdBy: mongoose.Types.ObjectId;
+  /** Present only for a ticket submitted from a persisted client draft. */
+  sourceDraftId?: mongoose.Types.ObjectId | null;
   assignedTo?: mongoose.Types.ObjectId | null;
   relatedShipmentDraftId?: mongoose.Types.ObjectId | null;
   category: SupportTicketCategory;
@@ -170,6 +172,9 @@ const supportTicketSchema = new mongoose.Schema<ISupportTicket>({
   businessAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "BusinessAccount", required: true, immutable: true, index: true },
   branchId: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", required: true, immutable: true, index: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, immutable: true, index: true },
+  // Omitted for tickets raised directly. Keeping it absent is required for the
+  // unique sparse idempotency index below.
+  sourceDraftId: { type: mongoose.Schema.Types.ObjectId, ref: "SupportTicketDraft", immutable: true },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
   relatedShipmentDraftId: { type: mongoose.Schema.Types.ObjectId, ref: "ShipmentDraft", default: null, index: true },
   category: { type: String, enum: supportTicketCategoryValues, required: true, index: true },
@@ -198,6 +203,10 @@ const supportTicketSchema = new mongoose.Schema<ISupportTicket>({
 
 supportTicketSchema.index({ businessAccountId: 1, lastMessageAt: -1 });
 supportTicketSchema.index({ status: 1, priority: 1, lastMessageAt: -1 });
+supportTicketSchema.index(
+  { sourceDraftId: 1 },
+  { unique: true, partialFilterExpression: { sourceDraftId: { $type: "objectId" } } },
+);
 supportTicketSchema.index({ subject: "text", ticketNumber: "text" });
 
 export const SupportTicket = mongoose.model<ISupportTicket>("SupportTicket", supportTicketSchema);

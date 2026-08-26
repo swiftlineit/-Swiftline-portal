@@ -213,6 +213,11 @@ export const createOperationsManifest = (body: {
     "/api/v1/operations-manifests",
     { method: "POST", body: JSON.stringify(body) },
   );
+export const updateOperationsManifest = (id: string, body: { header: ManifestHeader }) =>
+  request<{ success: true; message: string }>(
+    `/api/v1/operations-manifests/${id}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
 export const getOperationsManifest = (id: string) =>
   request<{ success: true } & ManifestDetail>(
     `/api/v1/operations-manifests/${id}`,

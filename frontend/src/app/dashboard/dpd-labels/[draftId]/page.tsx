@@ -1214,10 +1214,7 @@ export default function DpdLabelDraftPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Review Shipment</h1>
           <p className="mt-1 text-sm text-slate-500">Confirm consignee, destination, parcel, and charge details before booking.</p>
         </div>
-        <Link href="/dashboard/dpd-labels" className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 transition hover:border-blue-900 hover:text-blue-900">
-         <FiArrowLeft className="h-4 w-4 mr-2" /> Back to Upload
-        </Link>
-      </div>
+        </div>
 
       {error ? (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">

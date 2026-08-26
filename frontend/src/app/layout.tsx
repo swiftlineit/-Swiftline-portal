@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "react-international-phone/style.css";
 import "react-toastify/dist/ReactToastify.css";
 import PortalToasts from "@/components/PortalToasts";
+import PortalHistoryTracker from "@/components/PortalHistoryTracker";
 import { SITE_URL } from "@/lib/siteUrl";
 import "./globals.css";
 
@@ -29,6 +30,7 @@ export default function RootLayout({
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full">
         {children}
+        <PortalHistoryTracker />
         <PortalToasts />
       </body>
     </html>

@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { FiDownload, FiEye, FiRefreshCw,FiPlus } from "react-icons/fi";
+import { FiDownload, FiEye, FiTrash2, FiPlus } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { formatDashboardDateTime } from "@/lib/dateFormat";
 import DateRangeFilter from "@/components/ui/DateRangeFilter";
 import { emptyDateRange } from "@/lib/dateRange";
 import Pagination from "@/components/ui/Pagination";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import {
+  deleteBulkShipmentManifests,
+  deleteShipmentManifest,
   downloadShipmentManifest,
   listShipmentManifests,
   type ShipmentManifestAudience,
@@ -20,6 +23,7 @@ export default function ManifestsListPage({
 }: {
   audience: ShipmentManifestAudience;
 }) {
+  const canDelete = audience !== "client";
   const [manifests, setManifests] = useState<ShipmentManifestListItem[]>([]);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -32,6 +36,10 @@ export default function ManifestsListPage({
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<ShipmentManifestListItem | null>(null);
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,6 +77,79 @@ export default function ManifestsListPage({
       setBusyId("");
     }
   }
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback((checked: boolean) => {
+    if (checked) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        manifests.forEach((item) => next.add(item.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        manifests.forEach((item) => next.delete(item.id));
+        return next;
+      });
+    }
+  }, [manifests]);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const confirmSingleDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      const result = await deleteShipmentManifest(pendingDelete.id, audience);
+      toast.success(result.message || `${pendingDelete.manifestNumber} deleted.`);
+      setPendingDelete(null);
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(pendingDelete.id);
+        return next;
+      });
+      if (manifests.length === 1 && page > 1) setPage((current) => current - 1);
+      else await load();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Unable to delete this manifest.");
+    } finally {
+      setDeleting(false);
+    }
+  }, [audience, load, manifests.length, page, pendingDelete]);
+
+  const confirmBulkDelete = useCallback(async () => {
+    if (!selectedIds.size) return;
+    setDeleting(true);
+    try {
+      const ids = [...selectedIds];
+      const result = await deleteBulkShipmentManifests(ids, audience);
+      toast.success(result.message || `${ids.length} manifest(s) deleted.`);
+      setPendingBulkDelete(false);
+      clearSelection();
+      // If the bulk deleted the whole page, step back so the list is not empty.
+      if (manifests.length > 0 && manifests.every((item) => selectedIds.has(item.id)) && page > 1) {
+        setPage((current) => current - 1);
+      } else {
+        await load();
+      }
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Unable to delete selected manifests.");
+    } finally {
+      setDeleting(false);
+    }
+  }, [audience, clearSelection, load, manifests, page, selectedIds]);
+
+  const allSelected = manifests.length > 0 && manifests.every((item) => selectedIds.has(item.id));
+  const someSelected = manifests.some((item) => selectedIds.has(item.id));
 
   return (
     <div className="mx-auto max-w-375">
@@ -124,11 +205,51 @@ export default function ManifestsListPage({
         </div>
       ) : null}
 
+      {canDelete && selectedIds.size > 0 ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#0D1282]/10 bg-[#0D1282]/5 px-4 py-3">
+          <p className="text-sm font-semibold text-[#0D1282]">
+            {selectedIds.size} manifest{selectedIds.size === 1 ? "" : "s"} selected
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#0D1282] hover:text-[#0D1282]"
+            >
+              Clear selection
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingBulkDelete(true)}
+              disabled={deleting}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#D71313] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b30f0f] disabled:opacity-50"
+            >
+              <FiTrash2 aria-hidden="true" className="h-4 w-4" />
+              Delete selected
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full min-w-250 text-left text-sm">
             <thead className="bg-slate-200 text-xs uppercase text-slate-600 py-4">
               <tr>
+                {canDelete ? (
+                  <th className="px-4 py-4">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(input) => {
+                        if (input) input.indeterminate = !allSelected && someSelected;
+                      }}
+                      onChange={(event) => toggleSelectAll(event.target.checked)}
+                      aria-label="Select all manifests on this page"
+                      className="h-4 w-4 rounded border-slate-300 text-[#0D1282] focus:ring-[#0D1282]"
+                    />
+                  </th>
+                ) : null}
                 <th className="px-4 py-4">Manifest No</th>
                 <th className="px-4 py-4">Route</th>
                 <th className="px-4 py-4">Generated By</th>
@@ -141,7 +262,18 @@ export default function ManifestsListPage({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {manifests.map((manifest) => (
-                <tr key={manifest.id} id={`manifest-${manifest.id}`} className="hover:bg-slate-50">
+                <tr key={manifest.id} id={`manifest-${manifest.id}`} className={`hover:bg-slate-50 ${selectedIds.has(manifest.id) ? "bg-[#0D1282]/5" : ""}`}>
+                  {canDelete ? (
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(manifest.id)}
+                        onChange={() => toggleSelect(manifest.id)}
+                        aria-label={`Select manifest ${manifest.manifestNumber}`}
+                        className="h-4 w-4 rounded border-slate-300 text-[#0D1282] focus:ring-[#0D1282]"
+                      />
+                    </td>
+                  ) : null}
                   <td className="px-4 py-3 font-semibold text-[#0D1282]">
                     {manifest.manifestNumber}
                   </td>
@@ -190,6 +322,17 @@ export default function ManifestsListPage({
                           ? "Preparing..."
                           : "Download PDF"}
                       </button>
+                      {canDelete ? (
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete(manifest)}
+                          aria-label={`Delete manifest ${manifest.manifestNumber}`}
+                          title={`Delete ${manifest.manifestNumber}`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 text-red-700 transition hover:border-red-600 hover:bg-red-50"
+                        >
+                          <FiTrash2 aria-hidden="true" className="h-4 w-4" />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -197,7 +340,7 @@ export default function ManifestsListPage({
               {!loading && !manifests.length ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={canDelete ? 9 : 8}
                     className="px-4 py-14 text-center text-slate-500"
                   >
                     No manifests generated yet.
@@ -215,6 +358,38 @@ export default function ManifestsListPage({
         total={pagination.total}
         onPageChange={setPage}
       />
+
+      {pendingDelete ? (
+        <ConfirmDialog
+          title={`Delete manifest ${pendingDelete.manifestNumber}?`}
+          description={
+            <>
+              This permanently removes <span className="font-semibold text-slate-950">{pendingDelete.manifestNumber}</span> and its shipment lines. The included shipments will become available for a new manifest. This action cannot be undone.
+            </>
+          }
+          confirmLabel="Permanently Delete"
+          busyLabel="Deleting..."
+          busy={deleting}
+          onConfirm={confirmSingleDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      ) : null}
+
+      {pendingBulkDelete ? (
+        <ConfirmDialog
+          title={`Delete ${selectedIds.size} manifest${selectedIds.size === 1 ? "" : "s"}?`}
+          description={
+            <>
+              This permanently removes <span className="font-semibold text-slate-950">{selectedIds.size} manifest{selectedIds.size === 1 ? "" : "s"}</span> and their shipment lines. Included shipments will become available for new manifests. This action cannot be undone.
+            </>
+          }
+          confirmLabel={`Delete ${selectedIds.size} manifest${selectedIds.size === 1 ? "" : "s"}`}
+          busyLabel="Deleting..."
+          busy={deleting}
+          onConfirm={confirmBulkDelete}
+          onCancel={() => setPendingBulkDelete(false)}
+        />
+      ) : null}
     </div>
   );
 }

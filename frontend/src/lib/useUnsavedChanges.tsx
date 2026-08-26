@@ -89,6 +89,8 @@ export function useUnsavedChanges(
       // Covers the form being saved: the flag flips to false and the entry must
       // go, or the next navigation prompts about work that is already stored.
       if (dirtyForms.delete(formId)) emit();
+      // Tear down browser-back guard when no dirty forms remain.
+      if (dirtyForms.size === 0) uninstallBrowserBackGuard();
       return;
     }
 
@@ -108,14 +110,113 @@ export function useUnsavedChanges(
         : undefined
     });
     emit();
+    installBrowserBackGuard();
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       dirtyForms.delete(formId);
       emit();
+      if (dirtyForms.size === 0) uninstallBrowserBackGuard();
     };
     // `options` is read through the ref, so only the dirty flag drives this.
   }, [hasUnsavedChanges, formId]);
+}
+
+// ---------------------------------------------------------------------------
+// Browser Back / Alt+Left guard
+//
+// The shared `beforeunload` covers reload and tab close, but a SPA Back via
+// `popstate` would otherwise leave silently. This guard intercepts that path
+// and funnels it through the same `requestLeave()` dialog so Save Draft is
+// available there too.
+// ---------------------------------------------------------------------------
+
+let browserGuardActive = false;
+let restoringBrowserBack = false;
+let browserGuardHandler: ((event: PopStateEvent) => void) | null = null;
+let restoreTimeout: number | null = null;
+let restoreComplete: ((restored: boolean) => void) | null = null;
+let bypassNextBrowserBack = false;
+
+/** Allows the official Back button to replay the popstate it already approved. */
+export function allowNextBrowserBack() {
+  if (browserGuardActive) bypassNextBrowserBack = true;
+}
+
+function installBrowserBackGuard() {
+  if (typeof window === "undefined") return;
+  if (browserGuardActive) return;
+  browserGuardActive = true;
+
+  const handler = () => {
+    if (bypassNextBrowserBack) {
+      bypassNextBrowserBack = false;
+      return;
+    }
+
+    // The browser has already moved to the previous history entry. Move
+    // forward to the original entry first, preserving Next's own history state
+    // instead of manufacturing a raw pushState entry that Next cannot read.
+    if (restoringBrowserBack) {
+      restoringBrowserBack = false;
+      if (restoreTimeout !== null) window.clearTimeout(restoreTimeout);
+      restoreTimeout = null;
+      restoreComplete?.(true);
+      restoreComplete = null;
+      return;
+    }
+
+    if (!hasUnsavedWork()) {
+      uninstallBrowserBackGuard();
+      return;
+    }
+
+    restoringBrowserBack = true;
+    const restored = new Promise<boolean>((resolve) => {
+      restoreComplete = resolve;
+      restoreTimeout = window.setTimeout(() => {
+        // A same-document popstate should always arrive. If a browser does not
+        // emit one for the forward operation, do not open a prompt against an
+        // unknown URL; the native beforeunload path remains the safe fallback.
+        restoringBrowserBack = false;
+        restoreTimeout = null;
+        restoreComplete = null;
+        resolve(false);
+      }, 1000);
+    });
+    window.history.forward();
+
+    void restored.then(async (didRestore) => {
+      if (!didRestore || !hasUnsavedWork()) return;
+      const canLeave = await requestLeave();
+      if (!canLeave) return;
+
+      if (browserGuardHandler) {
+        window.removeEventListener("popstate", browserGuardHandler);
+      }
+      browserGuardActive = false;
+      browserGuardHandler = null;
+      window.history.back();
+    });
+  };
+
+  browserGuardHandler = handler;
+  window.addEventListener("popstate", handler);
+}
+
+function uninstallBrowserBackGuard() {
+  if (typeof window === "undefined") return;
+  if (!browserGuardActive) return;
+  browserGuardActive = false;
+  if (browserGuardHandler) {
+    window.removeEventListener("popstate", browserGuardHandler);
+    browserGuardHandler = null;
+  }
+  if (restoreTimeout !== null) window.clearTimeout(restoreTimeout);
+  restoreTimeout = null;
+  restoreComplete = null;
+  restoringBrowserBack = false;
+  bypassNextBrowserBack = false;
 }
 
 /**

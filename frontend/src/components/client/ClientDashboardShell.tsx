@@ -48,6 +48,7 @@ import GlobalSearch from "@/components/client/GlobalSearch";
 import { getClientDashboard } from "@/lib/clientDashboard";
 import { BsWhatsapp, BsCurrencyRupee } from "react-icons/bs";
 import OperationsCalendarIcon from "@/components/OperationsCalendarIcon";
+import { ShellPortalBackButton } from "@/components/PortalBackButton";
 // import { FaRupeeSign } from "react-icons/fa";
 
 export type ClientShellUser = {
@@ -586,6 +587,9 @@ export function ClientDashboardShell({
           ) : null}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [overflow-anchor:none] scrollbar-none [-ms-overflow-style:none] sm:px-6 lg:px-8 lg:py-6 [&::-webkit-scrollbar]:hidden">
+            <div className="mb-4 flex items-center">
+              <ShellPortalBackButton />
+            </div>
             {children}
           </div>
           <DeepLinkTarget />

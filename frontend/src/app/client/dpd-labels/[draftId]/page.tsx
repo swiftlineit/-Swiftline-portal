@@ -1125,10 +1125,7 @@ export default function ClientDpdDraftReviewPage() {
             <h1 className="text-2xl font-semibold text-slate-950">Review Shipment Draft</h1>
             <p className="mt-1 text-sm text-slate-500">Review consignee, address, and parcel details before shipment creation is enabled.</p>
           </div>
-          <Link href="/client/dpd-labels" className="inline-flex h-10 rounded-xl items-center justify-center border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-blue-900 hover:text-blue-900">
-           < FiArrowLeft className="h-4 w-4 mr-2" /> Back to Upload
-          </Link>
-        </div>
+          </div>
 
         {error ? (
           <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>

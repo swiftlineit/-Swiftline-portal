@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FiArrowLeft, FiCheckCircle, FiDownload, FiPrinter } from "react-icons/fi";
+import { FiCheckCircle, FiDownload, FiPrinter } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { ClientDashboardLoading } from "@/components/client/ClientDashboardShell";
 import {
@@ -107,8 +107,6 @@ export default function ClientCreditAgreementPage() {
 
   return (
       <div className="mx-auto max-w-7xl space-y-4">
-        <Link href="/client/credit" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-900 hover:text-blue-700"><FiArrowLeft /> Credit Account</Link>
-
         <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
           <div>
             <p className="text-xs font-semibold uppercase text-slate-500">Credit Agreement</p>

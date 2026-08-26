@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import UserAvatar from "@/components/users/UserAvatar";
 import {
-  FiArrowLeft,
   FiBriefcase,
   FiCreditCard,
   FiDownload,
@@ -331,13 +330,6 @@ export default function StaffDetail({
   return (
     <div className="mx-auto max-w-5xl space-y-6 pb-10">
       <div>
-        <Link
-          href="/dashboard/users"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 transition hover:text-[#0D1282]"
-        >
-          <FiArrowLeft aria-hidden="true" className="h-4 w-4" />
-          Back to users
-        </Link>
 
         {/*
           The same banner-and-avatar header the profile page uses, so opening a

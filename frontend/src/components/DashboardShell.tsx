@@ -15,6 +15,7 @@ import NotificationBell from "@/components/NotificationBell";
 import GlobalSearch from "@/components/client/GlobalSearch";
 import OperationsCalendarIcon from "@/components/OperationsCalendarIcon";
 import { loadProfileImageUrl } from "@/lib/profile";
+import { ShellPortalBackButton } from "@/components/PortalBackButton";
 
 // Shared chrome for every authenticated dashboard page: sidebar, header, and
 // scrollable content area.
@@ -178,6 +179,9 @@ export default function DashboardShell({
             data-dashboard-scroll
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 [overflow-anchor:none] scrollbar-none [-ms-overflow-style:none] sm:px-8 sm:py-6 [&::-webkit-scrollbar]:hidden"
           >
+            <div className="mb-4 flex items-center">
+              <ShellPortalBackButton />
+            </div>
             {children}
           </div>
           <DeepLinkTarget />

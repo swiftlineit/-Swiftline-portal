@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiClock, FiFileText, FiMapPin, FiPackage, FiTruck, FiChevronDown  } from "react-icons/fi";
@@ -432,10 +431,6 @@ export default function AdminShipmentDetailsPage() {
       <div className="mx-auto max-w-8xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <Link href="/dashboard/dpd-labels" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-900 hover:text-blue-700">
-              <FiArrowLeft aria-hidden="true" className="h-4 w-4" />
-              Shipments
-            </Link>
             <h1 className="mt-3 text-2xl font-semibold text-slate-950">Shipment Details</h1>
             <p className="mt-1 text-sm font-medium text-slate-600">
               AWB / Tracking No.: {history?.dpdShipment.swiftlineTrackingNumber || "AWB Pending"}

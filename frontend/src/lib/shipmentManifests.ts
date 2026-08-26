@@ -195,6 +195,30 @@ export async function downloadShipmentManifest(
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
 }
 
+export async function deleteShipmentManifest(
+  manifestId: string,
+  audience: ShipmentManifestAudience
+) {
+  if (audience === "client") throw new Error("Manifest deletion is not available for this account.");
+  const response = await fetchWithAuth(apiUrl(`${manifestRoot(audience)}/${manifestId}`), {
+    method: "DELETE"
+  });
+  return readJson<{ success: true; message: string }>(response);
+}
+
+export async function deleteBulkShipmentManifests(
+  manifestIds: string[],
+  audience: ShipmentManifestAudience
+) {
+  if (audience === "client") throw new Error("Manifest deletion is not available for this account.");
+  const response = await fetchWithAuth(apiUrl(`${manifestRoot(audience)}/bulk-delete`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ manifestIds })
+  });
+  return readJson<{ success: true; message: string; deletedCount: number }>(response);
+}
+
 export function manifestsHref(audience: ShipmentManifestAudience) {
   return audience === "client" ? "/client/manifests" : "/dashboard/shipment-manifests";
 }

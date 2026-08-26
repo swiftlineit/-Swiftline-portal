@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -31,16 +30,6 @@ export default function ClientQuoteDetailPage() {
   if (loading || !user) return <ClientDashboardLoading />;
   return (
       <div className="mx-auto max-w-7xl">
-        <Link
-          href="/client/quotes"
-          className="mb-4 text-sm font-semibold text-blue-900 hover:underline"
-        >
-           <span className="mr-1  inline-flex h-4 w-4 my-5 items-center justify-center ">
-            <FiArrowLeft className="h-3 w-3" />
-            
-          </span>
-          back to quotes
-        </Link>
         {error ? (
           <div className="border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
             {error}

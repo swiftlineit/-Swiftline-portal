@@ -30,6 +30,8 @@ export type CreateSupportTicketInput = {
   subject: string;
   description: string;
   relatedShipmentDraftId?: string | null;
+  /** Idempotency key used when submitting a persisted client draft. */
+  sourceDraftId?: string | null;
 };
 
 export type SupportTicketFilters = {
@@ -292,6 +294,18 @@ export async function createClientSupportTicket(userId: mongoose.Types.ObjectId,
   ]);
   if (!membership || !account) throw new SupportTicketError("You do not have access to this business account.", 403);
   if (!account.assignedBranch) throw new SupportTicketError("Contact Swiftline because this account has no assigned branch.", 409);
+  let sourceDraftId: mongoose.Types.ObjectId | null = null;
+  if (input.sourceDraftId) {
+    if (!mongoose.Types.ObjectId.isValid(input.sourceDraftId)) throw new SupportTicketError("The ticket draft is invalid.", 400);
+    sourceDraftId = new mongoose.Types.ObjectId(input.sourceDraftId);
+    const existingFromDraft = await SupportTicket.findOne({ sourceDraftId }).exec();
+    if (existingFromDraft) {
+      if (String(existingFromDraft.createdBy) !== String(userId) || String(existingFromDraft.businessAccountId) !== String(accountId)) {
+        throw new SupportTicketError("The ticket draft could not be submitted.", 409);
+      }
+      return existingFromDraft;
+    }
+  }
   const branchId = account.assignedBranch;
   // A shipment problem is only actionable against a named shipment.
   if (isShipmentIssueCategory(input.category) && !input.relatedShipmentDraftId) {
@@ -324,7 +338,7 @@ export async function createClientSupportTicket(userId: mongoose.Types.ObjectId,
     await session.withTransaction(async () => {
       const created = await SupportTicket.create([{
         ticketNumber: await nextTicketNumber(now, session), businessAccountId: accountId,
-        branchId, createdBy: userId, relatedShipmentDraftId: shipmentId,
+        branchId, createdBy: userId, ...(sourceDraftId ? { sourceDraftId } : {}), relatedShipmentDraftId: shipmentId,
         category: input.category, priority: "NORMAL", status: "OPEN", subject: input.subject,
         statusHistory: [{ fromStatus: null, toStatus: "OPEN", changedBy: userId, note: "Ticket raised by customer.", changedAt: now }],
         lastMessageAt: now, firstResponseDueAt: firstResponseDueFrom("NORMAL", now)
@@ -340,6 +354,14 @@ export async function createClientSupportTicket(userId: mongoose.Types.ObjectId,
         performedBy: userId, performedAt: now, metadata: { ticketNumber: createdTicket.ticketNumber, businessAccountId: accountId }
       }], { session });
     });
+  } catch (error) {
+    // The unique sourceDraftId index closes the race where two submit requests
+    // arrive together. Return the winner so retries never create a duplicate.
+    const duplicateKey = typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === 11000;
+    if (!duplicateKey || !sourceDraftId) throw error;
+    const existingFromDraft = await SupportTicket.findOne({ sourceDraftId }).exec();
+    if (!existingFromDraft) throw error;
+    createdTicketId = existingFromDraft._id;
   } finally { await session.endSession(); }
   if (!createdTicketId) throw new SupportTicketError("The ticket could not be created. Please try again.", 500);
   const ticket = await SupportTicket.findById(createdTicketId).exec();

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  FiArrowLeft,
   FiChevronDown,
   FiEdit2,
   FiFile,
@@ -375,13 +374,6 @@ export default function BusinessAccountDetailsPage() {
         <p className="text-sm font-semibold text-[#D71313]">
           {error || "Business account not found."}
         </p>
-        <Link
-          href="/dashboard/business-accounts"
-          className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#0D1282] hover:underline"
-        >
-          <FiArrowLeft aria-hidden="true" className="h-4 w-4" /> Back to
-          Business Accounts
-        </Link>
       </div>
     );
   }
@@ -404,13 +396,6 @@ export default function BusinessAccountDetailsPage() {
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <Link
-              href="/dashboard/business-accounts"
-              className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 transition hover:text-[#0D1282]"
-            >
-              <FiArrowLeft aria-hidden="true" className="h-3.5 w-3.5" /> All
-              Business Accounts
-            </Link>
             <div className="flex flex-wrap items-center gap-3">
               <h1
                 className={
@@ -433,13 +418,6 @@ export default function BusinessAccountDetailsPage() {
             </p>
           </div>
           <div className="flex gap-3">
-            <Link
-              href="/dashboard/business-accounts"
-              className="inline-flex items-center gap-2 rounded-4xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#0D1282] hover:text-[#0D1282]"
-            >
-              <FiArrowLeft aria-hidden="true" className="h-4 w-4" /> Back to
-              List
-            </Link>
             <Link
               href={`/dashboard/business-accounts/${account.accountId}/edit`}
               className="inline-flex items-center gap-2 rounded-4xl bg-[#0D1282] px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-[#0D1282]/20 transition hover:bg-[#0a0d63]"

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import BusinessAccountForm from "@/components/business-accounts/BusinessAccountForm";
@@ -41,10 +40,7 @@ export default function EditBusinessAccountPage() {
   return error || !account ? (
     <div className="border border-red-200 bg-red-50 p-5">
       <p className="text-sm font-semibold text-red-700">{error || "Business account not found."}</p>
-      <Link href="/dashboard/business-accounts" className="mt-4 inline-block text-sm font-semibold text-blue-900">
-        Back to Business Accounts
-      </Link>
-    </div>
+      </div>
   ) : (
     <BusinessAccountForm account={account} />
   );

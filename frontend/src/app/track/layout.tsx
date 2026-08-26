@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FiExternalLink, FiHeadphones } from "react-icons/fi";
+import PublicTrackBackButton from "@/components/tracking/PublicTrackBackButton";
 
 /**
  * Chrome for the one part of the portal that signed-out people see.
@@ -93,6 +94,9 @@ export default function PublicTrackLayout({
       </header>
 
       <main className="w-full min-w-0 flex-1">
+        <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6 lg:px-8">
+          <PublicTrackBackButton />
+        </div>
         {children}
       </main>
 

@@ -678,3 +678,98 @@ export async function downloadAdminShipmentManifestPdf(request: Request, respons
 export async function downloadClientShipmentManifestPdf(request: Request, response: Response) {
   return downloadManifestPdf(request, response, "client");
 }
+
+export async function deleteAdminShipmentManifest(request: Request, response: Response) {
+  const userId = getUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+  const manifestId = getManifestId(request);
+  if (!manifestId) return response.status(404).json({ success: false, message: "Manifest not found." });
+  const manifest = await ShipmentManifest.findById(manifestId).exec();
+  if (!manifest) return response.status(404).json({ success: false, message: "Manifest not found." });
+
+  await ShipmentManifest.deleteOne({ _id: manifestId }).exec();
+  await AuditLog.create({
+    action: "SHIPMENT_MANIFEST_DELETED",
+    entityType: "SHIPMENT_MANIFEST",
+    entityId: manifestId,
+    performedBy: userId,
+    performedAt: new Date(),
+    metadata: {
+      manifestNumber: manifest.manifestNumber,
+      businessAccountId: manifest.businessAccountId,
+      branchId: manifest.branchId,
+      shipmentCount: manifest.lineSnapshots.length
+    }
+  });
+
+  return response.status(200).json({
+    success: true,
+    message: `${manifest.manifestNumber} deleted successfully.`,
+    deleted: { id: String(manifest._id), manifestNumber: manifest.manifestNumber }
+  });
+}
+
+const bulkDeleteShipmentManifestSchema = z.object({
+  manifestIds: z.array(
+    z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Select valid manifests.")
+  ).min(1, "Select at least one manifest.").max(100, "You can delete up to 100 manifests at once.")
+});
+
+export async function deleteAdminBulkShipmentManifests(request: Request, response: Response) {
+  const userId = getUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const parsed = bulkDeleteShipmentManifestSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return response.status(400).json({
+      success: false,
+      message: parsed.error.issues[0]?.message ?? "Select valid manifests."
+    });
+  }
+
+  const uniqueIds = [...new Set(parsed.data.manifestIds)];
+  const objectIds = uniqueIds.map((id) => new mongoose.Types.ObjectId(id));
+
+  const manifests = await ShipmentManifest.find({ _id: { $in: objectIds } })
+    .select("manifestNumber businessAccountId branchId lineSnapshots")
+    .lean()
+    .exec();
+
+  if (!manifests.length) {
+    return response.status(404).json({ success: false, message: "No matching manifests found." });
+  }
+
+  const foundIds = manifests.map((manifest) => manifest._id);
+  const foundIdStrings = new Set(foundIds.map(String));
+  const notFoundCount = uniqueIds.length - foundIds.length;
+
+  await ShipmentManifest.deleteMany({ _id: { $in: foundIds } }).exec();
+
+  if (manifests.length) {
+    await AuditLog.insertMany(
+      manifests.map((manifest) => ({
+        action: "SHIPMENT_MANIFEST_DELETED" as const,
+        entityType: "SHIPMENT_MANIFEST" as const,
+        entityId: manifest._id,
+        performedBy: userId,
+        performedAt: new Date(),
+        metadata: {
+          manifestNumber: manifest.manifestNumber,
+          bulk: true
+        }
+      })),
+      { ordered: false }
+    ).catch(() => undefined);
+  }
+
+  return response.status(200).json({
+    success: true,
+    message:
+      notFoundCount > 0
+        ? `${manifests.length} manifest(s) deleted. ${notFoundCount} not found.`
+        : `${manifests.length} manifest(s) deleted successfully.`,
+    deletedCount: manifests.length,
+    notFoundCount,
+    deletedIds: foundIds.map(String)
+  });
+}

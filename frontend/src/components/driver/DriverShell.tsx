@@ -7,6 +7,8 @@ import { ReactNode, useEffect, useState } from "react";
 import { FiClipboard, FiLogOut, FiUser } from "react-icons/fi";
 import { logout } from "@/lib/auth";
 import SessionTimeoutGuard from "@/components/SessionTimeoutGuard";
+import UnsavedChangesDialog from "@/components/UnsavedChangesDialog";
+import { ShellPortalBackButton } from "@/components/PortalBackButton";
 import { loadProfileImageUrl } from "@/lib/profile";
 
 export default function DriverShell({ name, subrole, children }: { name: string; subrole: string; children: ReactNode }) {
@@ -42,9 +44,15 @@ export default function DriverShell({ name, subrole, children }: { name: string;
         {profileImage ? <Image src={profileImage} alt="Profile" width={40} height={40} unoptimized className="h-10 w-10 rounded-full border-2 border-white/70 object-cover" /> : null}
       </div>
     </header>
-    <main className="mx-auto max-w-6xl px-3 py-4 sm:px-5 sm:py-6">{children}</main>
+    <main className="mx-auto max-w-6xl px-3 py-4 sm:px-5 sm:py-6">
+      <div className="mb-4 flex items-center">
+        <ShellPortalBackButton />
+      </div>
+      {children}
+    </main>
     <nav className={`fixed inset-x-0 bottom-0 z-30 grid h-16 ${nav.length === 3 ? "grid-cols-3" : "grid-cols-2"} border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden`}>
       {nav.map((item) => { const Icon = item.icon; const active = pathname === item.href; return <Link key={item.href} href={item.href} className={`flex flex-col items-center justify-center gap-1 text-xs font-semibold ${active ? "text-[#0D1282]" : "text-slate-500"}`}><Icon className="h-5 w-5" />{item.label}</Link>; })}
     </nav>
+    <UnsavedChangesDialog />
   </div>;
 }

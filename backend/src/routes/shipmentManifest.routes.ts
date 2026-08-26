@@ -2,6 +2,8 @@ import { Router } from "express";
 import {
   createAdminBulkShipmentManifest,
   createAdminShipmentManifest,
+  deleteAdminBulkShipmentManifests,
+  deleteAdminShipmentManifest,
   downloadAdminShipmentManifest,
   downloadAdminShipmentManifestPdf,
   getAdminShipmentManifestContext,
@@ -17,5 +19,7 @@ shipmentManifestRouter.get("/", listAdminShipmentManifests);
 shipmentManifestRouter.get("/drafts/:draftId/context", getAdminShipmentManifestContext);
 shipmentManifestRouter.post("/", createAdminShipmentManifest);
 shipmentManifestRouter.post("/bulk", createAdminBulkShipmentManifest);
+shipmentManifestRouter.post("/bulk-delete", deleteAdminBulkShipmentManifests);
 shipmentManifestRouter.get("/:manifestId/download", downloadAdminShipmentManifest);
 shipmentManifestRouter.get("/:manifestId/pdf", downloadAdminShipmentManifestPdf);
+shipmentManifestRouter.delete("/:manifestId", deleteAdminShipmentManifest);

@@ -11,10 +11,12 @@ import { countryCodeOptions } from "@/lib/countries";
 import {
   createOperationsManifest,
   listManifestBranches,
+  updateOperationsManifest,
   type ManifestHeader,
 } from "@/lib/operationsManifests";
 import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 
 // Almost every flight clears through the UK agent, so the TO block starts filled in
 // and the operator edits it only when the destination agent differs.
@@ -175,6 +177,36 @@ export default function NewOperationsManifestPage() {
   const [branchId, setBranchId] = useState("");
   const [header, setHeader] = useState(emptyHeader);
   const [saving, setSaving] = useState(false);
+  const [manifestId, setManifestId] = useState<string | null>(null);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify({ branchId: "", header: emptyHeader }));
+
+  const currentSnapshot = JSON.stringify({ branchId, header });
+  const hasUnsavedManifest = currentSnapshot !== savedSnapshot;
+
+  async function saveDraft(navigateAfterSave = false) {
+    if (!branchId) throw new Error("Select the origin branch.");
+    setSaving(true);
+    try {
+      let savedId = manifestId;
+      if (savedId) {
+        await updateOperationsManifest(savedId, { header });
+      } else {
+        const result = await createOperationsManifest({ branchId, header });
+        savedId = result.manifestId;
+        setManifestId(savedId);
+      }
+      setSavedSnapshot(currentSnapshot);
+      toast.success("Manifest draft saved.");
+      if (navigateAfterSave && savedId) router.push(`/dashboard/operations-manifests/${savedId}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  useUnsavedChanges(hasUnsavedManifest && !saving, {
+    label: "operations manifest",
+    saveDraft: () => saveDraft(false),
+  });
 
   useEffect(() => {
     if (user)
@@ -190,33 +222,21 @@ export default function NewOperationsManifestPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!branchId) return toast.error("Select the origin branch.");
-    setSaving(true);
     try {
-      const result = await createOperationsManifest({ branchId, header });
-      toast.success(`${result.manifestNumber} created.`);
-      router.push(`/dashboard/operations-manifests/${result.manifestId}`);
+      await saveDraft(true);
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
           : "Manifest could not be created.",
       );
-    } finally {
-      setSaving(false);
     }
   }
 
   return (
       <form onSubmit={submit} className="mx-auto max-w-5xl">
         <div className="mb-6 rounded-xl border border-[#EEEDED] bg-white p-5 shadow-sm">
-          <Link
-            href="/dashboard/operations-manifests"
-            className="text-sm font-semibold text-[#0D1282]"
-          >
-            Back to manifests
-          </Link>
-          <h1 className="mt-4 text-2xl font-semibold ">
+          <h1 className="text-2xl font-semibold ">
             Create Operations Manifest
           </h1>
           <p className="mt-1 text-sm text-slate-500">
@@ -376,6 +396,14 @@ export default function NewOperationsManifestPage() {
           >
             Cancel
           </Link>
+          <button
+            type="button"
+            disabled={saving || !branchId}
+            onClick={() => void saveDraft(false).catch((error) => toast.error(error instanceof Error ? error.message : "Manifest draft could not be saved."))}
+            className="h-11 rounded-4xl border border-[#0D1282]/20 bg-white px-5 text-sm font-semibold text-[#0D1282] disabled:opacity-60"
+          >
+            {saving ? "Saving..." : "Save Draft"}
+          </button>
           <button
             disabled={saving}
             className="h-11 rounded-4xl bg-[#0D1282] tracking-wide px-6 text-sm font-semibold text-white hover:bg-[#0D1282]/90 disabled:opacity-60"

@@ -1,11 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   FiAlertTriangle,
-  FiArrowLeft,
   FiArrowRight,
   FiCheck,
   FiChevronDown,
@@ -33,6 +31,7 @@ import {
   type ClaimableShipment
 } from "@/lib/claims";
 import { useClientUser } from "@/lib/useClientUser";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 
 /**
  * The claim wizard.
@@ -119,6 +118,10 @@ function NewClaimWizard() {
   const [pageLoading, setPageLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [savedWizardSnapshot, setSavedWizardSnapshot] = useState<string | null>(() => JSON.stringify({
+    claimId: "", shipmentDraftId: preselectedShipment ?? "", category: "", amount: "", incidentDate: "",
+    description: "", packagingCondition: "", contactName: "", contactPhone: "", contactEmail: "", affected: {}
+  }));
 
   useEffect(() => {
     if (!user) return;
@@ -202,6 +205,19 @@ function NewClaimWizard() {
             ])
           )
         );
+        setSavedWizardSnapshot(JSON.stringify({
+          claimId: existing.claim.id,
+          shipmentDraftId: existing.claim.shipmentDraftId,
+          category: existing.claim.category,
+          amount: existing.claim.requestedAmountMinor ? String(existing.claim.requestedAmountMinor / 100) : "",
+          incidentDate: existing.claim.incidentDate?.slice(0, 10) ?? "",
+          description: existing.claim.description,
+          packagingCondition: existing.claim.packagingCondition,
+          contactName: "",
+          contactPhone: "",
+          contactEmail: "",
+          affected: Object.fromEntries(existing.claim.affectedItems.map((item) => [`${item.parcelSequence}:${item.itemIndex}`, item.quantityAffected]))
+        }));
         // Straight to "What happened"- the shipment and category are already
         // chosen, and making someone re-pick them would be busywork.
         setStep(2);
@@ -231,6 +247,55 @@ function NewClaimWizard() {
     [affected]
   );
 
+  const hasWizardProgress =
+    !pageLoading &&
+    (shipmentDraftId.trim().length > 0 ||
+      Boolean(category) ||
+      amount.trim().length > 0 ||
+      description.trim().length > 0 ||
+      incidentDate.trim().length > 0 ||
+      packagingCondition.trim().length > 0 ||
+      Object.keys(affected).length > 0 ||
+      Boolean(claimId));
+
+  const currentWizardSnapshot = JSON.stringify({
+    claimId,
+    shipmentDraftId,
+    category,
+    amount,
+    incidentDate,
+    description,
+    packagingCondition,
+    contactName,
+    contactPhone,
+    contactEmail,
+    affected,
+  });
+  const wizardDirty = hasWizardProgress && savedWizardSnapshot !== null && currentWizardSnapshot !== savedWizardSnapshot && !busy;
+
+  async function persistDraft() {
+    if (!claimId) throw new Error("Continue to the claim details before saving a draft.");
+    const draftAmount = toMinorUnits(amount);
+    if (draftAmount === null && amount.trim().length > 0) throw new Error("Enter the amount you are claiming.");
+    await saveClaimDraft(claimId, {
+      requestedAmountMinor: draftAmount ?? undefined,
+      incidentDate: incidentDate || null,
+      description: description || undefined,
+      packagingCondition: packagingCondition || undefined,
+      contactName: contactName || undefined,
+      contactPhone: contactPhone || undefined,
+      contactEmail: contactEmail || undefined,
+      affectedParcelSequences: [...new Set(affectedItemsPayload.map((item) => item.parcelSequence))],
+      affectedItems: affectedItemsPayload,
+    });
+    setSavedWizardSnapshot(currentWizardSnapshot);
+  }
+
+  useUnsavedChanges(wizardDirty, {
+    label: "claim",
+    saveDraft: claimId ? persistDraft : undefined,
+  });
+
   /** Creates the draft, which is what makes steps 4 onward possible. */
   async function startDraft() {
     if (!shipmentDraftId || !category) return;
@@ -245,6 +310,10 @@ function NewClaimWizard() {
       });
       setClaimId(claim.id);
       setDetail(await getClaim("client", claim.id));
+      setSavedWizardSnapshot(JSON.stringify({
+        claimId: claim.id, shipmentDraftId, category, amount: "", incidentDate: "",
+        description: "", packagingCondition: "", contactName: "", contactPhone: "", contactEmail: "", affected: {}
+      }));
       setStep(2);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The claim could not be started.");
@@ -271,19 +340,7 @@ function NewClaimWizard() {
     setBusy(true);
     setError("");
     try {
-      await saveClaimDraft(claimId, {
-        requestedAmountMinor: requestedMinor,
-        incidentDate: incidentDate || null,
-        description,
-        packagingCondition,
-        contactName,
-        contactPhone,
-        contactEmail,
-        affectedParcelSequences: [
-          ...new Set(affectedItemsPayload.map((item) => item.parcelSequence))
-        ],
-        affectedItems: affectedItemsPayload
-      });
+      await persistDraft();
       await reloadDetail();
       setStep(3);
     } catch (caught) {
@@ -313,13 +370,6 @@ function NewClaimWizard() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <Link
-        href="/client/claims"
-        className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-blue-900"
-      >
-        <FiArrowLeft />
-        Claims
-      </Link>
 
       <h1 className="text-2xl font-bold text-slate-900">Raise a claim</h1>
       <p className="mt-1 text-sm text-slate-500">
@@ -633,7 +683,7 @@ function NewClaimWizard() {
               </label>
             </div>
 
-            <div className="flex justify-between">
+            <div className="flex flex-wrap justify-between gap-3">
               <button
                 type="button"
                 onClick={() => setStep(1)}
@@ -641,14 +691,24 @@ function NewClaimWizard() {
               >
                 Back
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void saveDetails()}
-                className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-40"
-              >
-                {busy ? "Saving..." : "Continue"} <FiArrowRight />
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void persistDraft().then(() => toast.success("Claim draft saved.")).catch((caught) => setError(caught instanceof Error ? caught.message : "The claim draft could not be saved."))}
+                  className="rounded-xl border border-blue-900 px-5 py-2.5 text-sm font-semibold text-blue-900 hover:bg-blue-50 disabled:opacity-40"
+                >
+                  Save Draft
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void saveDetails()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-40"
+                >
+                  {busy ? "Saving..." : "Continue"} <FiArrowRight />
+                </button>
+              </div>
             </div>
           </section>
         </div>

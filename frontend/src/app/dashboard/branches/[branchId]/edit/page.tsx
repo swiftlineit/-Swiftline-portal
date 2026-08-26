@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import BranchForm from "@/components/branches/BranchForm";
@@ -44,13 +43,7 @@ export default function EditBranchPage() {
             <h1 className="text-2xl font-bold tracking-tight text-slate-950">Edit Branch</h1>
             <p className="mt-1 text-sm text-slate-500">{branch ? `${branch.name} (${branch.code})` : "Update branch details."}</p>
           </div>
-          <Link
-            href={branch ? `/dashboard/branches/${branch._id}` : "/dashboard/branches"}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#0D1282] hover:text-[#0D1282]"
-          >
-            Back to Branch
-          </Link>
-        </div>
+          </div>
 
         {error ? (
           <div className="mb-4 rounded-xl border border-[#D71313]/25 bg-[#D71313]/5 px-4 py-3 text-sm font-medium text-[#D71313]">

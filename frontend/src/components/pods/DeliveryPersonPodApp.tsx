@@ -17,6 +17,7 @@ import {
   uploadPodEvidence,
   type PodAssignment
 } from "@/lib/pods";
+import { useUnsavedChanges } from "@/lib/useUnsavedChanges";
 
 const emptyPod = {
   recipientName: "",
@@ -25,6 +26,11 @@ const emptyPod = {
   destinationTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
   notes: ""
 };
+const emptyFailed = { reason: "RECIPIENT_UNAVAILABLE", notes: "", nextActionAt: "" };
+
+function podDraftSnapshot(pod: typeof emptyPod, parcels: string[]) {
+  return JSON.stringify({ pod, parcels: [...parcels].sort() });
+}
 
 const formatDate = (value?: string | null) => value
   ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
@@ -51,9 +57,32 @@ export default function DeliveryPersonPodApp() {
   const [selected, setSelected] = useState<PodAssignment | null>(null);
   const [form, setForm] = useState(emptyPod);
   const [selectedParcels, setSelectedParcels] = useState<string[]>([]);
+  const [savedPodSnapshot, setSavedPodSnapshot] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [exception, setException] = useState("");
-  const [failed, setFailed] = useState({ reason: "RECIPIENT_UNAVAILABLE", notes: "", nextActionAt: "" });
+  const [failed, setFailed] = useState(emptyFailed);
+
+  const persistableDirty = Boolean(savedPodSnapshot) && savedPodSnapshot !== podDraftSnapshot(form, selectedParcels);
+  const localOnlyDirty = Boolean(exception.trim()) || JSON.stringify(failed) !== JSON.stringify(emptyFailed);
+  const hasPodDraft = Boolean(selected) && !busy && (persistableDirty || localOnlyDirty);
+
+  useUnsavedChanges(hasPodDraft, {
+    label: "POD",
+    // Exception and failed-attempt fields are submission actions, not part of
+    // the POD draft endpoint. Do not offer a misleading Save Draft action when
+    // those local-only fields are what would otherwise be lost.
+    saveDraft: persistableDirty && !localOnlyDirty ? async () => {
+      if (!selected) throw new Error("Open a delivery first.");
+      await saveMyPodDraft(selected.id, {
+        ...form,
+        deliveredAt: new Date(form.deliveredAt).toISOString(),
+        parcelNumbers: selectedParcels,
+        partnerReference: selected.partnerReference,
+        location: { captureStatus: "UNAVAILABLE" },
+      });
+      setSavedPodSnapshot(podDraftSnapshot(form, selectedParcels));
+    } : undefined,
+  });
 
   async function load() {
     setRows((await listMyDeliveries()).assignments);
@@ -72,16 +101,20 @@ export default function DeliveryPersonPodApp() {
     if (!revision) {
       setForm(emptyPod);
       setSelectedParcels([]);
+      setSavedPodSnapshot(podDraftSnapshot(emptyPod, []));
       return;
     }
-    setForm({
+    const nextForm = {
       recipientName: revision.recipientName || "",
       recipientRelationship: revision.recipientRelationship || "CONSIGNEE",
       deliveredAt: localDateTime(revision.deliveredAt),
       destinationTimeZone: revision.destinationTimeZone || emptyPod.destinationTimeZone,
       notes: revision.notes || ""
-    });
-    setSelectedParcels(revision.parcelNumbers || []);
+    };
+    const nextParcels = revision.parcelNumbers || [];
+    setForm(nextForm);
+    setSelectedParcels(nextParcels);
+    setSavedPodSnapshot(podDraftSnapshot(nextForm, nextParcels));
   }
 
   async function open(id: string) {
@@ -89,6 +122,8 @@ export default function DeliveryPersonPodApp() {
     try {
       const item = (await getMyDelivery(id)).assignment;
       setSelected(item);
+      setException("");
+      setFailed(emptyFailed);
       fillCorrectionForm(item);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Delivery could not be opened.");
@@ -103,6 +138,7 @@ export default function DeliveryPersonPodApp() {
     try {
       const result = await updateMyDeliveryStatus(selected.id, value);
       setSelected(result.assignment);
+      setSavedPodSnapshot(podDraftSnapshot(form, selectedParcels));
       toast.success(result.message);
       await load();
     } catch (error) {
@@ -166,6 +202,7 @@ export default function DeliveryPersonPodApp() {
         location: await captureLocation()
       });
       setSelected(result.assignment);
+      setSavedPodSnapshot(podDraftSnapshot(form, selectedParcels));
       toast.success(result.message);
       return result.assignment;
     } catch (error) {
@@ -215,7 +252,7 @@ export default function DeliveryPersonPodApp() {
     try {
       const result = await recordMyFailedDelivery(selected.id, { ...failed, nextActionAt: new Date(failed.nextActionAt).toISOString() });
       setSelected(result.assignment);
-      setFailed({ reason: "RECIPIENT_UNAVAILABLE", notes: "", nextActionAt: "" });
+      setFailed(emptyFailed);
       toast.success(result.message);
       await load();
     } catch (error) {

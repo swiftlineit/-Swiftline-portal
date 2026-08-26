@@ -39,6 +39,7 @@ import { shipmentRouter } from "./routes/shipment.routes.js";
 import { profileRouter } from "./routes/profile.routes.js";
 import { shipmentQuoteRouter } from "./routes/shipmentQuote.routes.js";
 import { supportTicketRouter } from "./routes/supportTicket.routes.js";
+import { supportTicketDraftRouter } from "./routes/supportTicketDraft.routes.js";
 import { clientClaimRouter, staffClaimRouter } from "./routes/claim.routes.js";
 import { operationsManifestRouter } from "./routes/operationsManifest.routes.js";
 import { operationsAdvisoryRouter } from "./routes/operationsAdvisory.routes.js";
@@ -144,6 +145,7 @@ app.use("/api/v1/shipment-manifests", shipmentManifestRouter);
 app.use("/api/v1/shipments", shipmentRouter);
 app.use("/api/v1/quote-requests", shipmentQuoteRouter);
 app.use("/api/v1/support-tickets", supportTicketRouter);
+app.use("/api/v1/client/support-ticket-drafts", supportTicketDraftRouter);
 // Claims are split by audience rather than filtered inside one router, so a
 // client route can never fall through to a staff handler.
 app.use("/api/v1/client/claims", clientClaimRouter);
