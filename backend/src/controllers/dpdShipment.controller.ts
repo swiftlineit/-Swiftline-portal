@@ -38,8 +38,10 @@ import {
   describeEventDateProblem,
   describeAlreadyRecorded,
   describeMissingPrerequisites,
+  describeRecordedLaterMilestones,
   equivalentMilestoneStatuses,
   findMissingPrerequisites,
+  findRecordedLaterMilestones,
   formatShipmentEventLabel
 } from "../services/shipmentStatusSequence.service.js";
 import {
@@ -1187,6 +1189,15 @@ export async function updateDpdShipmentOperationalStatus(request: Request, respo
       success: false,
       message: describeMissingPrerequisites(parsed.data.status, missingPrerequisites),
       missingStatuses: missingPrerequisites
+    });
+  }
+  const recordedLaterMilestones = findRecordedLaterMilestones(parsed.data.status, recordedStatuses);
+  if (recordedLaterMilestones.length) {
+    return response.status(409).json({
+      success: false,
+      code: "STATUS_ORDER_CONFLICT",
+      message: describeRecordedLaterMilestones(parsed.data.status, recordedLaterMilestones),
+      laterStatuses: recordedLaterMilestones
     });
   }
 

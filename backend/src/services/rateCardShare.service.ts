@@ -45,6 +45,24 @@ function roundRate(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+export function rateCardDisplayAmount(input: {
+  chargesPerKg: number;
+  gstTreatment?: "INCLUDED" | "EXCLUDED";
+  gstRatePercent?: number;
+}) {
+  const percent = input.gstRatePercent ?? 0;
+  return roundRate(input.gstTreatment === "INCLUDED"
+    ? input.chargesPerKg * (1 + percent / 100)
+    : input.chargesPerKg);
+}
+
+export function rateCardGstLabel(input: { gstTreatment?: "INCLUDED" | "EXCLUDED"; gstRatePercent?: number }) {
+  const percent = input.gstTreatment === "INCLUDED" ? input.gstRatePercent ?? 0 : 0;
+  return input.gstTreatment === "INCLUDED"
+    ? `GST included${percent ? ` (${percent}%)` : ""}`
+    : "GST excluded";
+}
+
 /**
  * A positive value marks up, a negative one discounts. The result is floored at
  * zero so an over-large discount cannot produce a negative rate on the sheet.
@@ -105,7 +123,9 @@ export async function buildRateCardSnapshot(
     toKg: rate.toKg,
     baseChargesPerKg: roundRate(rate.chargesPerKg),
     chargesPerKg: applyAdjustment(rate.chargesPerKg, adjustmentMode, adjustmentValue),
-    maxBoxKg: rate.maxBoxKg
+    maxBoxKg: rate.maxBoxKg,
+    gstTreatment: rate.gstTreatment ?? "EXCLUDED",
+    gstRatePercent: rate.gstRatePercent ?? 0
   }));
 }
 
@@ -197,6 +217,8 @@ export function serializeRateCardShare(share: IRateCardShare, options: Serialize
       toKg: row.toKg,
       chargesPerKg: row.chargesPerKg,
       maxBoxKg: row.maxBoxKg,
+      gstTreatment: row.gstTreatment ?? "EXCLUDED",
+      gstRatePercent: row.gstRatePercent ?? 0,
       ...(options.includeBaseRates ? { baseChargesPerKg: row.baseChargesPerKg } : {})
     })),
     routeCharges: share.routeCharges ?? [],

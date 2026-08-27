@@ -10,8 +10,10 @@ import {
   describeEventDateProblem,
   describeAlreadyRecorded,
   describeMissingPrerequisites,
+  describeRecordedLaterMilestones,
   equivalentMilestoneStatuses,
   findMissingPrerequisites,
+  findRecordedLaterMilestones,
   formatShipmentEventLabel,
   type ShipmentOperationalStatus
 } from "./shipmentStatusSequence.service.js";
@@ -101,6 +103,7 @@ export function statusUpdateBlockReason(input: {
   onHold: boolean;
   alreadyRecordedAt?: Date | null;
   missingPrerequisites: ShipmentOperationalStatus[];
+  laterMilestones?: ShipmentOperationalStatus[];
   /**
    * Why the stated status date will not do for this shipment, or null.
    *
@@ -131,6 +134,9 @@ export function statusUpdateBlockReason(input: {
       reason: describeMissingPrerequisites(input.status, input.missingPrerequisites),
       missingStatuses: input.missingPrerequisites
     };
+  }
+  if (input.laterMilestones?.length) {
+    return { reason: describeRecordedLaterMilestones(input.status, input.laterMilestones) };
   }
   if (input.eventDateProblem) {
     return { reason: input.eventDateProblem };
@@ -248,6 +254,7 @@ export async function bulkRecordOperationalStatus(input: {
       onHold: latestStatusByDraft.get(draftId) === "ON_HOLD",
       alreadyRecordedAt: targetEventAtByDraft.get(draftId),
       missingPrerequisites: findMissingPrerequisites(input.status, recordedByDraft.get(draftId) ?? []),
+      laterMilestones: findRecordedLaterMilestones(input.status, recordedByDraft.get(draftId) ?? []),
       eventDateProblem: input.eventAt
         ? describeEventDateProblem({
           eventAt: input.eventAt,

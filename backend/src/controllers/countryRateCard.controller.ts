@@ -5,7 +5,8 @@ import { z } from "zod";
 import {
   CountryRateCard,
   countryRateServiceValues,
-  rateCardBandValues
+  rateCardBandValues,
+  rateCardGstTreatmentValues
 } from "../models/countryRateCard.model.js";
 import {
   parseRateCardWorkbook,
@@ -30,11 +31,20 @@ const countryRatePayloadSchema = z.object({
   fromKg: z.coerce.number().nonnegative(),
   toKg: z.coerce.number().positive(),
   chargesPerKg: z.coerce.number().nonnegative(),
-  maxBoxKg: z.coerce.number().positive()
+  maxBoxKg: z.coerce.number().positive(),
+  gstTreatment: z.enum(rateCardGstTreatmentValues).default("EXCLUDED"),
+  gstRatePercent: z.coerce.number().min(0).max(100).default(0),
+  gstApplyToAllRates: z.boolean().default(false)
 }).refine((data) => data.toKg >= data.fromKg, {
   message: "To KG must be greater than or equal to From KG",
   path: ["toKg"]
 });
+
+function normalizeGstInput(input: z.infer<typeof countryRatePayloadSchema>) {
+  return input.gstTreatment === "INCLUDED"
+    ? input
+    : { ...input, gstRatePercent: 0 };
+}
 
 // Surcharges, insurance and discount for a route (country + service). Stored once
 // per route rather than per weight slab- see countryRouteCharge.model.ts.
@@ -96,6 +106,41 @@ async function findOverlappingRate(input: z.infer<typeof countryRatePayloadSchem
   }).lean().exec();
 }
 
+async function applyGstToCountryRates(input: z.infer<typeof countryRatePayloadSchema>, excludeRateId?: string) {
+  if (!input.gstApplyToAllRates) return;
+  await CountryRateCard.updateMany({
+    band: input.band,
+    countryCode: input.countryCode,
+    ...(excludeRateId ? { _id: { $ne: excludeRateId } } : {})
+  }, {
+    $set: {
+      gstTreatment: input.gstTreatment,
+      gstRatePercent: input.gstRatePercent,
+      gstApplyToAllRates: true
+    }
+  }).exec();
+}
+
+async function inheritCountryGstPolicy(input: z.infer<typeof countryRatePayloadSchema>) {
+  if (input.gstApplyToAllRates) return input;
+  const policy = await CountryRateCard.findOne({
+    band: input.band,
+    countryCode: input.countryCode,
+    gstApplyToAllRates: true
+  }).select("gstTreatment gstRatePercent").lean().exec();
+  return policy
+    ? { ...input, gstTreatment: policy.gstTreatment, gstRatePercent: policy.gstRatePercent, gstApplyToAllRates: true }
+    : input;
+}
+
+async function clearCountryGstPolicy(input: z.infer<typeof countryRatePayloadSchema>) {
+  await CountryRateCard.updateMany({
+    band: input.band,
+    countryCode: input.countryCode,
+    gstApplyToAllRates: true
+  }, { $set: { gstApplyToAllRates: false } }).exec();
+}
+
 function getOverlapMessage(input: z.infer<typeof countryRatePayloadSchema>) {
   return `This ${input.countryName} ${input.service.toLowerCase()} slab overlaps an existing weight slab. Use non-overlapping ranges like 5.01-10, 10.01-20, 20.01-25.`;
 }
@@ -149,7 +194,8 @@ export async function createCountryRateCard(request: Request, response: Response
   let releaseLock: (() => Promise<void>) | null = null;
   try {
     releaseLock = await acquireRateCardRouteLock(parsed.data);
-    const overlappingRate = await findOverlappingRate(parsed.data);
+    const rateInput = normalizeGstInput(await inheritCountryGstPolicy(normalizeGstInput(parsed.data)));
+    const overlappingRate = await findOverlappingRate(rateInput);
     if (overlappingRate) {
       return response.status(409).json({
         success: false,
@@ -157,8 +203,10 @@ export async function createCountryRateCard(request: Request, response: Response
       });
     }
 
+    await applyGstToCountryRates(rateInput);
+
     const rate = await CountryRateCard.create({
-      ...parsed.data,
+      ...rateInput,
       createdBy: userId,
       updatedBy: userId
     });
@@ -211,7 +259,13 @@ export async function updateCountryRateCard(request: Request, response: Response
   let releaseLock: (() => Promise<void>) | null = null;
   try {
     releaseLock = await acquireRateCardRouteLock(parsed.data);
-    const overlappingRate = await findOverlappingRate(parsed.data, rateId);
+    const disablingPolicy = !parsed.data.gstApplyToAllRates && existingRate.gstApplyToAllRates;
+    const normalizedInput = normalizeGstInput(parsed.data);
+    if (disablingPolicy) await clearCountryGstPolicy(normalizedInput);
+    const rateInput = disablingPolicy
+      ? normalizedInput
+      : normalizeGstInput(await inheritCountryGstPolicy(normalizedInput));
+    const overlappingRate = await findOverlappingRate(rateInput, rateId);
     if (overlappingRate) {
       return response.status(409).json({
         success: false,
@@ -219,8 +273,10 @@ export async function updateCountryRateCard(request: Request, response: Response
       });
     }
 
+    await applyGstToCountryRates(rateInput, rateId);
+
     const before = existingRate.toObject();
-    Object.assign(existingRate, parsed.data, { updatedBy: userId });
+    Object.assign(existingRate, rateInput, { updatedBy: userId });
     await existingRate.save();
     await AuditLog.create({
       action: "COUNTRY_RATE_CARD_UPDATED",

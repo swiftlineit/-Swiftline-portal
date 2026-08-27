@@ -11,6 +11,8 @@ import {
   groupShareRows,
   hashShareToken,
   isShareOpen,
+  rateCardDisplayAmount,
+  rateCardGstLabel,
   resolveShareRecipientLabel,
   serializeRateCardShare,
   shareDocumentBasename,
@@ -26,6 +28,13 @@ import {
 } from "../services/rateCardShareMessage.service.js";
 
 const APP_URL = "https://portal.swiftline.example";
+
+test("rate-card GST display only adds GST when included", () => {
+  assert.equal(rateCardDisplayAmount({ chargesPerKg: 400, gstTreatment: "INCLUDED", gstRatePercent: 4 }), 416);
+  assert.equal(rateCardGstLabel({ gstTreatment: "INCLUDED", gstRatePercent: 4 }), "GST included (4%)");
+  assert.equal(rateCardDisplayAmount({ chargesPerKg: 400, gstTreatment: "EXCLUDED", gstRatePercent: 4 }), 400);
+  assert.equal(rateCardGstLabel({ gstTreatment: "EXCLUDED", gstRatePercent: 4 }), "GST excluded");
+});
 
 function makeShare(overrides: Partial<IRateCardShare> = {}): IRateCardShare {
   const share = {

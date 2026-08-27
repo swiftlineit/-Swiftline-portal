@@ -16,10 +16,12 @@ export type ShipmentListingFilter = {
   branchIds?: mongoose.Types.ObjectId[];
   status?: string;
   /**
-   * Free text over AWB, piece number, consignee and the customer's own
-   * reference. Applied in the database rather than to the fetched page: this
-   * list is paginated, so filtering what was already returned would silently
-   * miss the shipment sitting on page three.
+   * Free text over AWB, piece number, consignee, the consignee address
+   * (company/contact, town/city, county/state, postcode, address lines,
+   * country name/code) and the customer's own reference. Applied in the
+   * database rather than to the fetched page: this list is paginated, so
+   * filtering what was already returned would silently miss the shipment
+   * sitting on page three.
    */
   search?: string;
   dateFrom?: string;
@@ -154,6 +156,30 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
           { "consigneeEnteredAddress.companyName": pattern },
           { "consigneeEnteredAddress.contactName": pattern },
           { "consigneeEnteredAddress.townOrCity": pattern },
+          { "consigneeEnteredAddress.county": pattern },
+          { "consigneeEnteredAddress.countryName": pattern },
+          { "consigneeEnteredAddress.countryCode": pattern },
+          { "consigneeEnteredAddress.postcode": pattern },
+          { "consigneeEnteredAddress.addressLine1": pattern },
+          { "consigneeEnteredAddress.addressLine2": pattern },
+          { "consigneeValidatedAddress.companyName": pattern },
+          { "consigneeValidatedAddress.contactName": pattern },
+          { "consigneeValidatedAddress.townOrCity": pattern },
+          { "consigneeValidatedAddress.county": pattern },
+          { "consigneeValidatedAddress.countryName": pattern },
+          { "consigneeValidatedAddress.countryCode": pattern },
+          { "consigneeValidatedAddress.postcode": pattern },
+          { "consigneeValidatedAddress.addressLine1": pattern },
+          { "consigneeValidatedAddress.addressLine2": pattern },
+          { "consigneeSelectedAddress.companyName": pattern },
+          { "consigneeSelectedAddress.contactName": pattern },
+          { "consigneeSelectedAddress.townOrCity": pattern },
+          { "consigneeSelectedAddress.county": pattern },
+          { "consigneeSelectedAddress.countryName": pattern },
+          { "consigneeSelectedAddress.countryCode": pattern },
+          { "consigneeSelectedAddress.postcode": pattern },
+          { "consigneeSelectedAddress.addressLine1": pattern },
+          { "consigneeSelectedAddress.addressLine2": pattern },
           { "parcelList.shipmentReference1": pattern },
           { "parcelList.shipmentReference2": pattern }
         ]

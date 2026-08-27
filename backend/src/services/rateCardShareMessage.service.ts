@@ -1,5 +1,5 @@
 import type { IRateCardShare } from "../models/rateCardShare.model.js";
-import { buildPublicShareUrl, formatShareService, groupShareRows } from "./rateCardShare.service.js";
+import { buildPublicShareUrl, formatShareService, groupShareRows, rateCardDisplayAmount } from "./rateCardShare.service.js";
 
 function date(value: Date) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -44,7 +44,7 @@ export function summariseShare(share: IRateCardShare) {
   const countries = new Set(groups.map((group) => group.countryCode));
   const services = [...new Set(groups.map((group) => group.service))];
   const bestRates = services.map((service) => {
-    const rates = share.rows.filter((row) => row.service === service).map((row) => row.chargesPerKg);
+    const rates = share.rows.filter((row) => row.service === service).map((row) => rateCardDisplayAmount(row));
     return { service, lowest: rates.length ? Math.min(...rates) : 0 };
   });
 

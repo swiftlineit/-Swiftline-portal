@@ -7,6 +7,7 @@ import { formatRate } from "@/components/client/rate-card/rateCardView";
 import {
   countryRateServices,
   formatCountryRateService,
+  rateCardDisplay,
   type ClientCountryRateCard,
   type ClientCountryRouteCharge,
   type CountryRateService
@@ -43,7 +44,7 @@ export default function RateCardCountryDetail({
       .filter((entry) => entry.rates.length);
   }, [rates, routeCharges]);
 
-  const lowestRate = Math.min(...rates.map((rate) => rate.chargesPerKg));
+  const lowestRate = Math.min(...rates.map((rate) => rateCardDisplay(rate).amount));
   const heaviest = Math.max(...rates.map((rate) => rate.toKg));
 
   return (
@@ -115,7 +116,10 @@ function ServiceRates({
                 <td className="px-5 py-2.5 font-medium text-slate-800">
                   {rate.fromKg} - {rate.toKg} kg
                 </td>
-                <td className="px-5 py-2.5 font-semibold text-slate-950">{formatRate(rate.chargesPerKg)}</td>
+                <td className="px-5 py-2.5 font-semibold text-slate-950">
+                  <div>{formatRate(rateCardDisplay(rate).amount)}</div>
+                  <div className="text-[11px] font-medium text-slate-500">{rateCardDisplay(rate).label}</div>
+                </td>
                 <td className="px-5 py-2.5 text-slate-600">{rate.maxBoxKg} kg</td>
               </tr>
             ))}

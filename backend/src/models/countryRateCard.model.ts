@@ -4,6 +4,8 @@ export const countryRateServiceValues = ["COURIER", "CARGO"] as const;
 export type CountryRateService = (typeof countryRateServiceValues)[number];
 export const rateCardBandValues = ["BAND_A", "BAND_B", "BAND_C"] as const;
 export type RateCardBand = (typeof rateCardBandValues)[number];
+export const rateCardGstTreatmentValues = ["INCLUDED", "EXCLUDED"] as const;
+export type RateCardGstTreatment = (typeof rateCardGstTreatmentValues)[number];
 
 export interface ICountryRateCard extends mongoose.Document {
   band: RateCardBand;
@@ -14,6 +16,9 @@ export interface ICountryRateCard extends mongoose.Document {
   toKg: number;
   chargesPerKg: number;
   maxBoxKg: number;
+  gstTreatment: RateCardGstTreatment;
+  gstRatePercent: number;
+  gstApplyToAllRates: boolean;
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId | null;
   createdAt: Date;
@@ -30,6 +35,9 @@ const countryRateCardSchema = new mongoose.Schema<ICountryRateCard>(
     toKg: { type: Number, required: true, min: 0 },
     chargesPerKg: { type: Number, required: true, min: 0 },
     maxBoxKg: { type: Number, required: true, min: 0 },
+    gstTreatment: { type: String, enum: rateCardGstTreatmentValues, default: "EXCLUDED" },
+    gstRatePercent: { type: Number, min: 0, max: 100, default: 0 },
+    gstApplyToAllRates: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
   },

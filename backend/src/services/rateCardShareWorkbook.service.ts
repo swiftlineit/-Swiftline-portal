@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import type { IRateCardShare } from "../models/rateCardShare.model.js";
-import { formatShareService, groupShareRows } from "./rateCardShare.service.js";
+import { formatShareService, groupShareRows, rateCardDisplayAmount, rateCardGstLabel } from "./rateCardShare.service.js";
 import { buildTermsLines } from "./rateCardSharePdf.service.js";
 
 // ExcelJS wants ARGB without the "#".
@@ -11,8 +11,8 @@ const HEADER_FILL = "FFE2E8F0";
 const ZEBRA = "FFF8FAFC";
 const WHITE = "FFFFFFFF";
 
-const HEADERS = ["Country", "Code", "Service", "From KG", "To KG", "Rate / KG", "Max Box KG"];
-const COLUMN_WIDTHS = [28, 8, 12, 12, 12, 16, 14];
+const HEADERS = ["Country", "Code", "Service", "From KG", "To KG", "Rate / KG", "Max Box KG", "GST", "GST %"];
+const COLUMN_WIDTHS = [28, 8, 12, 12, 12, 16, 14, 16, 8];
 
 function date(value: Date) {
   return new Intl.DateTimeFormat("en-GB", {
@@ -90,8 +90,10 @@ export async function buildRateCardShareWorkbook(share: IRateCardShare, recipien
         formatShareService(group.service),
         row.fromKg,
         row.toKg,
-        row.chargesPerKg,
-        row.maxBoxKg
+        rateCardDisplayAmount(row),
+        row.maxBoxKg,
+        rateCardGstLabel(row),
+        row.gstRatePercent ?? 0
       ]);
       dataRow.height = 17;
       const zebra = striped % 2 === 1;

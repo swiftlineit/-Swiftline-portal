@@ -175,7 +175,7 @@ export async function listShipments(audience: ShipmentAudience, input: {
   page?: number;
   limit?: number;
   status?: string;
-  /** Free text over AWB, piece number, consignee and your own reference. */
+  /** Free text over AWB, piece number, consignee, consignee address (including destination country/county/postcode), and your own reference. */
   search?: string;
   dateRange?: DateRange;
   businessAccountId?: string;

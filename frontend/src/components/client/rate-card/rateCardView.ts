@@ -1,5 +1,5 @@
 import { regionForCountry, type RateCardRegion } from "@/lib/rateCardRegions";
-import type { ClientCountryRateCard, CountryRateService } from "@/lib/countryRateCards";
+import { rateCardDisplay, type ClientCountryRateCard, type CountryRateService } from "@/lib/countryRateCards";
 
 /**
  * Shapes an assigned rate card into what a customer browses.
@@ -37,14 +37,14 @@ export function buildDestinations(rates: ClientCountryRateCard[]): Destination[]
         countryCode: rate.countryCode,
         countryName: rate.countryName,
         services: [rate.service],
-        lowestRate: rate.chargesPerKg,
+        lowestRate: rateCardDisplay(rate).amount,
         slabCount: 1
       });
       continue;
     }
 
     if (!existing.services.includes(rate.service)) existing.services.push(rate.service);
-    existing.lowestRate = Math.min(existing.lowestRate, rate.chargesPerKg);
+    existing.lowestRate = Math.min(existing.lowestRate, rateCardDisplay(rate).amount);
     existing.slabCount += 1;
   }
 

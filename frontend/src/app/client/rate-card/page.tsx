@@ -18,6 +18,7 @@ import { countryName } from "@/lib/countries";
 import { rateCardRegionLabel } from "@/lib/rateCardRegions";
 import {
   listClientCountryRateCards,
+  rateCardDisplay,
   type ClientCountryRateCard,
   type ClientCountryRouteCharge,
 } from "@/lib/countryRateCards";
@@ -113,7 +114,7 @@ export default function ClientRateCardPage() {
     return {
       destinations: destinations.length,
       slabs: rates.length,
-      lowestRate: Math.min(...rates.map((rate) => rate.chargesPerKg)),
+      lowestRate: Math.min(...rates.map((rate) => rateCardDisplay(rate).amount)),
     };
   }, [rates, destinations]);
 

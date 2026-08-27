@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import PDFDocument from "pdfkit";
 import type { IRateCardShare } from "../models/rateCardShare.model.js";
-import { formatShareService, groupShareRows } from "./rateCardShare.service.js";
+import { formatShareService, groupShareRows, rateCardDisplayAmount, rateCardGstLabel } from "./rateCardShare.service.js";
 
 // The portal's brand navy, matching the client shell chrome. Everything else is
 // slate, so the sheet reads as one document rather than a palette.
@@ -129,7 +129,7 @@ export function createRateCardSharePdf(share: IRateCardShare, recipientLabel: st
       const values = [
         `${row.fromKg}`,
         `${row.toKg}`,
-        rate(row.chargesPerKg, share.currency),
+        `${rate(rateCardDisplayAmount(row), share.currency)} ${rateCardGstLabel(row)}`,
         `${row.maxBoxKg}`
       ];
 

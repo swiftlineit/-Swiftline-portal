@@ -28,6 +28,7 @@ import {
   type RateCardShareChannel,
   type RateCardShareResult,
 } from "@/lib/rateCardShares";
+import { rateCardDisplay } from "@/lib/countryRateCards";
 import { listBusinessAccounts, type BusinessAccount } from "@/lib/businessAccounts";
 
 // Standard Indian export-freight defaults. They are only a starting point- every
@@ -115,7 +116,7 @@ export default function ShareRateCardDialog({
       return Math.max(Math.round(next * 100) / 100, 0);
     };
 
-    const adjusted = matchingRates.map((rate) => adjust(rate.chargesPerKg));
+    const adjusted = matchingRates.map((rate) => adjust(rateCardDisplay(rate).amount));
     return { lowest: Math.min(...adjusted), highest: Math.max(...adjusted) };
   }, [matchingRates, adjustmentMode, adjustmentValue]);
 

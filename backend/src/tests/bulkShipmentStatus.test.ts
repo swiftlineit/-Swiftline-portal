@@ -114,6 +114,20 @@ describe("bulk shipment status blocking", () => {
       status: "ORIGIN_HUB_DISPATCHED"
     }), null);
   });
+
+  it("blocks a backward milestone after a later milestone exists", () => {
+    assert.deepEqual(statusUpdateBlockReason({
+      shipmentExists: true,
+      cancellationStatus: undefined,
+      onHold: false,
+      missingPrerequisites: [],
+      laterMilestones: ["ORIGIN_HUB_DISPATCHED"],
+      status: "ORIGIN_HUB_PROCESSED"
+    }), {
+      reason: "Origin Hub Processed cannot be recorded because Origin Hub Dispatched "
+        + "is already recorded. Use the controlled correction process for historical data."
+    });
+  });
 });
 describe("bulk selection blocking", () => {
   it("refuses a selection that spans two stages", () => {

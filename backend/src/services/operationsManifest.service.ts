@@ -38,6 +38,7 @@ import {
 import { dateRangeCondition } from "../utils/dateRangeFilter.js";
 import {
   findMissingPrerequisites,
+  findRecordedLaterMilestones,
   formatShipmentEventLabel
 } from "./shipmentStatusSequence.service.js";
 import { resolveShipmentEventNote } from "./shipmentEventCopy.service.js";
@@ -1197,11 +1198,18 @@ export function buildManifestDispatchIssues(input: {
       return [{ shipmentDraftId: draftId, reference, reason: "Shipment is on hold.", missingStatuses: [] }];
     }
     const missing = findMissingPrerequisites("ORIGIN_HUB_DISPATCHED", statusesByDraft.get(draftId) ?? []);
-    return missing.length ? [{
+    if (missing.length) return [{
       shipmentDraftId: draftId,
       reference,
       reason: `Missing ${missing.map(formatShipmentEventLabel).join(", ")}.`,
       missingStatuses: missing
+    }];
+    const later = findRecordedLaterMilestones("ORIGIN_HUB_DISPATCHED", statusesByDraft.get(draftId) ?? []);
+    return later.length ? [{
+      shipmentDraftId: draftId,
+      reference,
+      reason: `A later milestone is already recorded: ${later.map(formatShipmentEventLabel).join(", ")}.`,
+      missingStatuses: []
     }] : [];
   });
 }

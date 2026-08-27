@@ -92,6 +92,24 @@ export function findMissingPrerequisites(
 }
 
 /**
+ * Earlier milestones cannot be inserted after a later milestone has already
+ * been recorded. This is the reverse-order guard that keeps legacy bulk/manual
+ * updates from creating a timeline that goes backwards.
+ */
+export function findRecordedLaterMilestones(
+  target: string,
+  recorded: Iterable<ShipmentEventStatus | string>
+): ShipmentOperationalStatus[] {
+  if (!isOperationalStatus(target)) return [];
+
+  const already = [...recorded];
+  const targetIndex = shipmentOperationalStatusValues.indexOf(target);
+  return shipmentOperationalStatusValues
+    .slice(targetIndex + 1)
+    .filter((status) => hasRecordedMilestone(status, already));
+}
+
+/**
  * The statuses this shipment may record right now.
  *
  * Used by the staff form to grey out both future steps and completed milestones.
@@ -105,6 +123,7 @@ export function allowedOperationalStatuses(
   return shipmentOperationalStatusValues.filter(
     (status) => !hasRecordedMilestone(status, already)
       && findMissingPrerequisites(status, already).length === 0
+      && findRecordedLaterMilestones(status, already).length === 0
   );
 }
 
@@ -134,6 +153,19 @@ export function describeMissingPrerequisites(
   return `${formatShipmentEventLabel(target)} cannot be recorded yet. `
     + `${list} ${labels.length > 1 ? "are" : "is"} still outstanding- `
     + "shipment progress must be recorded in order.";
+}
+
+export function describeRecordedLaterMilestones(
+  target: string,
+  later: readonly ShipmentOperationalStatus[]
+): string {
+  const labels = later.map(formatShipmentEventLabel);
+  const list = labels.length > 1
+    ? `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`
+    : labels[0] ?? "a later milestone";
+
+  return `${formatShipmentEventLabel(target)} cannot be recorded because ${list} `
+    + `${labels.length > 1 ? "are" : "is"} already recorded. Use the controlled correction process for historical data.`;
 }
 
 /**

@@ -33,6 +33,8 @@ export interface IRateCardShareRow {
   baseChargesPerKg: number;
   chargesPerKg: number;
   maxBoxKg: number;
+  gstTreatment?: "INCLUDED" | "EXCLUDED";
+  gstRatePercent?: number;
 }
 
 export interface IRateCardShareRouteCharge {
@@ -115,7 +117,9 @@ const rateCardShareRowSchema = new mongoose.Schema<IRateCardShareRow>({
   toKg: { type: Number, required: true, min: 0 },
   baseChargesPerKg: { type: Number, required: true, min: 0 },
   chargesPerKg: { type: Number, required: true, min: 0 },
-  maxBoxKg: { type: Number, required: true, min: 0 }
+  maxBoxKg: { type: Number, required: true, min: 0 },
+  gstTreatment: { type: String, enum: ["INCLUDED", "EXCLUDED"], default: "EXCLUDED" },
+  gstRatePercent: { type: Number, min: 0, max: 100, default: 0 }
 }, { _id: false });
 
 const rateCardShareRouteChargeSchema = new mongoose.Schema<IRateCardShareRouteCharge>({

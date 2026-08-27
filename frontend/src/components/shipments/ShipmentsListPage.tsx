@@ -427,7 +427,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
                   maxLength={80}
-                  placeholder="Search AWB, consignee or reference"
+                  placeholder="Search AWB, consignee, destination, or reference"
                   className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-9 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
                 />
                 {searchInput ? (

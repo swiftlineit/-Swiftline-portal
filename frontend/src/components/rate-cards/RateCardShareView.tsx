@@ -9,6 +9,7 @@ import {
   groupRateCardRows,
   type RateCardShare,
 } from "@/lib/rateCardShares";
+import { rateCardDisplay } from "@/lib/countryRateCards";
 
 /**
  * The rate card as a customer sees it. Rendered identically inside the client
@@ -29,7 +30,7 @@ export default function RateCardShareView({
   const groups = groupRateCardRows(share.rows);
   const countryCount = new Set(share.rows.map((row) => row.countryCode)).size;
   const lowestRate = share.rows.length
-    ? Math.min(...share.rows.map((row) => row.chargesPerKg))
+    ? Math.min(...share.rows.map((row) => rateCardDisplay(row).amount))
     : 0;
   const remainingDays = daysUntil(share.terms.validUntil);
 
@@ -139,7 +140,8 @@ export default function RateCardShareView({
                           <td className="px-4 py-2.5 text-slate-700">{row.fromKg}</td>
                           <td className="px-4 py-2.5 text-slate-700">{row.toKg}</td>
                           <td className="px-4 py-2.5 text-right font-semibold text-slate-900">
-                            {formatRate(row.chargesPerKg, share.currency)}
+                            <span>{formatRate(rateCardDisplay(row).amount, share.currency)}</span>
+                            <span className="ml-2 text-[11px] font-medium text-slate-500">{rateCardDisplay(row).label}</span>
                           </td>
                           <td className="px-4 py-2.5 text-right text-slate-700">{row.maxBoxKg}</td>
                         </tr>

@@ -5,6 +5,8 @@ export const countryRateServices = ["COURIER", "CARGO"] as const;
 export type CountryRateService = (typeof countryRateServices)[number];
 export const rateCardBands = ["BAND_A", "BAND_B", "BAND_C"] as const;
 export type RateCardBand = (typeof rateCardBands)[number];
+export const rateCardGstTreatments = ["INCLUDED", "EXCLUDED"] as const;
+export type RateCardGstTreatment = (typeof rateCardGstTreatments)[number];
 
 export function formatRateCardBand(band: RateCardBand) {
   return band.replace("BAND_", "Band ");
@@ -20,6 +22,9 @@ export type CountryRateCard = {
   toKg: number;
   chargesPerKg: number;
   maxBoxKg: number;
+  gstTreatment: RateCardGstTreatment;
+  gstRatePercent: number;
+  gstApplyToAllRates: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -33,6 +38,9 @@ export type CountryRateCardInput = {
   toKg: number;
   chargesPerKg: number;
   maxBoxKg: number;
+  gstTreatment: RateCardGstTreatment;
+  gstRatePercent: number;
+  gstApplyToAllRates: boolean;
 };
 export type ClientCountryRateCard = Omit<CountryRateCard, "band">;
 export type ClientCountryRouteCharge = Omit<CountryRouteCharge, "band">;
@@ -137,6 +145,24 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
 
 export function formatCountryRateService(service: string) {
   return service.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+export function rateCardDisplay(rate: {
+  chargesPerKg: number;
+  gstTreatment?: RateCardGstTreatment;
+  gstRatePercent?: number;
+}) {
+  const treatment = rate.gstTreatment ?? "EXCLUDED";
+  const percent = treatment === "INCLUDED" ? rate.gstRatePercent ?? 0 : 0;
+  const gst = treatment === "INCLUDED"
+    ? rate.chargesPerKg * (1 + percent / 100)
+    : rate.chargesPerKg;
+  return {
+    amount: Math.round(gst * 100) / 100,
+    label: treatment === "INCLUDED"
+      ? `GST included${percent ? ` (${percent}%)` : ""}`
+      : "GST excluded"
+  };
 }
 
 export async function listCountryRateCards(band?: RateCardBand) {
@@ -322,14 +348,15 @@ export async function commitRateCardImport(payload: RateCardImportPayload) {
 
 export function buildCountryRateCardCsv(rates: CountryRateCard[]) {
   const rows = [
-    ["Band", "Country", "Service", "From KG", "To KG", "Charges / KG", "Max Box KG"],
+    ["Band", "Country", "Service", "From KG", "To KG", "Charges / KG", "GST", "Max Box KG"],
     ...rates.map((rate) => [
       formatRateCardBand(rate.band),
       `${rate.countryName} (${rate.countryCode})`,
       formatCountryRateService(rate.service),
       String(rate.fromKg),
       String(rate.toKg),
-      String(rate.chargesPerKg),
+      String(rateCardDisplay(rate).amount),
+      rateCardDisplay(rate).label,
       String(rate.maxBoxKg)
     ])
   ];

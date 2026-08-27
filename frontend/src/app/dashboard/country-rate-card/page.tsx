@@ -28,6 +28,8 @@ import {
   CountryRouteCharge,
   CountryRateService,
   RateCardBand,
+  rateCardDisplay,
+  RateCardGstTreatment,
   countryRateServices,
   rateCardBands,
   deleteCountryRateCard,
@@ -48,6 +50,9 @@ type FormState = {
   toKg: string;
   chargesPerKg: string;
   maxBoxKg: string;
+  gstTreatment: RateCardGstTreatment;
+  gstRatePercent: string;
+  gstApplyToAllRates: boolean;
 };
 
 // The country field starts empty. It used to default to the United Kingdom,
@@ -60,6 +65,9 @@ const defaultForm: FormState = {
   toKg: "",
   chargesPerKg: "",
   maxBoxKg: "",
+  gstTreatment: "EXCLUDED",
+  gstRatePercent: "",
+  gstApplyToAllRates: false,
 };
 
 /** One country and service, with its weight slabs. How the table is grouped. */
@@ -81,6 +89,9 @@ function toPayload(form: FormState, countryCode: string, band: RateCardBand): Co
     toKg: Number(form.toKg),
     chargesPerKg: Number(form.chargesPerKg),
     maxBoxKg: Number(form.maxBoxKg),
+    gstTreatment: form.gstTreatment,
+    gstRatePercent: form.gstTreatment === "INCLUDED" ? Number(form.gstRatePercent || 0) : 0,
+    gstApplyToAllRates: form.gstApplyToAllRates,
   };
 }
 
@@ -244,6 +255,9 @@ export default function CountryRateCardPage() {
       toKg: String(rate.toKg),
       chargesPerKg: String(rate.chargesPerKg),
       maxBoxKg: String(rate.maxBoxKg),
+      gstTreatment: rate.gstTreatment ?? "EXCLUDED",
+      gstRatePercent: String(rate.gstRatePercent ?? 0),
+      gstApplyToAllRates: rate.gstApplyToAllRates ?? false,
     });
     setCountryError("");
     setMessage("");
@@ -472,6 +486,53 @@ export default function CountryRateCardPage() {
             onChange={handleInput("maxBoxKg")}
           />
 
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">GST</span>
+            <select
+              value={form.gstTreatment}
+              onChange={handleInput("gstTreatment")}
+              className="mt-2 h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-900"
+            >
+              <option value="EXCLUDED">GST excluded</option>
+              <option value="INCLUDED">GST included</option>
+            </select>
+          </label>
+
+          {form.gstTreatment === "INCLUDED" ? (
+            <RateInput
+              label="GST %"
+              value={form.gstRatePercent}
+              onChange={handleInput("gstRatePercent")}
+            />
+          ) : null}
+
+          <label className="flex items-center gap-2 self-end pb-2 text-xs font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={form.gstApplyToAllRates}
+              onChange={(event) => updateField("gstApplyToAllRates", event.target.checked)}
+              disabled={!countryCode}
+              className="h-4 w-4 rounded border-slate-300 text-blue-900 focus:ring-blue-900"
+            />
+            Use this GST for all {countryCode ? countryName(countryCode) : "country"} rates in {formatRateCardBand(selectedBand)}
+          </label>
+
+          {form.chargesPerKg && form.gstTreatment === "INCLUDED" && form.gstRatePercent ? (
+            <p className="text-xs leading-5 text-slate-500 sm:col-span-2">
+              Rate-card display preview: <span className="font-semibold text-slate-800">
+                {rateCardDisplay({
+                  chargesPerKg: Number(form.chargesPerKg),
+                  gstTreatment: form.gstTreatment,
+                  gstRatePercent: Number(form.gstRatePercent)
+                }).amount} {rateCardDisplay({
+                  chargesPerKg: Number(form.chargesPerKg),
+                  gstTreatment: form.gstTreatment,
+                  gstRatePercent: Number(form.gstRatePercent)
+                }).label}
+              </span>. Booking and invoice pricing keeps using the existing rate.
+            </p>
+          ) : null}
+
           <div className="flex flex-col justify-end gap-2">
             <button
               type="submit"
@@ -577,8 +638,8 @@ export default function CountryRateCardPage() {
                   && charge.countryCode === group.countryCode
                   && charge.service === group.service
                 );
-                const cheapest = Math.min(...group.rates.map((rate) => rate.chargesPerKg));
-                const dearest = Math.max(...group.rates.map((rate) => rate.chargesPerKg));
+                const cheapest = Math.min(...group.rates.map((rate) => rateCardDisplay(rate).amount));
+                const dearest = Math.max(...group.rates.map((rate) => rateCardDisplay(rate).amount));
 
                 return (
                   <GroupRows
@@ -667,7 +728,10 @@ function GroupRows({
                 </span>
                 {rate.toKg}
               </td>
-              <td className="px-4 py-3 font-semibold">{rate.chargesPerKg}</td>
+              <td className="px-4 py-3 font-semibold">
+                <span>{rateCardDisplay(rate).amount}</span>
+                <span className="ml-2 text-[11px] font-medium text-slate-500">{rateCardDisplay(rate).label}</span>
+              </td>
               <td className="px-4 py-3">{rate.maxBoxKg}</td>
               <td className="px-4 py-3 max-w-5 text-xs text-slate-600">{routeChargeSummary}</td>
               <td className="px-4 py-3">

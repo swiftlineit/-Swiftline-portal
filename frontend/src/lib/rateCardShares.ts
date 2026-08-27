@@ -16,6 +16,8 @@ export type RateCardShareRow = {
   toKg: number;
   chargesPerKg: number;
   maxBoxKg: number;
+  gstTreatment?: "INCLUDED" | "EXCLUDED";
+  gstRatePercent?: number;
   /** Staff-only: the pre-adjustment rate. Never sent to clients or public links. */
   baseChargesPerKg?: number;
 };

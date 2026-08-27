@@ -5,7 +5,9 @@ import {
   describeAlreadyRecorded,
   describeEventDateProblem,
   describeMissingPrerequisites,
+  describeRecordedLaterMilestones,
   findMissingPrerequisites,
+  findRecordedLaterMilestones,
   formatShipmentEventLabel,
   isOperationalStatus
 } from "../services/shipmentStatusSequence.service.js";
@@ -41,17 +43,16 @@ describe("shipment status sequence", () => {
   });
 
   /**
-   * The case the "every earlier step" rule was chosen for. A next-only rule
-   * would leave this shipment stranded, because the step after its latest event
-   * is ORIGIN_HUB_DISPATCHED and the genuine gaps could never be filled.
+   * A historical gap is now deliberately held for a controlled correction: a
+   * normal update must not insert an earlier milestone after a later one.
    */
-  it("lets a shipment booked before the rule fill its gaps", () => {
+  it("does not offer an earlier gap after a later milestone exists", () => {
     const withGap = ["SHIPMENT_BOOKED", "PARCEL_COLLECTED", "READY_FOR_EXPORT"];
 
-    // The earliest gap opens first; the rest of the ladder stays shut behind it,
-    // so a backfill is walked in the same order the parcel travelled.
+    // The earlier gap is not a normal operator update once a later milestone
+    // exists; this prevents the timeline from being rewritten out of order.
     assert.deepEqual(findMissingPrerequisites("WAREHOUSE_SCAN_IN", withGap), []);
-    assert.deepEqual(allowedOperationalStatuses(withGap), ["WAREHOUSE_SCAN_IN"]);
+    assert.deepEqual(allowedOperationalStatuses(withGap), []);
     assert.deepEqual(
       findMissingPrerequisites("ORIGIN_HUB_PROCESSED", withGap),
       ["WAREHOUSE_SCAN_IN"]
@@ -143,6 +144,20 @@ describe("shipment status sequence", () => {
       "DELIVERY_HUB_ARRIVED",
       "OUT_FOR_DELIVERY"
     ]);
+  });
+
+  it("blocks adding an earlier milestone after a later one exists", () => {
+    const recorded = [
+      "WAREHOUSE_SCAN_IN",
+      "ORIGIN_HUB_PROCESSED",
+      "READY_FOR_EXPORT",
+      "ORIGIN_HUB_DISPATCHED"
+    ];
+    assert.deepEqual(findRecordedLaterMilestones("ORIGIN_HUB_PROCESSED", recorded), ["READY_FOR_EXPORT", "ORIGIN_HUB_DISPATCHED"]);
+    assert.match(
+      describeRecordedLaterMilestones("ORIGIN_HUB_PROCESSED", ["ORIGIN_HUB_DISPATCHED"]),
+      /cannot be recorded because Origin Hub Dispatched is already recorded/
+    );
   });
 });
 
