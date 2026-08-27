@@ -123,11 +123,14 @@ export default function AdminKpiGrid({
   overview,
   dataLoading,
   tracksShipments,
+  role,
 }: {
   overview: DashboardOverview | null;
   dataLoading: boolean;
   tracksShipments: boolean;
+  role: string;
 }) {
+  const operationsOnly = role === "operations";
   const shipments = overview?.shipments ?? null;
   const manifests = overview?.manifests ?? null;
   const accounts = overview?.accounts ?? null;
@@ -136,7 +139,7 @@ export default function AdminKpiGrid({
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {dataLoading
-        ? Array.from({ length: tracksShipments ? 8 : 4 }).map((_, index) => (
+        ? Array.from({ length: operationsOnly ? 4 : tracksShipments ? 8 : 4 }).map((_, index) => (
             <KpiCardSkeleton key={index} />
           ))
         : null}
@@ -147,7 +150,7 @@ export default function AdminKpiGrid({
             label="Booked today"
             value={formatCount(shipments.bookedToday)}
             description="Shipments created since midnight"
-            href="/dashboard/dpd-labels"
+            href="/dashboard/shipments"
             tone="primary"
             aside={`${formatCount(shipments.bookedYesterday)} yesterday`}
           />
@@ -172,7 +175,7 @@ export default function AdminKpiGrid({
             label="Needs attention"
             value={formatCount(shipments.exceptions)}
             description={`${shipments.onHold} on hold, plus returns, cancellations, and failed bookings`}
-            href="/dashboard/dpd-labels"
+            href="/dashboard/shipments?attention=1"
             tone={shipments.exceptions > 0 ? "attention" : "soft"}
             aside={
               shipments.onHold > 0
@@ -183,7 +186,7 @@ export default function AdminKpiGrid({
         </>
       ) : null}
 
-      {!dataLoading && accounts ? (
+      {!operationsOnly && !dataLoading && accounts ? (
         <>
           <KpiCard
             label="Business accounts"
@@ -204,7 +207,7 @@ export default function AdminKpiGrid({
         </>
       ) : null}
 
-      {!dataLoading && manifests && manifests.detailed ? (
+      {!operationsOnly && !dataLoading && manifests && manifests.detailed ? (
         <>
           <KpiCard
             label="Manifests"
@@ -240,7 +243,7 @@ export default function AdminKpiGrid({
         </>
       ) : null}
 
-      {!dataLoading && manifests && !manifests.detailed ? (
+      {!operationsOnly && !dataLoading && manifests && !manifests.detailed ? (
         <KpiCard
           label="Awaiting dispatch"
           value={formatCount(manifests.sealed)}
@@ -250,7 +253,7 @@ export default function AdminKpiGrid({
         />
       ) : null}
 
-      {!dataLoading && finance ? (
+      {!operationsOnly && !dataLoading && finance ? (
         <KpiCard
           label="Receivables"
           value={formatCompactMoney(

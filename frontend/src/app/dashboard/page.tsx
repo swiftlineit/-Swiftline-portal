@@ -142,6 +142,7 @@ export default function DashboardPage() {
                 overview={overview}
                 dataLoading={dataLoading}
                 tracksShipments={tracksShipments}
+                role={user.role}
               />
 
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

@@ -175,7 +175,10 @@ export type AuditAction =
   | "CALENDAR_ENTRY_DELETED"
   | "REGULATORY_UPDATE_CREATED"
   | "REGULATORY_UPDATE_UPDATED"
-  | "REGULATORY_UPDATE_DELETED";
+  | "REGULATORY_UPDATE_DELETED"
+  | "DASHBOARD_BANNER_CREATED"
+  | "DASHBOARD_BANNER_UPDATED"
+  | "DASHBOARD_BANNER_DELETED";
 export type AuditEntityType =
   | "BRANCH"
   | "DPD_CONFIGURATION"
@@ -219,7 +222,8 @@ export type AuditEntityType =
   | "SERVICE_DISRUPTION"
   | "OPERATIONAL_CALENDAR_ENTRY"
   | "REGULATORY_UPDATE"
-  | "SWIFTLINE_ROUTE";
+  | "SWIFTLINE_ROUTE"
+  | "DASHBOARD_BANNER";
 
 export interface IAuditLog extends mongoose.Document {
   action: AuditAction;

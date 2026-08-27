@@ -85,7 +85,8 @@ export const storageModules = {
   staff: "staff",
   profileImage: "profile-images",
   shipmentImport: "shipment-imports",
-  claim: "claims"
+  claim: "claims",
+  dashboardBanner: "dashboard-banners"
 } as const;
 
 export const claimDocumentTypeValues = ["evidence", "payment-proof", "beneficiary"] as const;
@@ -159,6 +160,10 @@ export function staffDocumentKey(userId: string, originalName: string) {
 
 export function profileImageKey(userId: string, originalName: string) {
   return joinKey(storageModules.profileImage, userId, generatedFilename(originalName));
+}
+
+export function dashboardBannerKey(originalName: string) {
+  return joinKey(storageModules.dashboardBanner, generatedFilename(originalName));
 }
 
 /**

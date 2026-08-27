@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiArchive, FiArrowDown, FiExternalLink, FiFileText, FiPlus, FiSearch, FiTrash2, FiX } from "react-icons/fi";
+import { useSearchParams } from "next/navigation";
+import { FiAlertTriangle, FiArchive, FiArrowDown, FiExternalLink, FiFileText, FiPlus, FiSearch, FiTrash2, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -54,7 +55,13 @@ function getAccountLabel(account: BusinessAccount) {
  * back to the raw value so an unmapped status is still readable.
  */
 function formatStageLabel(status: string) {
-  return shipmentStatusOptions.find((option) => option.value === status)?.label ?? status;
+  const visibleLabel = shipmentStatusOptions.find((option) => option.value === status)?.label;
+  if (visibleLabel) return visibleLabel;
+  // Legacy event names are intentionally not filter options, but they still
+  // need readable labels if an old shipment appears in a selected batch.
+  if (status === "FLIGHT_ASSIGNED") return "Flight Assigned";
+  if (status === "FLIGHT_DEPARTED") return "Flight Departed";
+  return status;
 }
 
 /**
@@ -86,6 +93,8 @@ function isStatusUpdateEligible(shipment: ShipmentListItem) {
  * rendered here.
  */
 export default function ShipmentsListPage({ audience, role }: { audience: ShipmentAudience; role?: string }) {
+  const searchParams = useSearchParams();
+  const attentionOnly = searchParams.get("attention") === "1" || searchParams.get("attention") === "true";
   const [shipments, setShipments] = useState<ShipmentListItem[]>([]);
   const [pagination, setPagination] = useState<ShipmentListPagination>(emptyPagination);
   // Keyed by shipment id so a selection survives moving to another page - only
@@ -174,7 +183,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     setLoading(true);
     setError("");
     try {
-      const data = await listShipments(audience, { page, limit, status, search, dateRange, businessAccountId, sort });
+      const data = await listShipments(audience, { page, limit, status, search, dateRange, businessAccountId, sort, attention: attentionOnly });
       setShipments(data.shipments);
       setPagination(data.pagination);
       // Refresh or drop only the selections that belong to this page - a shipment
@@ -196,7 +205,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     } finally {
       setLoading(false);
     }
-  }, [audience, businessAccountId, dateRange, limit, page, search, sort, status]);
+  }, [attentionOnly, audience, businessAccountId, dateRange, limit, page, search, sort, status]);
 
   // Deferred so the fetch's setState lands after the first paint rather than
   // cascading a render, matching the other listing screens.
@@ -391,9 +400,22 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
       <section className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold text-[#0D1282]">Shipments</h1>
+            <h1 className="text-2xl font-semibold text-[#0D1282]">Shipments
+
+              {attentionOnly ? (
+              <span className="ml-4 inline-flex items-center gap-2 rounded-full bg-amber-50 px-2.5 py-1 text-sm font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
+                Attention needed only
+                <Link href={audience === "client" ? "/client/shipments" : "/dashboard/shipments"} aria-label="Clear attention filter" className="rounded-full p-0.5 hover:bg-amber-100">
+                  <FiX aria-hidden="true" className="h-3 w-3" />
+                </Link>
+              </span>
+            ) : null}
+            </h1>
+
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-              {audience === "client"
+              {attentionOnly
+                ? "Showing shipments with an active exception or unresolved booking outcome."
+                : audience === "client"
                 ? "Your booked shipments. Select one or more to generate a manifest."
                 : "All booked shipments across business accounts. Select one or more to update their status at once."}
             </p>
@@ -837,7 +859,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
       <div className="mb-3 flex justify-end">
         <TableToolbar
           exportPath={shipmentListPath(audience)}
-          exportParams={shipmentListParams({ status, search, dateRange, businessAccountId, sort })}
+          exportParams={shipmentListParams({ status, search, dateRange, businessAccountId, sort, attention: attentionOnly })}
           exportName="shipments"
           rowCount={pagination.total}
           columns={columnOptions}

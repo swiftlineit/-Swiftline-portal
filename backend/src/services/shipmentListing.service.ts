@@ -26,6 +26,8 @@ export type ShipmentListingFilter = {
   search?: string;
   dateFrom?: string;
   dateTo?: string;
+  /** When true, keep only shipments with a current exception or unresolved carrier booking. */
+  attention?: boolean;
   page: number;
   limit: number;
   /** Manifest assignments are per actor role, so eligibility is role-scoped. */
@@ -207,6 +209,29 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
       { $match: { status: filter.status } }
     ]).exec();
     matchingIds = latest.map((item) => item._id);
+  }
+
+  if (filter.attention) {
+    const candidates = await ShipmentDraft.find(candidateFilter).select("_id").lean().exec();
+    const [latestExceptions, unresolvedBookings] = await Promise.all([
+      ShipmentEvent.aggregate<{ _id: mongoose.Types.ObjectId; status: string }>([
+        { $match: { shipmentDraftId: { $in: candidates.map((draft) => draft._id) }, customerVisible: true } },
+        { $sort: { eventAt: -1, createdAt: -1 } },
+        { $group: { _id: "$shipmentDraftId", status: { $first: "$status" } } },
+        { $match: { status: { $in: ["ON_HOLD", "RETURNED", "LOST", "DAMAGED", "SHIPMENT_CANCELLED"] } } }
+      ]).exec(),
+      DpdShipment.find({
+        shipmentDraftId: { $in: candidates.map((draft) => draft._id) },
+        status: { $in: ["DPD_REJECTED", "DPD_STATUS_UNKNOWN"] }
+      }).select("shipmentDraftId").lean().exec()
+    ]);
+    const attentionIds = new Set([
+      ...latestExceptions.map((item) => String(item._id)),
+      ...unresolvedBookings.map((item) => String(item.shipmentDraftId))
+    ]);
+    matchingIds = matchingIds
+      ? matchingIds.filter((id) => attentionIds.has(String(id)))
+      : candidates.map((draft) => draft._id).filter((id) => attentionIds.has(String(id)));
   }
 
   const query = matchingIds ? { ...candidateFilter, _id: { $in: matchingIds } } : candidateFilter;

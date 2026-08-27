@@ -88,7 +88,7 @@ export default function OperationsManifestListPage() {
     : false;
 
   return (
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-8xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4 rounded-lg border border-[#EEEDED] bg-white p-5 shadow-sm">
           <div>
             <h1 className="text-2xl font-semibold text-[#0D1282]">

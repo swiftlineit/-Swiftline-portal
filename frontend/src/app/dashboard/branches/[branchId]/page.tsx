@@ -617,8 +617,6 @@ function BranchShipmentsSection({ branchId }: { branchId: string }) {
               <option value="EXPORT_CUSTOMS_CLEARED">
                 Export Customs Cleared
               </option>
-              <option value="FLIGHT_ASSIGNED">Flight Assigned</option>
-              <option value="FLIGHT_DEPARTED">Flight Departed</option>
               <option value="DESTINATION_ARRIVED">Destination Arrived</option>
               <option value="IMPORT_CUSTOMS_CLEARANCE">Customs Clearance in Progress</option>
               <option value="IMPORT_CUSTOMS_CLEARED">Customs Cleared</option>

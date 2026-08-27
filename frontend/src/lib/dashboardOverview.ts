@@ -32,12 +32,12 @@ export type DashboardRole = AuthenticatedUser["role"];
 // to every signed-in role- so asking for anything else would only collect 403s.
 export type DashboardCapability = "shipments" | "accounts" | "finance" | "approvals" | "manifests";
 
-// Operations is deliberately left off "shipments": that flag also selects the
-// summary form of the manifest panel, and operations wants the full lifecycle
-// breakdown it gets today. HR has no reporting scope, so it sees the scope card.
+// Operations receives shipment data for the four operational KPI cards and the
+// full manifest lifecycle breakdown. The KPI component keeps its view limited
+// to those four cards; HR has no reporting scope, so it sees the scope card.
 const roleCapabilities: Record<string, DashboardCapability[]> = {
   admin: ["shipments", "accounts", "finance", "approvals", "manifests"],
-  operations: ["manifests"],
+  operations: ["shipments", "manifests"],
   finance: ["finance"],
   delivery: ["shipments"]
 };

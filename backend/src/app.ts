@@ -53,6 +53,7 @@ import {
 } from "./routes/pickup.routes.js";
 import { podDeliveryRouter, podManagementRouter } from "./routes/pod.routes.js";
 import { profitabilityRouter } from "./routes/profitability.routes.js";
+import { dashboardBannerRouter } from "./routes/dashboardBanner.routes.js";
 
 export const app = express();
 
@@ -162,6 +163,7 @@ app.use("/api/v1/credit-accounts", creditAccountRouter);
 app.use("/api/v1/credit-agreements", creditAgreementRouter);
 app.use("/api/v1/profitability", profitabilityRouter);
 app.use("/api/v1/notifications", notificationRouter);
+app.use("/api/v1/dashboard-banner", dashboardBannerRouter);
 
 // There is deliberately no generic file route here. `/api/v1/files` used to
 // serve the whole `private_uploads` tree behind nothing but "are you signed in",

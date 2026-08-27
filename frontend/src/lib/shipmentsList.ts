@@ -81,8 +81,6 @@ export const shipmentStatusOptions = [
   // Historical status filters remain available for shipments recorded before
   // the destination-aware flow was introduced.
   { value: "EXPORT_CUSTOMS_CLEARED", label: "Export Customs Cleared" },
-  { value: "FLIGHT_ASSIGNED", label: "Flight Assigned" },
-  { value: "FLIGHT_DEPARTED", label: "Flight Departed" },
   { value: "DESTINATION_ARRIVED", label: "Destination Arrived" },
   { value: "IMPORT_CUSTOMS_CLEARANCE", label: "Customs Clearance in Progress" },
   { value: "IMPORT_CUSTOMS_CLEARED", label: "Customs Cleared" },
@@ -101,7 +99,9 @@ export async function fetchWithAuth(path: string, init?: RequestInit) {
   const send = () => fetch(apiUrl(path), {
     ...init,
     headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !(typeof FormData !== "undefined" && init.body instanceof FormData)
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...init?.headers,
       Authorization: `Bearer ${token}`
     }
@@ -153,6 +153,7 @@ export function shipmentListParams(input: {
   page?: number;
   limit?: number;
   status?: string;
+  attention?: boolean;
   search?: string;
   dateRange?: DateRange;
   businessAccountId?: string;
@@ -163,6 +164,7 @@ export function shipmentListParams(input: {
   params.set("page", String(input.page ?? 1));
   params.set("limit", String(input.limit ?? 20));
   if (input.status) params.set("status", input.status);
+  if (input.attention) params.set("attention", "1");
   if (input.search?.trim()) params.set("search", input.search.trim());
   setDateRangeParams(params, input.dateRange);
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
@@ -175,6 +177,7 @@ export async function listShipments(audience: ShipmentAudience, input: {
   page?: number;
   limit?: number;
   status?: string;
+  attention?: boolean;
   /** Free text over AWB, piece number, consignee, consignee address (including destination country/county/postcode), and your own reference. */
   search?: string;
   dateRange?: DateRange;
