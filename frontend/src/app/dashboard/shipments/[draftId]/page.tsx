@@ -24,6 +24,7 @@ import {
   createShipmentAmendment,
   correctDpdShipmentGateway,
   findMissingStatusPrerequisites,
+  findRecordedLaterStatusMilestones,
   firstAllowedOperationalStatus,
   hasRecordedOperationalStatus,
   getDpdLabelAccessUrl,
@@ -252,7 +253,8 @@ export default function AdminShipmentDetailsPage() {
     () => shipmentOperationalStatusOptions.map((option) => ({
       ...option,
       completed: hasRecordedOperationalStatus(option.value, recordedStatuses),
-      missing: findMissingStatusPrerequisites(option.value, recordedStatuses)
+      missing: findMissingStatusPrerequisites(option.value, recordedStatuses),
+      later: findRecordedLaterStatusMilestones(option.value, recordedStatuses)
     })),
     [recordedStatuses]
   );
@@ -586,10 +588,16 @@ export default function AdminShipmentDetailsPage() {
                               // A stage the shipment has not reached yet. Shown rather
                               // than hidden so the whole journey stays visible and the
                               // outstanding step explains itself.
-                              disabled={option.completed || option.missing.length > 0}
+                              disabled={option.completed || option.missing.length > 0 || option.later.length > 0}
                             >
                               {option.label}
-                              {option.completed ? " - completed" : option.missing.length ? " - not yet reached" : ""}
+                              {option.completed
+                                ? " - completed"
+                                : option.later.length
+                                  ? " - earlier stage"
+                                  : option.missing.length
+                                    ? " - not yet reached"
+                                    : ""}
                             </option>
                           ))}
                         </select>
@@ -605,6 +613,12 @@ export default function AdminShipmentDetailsPage() {
                             .join(", ")}{" "}
                           before {blockedStatus.label.toLowerCase()} becomes available. Shipment progress is
                           recorded in order.
+                        </p>
+                      ) : null}
+                      {blockedStatus?.later.length ? (
+                        <p className="mt-2 text-xs font-medium leading-5 text-amber-700">
+                          {blockedStatus.label} cannot be added because a later milestone is already recorded.
+                          Use the controlled correction process for historical data.
                         </p>
                       ) : null}
                     </label>
@@ -677,7 +691,9 @@ export default function AdminShipmentDetailsPage() {
                       disabled={actionBusy
                         || ((actionMode === "hold" || actionMode === "release") && actionNote.trim().length < 3)
                         || (actionMode === "hold" && !holdReason)
-                        || (actionMode === "status" && Boolean(blockedStatus?.completed || blockedStatus?.missing.length))
+                        || (actionMode === "status" && Boolean(
+                          blockedStatus?.completed || blockedStatus?.missing.length || blockedStatus?.later.length
+                        ))
                         || ((actionMode === "gateway" || (actionMode === "status" && nextStatus === "DESTINATION_ARRIVED"))
                           && !isValidGatewayIata(isUkRoute ? "LHR" : actionGatewayCode))}
                       className="h-10 bg-blue-900 px-4  rounded-2xl text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"

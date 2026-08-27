@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   allowedOperationalStatuses,
+  canonicalShipmentStatus,
   describeAlreadyRecorded,
   describeEventDateProblem,
   describeMissingPrerequisites,
   describeRecordedLaterMilestones,
+  equivalentCurrentStatusValues,
   findMissingPrerequisites,
   findRecordedLaterMilestones,
   formatShipmentEventLabel,
@@ -124,6 +126,31 @@ describe("shipment status sequence", () => {
       "FLIGHT_DEPARTED"
     ];
     assert.deepEqual(findMissingPrerequisites("DESTINATION_ARRIVED", historical), []);
+  });
+
+  it("uses one canonical stage for historical aliases without rewriting stored events", () => {
+    assert.equal(canonicalShipmentStatus("EXPORT_CUSTOMS_CLEARED"), "READY_FOR_EXPORT");
+    assert.equal(canonicalShipmentStatus("FLIGHT_ASSIGNED"), "READY_FOR_EXPORT");
+    assert.equal(canonicalShipmentStatus("FLIGHT_DEPARTED"), "ORIGIN_HUB_DISPATCHED");
+    assert.equal(canonicalShipmentStatus("DESTINATION_ARRIVED"), "DESTINATION_ARRIVED");
+    assert.equal(formatShipmentEventLabel("FLIGHT_DEPARTED"), "Origin Hub Dispatched");
+  });
+
+  it("keeps one visible filter while matching every historical alias internally", () => {
+    assert.deepEqual(equivalentCurrentStatusValues("READY_FOR_EXPORT"), [
+      "READY_FOR_EXPORT",
+      "EXPORT_CUSTOMS_CLEARED",
+      "FLIGHT_ASSIGNED"
+    ]);
+    assert.deepEqual(equivalentCurrentStatusValues("EXPORT_CUSTOMS_CLEARED"), [
+      "READY_FOR_EXPORT",
+      "EXPORT_CUSTOMS_CLEARED",
+      "FLIGHT_ASSIGNED"
+    ]);
+    assert.deepEqual(equivalentCurrentStatusValues("ORIGIN_HUB_DISPATCHED"), [
+      "ORIGIN_HUB_DISPATCHED",
+      "FLIGHT_DEPARTED"
+    ]);
   });
 
   it("blocks out-for-delivery and delivered when partner milestones are missing", () => {

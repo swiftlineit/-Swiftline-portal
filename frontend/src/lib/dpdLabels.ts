@@ -594,6 +594,21 @@ export function hasRecordedOperationalStatus(
   return [target, ...(legacyAliases[target] ?? [])].some((status) => already.has(status));
 }
 
+/** Later milestones that make `target` a controlled correction, not a normal update. */
+export function findRecordedLaterStatusMilestones(
+  target: string,
+  recorded: Iterable<string>
+): ShipmentOperationalStatus[] {
+  const ladder = shipmentOperationalStatusOptions.map((option) => option.value);
+  const index = ladder.indexOf(target as ShipmentOperationalStatus);
+  if (index < 0) return [];
+
+  const already = [...recorded];
+  return ladder.slice(index + 1).filter((status) => (
+    hasRecordedOperationalStatus(status, already)
+  ));
+}
+
 /**
  * The first status this shipment may record, so the form never opens on an
  * option it would immediately reject. Falls back to the head of the ladder for a
@@ -606,7 +621,8 @@ export function firstAllowedOperationalStatus(
   return shipmentOperationalStatusOptions
     .map((option) => option.value)
     .find((status) => !hasRecordedOperationalStatus(status, already)
-      && findMissingStatusPrerequisites(status, already).length === 0)
+      && findMissingStatusPrerequisites(status, already).length === 0
+      && findRecordedLaterStatusMilestones(status, already).length === 0)
     ?? "PARCEL_COLLECTED";
 }
 
@@ -1094,6 +1110,8 @@ export type BulkShipmentStatusResult = {
  */
 export async function bulkUpdateDpdShipmentOperationalStatus(input: {
   shipmentDraftIds: string[];
+  /** Statuses shown when the rows were selected, for stale-selection detection. */
+  expectedStatuses?: Array<{ shipmentDraftId: string; status: string }>;
   status: ShipmentOperationalStatus;
   note?: string;
   location?: string;
@@ -1107,6 +1125,7 @@ export async function bulkUpdateDpdShipmentOperationalStatus(input: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       shipmentDraftIds: input.shipmentDraftIds,
+      expectedStatuses: input.expectedStatuses ?? [],
       status: input.status,
       note: input.note ?? "",
       location: input.location ?? "",

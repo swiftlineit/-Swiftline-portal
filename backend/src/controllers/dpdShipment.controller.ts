@@ -11,6 +11,7 @@ import { canAccessBranch } from "../middleware/branchAccess.middleware.js";
 import { labelContentType, labelFileExtension } from "../services/labelStorage.service.js";
 import {
   ShipmentEvent,
+  shipmentEventStatusValues,
   shipmentHoldReasonValues,
   shipmentMilestoneKey,
   shipmentOperationalStatusValues,
@@ -113,6 +114,10 @@ const bulkStatusUpdateSchema = z.object({
   shipmentDraftIds: z.array(
     z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Select valid shipments.")
   ).min(1, "Select at least one shipment.").max(200, "A bulk update can cover up to 200 shipments."),
+  expectedStatuses: z.array(z.object({
+    shipmentDraftId: z.string().refine((value) => mongoose.Types.ObjectId.isValid(value), "Select valid shipments."),
+    status: z.enum(shipmentEventStatusValues)
+  })).max(200).optional().default([]),
   status: z.enum(shipmentOperationalStatusValues),
   note: z.string().trim().max(500).optional().default(""),
   location: eventLocationSchema,
@@ -1372,6 +1377,7 @@ export async function bulkUpdateDpdShipmentOperationalStatus(request: Request, r
       gatewayCode: parsed.data.gatewayCode,
       partnerName: parsed.data.partnerName,
       partnerCode: parsed.data.partnerCode,
+      expectedStatuses: parsed.data.expectedStatuses,
       userId
     });
 

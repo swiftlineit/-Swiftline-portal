@@ -18,6 +18,7 @@
  * prerequisites- and no new shipment can develop a gap in the first place.
  */
 import {
+  shipmentMilestoneKey,
   shipmentOperationalStatusValues,
   type ShipmentEventStatus
 } from "../models/shipmentEvent.model.js";
@@ -37,6 +38,31 @@ const legacyStatusAliases: Partial<Record<ShipmentOperationalStatus, readonly Sh
 /** Every stored name that proves the requested current milestone happened. */
 export function equivalentMilestoneStatuses(status: ShipmentOperationalStatus): readonly ShipmentEventStatus[] {
   return [status, ...(legacyStatusAliases[status] ?? [])];
+}
+
+/**
+ * The single operational name represented by a stored event status.
+ *
+ * Historical event rows stay untouched for audit purposes. Readers use this
+ * function so an old export/flight event and its current milestone never appear
+ * as two different shipment stages in lists, filters or bulk validation.
+ */
+export function canonicalShipmentStatus(status?: string | null): string {
+  if (!status) return "";
+  return shipmentMilestoneKey(status) || status;
+}
+
+/**
+ * Stored status values that can represent one current stage.
+ *
+ * This is intentionally a query helper, not a grouped UI filter: staff choose
+ * one canonical stage while historical aliases remain findable internally.
+ */
+export function equivalentCurrentStatusValues(status: string): readonly string[] {
+  const canonical = canonicalShipmentStatus(status);
+  return isOperationalStatus(canonical)
+    ? equivalentMilestoneStatuses(canonical)
+    : [canonical];
 }
 
 export function hasRecordedMilestone(
@@ -60,7 +86,7 @@ export function isOperationalStatus(value: string): value is ShipmentOperational
  */
 export function formatShipmentEventLabel(value?: string | null): string {
   if (!value) return "Shipment Created";
-  return value
+  return canonicalShipmentStatus(value)
     .toLowerCase()
     .replace(/_/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());

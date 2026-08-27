@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   bulkSelectionBlockReason,
+  findBulkStatusChanges,
   statusUpdateBlockReason
 } from "../services/bulkShipmentStatus.service.js";
 
@@ -158,6 +159,36 @@ describe("bulk selection blocking", () => {
   it("allows one uniform stage moving forward", () => {
     assert.equal(bulkSelectionBlockReason(["SHIPMENT_BOOKED", "SHIPMENT_BOOKED"], "PARCEL_COLLECTED"), null);
     assert.equal(bulkSelectionBlockReason(["PARCEL_COLLECTED"], "WAREHOUSE_SCAN_IN"), null);
+  });
+
+  it("treats legacy and current names for one milestone as the same bulk stage", () => {
+    assert.equal(
+      bulkSelectionBlockReason(["FLIGHT_DEPARTED", "ORIGIN_HUB_DISPATCHED"], "DESTINATION_ARRIVED"),
+      null
+    );
+    assert.equal(
+      bulkSelectionBlockReason(["FLIGHT_DEPARTED"], "ORIGIN_HUB_DISPATCHED"),
+      "Every selected shipment is already at Origin Hub Dispatched. "
+        + "Choose the stage they should move to next."
+    );
+  });
+
+  it("identifies only rows whose canonical status changed after selection", () => {
+    const changes = findBulkStatusChanges([
+      { shipmentDraftId: "one", status: "DESTINATION_ARRIVED" },
+      { shipmentDraftId: "two", status: "FLIGHT_DEPARTED" },
+      { shipmentDraftId: "three", status: "READY_FOR_EXPORT" }
+    ], new Map([
+      ["one", "DELIVERED"],
+      ["two", "ORIGIN_HUB_DISPATCHED"],
+      ["three", "EXPORT_CUSTOMS_CLEARED"]
+    ]));
+
+    assert.deepEqual(changes, [{
+      shipmentDraftId: "one",
+      expectedStatus: "DESTINATION_ARRIVED",
+      currentStatus: "DELIVERED"
+    }]);
   });
 
   it("allows a selection with nothing bookable in it, leaving those as per-shipment skips", () => {

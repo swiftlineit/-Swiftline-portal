@@ -99,6 +99,10 @@ function serializeProfitability(row: InstanceType<typeof ShipmentProfitability>)
     primaryVendor: vendor && vendor.name
       ? { id: String(vendor._id), name: vendor.name, code: vendor.code ?? "" }
       : null,
+    costSource: row.costSource ?? "LEGACY",
+    flightCostSheetId: row.flightCostSheetId ? String(row.flightCostSheetId) : null,
+    operationsManifestId: row.operationsManifestId ? String(row.operationsManifestId) : null,
+    flightAllocation: row.flightAllocation ?? [],
     awb: row.awb,
     customerName: row.customerName,
     originCountryCode: row.originCountryCode,
@@ -131,7 +135,8 @@ export async function getProfitabilityOverview(request: Request, response: Respo
     const todayMatch = { ...match, bookedAt: { $gte: todayRange.fromDate, $lt: todayRange.toExclusive } };
     const monthMatch = { ...match, bookedAt: { $gte: monthRange.fromDate, $lt: monthRange.toExclusive } };
 
-    const [todayRows, monthlyTrend, lossMaking, customers, lanes, coverage] = await Promise.all([
+    const branchMatch = (match.branchId !== undefined ? { branchId: match.branchId } : {}) as Record<string, unknown>;
+    const [todayRows, monthlyTrend, lossMaking, customers, lanes, coverage, flightLossMaking, destinations, sheetsRequiringCompletion, monthlyProfit] = await Promise.all([
       ShipmentProfitability.aggregate<{ revenueMinor: number; costMinor: number; profitMinor: number }>([
         { $match: todayMatch },
         { $group: { _id: null, revenueMinor: { $sum: "$totalRevenueMinor" }, costMinor: { $sum: "$totalCostMinor" }, profitMinor: { $sum: "$grossProfitMinor" } } }
@@ -159,18 +164,41 @@ export async function getProfitabilityOverview(request: Request, response: Respo
       ShipmentProfitability.aggregate<{ coverage: string; count: number }>([
         { $match: monthMatch }, { $group: { _id: "$coverage", count: { $sum: 1 } } },
         { $project: { _id: 0, coverage: "$_id", count: 1 } }
-      ]).exec()
+      ]).exec(),
+      // Flight-level loss-making sheets
+      (await import("../models/flightCostSheet.model.js")).FlightCostSheet.find({ ...branchMatch, "totals.grossProfitMinor": { $lt: 0 } }).sort({ "totals.grossProfitMinor": 1 }).limit(5).lean().exec(),
+      ShipmentProfitability.aggregate<{ destinationCountryCode: string; destinationCountryName: string; shipments: number; profitMinor: number }>([
+        { $match: monthMatch },
+        { $group: { _id: "$destinationCountryCode", destinationCountryName: { $max: "$destinationCountryName" }, shipments: { $sum: 1 }, profitMinor: { $sum: "$grossProfitMinor" } } },
+        { $sort: { profitMinor: -1 } }, { $limit: 5 },
+        { $project: { _id: 0, destinationCountryCode: "$_id", destinationCountryName: 1, shipments: 1, profitMinor: 1 } }
+      ]).exec(),
+      (await import("../models/flightCostSheet.model.js")).FlightCostSheet.find({ ...branchMatch, status: { $in: ["DRAFT", "REVIEW_REQUIRED"] } }).sort({ flightDate: 1 }).limit(10).select("manifestNumber mawbNumber flightNumber flightDate vendorId totals status branchId").populate("vendorId", "name code").lean().exec(),
+      ShipmentProfitability.aggregate<{ profitMinor: number }>([{ $match: monthMatch }, { $group: { _id: null, profitMinor: { $sum: "$grossProfitMinor" } } }]).exec()
     ]);
 
     const today = todayRows[0] ?? { revenueMinor: 0, costMinor: 0, profitMinor: 0 };
+    const monthlyProfitVal = monthlyProfit[0]?.profitMinor ?? 0;
     return response.status(200).json({
       success: true,
       currency: "INR",
       today: { ...today, marginBasisPoints: today.revenueMinor > 0 ? Math.round((today.profitMinor / today.revenueMinor) * 10000) : null },
       monthlyTrend,
+      monthlyProfitMinor: monthlyProfitVal,
       lossMaking: lossMaking.map(serializeProfitability),
+      lossMakingFlights: flightLossMaking.map((s: any) => ({
+        id: String(s._id), manifestNumber: s.manifestNumber, mawbNumber: s.mawbNumber, flightNumber: s.flightNumber, flightDate: s.flightDate,
+        vendor: s.vendorId && typeof s.vendorId === "object" && "name" in s.vendorId ? { id: String((s.vendorId as any)._id), name: (s.vendorId as any).name, code: (s.vendorId as any).code } : null,
+        destinationCountryName: s.destinationCountryName, totalCostMinor: s.totals.totalCostMinor, totalRevenueMinor: s.totals.totalRevenueMinor, grossProfitMinor: s.totals.grossProfitMinor, marginBasisPoints: s.totals.marginBasisPoints, status: s.status
+      })),
       mostProfitableCustomers: customers,
       mostProfitableLanes: lanes,
+      mostProfitableDestinations: destinations,
+      sheetsRequiringCompletion: sheetsRequiringCompletion.map((s: any) => ({
+        id: String(s._id), manifestNumber: s.manifestNumber, mawbNumber: s.mawbNumber, flightNumber: s.flightNumber, flightDate: s.flightDate,
+        vendor: s.vendorId && typeof s.vendorId === "object" && "name" in s.vendorId ? { id: String((s.vendorId as any)._id), name: (s.vendorId as any).name } : null,
+        status: s.status, totalCostMinor: s.totals.totalCostMinor
+      })),
       coverage
     });
   } catch (error) {
@@ -226,6 +254,9 @@ export async function updateShipmentProfitabilityCosts(request: Request, respons
   if (!parsed.success) return reject(response, 400, parsed.error.issues[0]?.message ?? "Enter valid shipment costs.");
   const profile = await ShipmentProfitability.findOne({ shipmentDraftId: id }).exec();
   if (!profile || !canAccessBranch(request, profile.branchId)) return reject(response, 404, "Shipment not found");
+  if (profile.costSource === "FLIGHT_ALLOCATION") {
+    return reject(response, 409, "This shipment receives costs from its flight cost sheet. Update the flight instead.");
+  }
   if (profile.version !== parsed.data.expectedVersion) return reject(response, 409, "Shipment costs changed. Reload and review the latest values.");
 
   let vendorId = profile.primaryVendorId ?? null;

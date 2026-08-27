@@ -117,6 +117,9 @@ const environmentSchema = z.object({
   // Portal values are held in INR; ALS declares customs value in GBP.
   ALS_INR_PER_GBP: z.coerce.number().positive().optional(),
   ALS_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  // Used server-side only. Historical cost sheets persist the fetched rate so
+  // their INR totals never move when a later market rate is published.
+  EXCHANGE_RATE_API_KEY: z.string().trim().min(1).optional(),
   EMAIL_DOMAIN_CHECK: booleanFromEnv.default(true)
 }).superRefine((value, context) => {
   // Fail at boot rather than on the first upload: a missing bucket would

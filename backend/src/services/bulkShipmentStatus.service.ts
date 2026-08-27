@@ -7,6 +7,7 @@ import { ShipmentEvent, shipmentMilestoneKey } from "../models/shipmentEvent.mod
 import { resolveShipmentEventNote } from "./shipmentEventCopy.service.js";
 import { chargeFinalizingStatuses, markShipmentChargeFinalized } from "./shipmentInvoice.service.js";
 import {
+  canonicalShipmentStatus,
   describeEventDateProblem,
   describeAlreadyRecorded,
   describeMissingPrerequisites,
@@ -53,6 +54,30 @@ export class BulkStatusSelectionError extends Error {
  */
 export const NOT_YET_SCANNED = "SHIPMENT_BOOKED";
 
+export type BulkStatusExpectation = {
+  shipmentDraftId: string;
+  status: string;
+};
+
+/**
+ * Detects rows whose current stage changed after the browser selected them.
+ * Canonical comparison prevents a harmless legacy alias from looking like a
+ * change while still catching a real move such as Destination Arrived to
+ * Delivered.
+ */
+export function findBulkStatusChanges(
+  expected: readonly BulkStatusExpectation[],
+  currentByDraft: ReadonlyMap<string, string>
+) {
+  return expected.flatMap((item) => {
+    const expectedStatus = canonicalShipmentStatus(item.status) || NOT_YET_SCANNED;
+    const currentStatus = canonicalShipmentStatus(currentByDraft.get(item.shipmentDraftId)) || NOT_YET_SCANNED;
+    return expectedStatus === currentStatus
+      ? []
+      : [{ shipmentDraftId: item.shipmentDraftId, expectedStatus, currentStatus }];
+  });
+}
+
 /**
  * Why this selection cannot be updated as one batch, or null when it can.
  *
@@ -72,7 +97,10 @@ export function bulkSelectionBlockReason(
   currentStatuses: readonly string[],
   target: ShipmentOperationalStatus
 ): string | null {
-  const distinct = [...new Set(currentStatuses)];
+  const distinct = [...new Set(currentStatuses.map((status) => (
+    canonicalShipmentStatus(status) || NOT_YET_SCANNED
+  )))];
+  const canonicalTarget = canonicalShipmentStatus(target);
 
   if (distinct.length > 1) {
     const labels = distinct.map(formatShipmentEventLabel).sort();
@@ -81,7 +109,7 @@ export function bulkSelectionBlockReason(
       + "Narrow it to shipments that share one current status and update each group separately.";
   }
 
-  if (distinct.length === 1 && distinct[0] === target) {
+  if (distinct.length === 1 && distinct[0] === canonicalTarget) {
     return `Every selected shipment is already at ${formatShipmentEventLabel(target)}. `
       + "Choose the stage they should move to next.";
   }
@@ -163,6 +191,8 @@ export async function bulkRecordOperationalStatus(input: {
   gatewayCode?: string;
   partnerName?: string;
   partnerCode?: string;
+  /** Browser snapshot used only to detect rows that changed before submission. */
+  expectedStatuses?: BulkStatusExpectation[];
   userId: mongoose.Types.ObjectId;
 }): Promise<{ updatedCount: number; skipped: BulkStatusSkip[] }> {
   const uniqueIds = [...new Set(input.shipmentDraftIds)];
@@ -216,6 +246,26 @@ export async function bulkRecordOperationalStatus(input: {
     if (targetStatuses.has(event.status) && !targetEventAtByDraft.has(draftId)) {
       targetEventAtByDraft.set(draftId, event.eventAt);
     }
+  }
+
+  const selectedIdSet = new Set(uniqueIds);
+  const changedSelections = findBulkStatusChanges(
+    (input.expectedStatuses ?? []).filter((item) => selectedIdSet.has(item.shipmentDraftId)),
+    latestStatusByDraft
+  );
+  if (changedSelections.length) {
+    const visible = changedSelections.slice(0, 8).map((change) => {
+      const shipment = shipmentByDraft.get(change.shipmentDraftId);
+      const reference = shipment?.swiftlineTrackingNumber || change.shipmentDraftId;
+      return `${reference} is now ${formatShipmentEventLabel(change.currentStatus)}`
+        + ` (was ${formatShipmentEventLabel(change.expectedStatus)})`;
+    });
+    const remainder = changedSelections.length - visible.length;
+    throw new BulkStatusSelectionError(
+      `Shipment statuses changed after they were selected. ${visible.join("; ")}.`
+        + (remainder > 0 ? ` ${remainder} more shipment(s) changed.` : "")
+        + " Refresh the list and select the current rows again."
+    );
   }
 
   // Judged only over shipments that are actually booked. An unbooked row stays

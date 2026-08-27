@@ -1,0 +1,851 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { FiArrowLeft, FiCheck, FiEdit3, FiPlus, FiRefreshCw } from "react-icons/fi";
+import { toast } from "react-toastify";
+import { formatCreditMoney } from "@/lib/creditAccounts";
+import {
+  cancelFlightCostSheet,
+  createFlightCostSheet,
+  finalizeFlightCostSheet,
+  getFlightCostSheet,
+  getFlightManifestPreview,
+  getGbpToInrRate,
+  listFlightBuyingRates,
+  listFlightCostSheets,
+  listFlightManifestOptions,
+  listProfitabilityVendors,
+  updateFlightCostSheet,
+  type FlightBuyingRate,
+  type FlightCostSheet,
+  type FlightCostTotals,
+  type FlightManifestOption,
+  type LogisticsVendor,
+} from "@/lib/profitability";
+import ProfitabilitySelect from "./ProfitabilitySelect";
+
+const inputClass =
+  "mt-2 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10 disabled:bg-slate-100 disabled:text-slate-500";
+type Preview = FlightManifestOption & {
+  manifestWeightKg: number;
+  billedWeightKg: number;
+  portalDpdLabels: number;
+  externalPaidLabels: number;
+};
+type Draft = {
+  manifestId: string;
+  rateId: string;
+  airlineName: string;
+  billedWeight: string;
+  billedWeightReason: string;
+  externalLabels: string;
+  externalReference: string;
+  externalReason: string;
+  fxRate: string;
+  fxProvider: string;
+  fxUpdatedAt: string | null;
+  fxFetchedAt: string;
+  manualFx: boolean;
+  manualFxReason: string;
+  notes: string;
+  reason: string;
+};
+const emptyDraft = (): Draft => ({
+  manifestId: "",
+  rateId: "",
+  airlineName: "",
+  billedWeight: "",
+  billedWeightReason: "",
+  externalLabels: "0",
+  externalReference: "",
+  externalReason: "",
+  fxRate: "",
+  fxProvider: "ExchangeRate-API",
+  fxUpdatedAt: null,
+  fxFetchedAt: new Date().toISOString(),
+  manualFx: false,
+  manualFxReason: "",
+  notes: "",
+  reason: "",
+});
+
+function calculatePreview(
+  rate: FlightBuyingRate | undefined,
+  facts: { billedWeightKg: number; totalBags: number; portalDpdLabels: number; externalPaidLabels: number },
+  gbpToInr: number,
+  revenueMinor = 0
+): FlightCostTotals | null {
+  if (!rate || !Number.isFinite(gbpToInr) || gbpToInr <= 0) return null;
+  const airFreightBaseMinor = Math.round(rate.airFreightRateMinorPerKg * facts.billedWeightKg);
+  const airFreightGstMinor = Math.round((airFreightBaseMinor * rate.gstBasisPoints) / 10_000);
+  const eicfMinor = Math.round(rate.eicfRateMinorPerKg * facts.billedWeightKg);
+  const cflGbpMinor = rate.cflMinorPerBagGbp * facts.totalBags;
+  const cflInrMinor = Math.round(cflGbpMinor * gbpToInr);
+  const dpdLabelsGbpMinor = rate.dpdLabelMinorGbp * (facts.portalDpdLabels + facts.externalPaidLabels);
+  const dpdLabelsInrMinor = Math.round(dpdLabelsGbpMinor * gbpToInr);
+  const totalCostMinor =
+    airFreightBaseMinor + airFreightGstMinor + eicfMinor + rate.customsMinor + rate.transportationMinor + cflInrMinor + dpdLabelsInrMinor;
+  const grossProfitMinor = revenueMinor - totalCostMinor;
+  return {
+    airFreightBaseMinor,
+    airFreightGstMinor,
+    airFreightTotalMinor: airFreightBaseMinor + airFreightGstMinor,
+    eicfMinor,
+    customsMinor: rate.customsMinor,
+    transportationMinor: rate.transportationMinor,
+    cflGbpMinor,
+    cflInrMinor,
+    dpdLabelsGbpMinor,
+    dpdLabelsInrMinor,
+    totalCostMinor,
+    totalRevenueMinor: revenueMinor,
+    grossProfitMinor,
+    marginBasisPoints: revenueMinor > 0 ? Math.round((grossProfitMinor / revenueMinor) * 10_000) : null,
+  };
+}
+
+export default function FlightCostsPanel({ branchId }: { branchId: string }) {
+  const [sheets, setSheets] = useState<FlightCostSheet[]>([]);
+  const [manifests, setManifests] = useState<FlightManifestOption[]>([]);
+  const [rates, setRates] = useState<FlightBuyingRate[]>([]);
+  const [vendors, setVendors] = useState<LogisticsVendor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editor, setEditor] = useState(false);
+  const [sheet, setSheet] = useState<FlightCostSheet | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [fromFilter, setFromFilter] = useState("");
+  const [toFilter, setToFilter] = useState("");
+
+  async function load() {
+    const [sheetResult, manifestResult, rateResult, vendorResult] = await Promise.all([
+      listFlightCostSheets({ branchId, status: statusFilter, vendorId: vendorFilter, from: fromFilter, to: toFilter }),
+      listFlightManifestOptions(branchId),
+      listFlightBuyingRates(),
+      listProfitabilityVendors(),
+    ]);
+    setSheets(sheetResult.sheets);
+    setManifests(manifestResult.manifests);
+    setRates(rateResult.rates);
+    setVendors(vendorResult.vendors.filter((v) => v.status === "ACTIVE"));
+  }
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      listFlightCostSheets({ branchId, status: statusFilter, vendorId: vendorFilter, from: fromFilter, to: toFilter }),
+      listFlightManifestOptions(branchId),
+      listFlightBuyingRates(),
+      listProfitabilityVendors(),
+    ])
+      .then(([sheetResult, manifestResult, rateResult, vendorResult]) => {
+        if (!active) return;
+        setSheets(sheetResult.sheets);
+        setManifests(manifestResult.manifests);
+        setRates(rateResult.rates);
+        setVendors(vendorResult.vendors.filter((v) => v.status === "ACTIVE"));
+      })
+      .catch((error) => toast.error(error instanceof Error ? error.message : "Flight costs could not be loaded."))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [branchId, statusFilter, vendorFilter, fromFilter, toFilter]);
+
+  const selectedRate = rates.find((item) => item.id === draft.rateId);
+  const billedWeight = Number(draft.billedWeight || preview?.totalWeightKg || 0);
+  const externalLabels = Math.max(0, Number(draft.externalLabels) || 0);
+  const fxRate = Number(draft.fxRate);
+  const totals =
+    sheet && sheet.id
+      ? calculatePreview(
+          selectedRate,
+          {
+            billedWeightKg: billedWeight,
+            totalBags: preview?.totalBags ?? sheet.totalBags,
+            portalDpdLabels: preview?.portalDpdLabels ?? sheet.portalDpdLabels,
+            externalPaidLabels: externalLabels,
+          },
+          fxRate,
+          sheet.totals.totalRevenueMinor
+        )
+      : calculatePreview(
+          selectedRate,
+          {
+            billedWeightKg: billedWeight,
+            totalBags: preview?.totalBags ?? 0,
+            portalDpdLabels: preview?.portalDpdLabels ?? 0,
+            externalPaidLabels: externalLabels,
+          },
+          fxRate
+        );
+
+  async function refreshFx() {
+    try {
+      const result = await getGbpToInrRate();
+      setDraft((current) => ({
+        ...current,
+        fxRate: String(result.rate.gbpToInr),
+        fxProvider: result.rate.provider,
+        fxUpdatedAt: result.rate.providerUpdatedAt,
+        fxFetchedAt: result.rate.fetchedAt,
+        manualFx: false,
+        manualFxReason: "",
+      }));
+      toast.success("GBP/INR rate refreshed.");
+    } catch (error) {
+      setDraft((current) => ({ ...current, manualFx: true, fxProvider: "Manual" }));
+      toast.error(error instanceof Error ? error.message : "Exchange rate could not be refreshed.");
+    }
+  }
+
+  async function openNew() {
+    setSheet(null);
+    setPreview(null);
+    setDraft(emptyDraft());
+    setEditor(true);
+    await refreshFx();
+  }
+
+  async function selectManifest(id: string) {
+    setDraft((current) => ({ ...current, manifestId: id }));
+    if (!id) return setPreview(null);
+    const existing = manifests.find((item) => item.id === id)?.costSheet;
+    if (existing) return openExisting(existing.id);
+    try {
+      const result = await getFlightManifestPreview(id);
+      setPreview(result.manifest);
+      setDraft((current) => ({ ...current, manifestId: id, billedWeight: String(result.manifest.totalWeightKg) }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Manifest facts could not be loaded.");
+    }
+  }
+
+  async function openExisting(id: string) {
+    try {
+      const result = await getFlightCostSheet(id);
+      const item = result.sheet;
+      setSheet(item);
+      const manifestResult = await getFlightManifestPreview(item.operationsManifestId);
+      setPreview(manifestResult.manifest);
+      setDraft({
+        manifestId: item.operationsManifestId,
+        rateId: item.buyingRateId,
+        airlineName: item.airlineName,
+        billedWeight: String(item.billedWeightKg),
+        billedWeightReason: item.billedWeightOverrideReason,
+        externalLabels: String(item.externalPaidLabels),
+        externalReference: item.externalLabelReference,
+        externalReason: item.externalLabelReason,
+        fxRate: String(item.fxSnapshot.gbpToInr),
+        fxProvider: item.fxSnapshot.provider,
+        fxUpdatedAt: item.fxSnapshot.providerUpdatedAt,
+        fxFetchedAt: item.fxSnapshot.fetchedAt,
+        manualFx: item.fxSnapshot.isManual,
+        manualFxReason: item.fxSnapshot.manualReason,
+        notes: item.notes,
+        reason: "",
+      });
+      setEditor(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Flight cost sheet could not be opened.");
+    }
+  }
+
+  function payload() {
+    const manifestWeight = preview?.totalWeightKg ?? sheet?.manifestWeightKg ?? 0;
+    const override = Math.abs(billedWeight - manifestWeight) > 0.0005;
+    return {
+      buyingRateId: draft.rateId,
+      airlineName: draft.airlineName.trim(),
+      ...(override ? { billedWeightKg: billedWeight } : {}),
+      billedWeightOverrideReason: override ? draft.billedWeightReason.trim() : "",
+      externalPaidLabels: externalLabels,
+      externalLabelReference: draft.externalReference.trim(),
+      externalLabelReason: draft.externalReason.trim(),
+      fxSnapshot: {
+        gbpToInr: fxRate,
+        provider: draft.manualFx ? "Manual" : draft.fxProvider,
+        providerUpdatedAt: draft.fxUpdatedAt,
+        fetchedAt: draft.fxFetchedAt,
+        isManual: draft.manualFx,
+        manualReason: draft.manualFx ? draft.manualFxReason.trim() : "",
+      },
+      notes: draft.notes.trim(),
+      reason: draft.reason.trim(),
+    };
+  }
+
+  async function save() {
+    if (!draft.manifestId || !draft.rateId || draft.airlineName.trim().length < 2)
+      return toast.error("Select a manifest and rate, then enter the airline.");
+    if (!Number.isFinite(fxRate) || fxRate <= 0) return toast.error("Enter a valid GBP/INR rate.");
+    if (draft.reason.trim().length < 3) return toast.error("Enter a reason for this change.");
+    setSaving(true);
+    try {
+      const result = sheet
+        ? await updateFlightCostSheet(sheet.id, { ...payload(), expectedVersion: sheet.version })
+        : await createFlightCostSheet({ ...payload(), operationsManifestId: draft.manifestId });
+      toast.success(result.message);
+      await load();
+      await openExisting(result.sheet.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Flight costs could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function finalize() {
+    if (!sheet || draft.reason.trim().length < 3) return toast.error("Enter a reason before finalizing.");
+    setSaving(true);
+    try {
+      const result = await finalizeFlightCostSheet(sheet.id, sheet.version, draft.reason.trim());
+      toast.success(result.message);
+      await load();
+      await openExisting(result.sheet.id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Flight costs could not be finalized.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function cancelSheet() {
+    if (!sheet || draft.reason.trim().length < 3) return toast.error("Enter a reason before cancelling.");
+    setSaving(true);
+    try {
+      const result = await cancelFlightCostSheet(sheet.id, sheet.version, draft.reason.trim());
+      toast.success(result.message);
+      await load();
+      setEditor(false);
+      setSheet(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sheet could not be cancelled.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editor) {
+    return (
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div>
+            <h2 className="font-bold text-slate-950">Flight costs</h2>
+            <p className="mt-1 text-sm text-slate-600">One cost sheet per Operations Manifest.</p>
+          </div>
+          <button
+            onClick={() => void openNew()}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0A0E68]"
+          >
+            <FiPlus /> New cost sheet
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-3 px-5 pb-3">
+          <label className="text-xs font-semibold text-slate-600">
+            Status
+            <ProfitabilitySelect value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="mt-1 min-w-36">
+              <option value="">All</option>
+              <option value="DRAFT">Draft</option>
+              <option value="FINALIZED">Finalized</option>
+              <option value="REVIEW_REQUIRED">Review required</option>
+              <option value="CANCELLED">Cancelled</option>
+              <option value="PROVISIONAL">Provisional</option>
+              <option value="ACTUAL">Actual</option>
+            </ProfitabilitySelect>
+          </label>
+          <label className="text-xs font-semibold text-slate-600">
+            Vendor
+            <ProfitabilitySelect value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="mt-1 min-w-36">
+              <option value="">All vendors</option>
+              {vendors.map((v) => (
+                <option key={v._id} value={v._id}>
+                  {v.name}
+                </option>
+              ))}
+            </ProfitabilitySelect>
+          </label>
+          <label className="text-xs font-semibold text-slate-600">
+            From
+            <input
+              type="date"
+              value={fromFilter}
+              onChange={(e) => setFromFilter(e.target.value)}
+              className="mt-1 h-9 rounded-lg border border-slate-300 px-2 text-sm"
+            />
+          </label>
+          <label className="text-xs font-semibold text-slate-600">
+            To
+            <input
+              type="date"
+              value={toFilter}
+              onChange={(e) => setToFilter(e.target.value)}
+              className="mt-1 h-9 rounded-lg border border-slate-300 px-2 text-sm"
+            />
+          </label>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[1250px] text-left text-sm">
+            <thead className="border-y border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+              <tr>
+                <th className="px-4 py-3">Manifest</th>
+                <th className="px-4 py-3">Flight</th>
+                <th className="px-4 py-3">Vendor</th>
+                <th className="px-4 py-3">Destination</th>
+                <th className="px-4 py-3 text-right">Weight</th>
+                <th className="px-4 py-3 text-right">Total cost</th>
+                <th className="px-4 py-3 text-right">Revenue</th>
+                <th className="px-4 py-3 text-right">Profit</th>
+                <th className="px-4 py-3 text-right">Margin</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={11} className="px-5 py-10 text-center text-slate-500">
+                    Loading flight costs…
+                  </td>
+                </tr>
+              ) : sheets.length ? (
+                sheets.map((item) => (
+                  <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50/70">
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-[#0D1282]">{item.manifestNumber}</p>
+                      <p className="text-xs text-slate-500">{item.mawbNumber}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-900">{item.airlineName}</p>
+                      <p className="text-xs text-slate-500">
+                        {item.flightNumber} · {item.flightDate}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">{item.vendor.name ?? "—"}</td>
+                    <td className="px-4 py-3">{item.destinationCountryName}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{item.billedWeightKg.toFixed(3)} kg</td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                      {formatCreditMoney(item.totals.totalCostMinor, "INR")}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">{formatCreditMoney(item.totals.totalRevenueMinor, "INR")}</td>
+                    <td className={`px-4 py-3 text-right font-bold tabular-nums ${item.totals.grossProfitMinor < 0 ? "text-red-700" : "text-emerald-700"}`}>
+                      {formatCreditMoney(item.totals.grossProfitMinor, "INR")}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {item.totals.marginBasisPoints == null ? "—" : `${(item.totals.marginBasisPoints / 100).toFixed(2)}%`}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Status value={item.status} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => void openExisting(item.id)}
+                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-[#0D1282] hover:bg-slate-50"
+                      >
+                        <FiEdit3 /> Open
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={11} className="px-5 py-10 text-center text-slate-500">
+                    No flight costs found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    );
+  }
+
+  const facts = {
+    totalWeightKg: preview?.totalWeightKg ?? sheet?.manifestWeightKg ?? 0,
+    totalBags: preview?.totalBags ?? sheet?.totalBags ?? 0,
+    totalParcels: preview?.totalParcels ?? sheet?.totalParcels ?? 0,
+    portalLabels: preview?.portalDpdLabels ?? sheet?.portalDpdLabels ?? 0,
+    billableLabels: (preview?.portalDpdLabels ?? sheet?.portalDpdLabels ?? 0) + externalLabels,
+    missingLabels: Math.max(
+      0,
+      (preview?.totalParcels ?? sheet?.totalParcels ?? 0) - (preview?.portalDpdLabels ?? sheet?.portalDpdLabels ?? 0) - externalLabels
+    ),
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          onClick={() => setEditor(false)}
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-white"
+        >
+          <FiArrowLeft /> Flight costs
+        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => void save()}
+            disabled={saving || sheet?.status === "CANCELLED"}
+            className="h-10 rounded-lg border border-[#0D1282] px-4 text-sm font-semibold text-[#0D1282] disabled:opacity-50"
+          >
+            {saving ? "Saving…" : sheet?.status === "FINALIZED" ? "Amend" : "Save draft"}
+          </button>
+          {sheet?.status !== "FINALIZED" && sheet?.status !== "CANCELLED" ? (
+            <button
+              onClick={() => void finalize()}
+              disabled={!sheet || saving}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              <FiCheck /> Finalize cost sheet
+            </button>
+          ) : null}
+          {sheet && sheet.status !== "CANCELLED" && sheet.status !== "FINALIZED" ? (
+            <button
+              onClick={() => void cancelSheet()}
+              disabled={!sheet || saving}
+              className="h-10 rounded-lg border border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              Cancel sheet
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-7">
+          {(
+            [
+              ["Operations Manifest", preview?.manifestNumber ?? sheet?.manifestNumber ?? "Select below"],
+              ["MAWB", preview?.header.mawbNumber ?? sheet?.mawbNumber ?? "—"],
+              ["Airline", draft.airlineName || "—"],
+              ["Flight", preview?.header.flightNumber ?? sheet?.flightNumber ?? "—"],
+              ["Date", preview?.header.departureDate ?? sheet?.flightDate ?? "—"],
+              ["Destination", preview?.header.destinationCountryName ?? sheet?.destinationCountryName ?? "—"],
+              ["Status", preview?.status ?? sheet?.status ?? "DRAFT"],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="bg-white px-4 py-3">
+              <p className="text-xs font-medium text-slate-500">{label}</p>
+              <p className="mt-1 truncate text-sm font-semibold text-slate-900" title={value}>
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 xl:grid-cols-6">
+          {(
+            [
+              ["Manifest weight", `${facts.totalWeightKg.toFixed(3)} kg`],
+              ["Total bags", String(facts.totalBags)],
+              ["Total parcels", String(facts.totalParcels)],
+              ["Portal DPD labels", String(facts.portalLabels)],
+              ["Billable labels", String(facts.billableLabels)],
+              ["Missing DPD labels", String(facts.missingLabels)],
+            ] as const
+          ).map(([label, value]) => (
+            <div key={label} className="bg-slate-50 px-4 py-3">
+              <p className="text-xs font-medium text-slate-500">{label}</p>
+              <p
+                className={`mt-1 text-lg font-bold tabular-nums ${label === "Missing DPD labels" && facts.missingLabels ? "text-red-700" : "text-slate-950"}`}
+              >
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-4">
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="font-bold text-slate-950">Flight details</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <label className="text-sm font-semibold text-slate-700">
+                Operations Manifest
+                <ProfitabilitySelect
+                  value={draft.manifestId}
+                  disabled={Boolean(sheet)}
+                  onChange={(event) => void selectManifest(event.target.value)}
+                  className="mt-2"
+                >
+                  <option value="">Select manifest</option>
+                  {manifests.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.manifestNumber} · {item.header.destinationCountryName || "Destination pending"}
+                    </option>
+                  ))}
+                </ProfitabilitySelect>
+              </label>
+              <label className="text-sm font-semibold text-slate-700">
+                Buying rate
+                <ProfitabilitySelect
+                  value={draft.rateId}
+                  onChange={(event) => setDraft({ ...draft, rateId: event.target.value })}
+                  className="mt-2"
+                >
+                  <option value="">Select rate</option>
+                  {rates.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.vendor.name} · {item.region} · ₹{(item.airFreightRateMinorPerKg / 100).toFixed(2)}/kg
+                    </option>
+                  ))}
+                </ProfitabilitySelect>
+              </label>
+              <label className="text-sm font-semibold text-slate-700">
+                Airline name
+                <input value={draft.airlineName} onChange={(event) => setDraft({ ...draft, airlineName: event.target.value })} className={inputClass} />
+              </label>
+              <label className="text-sm font-semibold text-slate-700">
+                Billed weight
+                <input
+                  type="number"
+                  min="0.001"
+                  step="0.001"
+                  value={draft.billedWeight}
+                  onChange={(event) => setDraft({ ...draft, billedWeight: event.target.value })}
+                  className={inputClass}
+                />
+              </label>
+            </div>
+            {Math.abs(billedWeight - facts.totalWeightKg) > 0.0005 ? (
+              <label className="mt-4 block text-sm font-semibold text-slate-700">
+                Billed weight override reason
+                <input
+                  value={draft.billedWeightReason}
+                  onChange={(event) => setDraft({ ...draft, billedWeightReason: event.target.value })}
+                  className={inputClass}
+                />
+              </label>
+            ) : null}
+          </section>
+
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <SectionTitle title="Air freight" />
+            <CostLine
+              label="Air freight"
+              basis="Per kg"
+              quantity={`${billedWeight.toFixed(3)} kg`}
+              rate={selectedRate ? formatCreditMoney(selectedRate.airFreightRateMinorPerKg, "INR") : "—"}
+              amount={totals?.airFreightBaseMinor}
+            />
+            <CostLine
+              label="GST on air freight"
+              basis="On base"
+              quantity={selectedRate ? `${(selectedRate.gstBasisPoints / 100).toFixed(2)}%` : "—"}
+              rate=""
+              amount={totals?.airFreightGstMinor}
+            />
+            <CostLine
+              label="EICF"
+              basis="Per kg"
+              quantity={`${billedWeight.toFixed(3)} kg`}
+              rate={selectedRate ? formatCreditMoney(selectedRate.eicfRateMinorPerKg, "INR") : "—"}
+              amount={totals?.eicfMinor}
+            />
+            <SectionTitle title="India charges" />
+            <CostLine label="Customs" basis="Per flight" quantity="1" rate="" amount={totals?.customsMinor} />
+            <CostLine label="Transportation" basis="Per flight" quantity="1" rate="" amount={totals?.transportationMinor} />
+            <SectionTitle title="UK charges" />
+            <CostLine
+              label="CFL"
+              basis="Per bag"
+              quantity={`${facts.totalBags} bags`}
+              rate={selectedRate ? `£${(selectedRate.cflMinorPerBagGbp / 100).toFixed(2)}` : "—"}
+              amount={totals?.cflInrMinor}
+              foreignAmount={totals?.cflGbpMinor}
+            />
+            <CostLine
+              label="DPD labels"
+              basis="Per label"
+              quantity={`${facts.billableLabels} labels`}
+              rate={selectedRate ? `£${(selectedRate.dpdLabelMinorGbp / 100).toFixed(2)}` : "—"}
+              amount={totals?.dpdLabelsInrMinor}
+              foreignAmount={totals?.dpdLabelsGbpMinor}
+            />
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="font-bold text-slate-950">Label reconciliation</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <label className="text-sm font-semibold text-slate-700">
+                External paid labels
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={draft.externalLabels}
+                  onChange={(event) => setDraft({ ...draft, externalLabels: event.target.value })}
+                  className={inputClass}
+                />
+              </label>
+              <label className="text-sm font-semibold text-slate-700">
+                Reference
+                <input
+                  value={draft.externalReference}
+                  onChange={(event) => setDraft({ ...draft, externalReference: event.target.value })}
+                  className={inputClass}
+                />
+              </label>
+              <label className="text-sm font-semibold text-slate-700">
+                Reason
+                <input
+                  value={draft.externalReason}
+                  onChange={(event) => setDraft({ ...draft, externalReason: event.target.value })}
+                  className={inputClass}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="font-bold text-slate-950">Save details</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <label className="text-sm font-semibold text-slate-700">
+                Change reason
+                <input value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} className={inputClass} />
+              </label>
+              <label className="text-sm font-semibold text-slate-700">
+                Notes
+                <input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className={inputClass} />
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-4 xl:sticky xl:top-4">
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <h2 className="font-bold text-slate-950">Amount summary</h2>
+              <p className="mt-1 text-sm text-slate-600">All amounts in INR unless shown otherwise.</p>
+            </div>
+            <div className="space-y-2 px-5 py-4">
+              <SummaryRow label="Air freight" value={totals?.airFreightBaseMinor} />
+              <SummaryRow label="GST" value={totals?.airFreightGstMinor} />
+              <SummaryRow label="EICF" value={totals?.eicfMinor} />
+              <SummaryRow label="Customs" value={totals?.customsMinor} />
+              <SummaryRow label="Transportation" value={totals?.transportationMinor} />
+              <SummaryRow label="CFL" value={totals?.cflInrMinor} />
+              <SummaryRow label="DPD labels" value={totals?.dpdLabelsInrMinor} />
+              <div className="my-3 border-t border-slate-200" />
+              <SummaryRow label="Total cost" value={totals?.totalCostMinor} strong />
+              <SummaryRow label="Flight revenue" value={totals?.totalRevenueMinor} />
+              <SummaryRow label="Gross profit" value={totals?.grossProfitMinor} profit />
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-sm font-semibold text-slate-700">Margin</span>
+                <span className={`text-lg font-bold tabular-nums ${(totals?.marginBasisPoints ?? 0) < 0 ? "text-red-700" : "text-slate-950"}`}>
+                  {totals?.marginBasisPoints == null ? "—" : `${(totals.marginBasisPoints / 100).toFixed(2)}%`}
+                </span>
+              </div>
+            </div>
+          </section>
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-bold text-slate-950">GBP/INR reference</h2>
+                <p className="mt-1 text-xs text-slate-500">Stored with this cost sheet.</p>
+              </div>
+              <button
+                onClick={() => void refreshFx()}
+                className="grid h-9 w-9 place-items-center rounded-lg text-[#0D1282] hover:bg-blue-50"
+                aria-label="Refresh exchange rate"
+              >
+                <FiRefreshCw />
+              </button>
+            </div>
+            <label className="mt-4 block text-sm font-semibold text-slate-700">
+              GBP to INR
+              <input
+                type="number"
+                min="0.000001"
+                step="0.000001"
+                value={draft.fxRate}
+                onChange={(event) => setDraft({ ...draft, fxRate: event.target.value, manualFx: true, fxProvider: "Manual" })}
+                className={inputClass}
+              />
+            </label>
+            {draft.manualFx ? (
+              <label className="mt-4 block text-sm font-semibold text-slate-700">
+                Manual rate reason
+                <input
+                  value={draft.manualFxReason}
+                  onChange={(event) => setDraft({ ...draft, manualFxReason: event.target.value })}
+                  className={inputClass}
+                />
+              </label>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">
+                {draft.fxProvider}
+                {draft.fxUpdatedAt ? ` · updated ${new Date(draft.fxUpdatedAt).toLocaleString("en-IN")}` : ""}
+              </p>
+            )}
+          </section>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function SectionTitle({ title }: { title: string }) {
+  return (
+    <div className="border-y border-slate-200 bg-slate-50 px-5 py-3 first:border-t-0">
+      <h2 className="text-sm font-bold text-slate-900">{title}</h2>
+    </div>
+  );
+}
+function CostLine({
+  label,
+  basis,
+  quantity,
+  rate,
+  amount,
+  foreignAmount,
+}: {
+  label: string;
+  basis: string;
+  quantity: string;
+  rate: string;
+  amount?: number;
+  foreignAmount?: number;
+}) {
+  return (
+    <div className="grid items-center gap-2 border-b border-slate-100 px-5 py-3 text-sm sm:grid-cols-[1.3fr_.8fr_.8fr_.8fr_1fr]">
+      <span className="font-semibold text-slate-900">{label}</span>
+      <span className="text-slate-600">{basis}</span>
+      <span className="tabular-nums text-slate-600">{quantity}</span>
+      <span className="tabular-nums text-slate-600">{rate}</span>
+      <span className="text-right font-semibold tabular-nums text-slate-900">
+        {amount === undefined ? "—" : formatCreditMoney(amount, "INR")}
+        {foreignAmount !== undefined ? <small className="block font-normal text-slate-500">£{(foreignAmount / 100).toFixed(2)}</small> : null}
+      </span>
+    </div>
+  );
+}
+function SummaryRow({ label, value, strong = false, profit = false }: { label: string; value?: number; strong?: boolean; profit?: boolean }) {
+  return (
+    <div className={`flex items-center justify-between gap-4 text-sm ${strong ? "font-bold text-slate-950" : "text-slate-700"}`}>
+      <span>{label}</span>
+      <span
+        className={`tabular-nums ${profit && (value ?? 0) < 0 ? "font-bold text-red-700" : profit ? "font-bold text-emerald-700" : strong ? "text-base" : "font-medium"}`}
+      >
+        {value === undefined ? "—" : formatCreditMoney(value, "INR")}
+      </span>
+    </div>
+  );
+}
+function Status({ value }: { value: FlightCostSheet["status"] }) {
+  const style =
+    value === "FINALIZED"
+      ? "bg-emerald-50 text-emerald-700"
+      : value === "REVIEW_REQUIRED"
+        ? "bg-amber-50 text-amber-700"
+        : value === "CANCELLED"
+          ? "bg-red-50 text-red-700"
+          : "bg-blue-50 text-[#0D1282]";
+  return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${style}`}>{value.replaceAll("_", " ")}</span>;
+}

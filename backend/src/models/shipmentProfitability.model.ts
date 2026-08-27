@@ -20,6 +20,11 @@ export type ShipmentProfitabilityCost = {
   updatedAt?: Date | null;
 };
 
+export type ShipmentFlightAllocationCost = {
+  component: "AIR_FREIGHT" | "AIR_FREIGHT_GST" | "EICF" | "CUSTOMS" | "TRANSPORTATION" | "CFL" | "DPD_LABEL";
+  amountMinor: number;
+};
+
 export interface IShipmentProfitability extends mongoose.Document {
   shipmentDraftId: mongoose.Types.ObjectId;
   dpdShipmentId: mongoose.Types.ObjectId;
@@ -27,6 +32,10 @@ export interface IShipmentProfitability extends mongoose.Document {
   businessAccountId: mongoose.Types.ObjectId;
   branchId: mongoose.Types.ObjectId;
   primaryVendorId?: mongoose.Types.ObjectId | null;
+  costSource: "LEGACY" | "FLIGHT_ALLOCATION";
+  flightCostSheetId?: mongoose.Types.ObjectId | null;
+  operationsManifestId?: mongoose.Types.ObjectId | null;
+  flightAllocation: ShipmentFlightAllocationCost[];
   awb: string;
   customerName: string;
   originCountryCode: string;
@@ -65,6 +74,11 @@ const costSchema = new mongoose.Schema<ShipmentProfitabilityCost>({
   updatedAt: { type: Date, default: null }
 }, { _id: false });
 
+const flightAllocationSchema = new mongoose.Schema<ShipmentFlightAllocationCost>({
+  component: { type: String, enum: ["AIR_FREIGHT", "AIR_FREIGHT_GST", "EICF", "CUSTOMS", "TRANSPORTATION", "CFL", "DPD_LABEL"], required: true },
+  amountMinor: { type: Number, required: true, min: 0, validate: Number.isSafeInteger }
+}, { _id: false });
+
 const schema = new mongoose.Schema<IShipmentProfitability>({
   shipmentDraftId: { type: mongoose.Schema.Types.ObjectId, ref: "ShipmentDraft", required: true, unique: true, index: true },
   dpdShipmentId: { type: mongoose.Schema.Types.ObjectId, ref: "DpdShipment", required: true, unique: true, index: true },
@@ -72,6 +86,10 @@ const schema = new mongoose.Schema<IShipmentProfitability>({
   businessAccountId: { type: mongoose.Schema.Types.ObjectId, ref: "BusinessAccount", required: true, index: true },
   branchId: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", required: true, index: true },
   primaryVendorId: { type: mongoose.Schema.Types.ObjectId, ref: "LogisticsVendor", default: null, index: true },
+  costSource: { type: String, enum: ["LEGACY", "FLIGHT_ALLOCATION"], required: true, default: "LEGACY", index: true },
+  flightCostSheetId: { type: mongoose.Schema.Types.ObjectId, ref: "FlightCostSheet", default: null, index: true },
+  operationsManifestId: { type: mongoose.Schema.Types.ObjectId, ref: "OperationsManifest", default: null, index: true },
+  flightAllocation: { type: [flightAllocationSchema], required: true, default: [] },
   awb: { type: String, required: true, trim: true, maxlength: 40, index: true },
   customerName: { type: String, required: true, trim: true, maxlength: 160, index: true },
   originCountryCode: { type: String, required: true, trim: true, uppercase: true, minlength: 2, maxlength: 2, default: "IN" },

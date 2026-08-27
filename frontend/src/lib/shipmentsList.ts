@@ -78,15 +78,11 @@ export const shipmentStatusOptions = [
   { value: "ORIGIN_HUB_PROCESSED", label: "Processed at Delhi Hub" },
   { value: "READY_FOR_EXPORT", label: "Ready for Export" },
   { value: "ORIGIN_HUB_DISPATCHED", label: "Dispatched from Delhi Hub" },
-  // Historical status filters remain available for shipments recorded before
-  // the destination-aware flow was introduced.
-  { value: "EXPORT_CUSTOMS_CLEARED", label: "Export Customs Cleared" },
   { value: "DESTINATION_ARRIVED", label: "Destination Arrived" },
   { value: "IMPORT_CUSTOMS_CLEARANCE", label: "Customs Clearance in Progress" },
   { value: "IMPORT_CUSTOMS_CLEARED", label: "Customs Cleared" },
   { value: "DELIVERY_PARTNER_TRANSFERRED", label: "Transferred to Delivery Partner" },
   { value: "DELIVERY_HUB_ARRIVED", label: "Arrived at Delivery Hub" },
-  { value: "IN_TRANSIT", label: "In Transit" },
   { value: "OUT_FOR_DELIVERY", label: "Out For Delivery" },
   { value: "DELIVERED", label: "Delivered" },
   { value: "RETURNED", label: "Returned" },

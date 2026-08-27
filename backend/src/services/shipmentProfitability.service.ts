@@ -11,6 +11,7 @@ import {
 import { ShipmentCreditNote } from "../models/shipmentCreditNote.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
+import { FlightCostAllocation } from "../models/flightCostAllocation.model.js";
 import {
   VendorCostRate,
   profitabilityCostComponentValues,
@@ -217,6 +218,9 @@ export async function syncShipmentProfitability(
   const existingQuery = ShipmentProfitability.findOne({ shipmentDraftId });
   if (session) existingQuery.session(session);
   const existing = await existingQuery.exec();
+  const pendingAllocationQuery = FlightCostAllocation.findOne({ shipmentDraftId }).sort({ revision: -1, updatedAt: -1 });
+  if (session) pendingAllocationQuery.session(session);
+  const pendingAllocation = existing?.costSource === "FLIGHT_ALLOCATION" ? null : await pendingAllocationQuery.exec();
   let primaryVendorId = existing?.primaryVendorId ?? null;
   if (!primaryVendorId && booking.dpdShipmentId) {
     const vendorQuery = LogisticsVendor.findOne({ integrationCode: "ALS_DPD", status: "ACTIVE" }).select("_id");
@@ -225,7 +229,8 @@ export async function syncShipmentProfitability(
   }
 
   let costs = normalizeProfitabilityCosts(existing?.costs as ShipmentProfitabilityCost[] | undefined);
-  if (primaryVendorId) {
+  const hasFlightAllocation = (existing?.costSource === "FLIGHT_ALLOCATION" && Boolean(existing.flightCostSheetId)) || Boolean(pendingAllocation);
+  if (primaryVendorId && !hasFlightAllocation) {
     costs = await applyVendorRates({
       vendorId: primaryVendorId,
       bookedAt: bookingSnapshot ? new Date(bookingSnapshot.bookedAt) : booking.createdAt,
@@ -235,7 +240,23 @@ export async function syncShipmentProfitability(
       costs
     });
   }
-  const totals = calculateProfitabilityTotals({ totalRevenueMinor, costs });
+  const totals = hasFlightAllocation
+    ? {
+        costs,
+        totalCostMinor: pendingAllocation?.totalCostMinor ?? existing?.totalCostMinor ?? 0,
+        grossProfitMinor: totalRevenueMinor - (pendingAllocation?.totalCostMinor ?? existing?.totalCostMinor ?? 0),
+        marginBasisPoints: totalRevenueMinor > 0
+          ? Math.round(((totalRevenueMinor - (pendingAllocation?.totalCostMinor ?? existing?.totalCostMinor ?? 0)) / totalRevenueMinor) * 10_000)
+          : null,
+        coverage: pendingAllocation?.costState ?? existing?.coverage ?? "ESTIMATED"
+      }
+    : calculateProfitabilityTotals({ totalRevenueMinor, costs });
+  const flightValues = pendingAllocation ? {
+    costSource: "FLIGHT_ALLOCATION" as const,
+    flightCostSheetId: pendingAllocation.flightCostSheetId,
+    operationsManifestId: pendingAllocation.operationsManifestId,
+    flightAllocation: pendingAllocation.components
+  } : {};
   const coreValues = {
     shipmentDraftId,
     dpdShipmentId: booking._id,
@@ -261,6 +282,7 @@ export async function syncShipmentProfitability(
     revenueAdjustmentMinor,
     totalRevenueMinor,
     dutyTaxMinor,
+    ...flightValues,
     ...totals
   };
 
@@ -273,6 +295,13 @@ export async function syncShipmentProfitability(
   }
   const [created] = await ShipmentProfitability.create([{ ...coreValues, version: 1, revenueSyncedAt: new Date() }], { session });
   if (!created) throw new Error("Shipment profitability could not be created.");
+  if (pendingAllocation) {
+    await FlightCostAllocation.updateOne(
+      { _id: pendingAllocation._id },
+      { $set: { shipmentProfitabilityId: created._id, totalRevenueMinor, grossProfitMinor: totals.grossProfitMinor, marginBasisPoints: totals.marginBasisPoints } },
+      { session }
+    ).exec();
+  }
   return created;
 }
 

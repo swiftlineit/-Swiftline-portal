@@ -36,6 +36,10 @@ export type ProfitabilityRow = {
   branchId: string;
   businessAccountId: string;
   primaryVendor: { id: string; name: string; code: string } | null;
+  costSource: "LEGACY" | "FLIGHT_ALLOCATION";
+  flightCostSheetId: string | null;
+  operationsManifestId: string | null;
+  flightAllocation: Array<{ component: FlightAllocationComponent; amountMinor: number }>;
   awb: string;
   customerName: string;
   originCountryCode: string;
@@ -59,13 +63,29 @@ export type ProfitabilityRow = {
   updatedAt: string;
 };
 
+export const flightAllocationComponents = ["AIR_FREIGHT", "AIR_FREIGHT_GST", "EICF", "CUSTOMS", "TRANSPORTATION", "CFL", "DPD_LABEL"] as const;
+export type FlightAllocationComponent = (typeof flightAllocationComponents)[number];
+export const flightAllocationLabels: Record<FlightAllocationComponent, string> = {
+  AIR_FREIGHT: "Air freight",
+  AIR_FREIGHT_GST: "GST on air freight",
+  EICF: "EICF",
+  CUSTOMS: "Customs",
+  TRANSPORTATION: "Transportation",
+  CFL: "CFL",
+  DPD_LABEL: "DPD labels"
+};
+
 export type ProfitabilityOverview = {
   currency: "INR";
   today: { revenueMinor: number; costMinor: number; profitMinor: number; marginBasisPoints: number | null };
   monthlyTrend: Array<{ date: string; revenueMinor: number; costMinor: number; profitMinor: number }>;
+  monthlyProfitMinor: number;
   lossMaking: ProfitabilityRow[];
+  lossMakingFlights: Array<{ id: string; manifestNumber: string; mawbNumber: string; flightNumber: string; flightDate: string; vendor: { id: string; name: string; code?: string } | null; destinationCountryName: string; totalCostMinor: number; totalRevenueMinor: number; grossProfitMinor: number; marginBasisPoints: number | null; status: FlightCostSheet["status"] }>;
   mostProfitableCustomers: Array<{ businessAccountId: string; customerName: string; shipments: number; revenueMinor: number; costMinor: number; profitMinor: number }>;
   mostProfitableLanes: Array<{ originCountryCode: string; destinationCountryCode: string; destinationCountryName: string; serviceType: string; shipments: number; revenueMinor: number; costMinor: number; profitMinor: number }>;
+  mostProfitableDestinations: Array<{ destinationCountryCode: string; destinationCountryName: string; shipments: number; profitMinor: number }>;
+  sheetsRequiringCompletion: Array<{ id: string; manifestNumber: string; mawbNumber: string; flightNumber: string; flightDate: string; vendor: { id: string; name?: string } | null; status: FlightCostSheet["status"]; totalCostMinor: number }>;
   coverage: Array<{ coverage: CostCoverage; count: number }>;
 };
 
@@ -94,6 +114,117 @@ export type VendorCostRate = {
   effectiveFrom: string;
   effectiveTo: string | null;
   status: "ACTIVE" | "RETIRED";
+};
+
+export type FlightRegion = "UK" | "US" | "EUROPE" | "CANADA";
+
+export type FlightBuyingRate = {
+  id: string;
+  vendor: { id: string; name?: string; code?: string; status?: LogisticsVendor["status"] };
+  region: FlightRegion;
+  airFreightRateMinorPerKg: number;
+  gstBasisPoints: number;
+  eicfRateMinorPerKg: number;
+  customsMinor: number;
+  transportationMinor: number;
+  cflMinorPerBagGbp: number;
+  dpdLabelMinorGbp: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  status: "ACTIVE" | "DELETED";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FlightManifestOption = {
+  id: string;
+  manifestNumber: string;
+  branchId: string;
+  header: {
+    destinationAgent: string;
+    destinationCountryCode: string;
+    destinationCountryName: string;
+    flightNumber: string;
+    departureDate: string;
+    mawbNumber: string;
+    originIataCode: string;
+    destinationIataCode: string;
+    valueType: string;
+  };
+  status: "DRAFT" | "PACKING" | "READY_TO_SEAL" | "SEALED" | "DISPATCHED" | "CANCELLED";
+  totalBags: number;
+  totalParcels: number;
+  totalWeightKg: number;
+  costSheet: { id: string; status: FlightCostSheet["status"] } | null;
+};
+
+export type FlightCostTotals = {
+  airFreightBaseMinor: number;
+  airFreightGstMinor: number;
+  airFreightTotalMinor: number;
+  eicfMinor: number;
+  customsMinor: number;
+  transportationMinor: number;
+  cflGbpMinor: number;
+  cflInrMinor: number;
+  dpdLabelsGbpMinor: number;
+  dpdLabelsInrMinor: number;
+  totalCostMinor: number;
+  totalRevenueMinor: number;
+  grossProfitMinor: number;
+  marginBasisPoints: number | null;
+};
+
+export type FlightCostSheet = {
+  id: string;
+  operationsManifestId: string;
+  branchId: string;
+  buyingRateId: string;
+  vendor: { id: string; name?: string; code?: string };
+  manifestNumber: string;
+  region: FlightRegion;
+  airlineName: string;
+  mawbNumber: string;
+  flightNumber: string;
+  flightDate: string;
+  destinationCountryCode: string;
+  destinationCountryName: string;
+  manifestWeightKg: number;
+  billedWeightKg: number;
+  billedWeightOverrideReason: string;
+  totalBags: number;
+  totalParcels: number;
+  portalDpdLabels: number;
+  externalPaidLabels: number;
+  externalLabelReference: string;
+  externalLabelReason: string;
+  missingDpdLabels: number;
+  billableLabels: number;
+  rateSnapshot: Omit<FlightBuyingRate, "id" | "vendor" | "region" | "effectiveFrom" | "effectiveTo" | "status" | "createdAt" | "updatedAt">;
+  fxSnapshot: { gbpToInr: number; provider: string; providerUpdatedAt: string | null; fetchedAt: string; isManual: boolean; manualReason: string };
+  totals: FlightCostTotals;
+  status: "DRAFT" | "FINALIZED" | "REVIEW_REQUIRED" | "CANCELLED";
+  version: number;
+  revision: number;
+  notes: string;
+  lastChangeReason: string;
+  finalizedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FlightCostAllocation = {
+  id: string;
+  shipmentDraftId: string;
+  awb: string;
+  chargeableWeightKg: number;
+  parcelCount: number;
+  components: Array<{ component: FlightAllocationComponent; amountMinor: number }>;
+  totalCostMinor: number;
+  totalRevenueMinor: number;
+  grossProfitMinor: number;
+  marginBasisPoints: number | null;
+  revision: number;
 };
 
 function queryString(values: Record<string, string | number | undefined>) {
@@ -155,5 +286,115 @@ export function createProfitabilityRate(input: {
 export function retireProfitabilityRate(rateId: string, reason: string) {
   return requestJson<{ success: true; message: string; rate: VendorCostRate }>(`/api/v1/profitability/vendor-rates/${rateId}/retire`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason })
+  });
+}
+
+export function listFlightBuyingRates() {
+  return requestJson<{ success: true; rates: FlightBuyingRate[] }>("/api/v1/profitability/flight-rates");
+}
+
+export type FlightBuyingRateInput = {
+  vendorId: string;
+  region: FlightRegion;
+  airFreightRateMinorPerKg: number;
+  gstBasisPoints: number;
+  eicfRateMinorPerKg: number;
+  customsMinor: number;
+  transportationMinor: number;
+  cflMinorPerBagGbp: number;
+  dpdLabelMinorGbp: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  reason: string;
+};
+
+export function createFlightBuyingRate(input: FlightBuyingRateInput) {
+  return requestJson<{ success: true; message: string; rate: FlightBuyingRate }>("/api/v1/profitability/flight-rates", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
+  });
+}
+
+export function updateFlightBuyingRate(rateId: string, input: FlightBuyingRateInput) {
+  return requestJson<{ success: true; message: string; rate: FlightBuyingRate }>(`/api/v1/profitability/flight-rates/${rateId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
+  });
+}
+
+export function deleteFlightBuyingRate(rateId: string, reason: string) {
+  return requestJson<{ success: true; message: string; rate: FlightBuyingRate }>(`/api/v1/profitability/flight-rates/${rateId}`, {
+    method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason })
+  });
+}
+
+export function listFlightManifestOptions(branchId = "") {
+  return requestJson<{ success: true; manifests: FlightManifestOption[] }>(`/api/v1/profitability/flight-manifests${queryString({ branchId })}`);
+}
+
+export function getFlightManifestPreview(manifestId: string) {
+  return requestJson<{ success: true; manifest: FlightManifestOption & { manifestWeightKg: number; billedWeightKg: number; portalDpdLabels: number; externalPaidLabels: number } }>(`/api/v1/profitability/flight-manifests/${manifestId}/preview`);
+}
+
+export function listFlightCostSheets(filters: { branchId?: string; status?: string; vendorId?: string; from?: string; to?: string } = {}) {
+  return requestJson<{ success: true; sheets: FlightCostSheet[] }>(`/api/v1/profitability/flight-cost-sheets${queryString(filters as Record<string, string|number|undefined>)}`);
+}
+
+export function getFlightCostSheet(sheetId: string) {
+  return requestJson<{ success: true; sheet: FlightCostSheet; allocations: FlightCostAllocation[] }>(`/api/v1/profitability/flight-cost-sheets/${sheetId}`);
+}
+
+export function listFlightCostRevisions(sheetId: string) {
+  return requestJson<{ success: true; revisions: Array<{ id: string; revision: number; version: number; status: string; totals: FlightCostTotals; changeReason: string; createdAt: string }> }>(`/api/v1/profitability/flight-cost-sheets/${sheetId}/revisions`);
+}
+
+export function cancelFlightCostSheet(sheetId: string, expectedVersion: number, reason: string) {
+  return requestJson<{ success: true; message: string; sheet: FlightCostSheet }>(`/api/v1/profitability/flight-cost-sheets/${sheetId}/cancel`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion, reason })
+  });
+}
+
+export function markFlightSheetReview(sheetId: string, expectedVersion: number, reason: string) {
+  return requestJson<{ success: true; message: string; sheet: FlightCostSheet }>(`/api/v1/profitability/flight-cost-sheets/${sheetId}/review`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion, reason })
+  });
+}
+
+export function triggerManifestReviewCheck(manifestId: string) {
+  return requestJson<{ success: true; message: string; reviewed: boolean; sheet?: FlightCostSheet }>(`/api/v1/profitability/flight-manifests/${manifestId}/review-check`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({})
+  });
+}
+
+export function getGbpToInrRate() {
+  return requestJson<{ success: true; rate: { gbpToInr: number; provider: string; providerUpdatedAt: string | null; fetchedAt: string } }>("/api/v1/profitability/fx/gbp-inr");
+}
+
+export type FlightCostSheetInput = {
+  buyingRateId: string;
+  airlineName: string;
+  billedWeightKg?: number;
+  billedWeightOverrideReason: string;
+  externalPaidLabels: number;
+  externalLabelReference: string;
+  externalLabelReason: string;
+  fxSnapshot: { gbpToInr: number; provider: string; providerUpdatedAt: string | null; fetchedAt: string; isManual: boolean; manualReason: string };
+  notes: string;
+  reason: string;
+};
+
+export function createFlightCostSheet(input: FlightCostSheetInput & { operationsManifestId: string }) {
+  return requestJson<{ success: true; message: string; sheet: FlightCostSheet }>("/api/v1/profitability/flight-cost-sheets", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
+  });
+}
+
+export function updateFlightCostSheet(sheetId: string, input: FlightCostSheetInput & { expectedVersion: number }) {
+  return requestJson<{ success: true; message: string; sheet: FlightCostSheet }>(`/api/v1/profitability/flight-cost-sheets/${sheetId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input)
+  });
+}
+
+export function finalizeFlightCostSheet(sheetId: string, expectedVersion: number, reason: string) {
+  return requestJson<{ success: true; message: string; sheet: FlightCostSheet }>(`/api/v1/profitability/flight-cost-sheets/${sheetId}/finalize`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion, reason })
   });
 }

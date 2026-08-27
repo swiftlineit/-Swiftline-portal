@@ -10,6 +10,10 @@ import { ShipmentManifest } from "../models/shipmentManifest.model.js";
 import { dateRangeCondition } from "../utils/dateRangeFilter.js";
 import { normalizeCsbType } from "./csbType.service.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
+import {
+  canonicalShipmentStatus,
+  equivalentCurrentStatusValues
+} from "./shipmentStatusSequence.service.js";
 
 export type ShipmentListingFilter = {
   businessAccountIds?: mongoose.Types.ObjectId[];
@@ -197,16 +201,23 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
 
   const candidateFilter = { ...draftFilter, _id: { $in: allowedDraftIds } };
 
-  // The listed status is the newest customer-visible event, so filtering by
-  // status means keeping drafts whose newest event matches.
+  // Staff bulk updates are validated against every operational event, so their
+  // table must use that same history. Client lists remain customer-visible only.
+  const eventVisibilityFilter = filter.actorRole === "client"
+    ? { customerVisible: true }
+    : {};
+
+  // Staff choose one canonical filter. Historical aliases are matched behind
+  // that single option so old records remain findable without exposing old
+  // flight/customs names as separate stages.
   let matchingIds: mongoose.Types.ObjectId[] | null = null;
   if (filter.status) {
     const candidates = await ShipmentDraft.find(candidateFilter).select("_id").lean().exec();
     const latest = await ShipmentEvent.aggregate<{ _id: mongoose.Types.ObjectId; status: string }>([
-      { $match: { shipmentDraftId: { $in: candidates.map((draft) => draft._id) }, customerVisible: true } },
+      { $match: { shipmentDraftId: { $in: candidates.map((draft) => draft._id) }, ...eventVisibilityFilter } },
       { $sort: { eventAt: -1, createdAt: -1 } },
       { $group: { _id: "$shipmentDraftId", status: { $first: "$status" } } },
-      { $match: { status: filter.status } }
+      { $match: { status: { $in: equivalentCurrentStatusValues(filter.status) } } }
     ]).exec();
     matchingIds = latest.map((item) => item._id);
   }
@@ -215,7 +226,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
     const candidates = await ShipmentDraft.find(candidateFilter).select("_id").lean().exec();
     const [latestExceptions, unresolvedBookings] = await Promise.all([
       ShipmentEvent.aggregate<{ _id: mongoose.Types.ObjectId; status: string }>([
-        { $match: { shipmentDraftId: { $in: candidates.map((draft) => draft._id) }, customerVisible: true } },
+        { $match: { shipmentDraftId: { $in: candidates.map((draft) => draft._id) }, ...eventVisibilityFilter } },
         { $sort: { eventAt: -1, createdAt: -1 } },
         { $group: { _id: "$shipmentDraftId", status: { $first: "$status" } } },
         { $match: { status: { $in: ["ON_HOLD", "RETURNED", "LOST", "DAMAGED", "SHIPMENT_CANCELLED"] } } }
@@ -248,7 +259,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   const draftIds = drafts.map((draft) => draft._id);
   const [bookings, events, branches, accounts, manifests, invoices] = await Promise.all([
     DpdShipment.find({ shipmentDraftId: { $in: draftIds } }).lean().exec(),
-    ShipmentEvent.find({ shipmentDraftId: { $in: draftIds }, customerVisible: true })
+    ShipmentEvent.find({ shipmentDraftId: { $in: draftIds }, ...eventVisibilityFilter })
       .sort({ eventAt: -1, createdAt: -1 })
       .select("shipmentDraftId status eventAt location")
       .lean()
@@ -314,6 +325,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
     const branch = branchById.get(String(draft.branchId));
     const account = accountById.get(String(draft.businessAccountId));
     const currentEvent = currentEventByDraft.get(draftId);
+    const currentStatus = canonicalShipmentStatus(currentEvent?.status) || "SHIPMENT_BOOKED";
     const manifest = manifestByDraft.get(draftId);
     const consignee = draft.consigneeValidatedAddress ?? draft.consigneeEnteredAddress;
     const parcels = snapshot?.parcels ?? [];
@@ -365,8 +377,8 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
       weightKg: Number((parcels.length
         ? parcels.reduce((sum, parcel) => sum + parcel.actualWeightKg, 0)
         : draft.parcelList.reduce((sum, parcel) => sum + (parcel.weightKg || 0), 0)).toFixed(3)),
-      status: currentEvent?.status ?? "SHIPMENT_BOOKED",
-      statusLabel: formatShipmentStatusLabel(currentEvent?.status),
+      status: currentStatus,
+      statusLabel: formatShipmentStatusLabel(currentStatus),
       // The newest scan, so a support agent can see where the shipment last was
       // without opening it. Null until Operations records one.
       // When it should arrive and whether it is going to, so the list answers
@@ -374,7 +386,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
       deliveryEstimate: estimateByDraft.get(draftId) ?? null,
       lastScan: currentEvent
         ? {
-          statusLabel: formatShipmentStatusLabel(currentEvent.status),
+          statusLabel: formatShipmentStatusLabel(currentStatus),
           location: currentEvent.location ?? "",
           at: currentEvent.eventAt
         }

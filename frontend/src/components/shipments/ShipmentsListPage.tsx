@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { FiAlertTriangle, FiArchive, FiArrowDown, FiExternalLink, FiFileText, FiPlus, FiSearch, FiTrash2, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
@@ -57,10 +57,11 @@ function getAccountLabel(account: BusinessAccount) {
 function formatStageLabel(status: string) {
   const visibleLabel = shipmentStatusOptions.find((option) => option.value === status)?.label;
   if (visibleLabel) return visibleLabel;
-  // Legacy event names are intentionally not filter options, but they still
-  // need readable labels if an old shipment appears in a selected batch.
-  if (status === "FLIGHT_ASSIGNED") return "Flight Assigned";
-  if (status === "FLIGHT_DEPARTED") return "Flight Departed";
+  // Defensive fallback during a staggered frontend/backend deployment. The
+  // current API returns canonical values, but an old cached response must still
+  // use the one visible stage name rather than exposing legacy filters again.
+  if (status === "EXPORT_CUSTOMS_CLEARED" || status === "FLIGHT_ASSIGNED") return "Ready for Export";
+  if (status === "FLIGHT_DEPARTED") return "Dispatched from Delhi Hub";
   return status;
 }
 
@@ -149,6 +150,21 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   const [pendingDelete, setPendingDelete] = useState<ShipmentListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // A selection may span pages, but it must never survive a change to the
+  // query that defines those pages. Otherwise hidden rows from an earlier
+  // filter can travel into a later bulk update.
+  const selectionScope = JSON.stringify({
+    audience,
+    attentionOnly,
+    businessAccountId,
+    dateFrom: dateRange.from,
+    dateTo: dateRange.to,
+    search,
+    sort,
+    status
+  });
+  const previousSelectionScope = useRef(selectionScope);
+
   const createShipmentHref = audience === "client" ? "/client/dpd-labels" : "/dashboard/dpd-labels";
   // Staff table only, and only for an administrator. Operations and delivery
   // work this list daily but do not remove rows from it.
@@ -213,6 +229,14 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    if (previousSelectionScope.current === selectionScope) return;
+    previousSelectionScope.current = selectionScope;
+    setSelected(new Map());
+    setActiveFlow(null);
+    setBulkStatusResult(null);
+  }, [selectionScope]);
 
   // The account list powers the staff filter. All accounts are shown, not just
   // active ones, so a suspended account's historical shipments stay findable.
@@ -348,6 +372,10 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     try {
       const result = await bulkUpdateDpdShipmentOperationalStatus({
         shipmentDraftIds,
+        expectedStatuses: statusSelection.map((shipment) => ({
+          shipmentDraftId: shipment.id,
+          status: shipment.status
+        })),
         status: bulkStatus,
         note: bulkStatusNote,
         location: bulkStatusLocation,

@@ -341,6 +341,13 @@ function bagIdsForConsignment(scans: ScannedParcelRef[], consignmentId: unknown)
   return seen;
 }
 
+async function maybeMarkFlightSheetReviewRequired(manifestId: mongoose.Types.ObjectId) {
+  try {
+    const { markSheetReviewRequiredIfChanged } = await import("./flightProfitability.service.js");
+    await markSheetReviewRequiredIfChanged(manifestId, "Manifest packing changed after cost sheet creation");
+  } catch { /* best effort */ }
+}
+
 async function recalculateTotals(manifestId: mongoose.Types.ObjectId, session?: mongoose.ClientSession) {
   const [bags, consignments, acceptedScans] = await Promise.all([
     OperationsManifestBag.find({ manifestId, status: { $ne: "CANCELLED" } }).session(session ?? null).exec(),
@@ -378,6 +385,8 @@ async function recalculateTotals(manifestId: mongoose.Types.ObjectId, session?: 
     }
   }
   await manifest.save({ session });
+  // Non-blocking review flag for any existing cost sheet
+  if (!session) void maybeMarkFlightSheetReviewRequired(manifestId);
   return manifest;
 }
 
@@ -1346,6 +1355,7 @@ export async function sealOperationsManifest(
       sealed = manifest;
     });
     if (!sealed) throw new OperationsManifestServiceError("Manifest could not be sealed.", 500);
+    void maybeMarkFlightSheetReviewRequired(new mongoose.Types.ObjectId(manifestIdValue));
     return sealed;
   } finally {
     await session.endSession();

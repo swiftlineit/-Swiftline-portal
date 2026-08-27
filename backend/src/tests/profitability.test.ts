@@ -8,6 +8,7 @@ import {
   normalizeProfitabilityCosts,
   resolveProfitabilityAwb
 } from "../services/shipmentProfitability.service.js";
+import { allocateMinorUnits, calculateFlightCostTotals } from "../services/flightProfitability.service.js";
 
 function actualCosts(values: Partial<Record<ShipmentProfitabilityCost["component"], number>>) {
   return blankProfitabilityCosts().map((cost) => values[cost.component] === undefined
@@ -58,4 +59,46 @@ test("profitability normalization preserves persisted cost subdocuments", () => 
   assert.equal(normalized.find((cost) => cost.component === "FREIGHT_BUYING")?.amountMinor, 100_000);
   assert.equal(normalized.find((cost) => cost.component === "HANDLING")?.amountMinor, 47_000);
   assert.equal(normalized.every((cost) => cost.state === "ACTUAL"), true);
+});
+
+test("flight costs calculate per-kg freight, GST, flat charges and GBP conversions", () => {
+  const result = calculateFlightCostTotals({
+    rate: {
+      airFreightRateMinorPerKg: 28_000,
+      gstBasisPoints: 1_800,
+      eicfRateMinorPerKg: 1_650,
+      customsMinor: 300_000,
+      transportationMinor: 300_000,
+      cflMinorPerBagGbp: 1_400,
+      dpdLabelMinorGbp: 1_000
+    },
+    facts: {
+      manifestWeightKg: 480,
+      billedWeightKg: 480,
+      totalBags: 20,
+      totalParcels: 50,
+      portalDpdLabels: 42,
+      externalPaidLabels: 5
+    },
+    gbpToInr: 110,
+    totalRevenueMinor: 30_000_000
+  });
+  assert.equal(result.airFreightBaseMinor, 13_440_000);
+  assert.equal(result.airFreightGstMinor, 2_419_200);
+  assert.equal(result.eicfMinor, 792_000);
+  assert.equal(result.cflGbpMinor, 28_000);
+  assert.equal(result.cflInrMinor, 3_080_000);
+  assert.equal(result.dpdLabelsGbpMinor, 47_000);
+  assert.equal(result.dpdLabelsInrMinor, 5_170_000);
+  assert.equal(result.totalCostMinor, 25_501_200);
+  assert.equal(result.grossProfitMinor, 4_498_800);
+  assert.equal(result.marginBasisPoints, 1_500);
+});
+
+test("flight allocation reconciles every paise deterministically", () => {
+  const first = allocateMinorUnits(10_001, [15_000, 10_000, 5_000], ["A", "B", "C"]);
+  const second = allocateMinorUnits(10_001, [15_000, 10_000, 5_000], ["A", "B", "C"]);
+  assert.deepEqual(first, second);
+  assert.equal(first.reduce((sum, value) => sum + value, 0), 10_001);
+  assert.deepEqual(first, [5_000, 3_334, 1_667]);
 });
