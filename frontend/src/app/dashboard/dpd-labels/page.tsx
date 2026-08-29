@@ -44,6 +44,7 @@ import {
 import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { RiMenuAddLine } from "react-icons/ri";
+import BookingPausedNotice from "@/components/booking/BookingPausedNotice";
 
 function FieldLabel({
   children,
@@ -518,6 +519,9 @@ export default function DpdLabelsPage() {
                 />
               </div>
             </label>
+          </div>
+          <div className="px-5 pb-5">
+            <BookingPausedNotice variant="staff" />
           </div>
         </section>
 

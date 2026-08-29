@@ -119,6 +119,7 @@ import {
   listClientRegulatoryUpdates,
   listClientServiceDisruptions
 } from "../controllers/operationsAdvisory.controller.js";
+import { listClientBookingPauses } from "../controllers/bookingPause.controller.js";
 import { cancelClientPickupRequest, createClientPickupRequest, rescheduleClientPickupRequest, getClientPickupRequest, listClientEligiblePickups, listClientPickupRequests, viewClientPickupProof } from "../controllers/pickup.controller.js";
 import { checkClientServiceability } from "../controllers/serviceability.controller.js";
 import { getClientCustomsKyc } from "../controllers/customsKyc.controller.js";
@@ -142,6 +143,7 @@ clientRouter.get("/documents", listClientDocuments);
 clientRouter.get("/service-disruptions", listClientServiceDisruptions);
 clientRouter.get("/calendar-entries", listClientCalendarEntries);
 clientRouter.get("/regulatory-updates", listClientRegulatoryUpdates);
+clientRouter.get("/booking-pauses", listClientBookingPauses);
 
 clientRouter.get("/support-tickets", listClientTickets);
 clientRouter.post("/support-tickets", createClientTicket);

@@ -5,17 +5,54 @@ import { FlightCostAllocation, type FlightAllocationComponent } from "../models/
 import { FlightCostSheet, type FlightCostTotals, type IFlightCostSheet } from "../models/flightCostSheet.model.js";
 import { ExchangeRateCache } from "../models/exchangeRateCache.model.js";
 import { FlightCostSheetRevision } from "../models/flightCostSheetRevision.model.js";
+import { AuditLog } from "../models/auditLog.model.js";
 import { LabelDocument } from "../models/labelDocument.model.js";
 import { OperationsManifest } from "../models/operationsManifest.model.js";
 import { OperationsManifestBag } from "../models/operationsManifestBag.model.js";
 import { OperationsManifestConsignment } from "../models/operationsManifestConsignment.model.js";
 import { OperationsManifestScan } from "../models/operationsManifestScan.model.js";
 import { ShipmentProfitability } from "../models/shipmentProfitability.model.js";
+import { calculateProfitabilityTotals, normalizeProfitabilityCosts } from "./shipmentProfitability.service.js";
+import { resolveTrackingProfile } from "./shipmentJourney.service.js";
 
 export type FlightRateSnapshot = Pick<IFlightBuyingRate,
   "airFreightRateMinorPerKg" | "gstBasisPoints" | "eicfRateMinorPerKg" |
   "customsMinor" | "transportationMinor" | "cflMinorPerBagGbp" | "dpdLabelMinorGbp"
 >;
+
+export function resolveFlightRateRegion(destinationCountryCode: string) {
+  const profile = resolveTrackingProfile(destinationCountryCode);
+  if (profile === "UK" || profile === "CANADA" || profile === "EUROPE") return profile;
+  if (profile === "USA") return "US" as const;
+  return null;
+}
+
+function dateKey(value: Date | string) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
+}
+
+export function isFlightBuyingRateApplicable(
+  rate: Pick<IFlightBuyingRate, "region" | "effectiveFrom" | "effectiveTo" | "status">,
+  destinationCountryCode: string,
+  flightDate: string
+) {
+  const expectedRegion = resolveFlightRateRegion(destinationCountryCode);
+  const from = dateKey(rate.effectiveFrom);
+  const to = rate.effectiveTo ? dateKey(rate.effectiveTo) : null;
+  return rate.status === "ACTIVE"
+    && expectedRegion !== null
+    && rate.region === expectedRegion
+    && Boolean(from)
+    && /^\d{4}-\d{2}-\d{2}$/.test(flightDate)
+    && from <= flightDate
+    && (!to || to >= flightDate);
+}
+
+export function nextFlightSnapshotRevision(currentRevision: number, latestStoredRevision: number | null | undefined) {
+  return Math.max(Math.max(1, Math.trunc(currentRevision)), Math.max(0, Math.trunc(latestStoredRevision ?? 0)) + 1);
+}
 
 export type FlightOperationalFacts = {
   manifestWeightKg: number;
@@ -326,12 +363,24 @@ export function copyRateSnapshot(rate: IFlightBuyingRate): FlightRateSnapshot {
   };
 }
 
-export async function saveFlightCostRevision(sheet: IFlightCostSheet, changedBy: mongoose.Types.ObjectId, reason: string) {
-  await FlightCostSheetRevision.create({
+export async function saveFlightCostRevision(
+  sheet: IFlightCostSheet,
+  changedBy: mongoose.Types.ObjectId,
+  reason: string,
+  session?: mongoose.ClientSession
+) {
+  const latest = await FlightCostSheetRevision.findOne({ flightCostSheetId: sheet._id })
+    .sort({ revision: -1 })
+    .select("revision")
+    .session(session ?? null)
+    .lean()
+    .exec();
+  const snapshotRevision = nextFlightSnapshotRevision(sheet.revision, latest?.revision);
+  await FlightCostSheetRevision.create([{
     flightCostSheetId: sheet._id,
     operationsManifestId: sheet.operationsManifestId,
     branchId: sheet.branchId,
-    revision: sheet.revision,
+    revision: snapshotRevision,
     version: sheet.version,
     status: sheet.status,
     manifestNumber: sheet.manifestNumber,
@@ -350,30 +399,76 @@ export async function saveFlightCostRevision(sheet: IFlightCostSheet, changedBy:
     },
     changeReason: reason,
     changedBy
-  });
+  }], { session });
+  return snapshotRevision;
+}
+
+export async function restoreLegacyProfitabilityForSheet(sheet: IFlightCostSheet, session?: mongoose.ClientSession) {
+  const profiles = await ShipmentProfitability.find({ flightCostSheetId: sheet._id }).session(session ?? null).exec();
+  if (profiles.length) {
+    await ShipmentProfitability.bulkWrite(profiles.map((profile) => {
+      const costs = normalizeProfitabilityCosts(profile.costs);
+      const totals = calculateProfitabilityTotals({ totalRevenueMinor: profile.totalRevenueMinor, costs });
+      const primaryVendorId = costs.find((cost) => cost.vendorId)?.vendorId ?? null;
+      return {
+        updateOne: {
+          filter: { _id: profile._id, flightCostSheetId: sheet._id },
+          update: {
+            $set: {
+              primaryVendorId,
+              costSource: "LEGACY",
+              flightCostSheetId: null,
+              operationsManifestId: null,
+              flightAllocation: [],
+              ...totals
+            },
+            $inc: { version: 1 }
+          }
+        }
+      };
+    }), { session });
+  }
+  await FlightCostAllocation.deleteMany({ flightCostSheetId: sheet._id }).session(session ?? null).exec();
 }
 
 export async function markSheetReviewRequiredIfChanged(manifestId: mongoose.Types.ObjectId, reason = "Operations manifest changed") {
-  const sheet = await FlightCostSheet.findOne({ operationsManifestId: manifestId, status: { $in: ["DRAFT", "FINALIZED"] } }).exec();
-  if (!sheet) return null;
-  const { manifest, facts } = await loadFlightOperationalFacts(manifestId, sheet.externalPaidLabels);
-  const changed = sheet.manifestWeightKg !== facts.manifestWeightKg
-    || sheet.totalBags !== facts.totalBags
-    || sheet.totalParcels !== facts.totalParcels
-    || sheet.mawbNumber !== manifest.header.mawbNumber
-    || sheet.flightNumber !== manifest.header.flightNumber
-    || sheet.flightDate !== manifest.header.departureDate
-    || sheet.destinationCountryCode !== manifest.header.destinationCountryCode;
-  if (!changed) return sheet;
-  // Save revision before mutating to REVIEW_REQUIRED for audit
-  await saveFlightCostRevision(sheet, sheet.updatedBy, sheet.lastChangeReason || "Pre-review snapshot");
-  sheet.status = "REVIEW_REQUIRED";
-  sheet.lastChangeReason = reason;
-  sheet.version += 1;
-  await refreshSheetFactsAndTotals(sheet);
-  await sheet.save();
-  await rebuildFlightAllocations(sheet);
-  return sheet;
+  const session = await mongoose.startSession();
+  let sheetId: mongoose.Types.ObjectId | null = null;
+  try {
+    await session.withTransaction(async () => {
+      sheetId = null;
+      const sheet = await FlightCostSheet.findOne({ operationsManifestId: manifestId, status: { $in: ["DRAFT", "FINALIZED"] } }).session(session).exec();
+      if (!sheet) return;
+      const { manifest, facts } = await loadFlightOperationalFacts(manifestId, sheet.externalPaidLabels, session);
+      const changed = sheet.manifestWeightKg !== facts.manifestWeightKg
+        || sheet.totalBags !== facts.totalBags
+        || sheet.totalParcels !== facts.totalParcels
+        || sheet.mawbNumber !== manifest.header.mawbNumber
+        || sheet.flightNumber !== manifest.header.flightNumber
+        || sheet.flightDate !== manifest.header.departureDate
+        || sheet.destinationCountryCode !== manifest.header.destinationCountryCode;
+      if (!changed) return;
+      const snapshotRevision = await saveFlightCostRevision(sheet, sheet.updatedBy, sheet.lastChangeReason || "Pre-review snapshot", session);
+      sheet.revision = snapshotRevision + 1;
+      sheet.status = "REVIEW_REQUIRED";
+      sheet.lastChangeReason = reason;
+      sheet.version += 1;
+      await refreshSheetFactsAndTotals(sheet, { session });
+      await rebuildFlightAllocations(sheet, session);
+      await AuditLog.create([{
+        action: "FLIGHT_COST_SHEET_REVIEW_REQUIRED",
+        entityType: "FLIGHT_COST_SHEET",
+        entityId: sheet._id,
+        performedBy: sheet.updatedBy,
+        performedAt: new Date(),
+        metadata: { manifestId, reason, automatic: true, revision: sheet.revision }
+      }], { session });
+      sheetId = sheet._id as mongoose.Types.ObjectId;
+    });
+    return sheetId ? FlightCostSheet.findById(sheetId).exec() : null;
+  } finally {
+    await session.endSession();
+  }
 }
 
 export async function loadSheetWithRelations(sheetId: mongoose.Types.ObjectId) {

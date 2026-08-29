@@ -6,7 +6,7 @@ export default function ProfitabilitySelect({ className = "", children, ...props
     <span className="relative block">
       <select
         {...props}
-        className={`h-10 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10 disabled:bg-slate-100 disabled:text-slate-500 ${className}`}
+        className={`h-11 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10 disabled:bg-slate-100 disabled:text-slate-500 ${className}`}
       >
         {children}
       </select>

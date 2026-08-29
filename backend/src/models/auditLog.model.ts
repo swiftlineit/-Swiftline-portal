@@ -187,7 +187,11 @@ export type AuditAction =
   | "REGULATORY_UPDATE_DELETED"
   | "DASHBOARD_BANNER_CREATED"
   | "DASHBOARD_BANNER_UPDATED"
-  | "DASHBOARD_BANNER_DELETED";
+  | "DASHBOARD_BANNER_DELETED"
+  | "BOOKING_PAUSE_CREATED"
+  | "BOOKING_PAUSE_UPDATED"
+  | "BOOKING_PAUSE_TOGGLED"
+  | "BOOKING_PAUSE_DELETED";
 export type AuditEntityType =
   | "BRANCH"
   | "DPD_CONFIGURATION"
@@ -234,7 +238,8 @@ export type AuditEntityType =
   | "OPERATIONAL_CALENDAR_ENTRY"
   | "REGULATORY_UPDATE"
   | "SWIFTLINE_ROUTE"
-  | "DASHBOARD_BANNER";
+  | "DASHBOARD_BANNER"
+  | "BOOKING_PAUSE";
 
 export interface IAuditLog extends mongoose.Document {
   action: AuditAction;

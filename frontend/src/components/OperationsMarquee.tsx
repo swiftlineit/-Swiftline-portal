@@ -14,6 +14,7 @@ import {
   type RegulatoryUpdate,
   type ServiceDisruption,
 } from "@/lib/operationsAdvisory";
+import { listActiveBookingPauses, listClientBookingPauses, type BookingPause } from "@/lib/bookingPause";
 
 const CAROUSEL_INTERVAL_MS = 6_000;
 
@@ -35,21 +36,30 @@ export default function OperationsMarquee({
   const [regulatoryUpdates, setRegulatoryUpdates] = useState<
     RegulatoryUpdate[]
   >([]);
+  const [bookingPauses, setBookingPauses] = useState<BookingPause[]>([]);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
 
+  function formatPauseWindow(pause: BookingPause) {
+    const fmt = (iso: string) =>
+      new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    return `${fmt(pause.startAt)} – ${fmt(pause.endAt)}`;
+  }
+
   const load = useCallback(async () => {
     try {
-      const [disruptionResult, regulatoryResult] =
+      const [disruptionResult, regulatoryResult, pauseResult] =
         variant === "client"
           ? await Promise.all([
               listClientServiceDisruptions(),
               listClientRegulatoryUpdates(),
+              listClientBookingPauses().catch(() => ({ pauses: [] as BookingPause[] })),
             ])
           : await Promise.all([
               listServiceDisruptions({ scope: "live" }),
               listRegulatoryUpdates({ active: true }),
+              listActiveBookingPauses().catch(() => ({ pauses: [] as BookingPause[] })),
             ]);
 
       setDisruptions(disruptionResult.disruptions);
@@ -59,6 +69,8 @@ export default function OperationsMarquee({
           (update) => update.status !== "EXPIRED",
         ),
       );
+
+      setBookingPauses((pauseResult as { pauses: BookingPause[] }).pauses ?? []);
 
       setReady(true);
     } catch {
@@ -81,6 +93,16 @@ export default function OperationsMarquee({
 
   const items = useMemo<MarqueeItem[]>(
     () => [
+      ...bookingPauses.map((pause) => ({
+        key: `pause:${pause.id}`,
+        label: "Booking paused",
+        title: pause.countries.includes("ALL")
+          ? `Bookings paused for all destinations — ${formatPauseWindow(pause)}`
+          : `Bookings paused for ${pause.countryLabels.join(", ")} — ${formatPauseWindow(pause)}`,
+        detail: pause.reason,
+        dotClass: "bg-[#D71313]",
+        isNew: isNewAdvisory(pause.createdAt, now),
+      })),
       ...disruptions.map((disruption) => ({
         key: `disruption:${disruption.id}`,
         label: serviceDisruptionTypeLabels[disruption.type],
@@ -104,7 +126,7 @@ export default function OperationsMarquee({
         isNew: isNewAdvisory(update.createdAt, now),
       })),
     ],
-    [disruptions, regulatoryUpdates, now],
+    [disruptions, regulatoryUpdates, bookingPauses, now],
   );
 
   useEffect(() => {

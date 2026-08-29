@@ -93,6 +93,8 @@ import {
 import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
 import AddressBookPicker from "@/components/address-book/AddressBookPicker";
 import { getAddressBookEntry, type AddressBookEntry, type AddressBookEntryType } from "@/lib/addressBook";
+import BookingPausedNotice from "@/components/booking/BookingPausedNotice";
+import { isCountryPaused, listClientBookingPauses, type BookingPause } from "@/lib/bookingPause";
 
 /** The booking-panel action currently running; the two booking values are the
  *  provider each button books with. Null when the page is idle. */
@@ -410,6 +412,7 @@ export default function ClientDpdDraftReviewPage() {
   const busy = pendingAction !== null;
   const [addressBusy, setAddressBusy] = useState(false);
   const [error, setError] = useState("");
+  const [bookingPauses, setBookingPauses] = useState<BookingPause[]>([]);
   const [notice, setNotice] = useState("");
   const [, setReviewIssues] = useState<string[]>([]);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -681,6 +684,20 @@ export default function ClientDpdDraftReviewPage() {
       mounted = false;
     };
   }, [params.draftId, router]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadPauses() {
+      try {
+        const data = await listClientBookingPauses();
+        if (!active) return;
+        setBookingPauses(data.pauses);
+      } catch { /* non-blocking */ }
+    }
+    void loadPauses();
+    const id = window.setInterval(() => void loadPauses(), 60_000);
+    return () => { active = false; window.clearInterval(id); };
+  }, []);
 
   useEffect(() => {
     if (!draft || !addressBookEntryId || appliedAddressBookEntryRef.current === addressBookEntryId) return;
@@ -968,6 +985,9 @@ export default function ClientDpdDraftReviewPage() {
     }
   }
 
+  const currentCountryCode = draft?.consigneeEnteredAddress?.countryCode || addressForm.countryCode || "";
+  const isCurrentCountryPaused = isCountryPaused(currentCountryCode, bookingPauses);
+
   async function handleCreateLabel(
     // Supplied when re-booking after the customer accepted a changed price.
     acceptedPricingHash = costEstimate?.pricingHash,
@@ -975,6 +995,13 @@ export default function ClientDpdDraftReviewPage() {
     skipDpdLabel = false
   ) {
     if (!draft) return;
+
+    if (isCountryPaused(draft.consigneeEnteredAddress?.countryCode || addressForm.countryCode, bookingPauses)) {
+      const msg = "Bookings for this destination are temporarily paused. Please check the booking pause notice for details.";
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
 
     const issues = [
       ...getReviewIssues(addressForm, contactForm, parcelForms, csbType),
@@ -1130,6 +1157,10 @@ export default function ClientDpdDraftReviewPage() {
         {error ? (
           <div className="mb-5 border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>
         ) : null}
+
+        <div className="mb-5">
+          <BookingPausedNotice variant="client" pauses={bookingPauses} countryCode={currentCountryCode} />
+        </div>
 
         {notice ? (
           <div className="mb-5 border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-900">{notice}</div>
@@ -1435,10 +1466,16 @@ export default function ClientDpdDraftReviewPage() {
 
             <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
               <section className="border border-slate-200 bg-white p-4 rounded-2xl">
+                {isCurrentCountryPaused ? (
+                  <div className="mb-3 rounded-xl border border-[#D71313]/20 bg-[#FFF1F1] px-3 py-2 text-xs font-semibold text-[#991B1B]">
+                    Bookings for this destination are paused — booking is disabled.
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void handleCreateLabel()}
-                  disabled={busy}
+                  disabled={busy || isCurrentCountryPaused}
+                  title={isCurrentCountryPaused ? "Booking paused for this destination" : undefined}
                   className="inline-flex h-10 w-full rounded-xl items-center justify-center gap-2 bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
                   <FiTruck aria-hidden="true" className="h-4 w-4" />
@@ -1451,7 +1488,8 @@ export default function ClientDpdDraftReviewPage() {
                   <button
                     type="button"
                     onClick={() => void handleCreateLabel(undefined, true)}
-                    disabled={busy}
+                    disabled={busy || isCurrentCountryPaused}
+                    title={isCurrentCountryPaused ? "Booking paused for this destination" : undefined}
                     className="mt-2 inline-flex h-10 w-full rounded-xl items-center justify-center gap-2 border border-amber-500 bg-amber-50 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
                   >
                     {/* <FiTruck aria-hidden="true" className="h-4 w-4" /> */}

@@ -11,6 +11,7 @@ import {
   getFlightCostSheet,
   getFlightManifestPreview,
   getGbpToInrRate,
+  isFlightRateEligible,
   listFlightBuyingRates,
   listFlightCostSheets,
   listFlightManifestOptions,
@@ -25,7 +26,7 @@ import {
 import ProfitabilitySelect from "./ProfitabilitySelect";
 
 const inputClass =
-  "mt-2 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10 disabled:bg-slate-100 disabled:text-slate-500";
+  "mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10 disabled:bg-slate-100 disabled:text-slate-500";
 type Preview = FlightManifestOption & {
   manifestWeightKg: number;
   billedWeightKg: number;
@@ -70,7 +71,7 @@ const emptyDraft = (): Draft => ({
 });
 
 function calculatePreview(
-  rate: FlightBuyingRate | undefined,
+  rate: Pick<FlightBuyingRate, "airFreightRateMinorPerKg" | "gstBasisPoints" | "eicfRateMinorPerKg" | "customsMinor" | "transportationMinor" | "cflMinorPerBagGbp" | "dpdLabelMinorGbp"> | undefined,
   facts: { billedWeightKg: number; totalBags: number; portalDpdLabels: number; externalPaidLabels: number },
   gbpToInr: number,
   revenueMinor = 0
@@ -158,13 +159,19 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
   }, [branchId, statusFilter, vendorFilter, fromFilter, toFilter]);
 
   const selectedRate = rates.find((item) => item.id === draft.rateId);
+  const calculationRate = sheet && draft.rateId === sheet.buyingRateId ? sheet.rateSnapshot : selectedRate;
+  const eligibleRates = rates.filter((item) => {
+    if (sheet && item.id === sheet.buyingRateId) return true;
+    if (!preview) return false;
+    return isFlightRateEligible(item, preview.header.destinationCountryCode, preview.header.departureDate);
+  });
   const billedWeight = Number(draft.billedWeight || preview?.totalWeightKg || 0);
   const externalLabels = Math.max(0, Number(draft.externalLabels) || 0);
   const fxRate = Number(draft.fxRate);
   const totals =
     sheet && sheet.id
       ? calculatePreview(
-          selectedRate,
+          calculationRate,
           {
             billedWeightKg: billedWeight,
             totalBags: preview?.totalBags ?? sheet.totalBags,
@@ -175,7 +182,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
           sheet.totals.totalRevenueMinor
         )
       : calculatePreview(
-          selectedRate,
+          calculationRate,
           {
             billedWeightKg: billedWeight,
             totalBags: preview?.totalBags ?? 0,
@@ -213,7 +220,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
   }
 
   async function selectManifest(id: string) {
-    setDraft((current) => ({ ...current, manifestId: id }));
+    setDraft((current) => ({ ...current, manifestId: id, rateId: "" }));
     if (!id) return setPreview(null);
     const existing = manifests.find((item) => item.id === id)?.costSheet;
     if (existing) return openExisting(existing.id);
@@ -342,13 +349,13 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
           </div>
           <button
             onClick={() => void openNew()}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0A0E68]"
+            className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white hover:bg-[#0A0E68]"
           >
             <FiPlus /> New cost sheet
           </button>
         </div>
-        <div className="flex flex-wrap gap-3 px-5 pb-3">
-          <label className="text-xs font-semibold text-slate-600">
+        <div className="flex flex-wrap items-end gap-3 px-5 pb-3">
+          <label className="block min-w-36 text-xs font-semibold text-slate-600">
             Status
             <ProfitabilitySelect value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="mt-1 min-w-36">
               <option value="">All</option>
@@ -360,7 +367,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               <option value="ACTUAL">Actual</option>
             </ProfitabilitySelect>
           </label>
-          <label className="text-xs font-semibold text-slate-600">
+          <label className="block min-w-40 text-xs font-semibold text-slate-600">
             Vendor
             <ProfitabilitySelect value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="mt-1 min-w-36">
               <option value="">All vendors</option>
@@ -371,27 +378,27 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               ))}
             </ProfitabilitySelect>
           </label>
-          <label className="text-xs font-semibold text-slate-600">
+          <label className="block min-w-36 text-xs font-semibold text-slate-600">
             From
             <input
               type="date"
               value={fromFilter}
               onChange={(e) => setFromFilter(e.target.value)}
-              className="mt-1 h-9 rounded-lg border border-slate-300 px-2 text-sm"
+              className="mt-1 block h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
             />
           </label>
-          <label className="text-xs font-semibold text-slate-600">
+          <label className="block min-w-36 text-xs font-semibold text-slate-600">
             To
             <input
               type="date"
               value={toFilter}
               onChange={(e) => setToFilter(e.target.value)}
-              className="mt-1 h-9 rounded-lg border border-slate-300 px-2 text-sm"
+              className="mt-1 block h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
             />
           </label>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-[1250px] text-left text-sm">
+          <table className="w-full min-w-[1250px] text-left text-sm">
             <thead className="border-y border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
               <tr>
                 <th className="px-4 py-3">Manifest</th>
@@ -446,7 +453,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
                     <td className="px-4 py-3 text-right">
                       <button
                         onClick={() => void openExisting(item.id)}
-                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-[#0D1282] hover:bg-slate-50"
+                        className="inline-flex h-11 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-[#0D1282] hover:bg-slate-50"
                       >
                         <FiEdit3 /> Open
                       </button>
@@ -484,7 +491,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           onClick={() => setEditor(false)}
-          className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-white"
+          className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-white"
         >
           <FiArrowLeft /> Flight costs
         </button>
@@ -492,7 +499,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
           <button
             onClick={() => void save()}
             disabled={saving || sheet?.status === "CANCELLED"}
-            className="h-10 rounded-lg border border-[#0D1282] px-4 text-sm font-semibold text-[#0D1282] disabled:opacity-50"
+            className="h-11 rounded-lg border border-[#0D1282] px-4 text-sm font-semibold text-[#0D1282] disabled:opacity-50"
           >
             {saving ? "Saving…" : sheet?.status === "FINALIZED" ? "Amend" : "Save draft"}
           </button>
@@ -500,7 +507,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
             <button
               onClick={() => void finalize()}
               disabled={!sheet || saving}
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white disabled:opacity-50"
+              className="inline-flex h-11 items-center gap-2 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white disabled:opacity-50"
             >
               <FiCheck /> Finalize cost sheet
             </button>
@@ -509,7 +516,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
             <button
               onClick={() => void cancelSheet()}
               disabled={!sheet || saving}
-              className="h-10 rounded-lg border border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              className="h-11 rounded-lg border border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
             >
               Cancel sheet
             </button>
@@ -587,15 +594,21 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
                 <ProfitabilitySelect
                   value={draft.rateId}
                   onChange={(event) => setDraft({ ...draft, rateId: event.target.value })}
+                  disabled={!preview || sheet?.status === "CANCELLED"}
                   className="mt-2"
                 >
-                  <option value="">Select rate</option>
-                  {rates.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.vendor.name} · {item.region} · ₹{(item.airFreightRateMinorPerKg / 100).toFixed(2)}/kg
-                    </option>
-                  ))}
+                  <option value="">{preview ? "Select rate" : "Select manifest first"}</option>
+                  {eligibleRates.map((item) => {
+                    const usesSavedSnapshot = Boolean(sheet && item.id === sheet.buyingRateId);
+                    const airFreightRate = usesSavedSnapshot ? sheet!.rateSnapshot.airFreightRateMinorPerKg : item.airFreightRateMinorPerKg;
+                    return (
+                      <option key={item.id} value={item.id}>
+                        {item.vendor.name} · {item.region} · ₹{(airFreightRate / 100).toFixed(2)}/kg{usesSavedSnapshot ? " · saved snapshot" : ""}
+                      </option>
+                    );
+                  })}
                 </ProfitabilitySelect>
+                {preview && !eligibleRates.length ? <span className="mt-2 block text-xs font-medium text-amber-700">No active rate matches this destination and flight date.</span> : null}
               </label>
               <label className="text-sm font-semibold text-slate-700">
                 Airline name
@@ -631,13 +644,13 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               label="Air freight"
               basis="Per kg"
               quantity={`${billedWeight.toFixed(3)} kg`}
-              rate={selectedRate ? formatCreditMoney(selectedRate.airFreightRateMinorPerKg, "INR") : "—"}
+              rate={calculationRate ? formatCreditMoney(calculationRate.airFreightRateMinorPerKg, "INR") : "—"}
               amount={totals?.airFreightBaseMinor}
             />
             <CostLine
               label="GST on air freight"
               basis="On base"
-              quantity={selectedRate ? `${(selectedRate.gstBasisPoints / 100).toFixed(2)}%` : "—"}
+              quantity={calculationRate ? `${(calculationRate.gstBasisPoints / 100).toFixed(2)}%` : "—"}
               rate=""
               amount={totals?.airFreightGstMinor}
             />
@@ -645,18 +658,18 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               label="EICF"
               basis="Per kg"
               quantity={`${billedWeight.toFixed(3)} kg`}
-              rate={selectedRate ? formatCreditMoney(selectedRate.eicfRateMinorPerKg, "INR") : "—"}
+              rate={calculationRate ? formatCreditMoney(calculationRate.eicfRateMinorPerKg, "INR") : "—"}
               amount={totals?.eicfMinor}
             />
             <SectionTitle title="India charges" />
             <CostLine label="Customs" basis="Per flight" quantity="1" rate="" amount={totals?.customsMinor} />
             <CostLine label="Transportation" basis="Per flight" quantity="1" rate="" amount={totals?.transportationMinor} />
-            <SectionTitle title="UK charges" />
+            <SectionTitle title="Destination charges" />
             <CostLine
               label="CFL"
               basis="Per bag"
               quantity={`${facts.totalBags} bags`}
-              rate={selectedRate ? `£${(selectedRate.cflMinorPerBagGbp / 100).toFixed(2)}` : "—"}
+              rate={calculationRate ? `£${(calculationRate.cflMinorPerBagGbp / 100).toFixed(2)}` : "—"}
               amount={totals?.cflInrMinor}
               foreignAmount={totals?.cflGbpMinor}
             />
@@ -664,7 +677,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               label="DPD labels"
               basis="Per label"
               quantity={`${facts.billableLabels} labels`}
-              rate={selectedRate ? `£${(selectedRate.dpdLabelMinorGbp / 100).toFixed(2)}` : "—"}
+              rate={calculationRate ? `£${(calculationRate.dpdLabelMinorGbp / 100).toFixed(2)}` : "—"}
               amount={totals?.dpdLabelsInrMinor}
               foreignAmount={totals?.dpdLabelsGbpMinor}
             />
@@ -752,7 +765,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               </div>
               <button
                 onClick={() => void refreshFx()}
-                className="grid h-9 w-9 place-items-center rounded-lg text-[#0D1282] hover:bg-blue-50"
+                className="grid h-11 w-11 place-items-center rounded-lg text-[#0D1282] hover:bg-blue-50"
                 aria-label="Refresh exchange rate"
               >
                 <FiRefreshCw />

@@ -1,11 +1,12 @@
 "use client";
 
 import { Suspense } from "react";
-import { FiAlertOctagon, FiCalendar, FiEye, FiFileText, FiImage } from "react-icons/fi";
+import { FiAlertOctagon, FiCalendar, FiEye, FiFileText, FiImage, FiSlash } from "react-icons/fi";
 import { DashboardLoading } from "@/components/DashboardShell";
 import CalendarEntriesManager from "@/components/operations-advisory/CalendarEntriesManager";
 import RegulatoryUpdatesManager from "@/components/operations-advisory/RegulatoryUpdatesManager";
 import ServiceDisruptionsManager from "@/components/operations-advisory/ServiceDisruptionsManager";
+import BookingPausesManager from "@/components/operations-advisory/BookingPausesManager";
 import OperationsCalendarView from "@/components/operations-advisory/OperationsCalendarView";
 import DashboardBannerManager from "@/components/operations-advisory/DashboardBannerManager";
 import { OPERATIONS_AREA } from "@/lib/roles";
@@ -21,13 +22,14 @@ import {
   type ServiceDisruption
 } from "@/lib/operationsAdvisory";
 
-type Tab = "disruptions" | "calendar" | "regulatory" | "banner";
+type Tab = "disruptions" | "calendar" | "regulatory" | "banner" | "bookingPauses";
 
 const tabMeta: Record<Tab, { label: string; icon: typeof FiCalendar }> = {
   disruptions: { label: "Service Disruption Centre", icon: FiAlertOctagon },
   calendar: { label: "Holiday & Cut-Off Calendar", icon: FiCalendar },
   regulatory: { label: "Customs & Regulatory Updates", icon: FiFileText },
-  banner: { label: "Dashboard Banner", icon: FiImage }
+  banner: { label: "Dashboard Banner", icon: FiImage },
+  bookingPauses: { label: "Booking Pauses", icon: FiSlash }
 };
 
 /** Tabs the header calendar icon and other deep links can address by name. */
@@ -35,6 +37,7 @@ function tabFromQuery(value: string | null): Tab {
   if (value === "calendar") return "calendar";
   if (value === "regulatory") return "regulatory";
   if (value === "banner") return "banner";
+  if (value === "booking-pauses" || value === "bookingPauses" || value === "pauses") return "bookingPauses";
   return "disruptions";
 }
 
@@ -99,6 +102,7 @@ function OperationsAdvisoryContent() {
       </div>
 
       {tab === "disruptions" ? <ServiceDisruptionsManager /> : null}
+      {tab === "bookingPauses" ? <BookingPausesManager /> : null}
       {tab === "regulatory" ? <RegulatoryUpdatesManager /> : null}
       {tab === "banner" ? <DashboardBannerManager /> : null}
       {tab === "calendar" ? (

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { allocateMinorUnits, calculateFlightCostTotals, clearExchangeRateCacheForTests } from "../services/flightProfitability.service.js";
+import {
+  allocateMinorUnits,
+  calculateFlightCostTotals,
+  clearExchangeRateCacheForTests,
+  isFlightBuyingRateApplicable,
+  nextFlightSnapshotRevision,
+  resolveFlightRateRegion
+} from "../services/flightProfitability.service.js";
 import { ExchangeRateCache } from "../models/exchangeRateCache.model.js";
 
 describe("flight cost calculations", () => {
@@ -119,5 +126,42 @@ describe("exchange rate cache", () => {
     clearExchangeRateCacheForTests();
     // no assertion, just ensures function exists and is callable
     assert.ok(true);
+  });
+});
+
+describe("flight buying-rate eligibility", () => {
+  const rate = {
+    region: "UK" as const,
+    effectiveFrom: new Date("2026-08-01T00:00:00.000Z"),
+    effectiveTo: new Date("2026-08-31T00:00:00.000Z"),
+    status: "ACTIVE" as const
+  };
+
+  test("maps supported manifest destinations to configured flight regions", () => {
+    assert.equal(resolveFlightRateRegion("GB"), "UK");
+    assert.equal(resolveFlightRateRegion("US"), "US");
+    assert.equal(resolveFlightRateRegion("CA"), "CANADA");
+    assert.equal(resolveFlightRateRegion("DE"), "EUROPE");
+    assert.equal(resolveFlightRateRegion("AE"), null);
+  });
+
+  test("requires matching region, active status, and inclusive effective date", () => {
+    assert.equal(isFlightBuyingRateApplicable(rate, "GB", "2026-08-01"), true);
+    assert.equal(isFlightBuyingRateApplicable(rate, "GB", "2026-08-31"), true);
+    assert.equal(isFlightBuyingRateApplicable(rate, "GB", "2026-09-01"), false);
+    assert.equal(isFlightBuyingRateApplicable(rate, "US", "2026-08-15"), false);
+    assert.equal(isFlightBuyingRateApplicable({ ...rate, status: "DELETED" }, "GB", "2026-08-15"), false);
+  });
+});
+
+describe("flight cost revisions", () => {
+  test("advances clean revision sequences", () => {
+    assert.equal(nextFlightSnapshotRevision(1, null), 1);
+    assert.equal(nextFlightSnapshotRevision(2, 1), 2);
+  });
+
+  test("repairs legacy sheets whose stored revision already collides", () => {
+    assert.equal(nextFlightSnapshotRevision(1, 1), 2);
+    assert.equal(nextFlightSnapshotRevision(2, 5), 6);
   });
 });

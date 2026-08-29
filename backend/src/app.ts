@@ -54,6 +54,7 @@ import {
 import { podDeliveryRouter, podManagementRouter } from "./routes/pod.routes.js";
 import { profitabilityRouter } from "./routes/profitability.routes.js";
 import { dashboardBannerRouter } from "./routes/dashboardBanner.routes.js";
+import { bookingPauseRouter } from "./routes/bookingPause.routes.js";
 
 export const app = express();
 
@@ -153,6 +154,7 @@ app.use("/api/v1/client/claims", clientClaimRouter);
 app.use("/api/v1/claims", staffClaimRouter);
 app.use("/api/v1/operations-manifests", operationsManifestRouter);
 app.use("/api/v1/operations-advisory", operationsAdvisoryRouter);
+app.use("/api/v1/booking-pauses", bookingPauseRouter);
 app.use("/api/v1/drivers", driverManagementRouter);
 app.use("/api/v1/driver", driverPortalRouter);
 app.use("/api/v1/pickups", pickupManagementRouter);

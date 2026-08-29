@@ -31,6 +31,7 @@ import { formatDashboardDateTime } from "@/lib/dateFormat";
 import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
 import { useBulkDeleteShipmentDrafts, useDeleteShipmentDraft } from "@/lib/useDeleteShipmentDraft";
 import { RiMenuAddLine } from "react-icons/ri";
+import BookingPausedNotice from "@/components/booking/BookingPausedNotice";
 
 async function loadCurrentUser() {
   let token = getAccessToken() ?? await refreshAccessToken();
@@ -239,6 +240,9 @@ export default function ClientDpdLabelsPage() {
             <div className="grid gap-4 p-5 md:grid-cols-2">
               <ReadOnlyDetail label="Business Account" value={selectedAccount?.account.company.companyName} />
               <ReadOnlyDetail label="Sender Branch" value={selectedBranch?.name} />
+            </div>
+            <div className="px-5 pb-5">
+              <BookingPausedNotice variant="client" />
             </div>
           </section>
 

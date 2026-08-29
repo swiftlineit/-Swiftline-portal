@@ -91,6 +91,13 @@ function serializeCost(cost: ShipmentProfitabilityCost) {
 
 function serializeProfitability(row: InstanceType<typeof ShipmentProfitability>) {
   const vendor = row.primaryVendorId as unknown as { _id?: mongoose.Types.ObjectId; name?: string; code?: string } | null;
+  const flightSheet = row.flightCostSheetId as unknown as {
+    _id?: mongoose.Types.ObjectId;
+    manifestNumber?: string;
+    mawbNumber?: string;
+    flightNumber?: string;
+    flightDate?: string;
+  } | null;
   return {
     id: String(row._id),
     shipmentDraftId: String(row.shipmentDraftId),
@@ -100,8 +107,14 @@ function serializeProfitability(row: InstanceType<typeof ShipmentProfitability>)
       ? { id: String(vendor._id), name: vendor.name, code: vendor.code ?? "" }
       : null,
     costSource: row.costSource ?? "LEGACY",
-    flightCostSheetId: row.flightCostSheetId ? String(row.flightCostSheetId) : null,
+    flightCostSheetId: row.flightCostSheetId ? String(flightSheet?._id ?? row.flightCostSheetId) : null,
     operationsManifestId: row.operationsManifestId ? String(row.operationsManifestId) : null,
+    flight: flightSheet?.manifestNumber ? {
+      manifestNumber: flightSheet.manifestNumber,
+      mawbNumber: flightSheet.mawbNumber ?? "",
+      flightNumber: flightSheet.flightNumber ?? "",
+      flightDate: flightSheet.flightDate ?? ""
+    } : null,
     flightAllocation: row.flightAllocation ?? [],
     awb: row.awb,
     customerName: row.customerName,
@@ -148,7 +161,9 @@ export async function getProfitabilityOverview(request: Request, response: Respo
         { $project: { _id: 0, date: "$_id", revenueMinor: 1, costMinor: 1, profitMinor: 1 } }
       ]).exec(),
       ShipmentProfitability.find({ ...monthMatch, grossProfitMinor: { $lt: 0 }, coverage: { $ne: "MISSING" } })
-        .populate("primaryVendorId", "name code").sort({ grossProfitMinor: 1 }).limit(5).exec(),
+        .populate("primaryVendorId", "name code")
+        .populate("flightCostSheetId", "manifestNumber mawbNumber flightNumber flightDate")
+        .sort({ grossProfitMinor: 1 }).limit(5).exec(),
       ShipmentProfitability.aggregate<{ businessAccountId: string; customerName: string; shipments: number; revenueMinor: number; costMinor: number; profitMinor: number }>([
         { $match: monthMatch },
         { $group: { _id: "$businessAccountId", customerName: { $max: "$customerName" }, shipments: { $sum: 1 }, revenueMinor: { $sum: "$totalRevenueMinor" }, costMinor: { $sum: "$totalCostMinor" }, profitMinor: { $sum: "$grossProfitMinor" } } },
@@ -166,7 +181,7 @@ export async function getProfitabilityOverview(request: Request, response: Respo
         { $project: { _id: 0, coverage: "$_id", count: 1 } }
       ]).exec(),
       // Flight-level loss-making sheets
-      (await import("../models/flightCostSheet.model.js")).FlightCostSheet.find({ ...branchMatch, "totals.grossProfitMinor": { $lt: 0 } }).sort({ "totals.grossProfitMinor": 1 }).limit(5).lean().exec(),
+      (await import("../models/flightCostSheet.model.js")).FlightCostSheet.find({ ...branchMatch, status: { $ne: "CANCELLED" }, "totals.grossProfitMinor": { $lt: 0 } }).sort({ "totals.grossProfitMinor": 1 }).limit(5).lean().exec(),
       ShipmentProfitability.aggregate<{ destinationCountryCode: string; destinationCountryName: string; shipments: number; profitMinor: number }>([
         { $match: monthMatch },
         { $group: { _id: "$destinationCountryCode", destinationCountryName: { $max: "$destinationCountryName" }, shipments: { $sum: 1 }, profitMinor: { $sum: "$grossProfitMinor" } } },
@@ -225,7 +240,10 @@ export async function listShipmentProfitability(request: Request, response: Resp
     const sortBy = sortFields[String(request.query.sortBy ?? "bookedAt")] ?? "bookedAt";
     const sortDirection = request.query.sortDirection === "asc" ? 1 : -1;
     const [rows, total] = await Promise.all([
-      ShipmentProfitability.find(match).populate("primaryVendorId", "name code").sort({ [sortBy]: sortDirection, _id: -1 }).skip((page - 1) * limit).limit(limit).exec(),
+      ShipmentProfitability.find(match)
+        .populate("primaryVendorId", "name code")
+        .populate("flightCostSheetId", "manifestNumber mawbNumber flightNumber flightDate")
+        .sort({ [sortBy]: sortDirection, _id: -1 }).skip((page - 1) * limit).limit(limit).exec(),
       ShipmentProfitability.countDocuments(match).exec()
     ]);
     return response.status(200).json({ success: true, currency: "INR", period: range, rows: rows.map(serializeProfitability), pagination: { page, limit, total, pages: Math.ceil(total / limit) } });

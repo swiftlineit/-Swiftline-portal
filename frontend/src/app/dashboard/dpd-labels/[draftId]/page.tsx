@@ -95,6 +95,8 @@ import { useShipmentCostEstimate } from "@/lib/useShipmentCostEstimate";
 import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
 import { FaRegWindowClose, FaWeight } from "react-icons/fa";
+import BookingPausedNotice from "@/components/booking/BookingPausedNotice";
+import { isCountryPaused, listActiveBookingPauses, type BookingPause } from "@/lib/bookingPause";
 
 type DpdShipmentResult = Awaited<ReturnType<typeof createShipment>>;
 const parcelRenderStyle = { contentVisibility: "auto", containIntrinsicSize: "auto 360px" } as const;
@@ -448,6 +450,7 @@ export default function DpdLabelDraftPage() {
   const [, setReviewIssues] = useState<string[]>([]);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [manualAddressConfirmationRequired, setManualAddressConfirmationRequired] = useState(false);
+  const [bookingPauses, setBookingPauses] = useState<BookingPause[]>([]);
 
   const correctionChanged = useMemo(() => {
     if (!draft) return false;
@@ -700,6 +703,20 @@ export default function DpdLabelDraftPage() {
 
     void loadDraft();
   }, [params.draftId, router, user]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadPauses() {
+      try {
+        const data = await listActiveBookingPauses();
+        if (!active) return;
+        setBookingPauses(data.pauses);
+      } catch { /* non-blocking */ }
+    }
+    void loadPauses();
+    const id = window.setInterval(() => void loadPauses(), 60_000);
+    return () => { active = false; window.clearInterval(id); };
+  }, []);
 
   function handleAddressFieldChange(field: keyof AddressForm) {
     return (event: ChangeEvent<HTMLInputElement>) => {
@@ -988,14 +1005,24 @@ export default function DpdLabelDraftPage() {
     }
   }
 
- async function handleCreateLabel(
-  // Supplied when re-booking after a changed price was accepted.
-  acceptedPricingHash = costEstimate?.pricingHash,
-  // Set by the "without DPD label" button, which stands alongside the primary
-  // action on a United Kingdom shipment and also appears once DPD has refused.
-  skipDpdLabel = false
-) {
+  const currentCountryCode = draft?.consigneeEnteredAddress?.countryCode || addressForm.countryCode || "";
+  const isCurrentCountryPaused = isCountryPaused(currentCountryCode, bookingPauses);
+
+  async function handleCreateLabel(
+   // Supplied when re-booking after a changed price was accepted.
+   acceptedPricingHash = costEstimate?.pricingHash,
+   // Set by the "without DPD label" button, which stands alongside the primary
+   // action on a United Kingdom shipment and also appears once DPD has refused.
+   skipDpdLabel = false
+ ) {
   if (!draft) return;
+
+  if (isCountryPaused(draft.consigneeEnteredAddress?.countryCode || addressForm.countryCode, bookingPauses)) {
+    const msg = "Bookings for this destination are temporarily paused. Please check the booking pause notice for details.";
+    setError(msg);
+    toast.error(msg);
+    return;
+  }
 
   setPendingAction(skipDpdLabel ? "BOOKING_NO_DPD" : "BOOKING");
     // A new attempt supersedes the previous failure, so the fallback hides
@@ -1221,6 +1248,10 @@ export default function DpdLabelDraftPage() {
           {error}
         </div>
       ) : null}
+
+      <div className="mb-4">
+        <BookingPausedNotice variant="staff" pauses={bookingPauses} countryCode={currentCountryCode} />
+      </div>
 
       {!draft ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">Loading draft...</div>
@@ -1562,10 +1593,16 @@ export default function DpdLabelDraftPage() {
                   />
                 </div>
               ) : null}
+              {isCurrentCountryPaused ? (
+                <div className="mb-3 rounded-xl border border-[#D71313]/20 bg-[#FFF1F1] px-3 py-2 text-xs font-semibold text-[#991B1B]">
+                  Bookings for this destination are paused — booking is disabled.
+                </div>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleCreateLabel()}
-                disabled={busy}
+                disabled={busy || isCurrentCountryPaused}
+                title={isCurrentCountryPaused ? "Booking paused for this destination" : undefined}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-900 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 <FiTruck aria-hidden="true" className="h-4 w-4" />
@@ -1580,7 +1617,8 @@ export default function DpdLabelDraftPage() {
                 <button
                   type="button"
                   onClick={() => void handleCreateLabel(undefined, true)}
-                  disabled={busy}
+                  disabled={busy || isCurrentCountryPaused}
+                  title={isCurrentCountryPaused ? "Booking paused for this destination" : undefined}
                   className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-amber-500 bg-amber-50 px-4 text-sm font-semibold text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
                 >
                   {/* <FiTruck aria-hidden="true" className="h-4 w-4" /> */}

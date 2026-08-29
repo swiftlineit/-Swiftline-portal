@@ -39,6 +39,7 @@ export type ProfitabilityRow = {
   costSource: "LEGACY" | "FLIGHT_ALLOCATION";
   flightCostSheetId: string | null;
   operationsManifestId: string | null;
+  flight: { manifestNumber: string; mawbNumber: string; flightNumber: string; flightDate: string } | null;
   flightAllocation: Array<{ component: FlightAllocationComponent; amountMinor: number }>;
   awb: string;
   customerName: string;
@@ -117,6 +118,30 @@ export type VendorCostRate = {
 };
 
 export type FlightRegion = "UK" | "US" | "EUROPE" | "CANADA";
+
+const europeanFlightCountryCodes = new Set([
+  "AL", "AD", "AT", "BY", "BE", "BA", "BG", "HR", "CY", "CZ", "DK", "EE",
+  "FI", "FR", "DE", "GR", "HU", "IS", "IE", "IT", "XK", "LV", "LI", "LT",
+  "LU", "MT", "MD", "MC", "ME", "NL", "MK", "NO", "PL", "PT", "RO", "RU",
+  "SM", "RS", "SK", "SI", "ES", "SE", "CH", "UA", "VA"
+]);
+
+export function flightRegionForCountry(destinationCountryCode: string): FlightRegion | null {
+  const code = destinationCountryCode.trim().toUpperCase();
+  if (code === "GB") return "UK";
+  if (code === "US") return "US";
+  if (code === "CA") return "CANADA";
+  return europeanFlightCountryCodes.has(code) ? "EUROPE" : null;
+}
+
+export function isFlightRateEligible(rate: FlightBuyingRate, destinationCountryCode: string, flightDate: string) {
+  const effectiveFrom = rate.effectiveFrom.slice(0, 10);
+  const effectiveTo = rate.effectiveTo?.slice(0, 10) ?? null;
+  return rate.status === "ACTIVE"
+    && flightRegionForCountry(destinationCountryCode) === rate.region
+    && effectiveFrom <= flightDate
+    && (!effectiveTo || effectiveTo >= flightDate);
+}
 
 export type FlightBuyingRate = {
   id: string;

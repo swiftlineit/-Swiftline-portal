@@ -47,6 +47,7 @@ import {
   beginShipmentDraftBooking,
   transitionShipmentDraftBooking
 } from "./shipmentDraftPolicy.service.js";
+import { isBookingPaused } from "./bookingPause.service.js";
 
 export class DpdShipmentServiceError extends Error {
   constructor(
@@ -331,6 +332,35 @@ export async function createLabelForShipmentDraft(
     throw new DpdShipmentServiceError("Some shipment information must be corrected before creating the shipment.", 400, {
       validationIssues
     });
+  }
+
+  // Booking pauses — must be checked before any financial or carrier side-effects.
+  // Blocks every audience (client/admin) and INDIVIDUAL walk-ins alike.
+  const destinationCode =
+    draft.consigneeEnteredAddress?.countryCode ||
+    (draft.consigneeSelectedAddress as { countryCode?: string } | null)?.countryCode ||
+    (draft.consigneeValidatedAddress as { countryCode?: string } | null)?.countryCode ||
+    "";
+  if (destinationCode) {
+    const pauseCheck = await isBookingPaused(destinationCode);
+    if (pauseCheck.paused && pauseCheck.pause) {
+      const pause = pauseCheck.pause;
+      const fmt = (d: Date) => new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+      const labels = (pause.countries ?? []).join(", ");
+      throw new DpdShipmentServiceError(
+        `Bookings to ${destinationCode.trim().toUpperCase()} are temporarily paused from ${fmt(pause.startAt)} to ${fmt(pause.endAt)} — ${pause.reason}`,
+        423,
+        {
+          code: "BOOKING_PAUSED",
+          reason: pause.reason,
+          countries: pause.countries,
+          countryLabels: (pause as unknown as { countryLabels?: string[] }).countryLabels ?? pause.countries,
+          startAt: pause.startAt,
+          endAt: pause.endAt,
+          pauseId: String(pause._id)
+        }
+      );
+    }
   }
 
   const [branch, businessAccount] = await Promise.all([
