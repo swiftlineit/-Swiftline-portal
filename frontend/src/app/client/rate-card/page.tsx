@@ -129,7 +129,7 @@ export default function ClientRateCardPage() {
   if (userLoading || !user) return <ClientDashboardLoading />;
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <div className="mx-auto flex max-w-8xl flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold text-slate-950">
           Your Swiftline Rate Card

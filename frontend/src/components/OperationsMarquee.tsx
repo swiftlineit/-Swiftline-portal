@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import {
   isNewAdvisory,
@@ -137,6 +138,11 @@ export default function OperationsMarquee({
 
   if (!ready || !items.length) return null;
 
+  const advisoryHref =
+    variant === "client"
+      ? "/client/operations-calendar"
+      : "/dashboard/operations-advisory";
+
   return (
     <div
       role="status"
@@ -191,6 +197,13 @@ export default function OperationsMarquee({
             ))}
           </div>
         </div>
+
+        <Link
+          href={advisoryHref}
+          className="relative z-10 inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-[#D8DBEA] bg-white/90 px-3 text-[11px] font-semibold text-[#0D1282] transition-colors duration-200 hover:border-[#0D1282]/20 hover:bg-[#0D1282]/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/20 sm:h-10 sm:px-3.5 sm:text-xs"
+        >
+          View
+        </Link>
 
         {/* Navigation */}
         {items.length > 1 ? (
@@ -287,13 +300,13 @@ function AdvisorySlide({ item }: { item: MarqueeItem }) {
             />
           </span>
 
-          <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.1em] text-[#0D1282] sm:text-[11px]">
+          <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.1em] text-[#0D1282] sm:text-[11px]">
             Live advisory
           </span>
 
           <span className="h-3.5 w-px shrink-0 bg-[#0D1282]/15" />
 
-          <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-[#676C84] sm:text-[11px]">
+          <span className="min-w-0 truncate text-[9px] font-semibold uppercase tracking-[0.08em] text-[#676C84] sm:text-[11px]">
             {item.label}
           </span>
 
@@ -301,7 +314,7 @@ function AdvisorySlide({ item }: { item: MarqueeItem }) {
             <>
               <span className="hidden h-1 w-1 shrink-0 rounded-full bg-[#B8BBCB] sm:block" />
 
-              <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.08em] text-red-600">
+              <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.08em] text-red-600 sm:text-[10px]">
                 New
               </span>
             </>
@@ -310,7 +323,7 @@ function AdvisorySlide({ item }: { item: MarqueeItem }) {
 
         {/* LINE 2 */}
         <div className="mt-1.5 flex min-w-0 items-baseline gap-2.5">
-          <h3 className="min-w-0 shrink truncate text-[15px] font-semibold leading-6 tracking-[-0.015em] text-[#171A2E] sm:text-[17px] lg:text-lg">
+          <h3 className="min-w-0 shrink truncate text-[12px] font-semibold leading-5 tracking-[-0.015em] text-[#171A2E] sm:text-[17px] sm:leading-6 lg:text-lg">
             {item.title}
           </h3>
 

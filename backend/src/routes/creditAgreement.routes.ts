@@ -4,7 +4,8 @@ import {
   generateAdminCreditAgreement,
   getAdminCreditAgreement,
   getAdminCreditAgreementPdf,
-  listAdminCreditAgreements
+  listAdminCreditAgreements,
+  prepareAdminCreditActivationAgreement
 } from "../controllers/creditAgreement.controller.js";
 import { attachUser, requireRole } from "../middleware/auth.middleware.js";
 
@@ -17,9 +18,11 @@ creditAgreementRouter.use(attachUser);
 creditAgreementRouter.use(requireRole("admin", "finance", "operations"));
 
 const requireFinance = requireRole("admin", "finance");
+const requireAdmin = requireRole("admin");
 
 creditAgreementRouter.get("/", listAdminCreditAgreements);
 creditAgreementRouter.post("/business-accounts/:businessAccountId/drafts", requireFinance, createAdminCreditAgreementDraft);
+creditAgreementRouter.post("/business-accounts/:businessAccountId/activation", requireAdmin, prepareAdminCreditActivationAgreement);
 creditAgreementRouter.post("/:agreementId/generate", requireFinance, generateAdminCreditAgreement);
 creditAgreementRouter.get("/:agreementId/pdf", getAdminCreditAgreementPdf);
 creditAgreementRouter.get("/:agreementId", getAdminCreditAgreement);

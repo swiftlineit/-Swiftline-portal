@@ -49,7 +49,6 @@ import { getClientDashboard } from "@/lib/clientDashboard";
 import { BsWhatsapp, BsCurrencyRupee } from "react-icons/bs";
 import OperationsCalendarIcon from "@/components/OperationsCalendarIcon";
 import { ShellPortalBackButton } from "@/components/PortalBackButton";
-// import { FaRupeeSign } from "react-icons/fa";
 
 export type ClientShellUser = {
   name?: string;
@@ -89,7 +88,11 @@ const clientNavigation: Array<
       }>;
     }
 > = [
-  { label: "Dashboard", href: "/client/dashboard", icon: FiGrid },
+  {
+    label: "Dashboard",
+    href: "/client/dashboard",
+    icon: FiGrid,
+  },
   {
     label: "Shipments",
     icon: FiPackage,
@@ -106,17 +109,37 @@ const clientNavigation: Array<
         icon: FiMapPin,
         access: "addressBook",
       },
-      { label: "My Shipments", href: "/client/shipments", icon: FiPackage },
-      { label: "Tracking", href: "/client/tracking", icon: FiMapPin },
+      {
+        label: "My Shipments",
+        href: "/client/shipments",
+        icon: FiPackage,
+      },
+      {
+        label: "Tracking",
+        href: "/client/tracking",
+        icon: FiMapPin,
+      },
     ],
   },
   {
     label: "Operations",
     icon: FiTruck,
     items: [
-      { label: "Pickup Management", href: "/client/pickups", icon: FiTruck },
-      { label: "Manifests", href: "/client/manifests", icon: FiArchive },
-      { label: "POD Centre", href: "/client/pods", icon: FiCheckSquare },
+      {
+        label: "Pickup Management",
+        href: "/client/pickups",
+        icon: FiTruck,
+      },
+      {
+        label: "Manifests",
+        href: "/client/manifests",
+        icon: FiArchive,
+      },
+      {
+        label: "POD Centre",
+        href: "/client/pods",
+        icon: FiCheckSquare,
+      },
       {
         label: "Exceptions",
         href: "/client/exceptions",
@@ -138,7 +161,11 @@ const clientNavigation: Array<
         href: "/client/documents",
         icon: FiFileText,
       },
-      { label: "Customs & KYC", href: "/client/customs", icon: FiShield },
+      {
+        label: "Customs & KYC",
+        href: "/client/customs",
+        icon: FiShield,
+      },
     ],
   },
   {
@@ -157,7 +184,11 @@ const clientNavigation: Array<
         icon: FiFileText,
         access: "quote",
       },
-      { label: "Your Rate Card", href: "/client/rate-card", icon: FiTag },
+      {
+        label: "Your Rate Card",
+        href: "/client/rate-card",
+        icon: FiTag,
+      },
       {
         label: "Serviceability Checker",
         href: "/client/serviceability",
@@ -194,16 +225,27 @@ const clientNavigation: Array<
     label: "Claims & Support",
     icon: FiShield,
     items: [
-      { label: "Claims", href: "/client/claims", icon: FiShield },
-      { label: "Help Desk", href: "/client/tickets", icon: FiHelpCircle },
+      {
+        label: "Claims",
+        href: "/client/claims",
+        icon: FiShield,
+      },
+      {
+        label: "Help Desk",
+        href: "/client/tickets",
+        icon: FiHelpCircle,
+      },
     ],
   },
   {
     label: "Account",
     icon: FiUser,
     items: [
-      { label: "My Profile", href: "/client/profile", icon: FiUser },
-      // Owners and admins only; the endpoint enforces it too.
+      {
+        label: "My Profile",
+        href: "/client/profile",
+        icon: FiUser,
+      },
       {
         label: "Team Members",
         href: "/client/team",
@@ -233,14 +275,22 @@ export function ClientDashboardShell({
   children: ReactNode;
 }) {
   const router = useRouter();
+
   // The permission-gated links depend on an API call, so the whole list stays
   // empty until it settles and every link then appears in one paint.
-  const [navigation, setNavigation] = useState<SidebarNavEntry[] | null>(null);
+  const [navigation, setNavigation] =
+    useState<SidebarNavEntry[] | null>(null);
+
   // Below `lg` the sidebar is an off-canvas drawer; this is what opens it.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   // Stable identity: the sidebar holds a media-query listener keyed on it, and
   // a fresh closure each render would rebind that listener each render.
-  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
+  const closeMobileNav = useCallback(
+    () => setMobileNavOpen(false),
+    [],
+  );
+
   // Taken from the dashboard call the navigation already makes, so search costs
   // no extra request. Search stays hidden until it resolves- a box that
   // returns nothing because it does not know the account is worse than none.
@@ -250,6 +300,7 @@ export function ClientDashboardShell({
   // to drag it out of the way of anything it is covering. Offsets live in state
   // so the pill stays put across re-renders; a reload simply returns it home.
   const whatsappRef = useRef<HTMLAnchorElement>(null);
+
   const dragState = useRef<{
     pointerId: number;
     startPointerX: number;
@@ -262,7 +313,9 @@ export function ClientDashboardShell({
     height: number;
     moved: boolean;
   } | null>(null);
+
   const dragFrame = useRef<number | null>(null);
+
   // A drag ends with a click event; that one must not open WhatsApp.
   const suppressChatClick = useRef(false);
 
@@ -283,11 +336,25 @@ export function ClientDashboardShell({
     const dy = event.clientY - drag.startPointerY;
     const margin = 8;
 
-    const maxX = Math.max(margin, window.innerWidth - drag.width - margin);
-    const maxY = Math.max(margin, window.innerHeight - drag.height - margin);
+    const maxX = Math.max(
+      margin,
+      window.innerWidth - drag.width - margin,
+    );
 
-    drag.x = Math.min(Math.max(drag.startX + dx, margin), maxX);
-    drag.y = Math.min(Math.max(drag.startY + dy, margin), maxY);
+    const maxY = Math.max(
+      margin,
+      window.innerHeight - drag.height - margin,
+    );
+
+    drag.x = Math.min(
+      Math.max(drag.startX + dx, margin),
+      maxX,
+    );
+
+    drag.y = Math.min(
+      Math.max(drag.startY + dy, margin),
+      maxY,
+    );
 
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
       drag.moved = true;
@@ -299,7 +366,10 @@ export function ClientDashboardShell({
       const currentDrag = dragState.current;
 
       if (currentDrag) {
-        applyChatPosition(currentDrag.x, currentDrag.y);
+        applyChatPosition(
+          currentDrag.x,
+          currentDrag.y,
+        );
       }
 
       dragFrame.current = null;
@@ -308,7 +378,10 @@ export function ClientDashboardShell({
 
   function finishChatDrag(event: PointerEvent) {
     const drag = dragState.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
 
     if (dragFrame.current !== null) {
       window.cancelAnimationFrame(dragFrame.current);
@@ -323,15 +396,34 @@ export function ClientDashboardShell({
 
     dragState.current = null;
 
-    window.removeEventListener("pointermove", handleChatWindowPointerMove);
-    window.removeEventListener("pointerup", finishChatDrag);
-    window.removeEventListener("pointercancel", finishChatDrag);
+    window.removeEventListener(
+      "pointermove",
+      handleChatWindowPointerMove,
+    );
+
+    window.removeEventListener(
+      "pointerup",
+      finishChatDrag,
+    );
+
+    window.removeEventListener(
+      "pointercancel",
+      finishChatDrag,
+    );
   }
 
-  function handleChatPointerDown(event: ReactPointerEvent<HTMLAnchorElement>) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+  function handleChatPointerDown(
+    event: ReactPointerEvent<HTMLAnchorElement>,
+  ) {
+    if (
+      event.pointerType === "mouse" &&
+      event.button !== 0
+    ) {
+      return;
+    }
 
     const element = whatsappRef.current;
+
     if (!element) return;
 
     // Stop the browser's native anchor/image drag behaviour from competing with
@@ -360,15 +452,28 @@ export function ClientDashboardShell({
     element.style.right = "auto";
     element.style.bottom = "auto";
     element.style.transition = "none";
+
     applyChatPosition(bounds.left, bounds.top);
 
     // Listen on the window rather than the anchor itself. This lets the pointer
     // travel anywhere on screen without losing drag events.
-    window.addEventListener("pointermove", handleChatWindowPointerMove, {
-      passive: false,
-    });
-    window.addEventListener("pointerup", finishChatDrag);
-    window.addEventListener("pointercancel", finishChatDrag);
+    window.addEventListener(
+      "pointermove",
+      handleChatWindowPointerMove,
+      {
+        passive: false,
+      },
+    );
+
+    window.addEventListener(
+      "pointerup",
+      finishChatDrag,
+    );
+
+    window.addEventListener(
+      "pointercancel",
+      finishChatDrag,
+    );
   }
 
   useEffect(() => {
@@ -399,10 +504,14 @@ export function ClientDashboardShell({
             "items" in entry
               ? {
                   ...entry,
-                  items: entry.items.map(({ access, ...item }) => ({
-                    ...item,
-                    visible: !access || granted[access],
-                  })),
+                  items: entry.items.map(
+                    ({ access, ...item }) => ({
+                      ...item,
+                      visible:
+                        !access ||
+                        granted[access],
+                    }),
+                  ),
                 }
               : entry,
           ),
@@ -414,16 +523,25 @@ export function ClientDashboardShell({
       .then((dashboard) => {
         const searchable =
           dashboard.accounts.find(
-            (item) => item.dashboardAccess.state === "READY",
+            (item) =>
+              item.dashboardAccess.state === "READY",
           ) ?? dashboard.accounts[0];
-        if (active) setSearchAccountId(searchable?.account.id ?? "");
+
+        if (active) {
+          setSearchAccountId(
+            searchable?.account.id ?? "",
+          );
+        }
 
         resolve(
           dashboard.accounts.some((item) =>
-            ["account_owner", "account_admin", "finance"].includes(
-              item.membership.role,
-            ),
+            [
+              "account_owner",
+              "account_admin",
+              "finance",
+            ].includes(item.membership.role),
           ),
+
           dashboard.accounts.some((item) =>
             [
               "account_owner",
@@ -432,41 +550,58 @@ export function ClientDashboardShell({
               "finance",
             ].includes(item.membership.role),
           ),
+
           dashboard.accounts.some(
             (item) =>
-              ["account_owner", "account_admin", "operations"].includes(
-                item.membership.role,
-              ) &&
+              [
+                "account_owner",
+                "account_admin",
+                "operations",
+              ].includes(item.membership.role) &&
               item.account.rateCard.assigned &&
               item.dashboardAccess.state === "READY",
           ),
-          // Mirrors canCreateShipment: a member who cannot book should not be
-          // shown the way to the booking form.
+
           dashboard.accounts.some(
             (item) =>
-              ["account_owner", "account_admin", "operations"].includes(
-                item.membership.role,
-              ) &&
+              [
+                "account_owner",
+                "account_admin",
+                "operations",
+              ].includes(item.membership.role) &&
               item.assignedBranches.length > 0 &&
               item.bookingAccess.state === "READY" &&
               item.dashboardAccess.state === "READY",
           ),
+
           dashboard.accounts.some(
             (item) =>
-              ["account_owner", "account_admin", "operations"].includes(
-                item.membership.role,
-              ) && item.dashboardAccess.state === "READY",
+              [
+                "account_owner",
+                "account_admin",
+                "operations",
+              ].includes(item.membership.role) &&
+              item.dashboardAccess.state === "READY",
           ),
-          // Activity names who did what, which is management information-
-          // owners and admins only, matching what the endpoint enforces.
+
           dashboard.accounts.some((item) =>
-            ["account_owner", "account_admin"].includes(item.membership.role),
+            [
+              "account_owner",
+              "account_admin",
+            ].includes(item.membership.role),
           ),
         );
       })
-      // Nothing is granted when the account cannot be read, so a failed call
-      // hides links rather than showing ones the user may not use.
-      .catch(() => resolve(false, false, false, false, false, false));
+      .catch(() =>
+        resolve(
+          false,
+          false,
+          false,
+          false,
+          false,
+          false,
+        ),
+      );
 
     return () => {
       active = false;
@@ -482,65 +617,76 @@ export function ClientDashboardShell({
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#EEEDED]/60">
       {/* Mounted inside the shell so it only ever runs for a signed-in user. */}
       <SessionTimeoutGuard />
+
+      {/* Thin Swiftline brand accent */}
       <div className="h-1 shrink-0 bg-[#0D1282]" />
+
       <div className="flex min-h-0 flex-1">
         <Sidebar
           items={navigation ?? []}
           mobileOpen={mobileNavOpen}
           onMobileClose={closeMobileNav}
         />
+
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="flex h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4 lg:h-20 lg:gap-4 lg:px-8">
+          <header className="flex h-16 shrink-0 items-center gap-2 border-b border-white/10 bg-[#12185A] px-4 lg:h-20 lg:gap-4 lg:px-8">
             <button
               type="button"
-              onClick={() => setMobileNavOpen(true)}
+              onClick={() =>
+                setMobileNavOpen(true)
+              }
               aria-label="Open menu"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30 lg:hidden"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-white/[0.04] text-white transition-colors duration-200 hover:border-white/25 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/25 lg:hidden"
             >
-              <FiMenu aria-hidden="true" className="h-5 w-5" />
+              <FiMenu
+                aria-hidden="true"
+                className="h-5 w-5"
+              />
             </button>
 
             {/* From `lg` the search bar lives inline; below it moves to its own
                 row, where a full-width field is usable on a phone. */}
             <div className="hidden min-w-0 flex-1 lg:block">
               {searchAccountId ? (
-                <GlobalSearch businessAccountId={searchAccountId} />
+                <GlobalSearch
+                  businessAccountId={
+                    searchAccountId
+                  }
+                />
               ) : null}
             </div>
+
             <div className="min-w-0 flex-1 lg:hidden" />
 
             <div className="flex shrink-0 items-center gap-2 lg:gap-4">
               {/* The name is the first thing to go when width is short: it is
                   the only item here that is not a control. */}
               <div className="hidden text-right md:block">
-                <p className="text-sm font-semibold tracking-wide uppercase text-[#0D1282]">
+                <p className="text-sm font-semibold uppercase tracking-wide text-white">
                   {user.name || user.email}
                 </p>
-                <p className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+
+                <p className="mt-1 text-xs font-medium uppercase tracking-wide text-[#AEB4D9]">
                   {user.role}
                 </p>
               </div>
+
               <div className="group relative">
                 <Link
                   href="/client/profile"
-                  // title="My Profile"
                   aria-label="My Profile"
-                  className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30"
+                  className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-white/25"
                 >
-                  <FiUser aria-hidden="true" className="h-5 w-5" />
+                  <FiUser
+                    aria-hidden="true"
+                    className="h-5 w-5"
+                  />
                 </Link>
 
-                <div
-                  className="
-      pointer-events-none absolute left-1/2 top-full z-50 mt-2
-      -translate-x-1/2 whitespace-nowrap rounded-lg
-      bg-slate-900 px-3 py-2 text-xs font-medium text-white
-      opacity-0 shadow-xl transition-all duration-200
-      group-hover:translate-y-1 group-hover:opacity-100
-    "
-                >
+                <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#05072B] px-3 py-2 text-xs font-medium text-white opacity-0 shadow-lg transition-all duration-200 group-hover:translate-y-1 group-hover:opacity-100">
                   My Profile
-                  <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900" />
+
+                  <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-[#05072B]" />
                 </div>
               </div>
 
@@ -555,34 +701,36 @@ export function ClientDashboardShell({
                   type="button"
                   onClick={handleLogout}
                   aria-label="Logout"
-                  className="inline-flex h-10 items-center gap-2 rounded-4xl bg-[#D71313] px-3 text-sm font-semibold text-white shadow-sm shadow-[#D71313]/25 transition hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/40 focus:ring-offset-2 sm:px-4"
+                  className="inline-flex h-10 items-center gap-2 rounded-full bg-[#D71313] px-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-[#b40f0f] focus:outline-none focus:ring-2 focus:ring-[#D71313]/50 focus:ring-offset-2 focus:ring-offset-[#12185A] sm:px-4"
                 >
-                  <FiLogOut aria-hidden="true" className="h-4 w-4" />
-                  <span className="hidden sm:inline">Logout</span>
+                  <FiLogOut
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                  />
+
+                  <span className="hidden sm:inline">
+                    Logout
+                  </span>
                 </button>
 
-                <div
-                  className="
-      pointer-events-none absolute left-1/2 top-full z-50 mt-2
-      -translate-x-1/2 whitespace-nowrap rounded-lg
-      bg-slate-900 px-3 py-2 text-xs font-medium text-white
-      opacity-0 shadow-xl transition-all duration-200
-      group-hover:translate-y-1 group-hover:opacity-100
-    "
-                >
+                <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#05072B] px-3 py-2 text-xs font-medium text-white opacity-0 shadow-lg transition-all duration-200 group-hover:translate-y-1 group-hover:opacity-100">
                   Sign out of your account
-                  <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900" />
+
+                  <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-[#05072B]" />
                 </div>
               </div>
             </div>
           </header>
 
-          {/* Below `lg` search gets its own row: sharing the first one with the
-              hamburger and five controls would leave it too narrow to read an
-              AWB in. */}
+          {/* Below `lg` search gets its own row: keep it visually connected to
+              the dark application header rather than creating a white strip. */}
           {searchAccountId ? (
-            <div className="shrink-0 border-b border-slate-200 bg-white px-4 pb-3 lg:hidden">
-              <GlobalSearch businessAccountId={searchAccountId} />
+            <div className="shrink-0 border-b border-white/10 bg-[#12185A] px-4 pb-3 lg:hidden">
+              <GlobalSearch
+                businessAccountId={
+                  searchAccountId
+                }
+              />
             </div>
           ) : null}
 
@@ -590,8 +738,10 @@ export function ClientDashboardShell({
             <div className="mb-4 flex items-center">
               <ShellPortalBackButton />
             </div>
+
             {children}
           </div>
+
           <DeepLinkTarget />
         </main>
       </div>
@@ -608,7 +758,9 @@ export function ClientDashboardShell({
         rel="noopener noreferrer"
         aria-label="Contact support on WhatsApp"
         draggable={false}
-        onDragStart={(event) => event.preventDefault()}
+        onDragStart={(event) =>
+          event.preventDefault()
+        }
         onPointerDown={handleChatPointerDown}
         onClick={(event) => {
           if (suppressChatClick.current) {
@@ -619,10 +771,15 @@ export function ClientDashboardShell({
         // Below the nav drawer (z-50) and its backdrop (z-40), so an open menu
         // covers it instead of leaving it floating over the overlay.
         className="fixed bottom-5 right-5 z-30 flex cursor-grab select-none touch-none items-center gap-1 rounded-full bg-[#25D366] px-3 py-2 text-xs font-semibold text-white shadow hover:bg-[#1ea952] active:cursor-grabbing"
-        style={{ willChange: "transform" }}
+        style={{
+          willChange: "transform",
+        }}
       >
         <BsWhatsapp className="h-3 w-3" />
-        <span className="hidden sm:inline"> Support</span>
+        <span className="hidden sm:inline">
+          {" "}
+          Support
+        </span>
       </a>
     </div>
   );

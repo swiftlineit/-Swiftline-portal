@@ -154,11 +154,10 @@ export function rateCardDisplay(rate: {
 }) {
   const treatment = rate.gstTreatment ?? "EXCLUDED";
   const percent = treatment === "INCLUDED" ? rate.gstRatePercent ?? 0 : 0;
-  const gst = treatment === "INCLUDED"
-    ? rate.chargesPerKg * (1 + percent / 100)
-    : rate.chargesPerKg;
   return {
-    amount: Math.round(gst * 100) / 100,
+    // `chargesPerKg` is the amount entered on the rate card. GST treatment
+    // describes that amount; it must never change it when displayed.
+    amount: Math.round(rate.chargesPerKg * 100) / 100,
     label: treatment === "INCLUDED"
       ? `GST included${percent ? ` (${percent}%)` : ""}`
       : "GST excluded"

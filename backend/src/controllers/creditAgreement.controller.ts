@@ -3,7 +3,9 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { AuditLog } from "../models/auditLog.model.js";
 import { BusinessAccountMember } from "../models/businessAccountMember.model.js";
-import { CreditAgreement, creditAgreementStatusValues } from "../models/creditAgreement.model.js";
+import { BusinessAccount } from "../models/businessAccount.model.js";
+import { BusinessCreditAccount } from "../models/businessCreditAccount.model.js";
+import { CreditAgreement, creditAgreementStatusValues, type ICreditAgreement } from "../models/creditAgreement.model.js";
 import {
   createCreditAgreementDraft,
   CreditAgreementServiceError,
@@ -15,22 +17,18 @@ import {
   StorageObjectNotFoundError,
   streamObjectToResponse
 } from "../services/storage/storage.service.js";
-import { getMemberCreditPermissions } from "../services/creditAccount.service.js";
+import { getCreditActivationBlockers, getMemberCreditPermissions } from "../services/creditAccount.service.js";
 
 const listAdminQuerySchema = z.object({
   businessAccountId: z.string().trim().optional(),
   status: z.enum(creditAgreementStatusValues).optional()
 });
 
-const signAgreementSchema = z.object({
-  signerName: z.string().trim().min(2, "Enter the authorised signer's full name.").max(160),
-  jobTitle: z.string().trim().min(2, "Enter the authorised signer's designation.").max(120),
-  accepted: z.literal(true, { error: "Confirm that you have read and accept the agreement." })
-});
-
 function authenticatedUser(request: Request) {
-  return (request as Request & { user?: { _id?: unknown; email?: string; name?: string } }).user;
+  return (request as Request & { user?: { _id?: unknown; email?: string; name?: string; role?: string } }).user;
 }
+
+// Client access remains read-only; administrators complete signing during activation.
 
 function authenticatedUserId(request: Request) {
   const id = authenticatedUser(request)?._id;
@@ -78,7 +76,6 @@ export async function generateAdminCreditAgreement(request: Request, response: R
     throw error;
   }
 }
-
 export async function getAdminCreditAgreementPdf(request: Request, response: Response): Promise<Response | void> {
   const agreementId = objectId(request.params.agreementId);
   if (!agreementId) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
@@ -122,7 +119,72 @@ export async function createAdminCreditAgreementDraft(request: Request, response
     throw error;
   }
 }
+/**
+ * Prepares the agreement shown by the admin activation dialog. Preparation is
+ * deliberately separate from activation so the admin can review the exact PDF
+ * that will be signed, while the final activation request remains guarded by
+ * the account and agreement version checks.
+ */
+export async function prepareAdminCreditActivationAgreement(request: Request, response: Response): Promise<Response> {
+  const currentUser = authenticatedUser(request);
+  const userId = authenticatedUserId(request);
+  if (!userId || currentUser?.role !== "admin") {
+    return response.status(403).json({ success: false, message: "Only an administrator can prepare an activation agreement." });
+  }
+  const businessAccountId = objectId(request.params.businessAccountId);
+  if (!businessAccountId) return response.status(404).json({ success: false, message: "Business account was not found." });
 
+  try {
+    const [business, credit] = await Promise.all([
+      BusinessAccount.findById(businessAccountId).exec(),
+      BusinessCreditAccount.findOne({ businessAccountId }).exec()
+    ]);
+    if (!business || !credit) return response.status(404).json({ success: false, message: "Credit account was not found." });
+    if (credit.status !== "APPROVED") {
+      return response.status(409).json({ success: false, message: "Approve the credit facility before activation." });
+    }
+
+    const blockers = getCreditActivationBlockers({
+      businessStatus: business.status,
+      kycStatus: business.kycReview.overallStatus,
+      agreementStatus: business.agreementStatus,
+      depositStatus: business.depositStatus,
+      securityDepositRequiredMinor: credit.securityDepositRequiredMinor,
+      approvedCreditLimitMinor: credit.approvedCreditLimitMinor,
+      validUntil: credit.validUntil
+    }, { requireAgreement: false });
+    if (blockers.length) return response.status(409).json({ success: false, message: blockers[0], blockers });
+
+    let agreement: ICreditAgreement | null = await CreditAgreement.findOne({
+      businessAccountId,
+      status: { $in: ["DRAFT", "GENERATED", "SENT", "VIEWED", "SIGNED"] }
+    }).sort({ version: -1 }).exec();
+
+    if (!agreement) {
+      try {
+        agreement = await createCreditAgreementDraft({ businessAccountId, createdBy: userId });
+      } catch (error) {
+        if (!(error instanceof CreditAgreementServiceError) || error.code !== "OPEN_AGREEMENT_EXISTS") throw error;
+        agreement = await CreditAgreement.findOne({
+          businessAccountId,
+          status: { $in: ["DRAFT", "GENERATED", "SENT", "VIEWED", "SIGNED"] }
+        }).sort({ version: -1 }).exec();
+      }
+    }
+
+    if (!agreement) return response.status(409).json({ success: false, message: "The activation agreement changed while it was being prepared. Try again." });
+    if (agreement.status === "DRAFT") agreement = await generateCreditAgreement({ agreementId: agreement._id, generatedBy: userId });
+
+    return response.status(200).json({
+      success: true,
+      message: agreement.status === "SIGNED" ? "The signed credit agreement is ready." : "The credit agreement is ready for administrator approval.",
+      agreement: serializeCreditAgreement(agreement, { includeAuditDetails: true })
+    });
+  } catch (error) {
+    if (error instanceof CreditAgreementServiceError) return serviceErrorResponse(error, response);
+    throw error;
+  }
+}
 export async function listAdminCreditAgreements(request: Request, response: Response): Promise<Response> {
   const parsed = listAdminQuerySchema.safeParse(request.query);
   if (!parsed.success) return response.status(400).json({ success: false, message: "Check the agreement filters." });
@@ -169,7 +231,6 @@ export async function listClientCreditAgreements(request: Request, response: Res
   const agreements = await CreditAgreement.find({ businessAccountId }).sort({ version: -1 }).limit(50).exec();
   return response.status(200).json({
     success: true,
-    canSign: ["account_owner", "account_admin"].includes(membership.role),
     agreements: agreements.map((agreement) => serializeCreditAgreement(agreement))
   });
 }
@@ -187,7 +248,6 @@ export async function getClientCreditAgreement(request: Request, response: Respo
   }
   return response.status(200).json({
     success: true,
-    canSign: ["account_owner", "account_admin"].includes(membership.role),
     agreement: serializeCreditAgreement(agreement)
   });
 }
@@ -245,42 +305,4 @@ export async function getClientCreditAgreementPdf(request: Request, response: Re
   }
 }
 
-export async function signClientCreditAgreement(request: Request, response: Response): Promise<Response> {
-  const currentUser = authenticatedUser(request);
-  const currentUserId = authenticatedUserId(request);
-  const agreementId = objectId(request.params.agreementId);
-  if (!currentUserId || !currentUser?.email) return response.status(401).json({ success: false, message: "Please sign in again." });
-  if (!agreementId) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
-  const parsed = signAgreementSchema.safeParse(request.body);
-  if (!parsed.success) return response.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Complete the signing details." });
-
-  const agreement = await CreditAgreement.findById(agreementId).exec();
-  if (!agreement || agreement.status === "DRAFT") return response.status(404).json({ success: false, message: "Credit agreement was not found." });
-  const membership = await clientMembership(request, agreement.businessAccountId);
-  if (!membership) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
-  if (!["account_owner", "account_admin"].includes(membership.role)) {
-    return response.status(403).json({ success: false, message: "Only the account owner or account admin can sign this agreement." });
-  }
-
-  try {
-    const signed = await signCreditAgreement({
-      agreementId,
-      signedBy: currentUserId,
-      signer: {
-        name: parsed.data.signerName,
-        email: currentUser.email,
-        jobTitle: parsed.data.jobTitle,
-        ipAddress: request.ip || "unknown",
-        userAgent: request.get("user-agent") || ""
-      }
-    });
-    return response.status(200).json({
-      success: true,
-      message: "Credit agreement signed successfully.",
-      agreement: serializeCreditAgreement(signed)
-    });
-  } catch (error) {
-    if (error instanceof CreditAgreementServiceError) return serviceErrorResponse(error, response);
-    throw error;
-  }
-}
+// Client signing is intentionally not exposed by this router.

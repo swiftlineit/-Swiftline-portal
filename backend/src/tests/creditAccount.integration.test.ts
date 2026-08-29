@@ -312,13 +312,29 @@ describe("credit account database lifecycle", () => {
       await deleteObject(generated.generatedDocument.storageKey).catch(() => undefined);
     }
 
+    const clientActivation = createResponseRecorder();
+    await activateAdminCreditAccount(controllerRequest({
+      userId: ownerId, role: "client", params: { businessAccountId: String(business._id) },
+      body: { agreementId: draft.id, accepted: true }
+    }), clientActivation.response);
+    assert.equal(clientActivation.statusCode(), 403);
+
     const activated = createResponseRecorder();
     await activateAdminCreditAccount(controllerRequest({
-      userId: adminId, role: "admin", params: { businessAccountId: String(business._id) }
+      userId: adminId,
+      role: "admin",
+      params: { businessAccountId: String(business._id) },
+      body: { agreementId: draft.id, accepted: true }
     }), activated.response);
     assert.equal(activated.statusCode(), 200);
     assert.equal(activated.body<{ creditAccount: { status: string; availableCreditMinor: number } }>().creditAccount.status, "ACTIVE");
     assert.equal(activated.body<{ creditAccount: { availableCreditMinor: number } }>().creditAccount.availableCreditMinor, 1_500_000);
+    const signedAgreement = await CreditAgreement.findById(draft.id).lean();
+    assert.equal(signedAgreement?.status, "SIGNED");
+    assert.equal(String(signedAgreement?.signer?.userId), String(adminId));
+    if (signedAgreement?.signedDocument?.storageKey) {
+      await deleteObject(signedAgreement.signedDocument.storageKey).catch(() => undefined);
+    }
 
     const ownerSummary = createResponseRecorder();
     await getClientCreditSummary(controllerRequest({

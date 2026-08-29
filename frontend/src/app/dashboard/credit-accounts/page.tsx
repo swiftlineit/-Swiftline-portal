@@ -7,17 +7,15 @@ import { toast } from "react-toastify";
 
 import { DashboardLoading } from "@/components/DashboardShell";
 import CreditAgreementPreviewDialog from "@/components/credit/CreditAgreementPreviewDialog";
+import CreditActivationDialog from "@/components/credit/CreditActivationDialog";
 import CreditApprovalDialog from "@/components/credit/CreditApprovalDialog";
 import CreditRowActions from "@/components/credit/CreditRowActions";
 import CreditStatusBadge from "@/components/credit/CreditStatusBadge";
 import {
-  createAdminCreditAgreementDraft,
   CreditAgreement,
-  generateAdminCreditAgreement,
   listAdminCreditAgreements
 } from "@/lib/creditAgreements";
 import {
-  activateCreditAccount,
   CreditAccount,
   CreditAccountStatus,
   formatCreditMoney,
@@ -40,14 +38,16 @@ const creditAccountStatuses: CreditAccountStatus[] = [
 ];
 
 export default function AdminCreditAccountsPage() {
-  // Operations reads credit records; approving, activating, and rejecting stay
-  // with finance, matching the write guards on the credit router.
+  // Operations reads credit records; approval and rejection stay with finance,
+  // while activation and agreement signing are restricted to administrators.
   const { user, loading } = useAdminUser(CREDIT_VIEW_AREA);
   const canSettle = user?.role === "admin" || user?.role === "finance";
+  const canActivate = user?.role === "admin";
   const [accounts, setAccounts] = useState<CreditAccount[]>([]);
   const [agreements, setAgreements] = useState<CreditAgreement[]>([]);
   const [status, setStatus] = useState<CreditAccountStatus | "">("");
   const [selected, setSelected] = useState<CreditAccount | null>(null);
+  const [activationAccount, setActivationAccount] = useState<CreditAccount | null>(null);
   const [previewAgreement, setPreviewAgreement] = useState<CreditAgreement | null>(null);
   const [busyId, setBusyId] = useState("");
   const [dataLoading, setDataLoading] = useState(true);
@@ -96,23 +96,9 @@ export default function AdminCreditAccountsPage() {
 
   async function saved(notice: string) {
     setSelected(null);
+    setActivationAccount(null);
     toast.success(notice);
     await loadData();
-  }
-
-  async function activate(account: CreditAccount) {
-    setBusyId(account.businessAccountId);
-    try {
-      const result = await activateCreditAccount(account.businessAccountId);
-      // Fired on the response, before the refetch: awaiting the reload first
-      // is what made these appear seconds after the click.
-      toast.success(result.message);
-      await loadData();
-    } catch (caughtError) {
-      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to activate credit.");
-    } finally {
-      setBusyId("");
-    }
   }
 
   async function reject(account: CreditAccount) {
@@ -130,22 +116,6 @@ export default function AdminCreditAccountsPage() {
     }
   }
 
-  async function generateAgreement(account: CreditAccount, existing?: CreditAgreement) {
-    setBusyId(account.businessAccountId);
-    try {
-      const draft = existing?.status === "DRAFT"
-        ? existing
-        : (await createAdminCreditAgreementDraft(account.businessAccountId)).agreement;
-      const result = await generateAdminCreditAgreement(draft.id);
-      toast.success(result.message);
-      setPreviewAgreement(result.agreement);
-      await loadData();
-    } catch (caughtError) {
-      toast.error(caughtError instanceof Error ? caughtError.message : "Unable to generate the credit agreement.");
-    } finally {
-      setBusyId("");
-    }
-  }
 
   if (loading || !user) return <DashboardLoading />;
 
@@ -219,8 +189,6 @@ export default function AdminCreditAccountsPage() {
               <tbody>
                 {accounts.map((account, index) => {
                   const agreement = latestAgreementByBusiness.get(account.businessAccountId);
-                  const canGenerate = ["APPROVED", "ACTIVE"].includes(account.status)
-                    && (!agreement || ["DRAFT", "DECLINED", "EXPIRED", "SUPERSEDED"].includes(agreement.status));
                   const isBusy = busyId === account.businessAccountId;
                   return (
                     <tr
@@ -284,27 +252,19 @@ export default function AdminCreditAccountsPage() {
                                   onClick: () => setSelected(account)
                                 }]
                               : []),
-                            ...(canSettle && canGenerate
-                              ? [{
-                                  label: isBusy ? "Generating..." : "Generate agreement",
-                                  icon: <FiFileText size={13} aria-hidden="true" />,
-                                  disabled: isBusy,
-                                  onClick: () => void generateAgreement(account, agreement)
-                                }]
-                              : []),
-                            ...(agreement?.generatedDocument
+                            ...(agreement?.generatedDocument || agreement?.signedDocument
                               ? [{
                                   label: "View agreement",
                                   icon: <FiEye size={13} aria-hidden="true" />,
                                   onClick: () => setPreviewAgreement(agreement)
                                 }]
                               : []),
-                            ...(canSettle && account.status === "APPROVED"
+                            ...(canActivate && account.status === "APPROVED"
                               ? [{
                                   label: "Activate",
                                   icon: <FiCheck size={13} aria-hidden="true" />,
                                   disabled: isBusy,
-                                  onClick: () => void activate(account)
+                                  onClick: () => setActivationAccount(account)
                                 }]
                               : []),
                             ...(canSettle && ["PENDING_REVIEW", "APPROVED"].includes(account.status)
@@ -347,6 +307,7 @@ export default function AdminCreditAccountsPage() {
       </div>
 
       {selected ? <CreditApprovalDialog account={selected} onClose={() => setSelected(null)} onSaved={saved} /> : null}
+      {activationAccount ? <CreditActivationDialog account={activationAccount} onClose={() => setActivationAccount(null)} onSaved={saved} /> : null}
       {previewAgreement ? <CreditAgreementPreviewDialog agreement={previewAgreement} onClose={() => setPreviewAgreement(null)} /> : null}
     </>
   );

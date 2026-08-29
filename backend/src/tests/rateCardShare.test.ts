@@ -29,9 +29,9 @@ import {
 
 const APP_URL = "https://portal.swiftline.example";
 
-test("rate-card GST display only adds GST when included", () => {
-  assert.equal(rateCardDisplayAmount({ chargesPerKg: 400, gstTreatment: "INCLUDED", gstRatePercent: 4 }), 416);
-  assert.equal(rateCardGstLabel({ gstTreatment: "INCLUDED", gstRatePercent: 4 }), "GST included (4%)");
+test("rate-card GST display keeps the entered amount for either treatment", () => {
+  assert.equal(rateCardDisplayAmount({ chargesPerKg: 420, gstTreatment: "INCLUDED", gstRatePercent: 18 }), 420);
+  assert.equal(rateCardGstLabel({ gstTreatment: "INCLUDED", gstRatePercent: 18 }), "GST included (18%)");
   assert.equal(rateCardDisplayAmount({ chargesPerKg: 400, gstTreatment: "EXCLUDED", gstRatePercent: 4 }), 400);
   assert.equal(rateCardGstLabel({ gstTreatment: "EXCLUDED", gstRatePercent: 4 }), "GST excluded");
 });

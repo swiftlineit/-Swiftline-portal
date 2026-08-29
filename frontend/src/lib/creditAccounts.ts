@@ -192,8 +192,8 @@ export async function approveCreditAccount(businessAccountId: string, input: Cre
   return parse<{ success: true; message: string; creditAccount: CreditAccount }>(response);
 }
 
-export async function activateCreditAccount(businessAccountId: string) {
-  const response = await fetchWithAuth(apiUrl(`/api/v1/credit-accounts/${businessAccountId}/activate`), json("POST"));
+export async function activateCreditAccount(businessAccountId: string, input: { agreementId: string; accepted: true }) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/credit-accounts/${businessAccountId}/activate`), json("POST", input));
   return parse<{ success: true; message: string; creditAccount: CreditAccount }>(response);
 }
 

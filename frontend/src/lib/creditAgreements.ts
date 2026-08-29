@@ -116,6 +116,12 @@ export async function createAdminCreditAgreementDraft(businessAccountId: string)
   );
 }
 
+export async function prepareAdminCreditActivationAgreement(businessAccountId: string) {
+  return parse<{ success: true; message: string; agreement: CreditAgreement }>(
+    await fetchWithAuth(apiUrl(`/api/v1/credit-agreements/business-accounts/${businessAccountId}/activation`), { method: "POST" })
+  );
+}
+
 export async function generateAdminCreditAgreement(agreementId: string) {
   return parse<{ success: true; message: string; agreement: CreditAgreement }>(
     await fetchWithAuth(apiUrl(`/api/v1/credit-agreements/${agreementId}/generate`), { method: "POST" })
@@ -134,11 +140,11 @@ export async function getAdminCreditAgreementPdf(agreementId: string) {
 export async function listClientCreditAgreements(businessAccountId: string) {
   const url = new URL(apiUrl("/api/v1/client/credit-agreements"));
   url.searchParams.set("businessAccountId", businessAccountId);
-  return parse<{ success: true; canSign: boolean; agreements: CreditAgreement[] }>(await fetchWithAuth(url.toString()));
+  return parse<{ success: true; agreements: CreditAgreement[] }>(await fetchWithAuth(url.toString()));
 }
 
 export async function getClientCreditAgreement(agreementId: string) {
-  return parse<{ success: true; canSign: boolean; agreement: CreditAgreement }>(
+  return parse<{ success: true; agreement: CreditAgreement }>(
     await fetchWithAuth(apiUrl(`/api/v1/client/credit-agreements/${agreementId}`))
   );
 }
@@ -150,18 +156,4 @@ export async function getClientCreditAgreementPdf(agreementId: string) {
     throw new Error(data.message || "The credit agreement PDF could not be opened.");
   }
   return response.blob();
-}
-
-export async function signClientCreditAgreement(agreementId: string, input: {
-  signerName: string;
-  jobTitle: string;
-  accepted: true;
-}) {
-  return parse<{ success: true; message: string; agreement: CreditAgreement }>(
-    await fetchWithAuth(apiUrl(`/api/v1/client/credit-agreements/${agreementId}/sign`), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input)
-    })
-  );
 }

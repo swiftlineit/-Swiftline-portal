@@ -70,131 +70,131 @@ export default function ClientDashboardHeader({
   return (
     <section
       id="business-accounts"
-      className={`relative overflow-hidden p-4 sm:p-5 lg:p-5 xl:p-6 ${panelSurface} !bg-[linear-gradient(135deg,#ffffff_0%,#f9faff_46%,#f3f5fc_100%)]`}
+      className={`relative overflow-hidden ${panelSurface} !bg-white`}
     >
-      {/* Subtle Swiftline-themed background depth */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 overflow-hidden"
-      >
-        <div className="absolute -left-28 -top-36 h-72 w-72 rounded-full bg-[#0D1282]/[0.025] blur-3xl" />
+      {/* Greeting and banner now form one seamless dashboard hero. */}
+      <div className="relative grid overflow-hidden lg:grid-cols-[minmax(0,0.9fr)_minmax(440px,1.1fr)] lg:items-stretch xl:grid-cols-[minmax(0,0.88fr)_minmax(520px,1.12fr)]">
+        {/* Light greeting panel */}
+        <div className="relative flex min-w-0 flex-col justify-center overflow-hidden bg-[linear-gradient(135deg,#fbfcff_0%,#f6f8ff_52%,#eef2ff_100%)] px-5 py-6 sm:px-6 sm:py-7 lg:min-h-[240px] lg:px-7 lg:py-7 xl:px-8">
+          {/* Subtle theme details stay only behind the greeting content. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+          >
+            <div className="absolute -left-24 -top-28 h-64 w-64 rounded-full bg-[#0D1282]/[0.045] blur-3xl" />
+            <div className="absolute -bottom-28 right-8 h-56 w-56 rounded-full bg-[#0D1282]/[0.04] blur-3xl" />
+            <div className="absolute bottom-0 right-0 h-24 w-24 rounded-tl-[80px] bg-[#0D1282]/[0.025]" />
+          </div>
 
-        <div className="absolute left-[36%] top-1/2 h-44 w-72 -translate-y-1/2 rounded-full bg-[#0D1282]/[0.018] blur-3xl" />
+          <div className="relative z-10">
+            {/* Client + date */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="inline-flex items-center rounded-full border border-[#0D1282]/[0.06] bg-[#0D1282]/[0.07] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-[#0D1282]">
+                Client
+              </span>
 
-        <div className="absolute -bottom-28 right-[22%] h-56 w-56 rounded-full bg-[#0D1282]/[0.025] blur-3xl" />
-      </div>
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                <FiCalendar
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0 text-[#0D1282]/55"
+                />
 
-      {/* Main header */}
-      <div className="relative grid gap-4 lg:grid-cols-[minmax(0,0.88fr)_minmax(430px,1.12fr)] lg:items-stretch lg:gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(500px,1.1fr)] xl:gap-6">
-        {/* Left content */}
-        <div className="flex min-w-0 flex-col justify-center px-1 py-1 sm:px-2 lg:min-h-[180px] lg:py-2">
-          {/* Client + date */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span className="inline-flex items-center rounded-full bg-[#0D1282]/[0.08] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-[#0D1282]">
-              Client
-            </span>
+                {formatDashboardDate(new Date().toISOString())}
+              </span>
+            </div>
 
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
-              <FiCalendar
+            {/* Greeting */}
+            <h1 className="mt-3.5 text-[27px] font-semibold leading-[1.12] tracking-[-0.03em] text-slate-700 sm:text-[30px] xl:text-[32px]">
+              {greeting()},
+              <span className="capitalize text-slate-950">
+                {" "}
+                {getDisplayName(user)}
+              </span>
+            </h1>
+
+            {/* Account context */}
+            <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px] font-medium text-slate-500">
+              <span className="max-w-[320px] truncate font-semibold text-slate-700">
+                {selectedAccount?.account.company.companyName ||
+                  "Customer Dashboard"}
+              </span>
+
+              <span
                 aria-hidden="true"
-                className="h-3.5 w-3.5 shrink-0 text-slate-400"
+                className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block"
               />
 
-              {formatDashboardDate(new Date().toISOString())}
-            </span>
-          </div>
+              <span className="whitespace-nowrap">
+                Code{" "}
+                <strong className="font-semibold text-slate-700">
+                  {selectedAccount?.account.accountId || "Not available"}
+                </strong>
+              </span>
 
-          {/* Greeting */}
-          <h1 className="mt-3 text-[26px] font-semibold leading-[1.15] tracking-[-0.025em] text-slate-700 sm:text-[29px] xl:text-[31px]">
-            {greeting()},
-            <span className="capitalize text-slate-950">
-              {" "}
-              {getDisplayName(user)}
-            </span>
-          </h1>
+              <span
+                aria-hidden="true"
+                className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block"
+              />
 
-          {/* Account context */}
-          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-medium text-slate-500">
-            <span className="max-w-[320px] truncate font-semibold text-slate-700">
-              {selectedAccount?.account.company.companyName ||
-                "Customer Dashboard"}
-            </span>
+              <span className="whitespace-nowrap">
+                Branch{" "}
+                <strong className="font-semibold text-slate-700">
+                  {getBranchLabel(selectedBranch)}
+                </strong>
+              </span>
+            </div>
 
-            <span
-              aria-hidden="true"
-              className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block"
-            />
+            {/* Primary quick actions */}
+            <div className="mt-5 flex flex-wrap items-center gap-2 sm:gap-2.5">
+              {canCreate ? (
+                <Link
+                  href="/client/dpd-labels"
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#F0DE36] px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition-colors duration-200 hover:bg-[#e5d331] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/30 focus-visible:ring-offset-2 sm:min-h-11"
+                >
+                  <FiPlus
+                    aria-hidden="true"
+                    className="h-4 w-4 shrink-0"
+                  />
+                  Create Shipment
+                </Link>
+              ) : null}
 
-            <span className="whitespace-nowrap">
-              Code{" "}
-              <strong className="font-semibold text-slate-700">
-                {selectedAccount?.account.accountId || "Not available"}
-              </strong>
-            </span>
-
-            <span
-              aria-hidden="true"
-              className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block"
-            />
-
-            <span className="whitespace-nowrap">
-              Branch{" "}
-              <strong className="font-semibold text-slate-700">
-                {getBranchLabel(selectedBranch)}
-              </strong>
-            </span>
-          </div>
-
-          {/* Primary quick actions */}
-          <div className="mt-5 flex flex-wrap items-center gap-2 sm:gap-2.5">
-            {canCreate ? (
               <Link
-                href="/client/dpd-labels"
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#F0DE36] px-4 py-2.5 text-sm font-semibold text-[#0D1282] shadow-sm transition-colors duration-200 hover:bg-[#e5d331] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/30 focus-visible:ring-offset-2 sm:min-h-11"
+                href="/client/tracking"
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white/90 px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.02)] transition-colors duration-200 hover:border-[#0D1282]/25 hover:bg-white hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/30 focus-visible:ring-offset-2 sm:min-h-11"
               >
-                <FiPlus
+                <FiSearch
                   aria-hidden="true"
                   className="h-4 w-4 shrink-0"
                 />
-                Create Shipment
+                Track Shipment
               </Link>
-            ) : null}
 
-            <Link
-              href="/client/tracking"
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors duration-200 hover:border-[#0D1282]/25 hover:bg-[#0D1282]/[0.025] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/30 focus-visible:ring-offset-2 sm:min-h-11"
-            >
-              <FiSearch
-                aria-hidden="true"
-                className="h-4 w-4 shrink-0"
-              />
-              Track Shipment
-            </Link>
-
-            {canPay ? (
-              <Link
-                href="/client/payments"
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors duration-200 hover:border-[#0D1282]/25 hover:bg-[#0D1282]/[0.025] hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/30 focus-visible:ring-offset-2 sm:min-h-11"
-              >
-                <FiCreditCard
-                  aria-hidden="true"
-                  className="h-4 w-4 shrink-0"
-                />
-                Make Payment
-              </Link>
-            ) : null}
+              {canPay ? (
+                <Link
+                  href="/client/payments"
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-white/90 px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.02)] transition-colors duration-200 hover:border-[#0D1282]/25 hover:bg-white hover:text-[#0D1282] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/30 focus-visible:ring-offset-2 sm:min-h-11"
+                >
+                  <FiCreditCard
+                    aria-hidden="true"
+                    className="h-4 w-4 shrink-0"
+                  />
+                  Make Payment
+                </Link>
+              ) : null}
+            </div>
           </div>
         </div>
 
-        {/* Shared dashboard banner */}
-        <div className="min-w-0">
+        {/* Banner fills the complete right side and inherits the outer rounded edge. */}
+        <div className="min-w-0 border-t border-slate-200/70 lg:min-h-[240px] lg:border-l lg:border-t-0">
           <DashboardBanner />
         </div>
       </div>
 
       {/* Account / branch switchers */}
       {hasMultipleAccounts || hasMultipleBranches ? (
-        <div className="relative mt-5 rounded-xl bg-[#0D1282]/[0.025] p-3.5 sm:p-4">
+        <div className="border-t border-slate-200/80 bg-slate-50/65 px-4 py-4 sm:px-5 lg:px-6">
           <div
             className={`grid gap-3 ${
               hasMultipleAccounts && hasMultipleBranches

@@ -125,14 +125,15 @@ export function createCreditAgreementPdf(agreement: ICreditAgreement, generatedA
   const signatureY = Math.max(y + 15, 610);
   doc.rect(CONTENT_LEFT, signatureY, CONTENT_WIDTH, 116).strokeColor("#cbd5e1").stroke();
   doc.moveTo(297.5, signatureY).lineTo(297.5, signatureY + 116).strokeColor("#cbd5e1").stroke();
-  doc.font("Helvetica-Bold").fontSize(9).fillColor("#0f172a").text("FOR THE CUSTOMER", 56, signatureY + 13, { width: 220 });
+  doc.font("Helvetica-Bold").fontSize(9).fillColor("#0f172a").text("CUSTOMER ACKNOWLEDGEMENT", 56, signatureY + 13, { width: 220 });
   doc.text("FOR SWIFTLINE", 310, signatureY + 13, { width: 225 });
   doc.font("Helvetica").fontSize(8).fillColor("#475569");
-  doc.text(`Name: ${signature?.name ?? ""}`, 56, signatureY + 46, { width: 220 });
-  doc.text(`Designation: ${signature?.jobTitle ?? ""}`, 56, signatureY + 64, { width: 220 });
-  doc.text(`Date: ${signature ? formatDate(signature.signedAt) : ""}`, 56, signatureY + 82, { width: 220 });
-  if (signature) doc.fontSize(7).fillColor("#64748b").text(`Electronically accepted by ${signature.email}`, 56, signatureY + 99, { width: 220 });
-  doc.text("Authorised Signatory", 310, signatureY + 86, { width: 225, align: "right" });
+  doc.text("Customer signature is not required for facility activation.", 56, signatureY + 46, { width: 220, lineGap: 2 });
+  doc.text("The approved terms remain available to the customer in the portal.", 56, signatureY + 82, { width: 220, lineGap: 2 });
+  doc.text(`Name: ${signature?.name ?? ""}`, 310, signatureY + 46, { width: 225, align: "right" });
+  doc.text("Role: Swiftline Administrator", 310, signatureY + 64, { width: 225, align: "right" });
+  doc.text(`Date: ${signature ? formatDate(signature.signedAt) : ""}`, 310, signatureY + 82, { width: 225, align: "right" });
+  if (signature) doc.fontSize(7).fillColor("#64748b").text(`Electronically accepted by ${signature.email}`, 310, signatureY + 99, { width: 225, align: "right" });
 
   const range = doc.bufferedPageRange();
   for (let index = range.start; index < range.start + range.count; index += 1) {

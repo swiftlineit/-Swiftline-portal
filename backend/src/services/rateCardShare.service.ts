@@ -50,10 +50,9 @@ export function rateCardDisplayAmount(input: {
   gstTreatment?: "INCLUDED" | "EXCLUDED";
   gstRatePercent?: number;
 }) {
-  const percent = input.gstRatePercent ?? 0;
-  return roundRate(input.gstTreatment === "INCLUDED"
-    ? input.chargesPerKg * (1 + percent / 100)
-    : input.chargesPerKg);
+  // `chargesPerKg` is the amount entered on the rate card. GST treatment
+  // describes that amount; it must never change it in customer-facing output.
+  return roundRate(input.chargesPerKg);
 }
 
 export function rateCardGstLabel(input: { gstTreatment?: "INCLUDED" | "EXCLUDED"; gstRatePercent?: number }) {

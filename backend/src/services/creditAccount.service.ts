@@ -57,12 +57,15 @@ export function getCreditActivationBlockers(input: {
   approvedCreditLimitMinor: number;
   validUntil?: Date | null;
   now?: Date;
-}) {
+}, options: { requireAgreement?: boolean } = {}) {
   const now = input.now ?? new Date();
+  const agreementBlocker = options.requireAgreement === false || input.agreementStatus === "signed"
+    ? ""
+    : "Credit agreement must be signed.";
   return [
     !["approved", "active"].includes(input.businessStatus) ? "Business account must be approved or active." : "",
     input.kycStatus !== "verified" ? "KYC must be verified." : "",
-    input.agreementStatus !== "signed" ? "Credit agreement must be signed." : "",
+    agreementBlocker,
     input.securityDepositRequiredMinor > 0 && input.depositStatus !== "received" ? "Required security deposit must be received." : "",
     input.approvedCreditLimitMinor <= 0 ? "Approved credit limit must be greater than zero." : "",
     input.approvedCreditLimitMinor > maxCreditLimitMinor ? `Approved credit limit cannot exceed ${maxCreditLimitLabel}.` : "",

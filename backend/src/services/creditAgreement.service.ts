@@ -266,8 +266,8 @@ export async function generateCreditAgreement(input: {
       const agreementDocument = generatedAgreement as ICreditAgreement;
       await notifyBusinessFinancialMembers(agreementDocument.businessAccountId, {
         type: "CREDIT_AGREEMENT_READY",
-        title: "Credit agreement ready to sign",
-        message: `${agreementDocument.agreementNumber} is ready. Review and sign it to activate your credit facility.`,
+        title: "Credit agreement ready for review",
+        message: `${agreementDocument.agreementNumber} is ready for your review. Swiftline will complete the signing and activate the credit facility after its final internal check.`,
         href: `/client/credit/agreements/${String(agreementDocument._id)}`,
         idempotencyKey: `CREDIT_AGREEMENT_READY:${String(agreementDocument._id)}`,
         metadata: { agreementId: agreementDocument._id, agreementNumber: agreementDocument.agreementNumber }
@@ -295,11 +295,12 @@ export async function signCreditAgreement(input: {
   agreementId: mongoose.Types.ObjectId;
   signedBy: mongoose.Types.ObjectId;
   signer: { name: string; email: string; jobTitle: string; ipAddress: string; userAgent: string };
+  notify?: boolean;
 }) {
   const agreement = await CreditAgreement.findById(input.agreementId).exec();
   if (!agreement) throw new CreditAgreementServiceError("AGREEMENT_NOT_FOUND", "Credit agreement was not found.");
   if (agreement.status === "SIGNED" && agreement.signedDocument) return agreement;
-  if (agreement.status !== "VIEWED") {
+  if (!["GENERATED", "SENT", "VIEWED"].includes(agreement.status)) {
     throw new CreditAgreementServiceError("AGREEMENT_CANNOT_BE_SIGNED", "Open and review the credit agreement before signing it.");
   }
 
@@ -324,7 +325,7 @@ export async function signCreditAgreement(input: {
   try {
     await session.withTransaction(async () => {
       signedAgreement = await CreditAgreement.findOneAndUpdate(
-        { _id: agreement._id, status: "VIEWED", signedDocument: null },
+        { _id: agreement._id, status: { $in: ["GENERATED", "SENT", "VIEWED"] }, signedDocument: null },
         {
           $set: {
             status: "SIGNED",
@@ -362,15 +363,17 @@ export async function signCreditAgreement(input: {
 
     if (signedAgreement) {
       const agreementDocument = signedAgreement as ICreditAgreement;
-      await notifyActiveAdmins({
-        type: "CREDIT_AGREEMENT_SIGNED",
-        title: "Credit agreement signed",
-        message: `${agreementDocument.agreementNumber} was signed by ${input.signer.name}. The credit facility can now be activated.`,
-        href: `/dashboard/credit-accounts#credit-account-${String(agreementDocument.businessAccountId)}`,
-        idempotencyKey: `CREDIT_AGREEMENT_SIGNED:${String(agreementDocument._id)}`,
-        businessAccountId: agreementDocument.businessAccountId,
-        metadata: { agreementId: agreementDocument._id, agreementNumber: agreementDocument.agreementNumber }
-      });
+      if (input.notify !== false) {
+        await notifyActiveAdmins({
+          type: "CREDIT_AGREEMENT_SIGNED",
+          title: "Credit agreement signed",
+          message: `${agreementDocument.agreementNumber} was signed by ${input.signer.name}. The credit facility can now be activated.`,
+          href: `/dashboard/credit-accounts#credit-account-${String(agreementDocument.businessAccountId)}`,
+          idempotencyKey: `CREDIT_AGREEMENT_SIGNED:${String(agreementDocument._id)}`,
+          businessAccountId: agreementDocument.businessAccountId,
+          metadata: { agreementId: agreementDocument._id, agreementNumber: agreementDocument.agreementNumber }
+        });
+      }
       return agreementDocument;
     }
     await removeCreditAgreementPdf(signedDocument.storageKey);

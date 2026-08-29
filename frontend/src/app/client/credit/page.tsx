@@ -7,7 +7,6 @@ import { toast } from "react-toastify";
 import {
   ClientDashboardLoading,
 } from "@/components/client/ClientDashboardShell";
-import CreditStatusBadge from "@/components/credit/CreditStatusBadge";
 import CreditLimitIncreasePanel from "@/components/credit/CreditLimitIncreasePanel";
 import CreditPaymentStatusBanner from "@/components/credit/CreditPaymentStatusBanner";
 import CreditSummaryCards from "@/components/credit/CreditSummaryCards";
@@ -152,7 +151,7 @@ export default function ClientCreditPage() {
     REQUESTABLE_STATUSES.has(creditAccount.status);
 
   return (
-      <div className="mx-auto max-w-7xl space-y-5">
+      <div className="mx-auto max-w-8xl space-y-5">
         <div className="flex flex-wrap items-start justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-slate-950">
@@ -294,7 +293,7 @@ export default function ClientCreditPage() {
                   <p className="mt-1 text-sm text-slate-600">
                     {agreement.status === "SIGNED"
                       ? "Signed agreement available"
-                      : "Review and signature required before credit activation"}
+                      : "Agreement available for your review"}
                   </p>
                 </div>
                 <Link
@@ -304,7 +303,7 @@ export default function ClientCreditPage() {
                   <FiFileText />{" "}
                   {agreement.status === "SIGNED"
                     ? "View Signed Agreement"
-                    : "Review and Sign"}
+                    : "View Agreement"}
                 </Link>
               </section>
             ) : null}

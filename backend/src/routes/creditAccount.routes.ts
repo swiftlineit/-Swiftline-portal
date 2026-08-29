@@ -28,6 +28,7 @@ creditAccountRouter.use(attachUser);
 creditAccountRouter.use(requireRole("admin", "finance", "operations"));
 
 const requireFinance = requireRole("admin", "finance");
+const requireAdmin = requireRole("admin");
 
 creditAccountRouter.get("/", listAdminCreditAccounts);
 creditAccountRouter.get("/:businessAccountId/statements", listAdminStatements);
@@ -41,7 +42,7 @@ creditAccountRouter.get("/:businessAccountId/ledger", getAdminLedger);
 creditAccountRouter.get("/:businessAccountId/ledger/export", exportAdminLedger);
 creditAccountRouter.get("/:businessAccountId", getAdminCreditAccount);
 creditAccountRouter.post("/:businessAccountId/approve", requireFinance, approveAdminCreditAccount);
-creditAccountRouter.post("/:businessAccountId/activate", requireFinance, activateAdminCreditAccount);
+creditAccountRouter.post("/:businessAccountId/activate", requireAdmin, activateAdminCreditAccount);
 creditAccountRouter.post("/:businessAccountId/reject", requireFinance, rejectAdminCreditAccount);
 creditAccountRouter.post("/:businessAccountId/suspend", requireFinance, suspendAdminCreditAccount);
 creditAccountRouter.post("/:businessAccountId/reactivate", requireFinance, reactivateAdminCreditAccount);

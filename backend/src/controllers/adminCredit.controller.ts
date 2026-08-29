@@ -7,6 +7,7 @@ import { excludeSentinel } from "../services/individualCustomer.service.js";
 import { BusinessCreditAccount, creditAccountStatusValues, type CreditAccountStatus, type IBusinessCreditAccount } from "../models/businessCreditAccount.model.js";
 import { type CreditLedgerEntryType } from "../models/creditLedgerEntry.model.js";
 import { CreditLimitHistory } from "../models/creditLimitHistory.model.js";
+import { CreditAgreement } from "../models/creditAgreement.model.js";
 import { maxCreditLimitLabel, maxCreditLimitMinor } from "../models/financialTypes.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { CreditLimitIncreaseRequest } from "../models/creditLimitIncreaseRequest.model.js";
@@ -19,8 +20,14 @@ import { getCreditBillingSummary } from "../services/creditBilling.summary.servi
 import { formatMinorRupees } from "../services/prepaid/dailyTopUpLimit.service.js";
 import { notifyBusinessFinancialMembers } from "../services/portalNotification.service.js";
 import { operationsBranchIds } from "../middleware/operationsBranchAccess.middleware.js";
+import { CreditAgreementServiceError, signCreditAgreement } from "../services/creditAgreement.service.js";
 
 const creditClientHref = "/client/credit#credit-summary";
+
+function creditAgreementErrorResponse(error: CreditAgreementServiceError, response: Response) {
+  const notFound = ["BUSINESS_NOT_FOUND", "AGREEMENT_NOT_FOUND"].includes(error.code);
+  return response.status(notFound ? 404 : 409).json({ success: false, message: error.message, code: error.code });
+}
 
 const approvalSchema = z.object({
   approvedCreditLimitMinor: z.number().int()
@@ -40,6 +47,10 @@ const approvalSchema = z.object({
 });
 
 const reasonSchema = z.object({ reason: z.string().trim().min(5).max(500) });
+const activationSchema = z.object({
+  agreementId: z.string().trim().min(1, "Prepare the credit agreement before activation."),
+  accepted: z.literal(true, { error: "Confirm that you have reviewed and approved the credit agreement." })
+});
 
 function userId(request: Request) {
   const id = (request as Request & { user?: { _id?: unknown } }).user?._id;
@@ -325,10 +336,17 @@ export async function approveAdminCreditAccount(request: Request, response: Resp
 }
 
 export async function activateAdminCreditAccount(request: Request, response: Response): Promise<Response> {
+  const currentUser = (request as Request & { user?: { _id?: unknown; role?: string; name?: string; email?: string } }).user;
   const currentUserId = userId(request);
   const businessAccountId = accountId(request);
   if (!currentUserId) return response.status(401).json({ success: false, message: "Please sign in again." });
+  if (currentUser?.role !== "admin") return response.status(403).json({ success: false, message: "Only an administrator can sign and activate a credit facility." });
   if (!businessAccountId) return response.status(404).json({ success: false, message: "Business account not found." });
+  const parsed = activationSchema.safeParse(request.body);
+  if (!parsed.success) return response.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Review and confirm the credit agreement." });
+  if (!mongoose.Types.ObjectId.isValid(parsed.data.agreementId)) {
+    return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+  }
   const business = await BusinessAccount.findById(businessAccountId).exec();
   const account = await BusinessCreditAccount.findOne({ businessAccountId }).exec();
   if (!business || !account) return response.status(404).json({ success: false, message: "Credit account not found." });
@@ -341,8 +359,32 @@ export async function activateAdminCreditAccount(request: Request, response: Res
     securityDepositRequiredMinor: account.securityDepositRequiredMinor,
     approvedCreditLimitMinor: account.approvedCreditLimitMinor,
     validUntil: account.validUntil
-  });
+  }, { requireAgreement: false });
   if (blockers.length) return response.status(409).json({ success: false, message: blockers[0], blockers });
+
+  const agreementId = new mongoose.Types.ObjectId(parsed.data.agreementId);
+  const agreement = await CreditAgreement.findOne({ _id: agreementId, businessAccountId }).exec();
+  if (!agreement) return response.status(404).json({ success: false, message: "Credit agreement was not found." });
+
+  if (agreement.status !== "SIGNED") {
+    try {
+      await signCreditAgreement({
+        agreementId,
+        signedBy: currentUserId,
+        signer: {
+          name: currentUser.name?.trim() || currentUser.email || "Swiftline Administrator",
+          email: currentUser.email || "",
+          jobTitle: "",
+          ipAddress: request.ip || "unknown",
+          userAgent: request.get("user-agent") || ""
+        },
+        notify: false
+      });
+    } catch (error) {
+      if (error instanceof CreditAgreementServiceError) return creditAgreementErrorResponse(error, response);
+      throw error;
+    }
+  }
 
   // Version-guarded so two concurrent admin actions cannot clobber each other.
   const updated = await BusinessCreditAccount.findOneAndUpdate(

@@ -84,7 +84,7 @@ export default function OperationsCalendarIcon({
       <Link
         href={href}
         aria-label={ariaLabel}
-        className="relative flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-[#0D1282] transition hover:border-[#0D1282] hover:bg-[#0D1282]/5 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30"
+        className="relative flex h-10 w-10 items-center justify-center bg-white rounded-full border border-slate-200 text-[#0D1282] transition focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30"
       >
         <FiCalendar aria-hidden="true" className="h-5 w-5" />
         {newCount ? (

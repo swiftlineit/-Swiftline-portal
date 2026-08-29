@@ -62,7 +62,7 @@ export default function ClientOperationsCalendarPage() {
   if (userLoading || !user) return <ClientDashboardLoading />;
 
   return (
-    <div className="mx-auto flex max-w-300 flex-col gap-6">
+    <div className="mx-auto flex max-w-8xl flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold text-slate-950">

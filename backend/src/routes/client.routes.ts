@@ -86,8 +86,7 @@ import {
 import {
   getClientCreditAgreement,
   getClientCreditAgreementPdf,
-  listClientCreditAgreements,
-  signClientCreditAgreement
+  listClientCreditAgreements
 } from "../controllers/creditAgreement.controller.js";
 import {
   closeClientBillingCycle,
@@ -186,7 +185,6 @@ clientRouter.get("/credit/ledger", getClientLedger);
 clientRouter.get("/credit/ledger/export", exportClientLedger);
 clientRouter.get("/credit-agreements", listClientCreditAgreements);
 clientRouter.get("/credit-agreements/:agreementId/pdf", getClientCreditAgreementPdf);
-clientRouter.post("/credit-agreements/:agreementId/sign", signClientCreditAgreement);
 clientRouter.get("/credit-agreements/:agreementId", getClientCreditAgreement);
 clientRouter.get("/country-rate-cards", listClientCountryRateCards);
 clientRouter.get("/rate-card-shares", listClientRateCardShares);
