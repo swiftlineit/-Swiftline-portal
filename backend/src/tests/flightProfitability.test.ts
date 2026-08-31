@@ -5,12 +5,19 @@ import {
   calculateFlightCostTotals,
   clearExchangeRateCacheForTests,
   isFlightBuyingRateApplicable,
+  isBilledWeightOverride,
   nextFlightSnapshotRevision,
   resolveFlightRateRegion
 } from "../services/flightProfitability.service.js";
 import { ExchangeRateCache } from "../models/exchangeRateCache.model.js";
 
 describe("flight cost calculations", () => {
+  test("only a genuinely different billed weight is an override", () => {
+    assert.equal(isBilledWeightOverride(480, 480), false);
+    assert.equal(isBilledWeightOverride(480.0004, 480), false);
+    assert.equal(isBilledWeightOverride(480.001, 480), true);
+  });
+
   test("GST zero leaves air freight total equal to base", () => {
     const result = calculateFlightCostTotals({
       rate: { airFreightRateMinorPerKg: 20_000, gstBasisPoints: 0, eicfRateMinorPerKg: 0, customsMinor: 0, transportationMinor: 0, cflMinorPerBagGbp: 0, dpdLabelMinorGbp: 0 },

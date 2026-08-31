@@ -103,15 +103,6 @@ export default function DashboardShell({
       top: 0,
       behavior: "auto",
     });
-
-    document
-      .querySelector<HTMLElement>(
-        "[data-dashboard-sidebar-scroll]",
-      )
-      ?.scrollTo({
-        top: 0,
-        behavior: "auto",
-      });
   }, [pathname]);
 
   async function handleLogout() {

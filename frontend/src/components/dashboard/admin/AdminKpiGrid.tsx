@@ -20,28 +20,36 @@ const toneStyles: Record<
   }
 > = {
   primary: {
-    card: "border-[#0D1282]/18 bg-[#0D1282]/[0.045] hover:border-[#0D1282]/28 hover:bg-[#0D1282]/[0.065]",
+    // CHANGE KPI HOVER BACKGROUND COLOR HERE:
+    // Replace hover:bg-[#12185A] with any color you want.
+    card: "border-[#0D1282]/18 bg-[#0D1282]/[0.045] hover:border-[#12185A] hover:bg-blue-800",
     label: "text-[#0D1282]/70",
     value: "text-[#0D1282]",
     meta: "text-slate-500",
     corner: "bg-[#0D1282]/[0.08]",
   },
+
   secondary: {
-    card: "border-[#1C257E]/14 bg-[#1C257E]/[0.035] hover:border-[#1C257E]/24 hover:bg-[#1C257E]/[0.055]",
+    // CHANGE KPI HOVER BACKGROUND COLOR HERE:
+    card: "border-[#1C257E]/14 bg-[#1C257E]/[0.035] hover:border-[#12185A] hover:bg-blue-800",
     label: "text-[#303978]",
     value: "text-[#1C257E]",
     meta: "text-slate-500",
     corner: "bg-[#1C257E]/[0.065]",
   },
+
   soft: {
-    card: "border-slate-200 bg-slate-50/70 hover:border-[#0D1282]/18 hover:bg-[#0D1282]/[0.025]",
+    // CHANGE KPI HOVER BACKGROUND COLOR HERE:
+    card: "border-slate-200 bg-slate-50/70 hover:border-[#12185A] hover:bg-blue-800",
     label: "text-slate-500",
     value: "text-slate-900",
     meta: "text-slate-500",
     corner: "bg-slate-200/60",
   },
+
   attention: {
-    card: "border-[#0D1282]/22 bg-[#0D1282]/[0.075] hover:border-[#0D1282]/32 hover:bg-[#0D1282]/[0.09]",
+    // CHANGE KPI HOVER BACKGROUND COLOR HERE:
+    card: "border-[#0D1282]/22 bg-[#0D1282]/[0.075] hover:border-[#12185A] hover:bg-blue-800",
     label: "text-[#0D1282]/75",
     value: "text-[#0D1282]",
     meta: "text-slate-600",
@@ -74,32 +82,39 @@ function KpiCard({
       {/* subtle decorative corner */}
       <div
         aria-hidden="true"
-        className={`absolute -right-8 -top-10 h-28 w-28 rounded-full transition-transform duration-300 group-hover:scale-110 ${styles.corner}`}
+        className={`absolute -right-8 -top-10 h-28 w-28 rounded-full transition-all duration-300 group-hover:scale-110 group-hover:bg-white/10 ${styles.corner}`}
       />
 
       <div className="relative flex h-full flex-col">
         <div className="flex items-start justify-between gap-4">
           <p
-            className={`text-[12px] font-semibold uppercase tracking-[0.07em] ${styles.label}`}
+            // CHANGE HOVER LABEL TEXT COLOR HERE:
+            // Replace group-hover:text-white if another hover color is needed.
+            className={`text-[12px] font-semibold uppercase tracking-[0.07em] transition-colors duration-200 group-hover:text-white ${styles.label}`}
           >
             {label}
           </p>
 
           {aside ? (
-            <span className="shrink-0 rounded-md border border-current/10 bg-white/60 px-2 py-1 text-[10px] font-semibold text-slate-500">
+            <span
+              // CHANGE HOVER BADGE COLORS HERE if needed.
+              className="shrink-0 rounded-md border border-current/10 bg-white/60 px-2 py-1 text-[10px] font-semibold text-slate-500 transition-colors duration-200 group-hover:border-white/20 group-hover:bg-white/10 group-hover:text-white"
+            >
               {aside}
             </span>
           ) : null}
         </div>
 
         <p
-          className={`mt-4 text-[32px] font-semibold leading-none tracking-[-0.045em] tabular-nums ${styles.value}`}
+          // CHANGE HOVER VALUE TEXT COLOR HERE:
+          className={`mt-4 text-[32px] font-semibold leading-none tracking-[-0.045em] tabular-nums transition-colors duration-200 group-hover:text-white ${styles.value}`}
         >
           {value}
         </p>
 
         <p
-          className={`mt-auto max-w-[92%] pt-4 text-xs leading-5 ${styles.meta}`}
+          // CHANGE HOVER DESCRIPTION TEXT COLOR HERE:
+          className={`mt-auto max-w-[92%] pt-4 text-xs leading-5 transition-colors duration-200 group-hover:text-white ${styles.meta}`}
         >
           {description}
         </p>
@@ -139,7 +154,9 @@ export default function AdminKpiGrid({
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {dataLoading
-        ? Array.from({ length: operationsOnly ? 4 : tracksShipments ? 8 : 4 }).map((_, index) => (
+        ? Array.from({
+            length: operationsOnly ? 4 : tracksShipments ? 8 : 4,
+          }).map((_, index) => (
             <KpiCardSkeleton key={index} />
           ))
         : null}
@@ -176,7 +193,11 @@ export default function AdminKpiGrid({
             value={formatCount(shipments.exceptions)}
             description={`${shipments.onHold} on hold, plus returns, cancellations, and failed bookings`}
             href="/dashboard/shipments?attention=1"
-            tone={shipments.exceptions > 0 ? "attention" : "soft"}
+            tone={
+              shipments.exceptions > 0
+                ? "attention"
+                : "soft"
+            }
             aside={
               shipments.onHold > 0
                 ? `${formatCount(shipments.onHold)} on hold`
@@ -207,7 +228,10 @@ export default function AdminKpiGrid({
         </>
       ) : null}
 
-      {!operationsOnly && !dataLoading && manifests && manifests.detailed ? (
+      {!operationsOnly &&
+      !dataLoading &&
+      manifests &&
+      manifests.detailed ? (
         <>
           <KpiCard
             label="Manifests"
@@ -222,7 +246,11 @@ export default function AdminKpiGrid({
             value={formatCount(manifests.readyToSeal)}
             description="Bags closed and scans reconciled"
             href="/dashboard/operations-manifests"
-            tone={manifests.readyToSeal > 0 ? "attention" : "soft"}
+            tone={
+              manifests.readyToSeal > 0
+                ? "attention"
+                : "soft"
+            }
           />
 
           <KpiCard
@@ -243,7 +271,10 @@ export default function AdminKpiGrid({
         </>
       ) : null}
 
-      {!operationsOnly && !dataLoading && manifests && !manifests.detailed ? (
+      {!operationsOnly &&
+      !dataLoading &&
+      manifests &&
+      !manifests.detailed ? (
         <KpiCard
           label="Awaiting dispatch"
           value={formatCount(manifests.sealed)}

@@ -13,7 +13,8 @@ import { allowedBranchIds, canAccessBranch } from "../middleware/branchAccess.mi
 import {
   applyVendorRates,
   calculateProfitabilityTotals,
-  normalizeProfitabilityCosts
+  normalizeProfitabilityCosts,
+  profitabilityCoverageMatch
 } from "../services/shipmentProfitability.service.js";
 
 const INDIA_OFFSET = "+05:30";
@@ -229,7 +230,7 @@ export async function listShipmentProfitability(request: Request, response: Resp
     const search = typeof request.query.search === "string" ? request.query.search.trim() : "";
     const coverage = typeof request.query.coverage === "string" ? request.query.coverage.toUpperCase() : "";
     const result = typeof request.query.result === "string" ? request.query.result.toUpperCase() : "";
-    if (coverage && ["MISSING", "PARTIAL", "ESTIMATED", "ACTUAL"].includes(coverage)) match.coverage = coverage;
+    Object.assign(match, profitabilityCoverageMatch(coverage));
     if (result === "PROFIT") match.grossProfitMinor = { $gte: 0 };
     if (result === "LOSS") match.grossProfitMinor = { $lt: 0 };
     if (search) {

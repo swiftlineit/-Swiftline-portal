@@ -124,6 +124,14 @@ export function allocateMinorUnits(totalMinor: number, weights: number[], stable
   return allocations;
 }
 
+const BILLED_WEIGHT_TOLERANCE_KG = 0.0005;
+
+export function isBilledWeightOverride(billedWeightKg: number, manifestWeightKg: number) {
+  return Number.isFinite(billedWeightKg)
+    && Number.isFinite(manifestWeightKg)
+    && Math.abs(billedWeightKg - manifestWeightKg) > BILLED_WEIGHT_TOLERANCE_KG;
+}
+
 type ExchangeRateSnapshot = {
   gbpToInr: number;
   provider: "ExchangeRate-API" | "Manual";

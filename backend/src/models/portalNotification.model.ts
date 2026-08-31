@@ -59,6 +59,10 @@ export const portalNotificationTypeValues = [
   ,"CLIENT_ACCESS_REQUESTED"
   ,"CLIENT_ACCESS_APPROVED"
   ,"SHIPMENT_DOCUMENT_UPLOADED"
+  ,"FLIGHT_DELAY"
+  ,"FLIGHT_OFFLOAD"
+  ,"FLIGHT_CONNECTION_RISK"
+  ,"FLIGHT_EXCEPTION"
   // Claims. Client-facing events first, then the ones only staff ever see.
   ,"CLAIM_SUBMITTED"
   ,"CLAIM_DOCUMENTS_REQUIRED"

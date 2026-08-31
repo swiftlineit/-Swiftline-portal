@@ -86,7 +86,8 @@ export const storageModules = {
   profileImage: "profile-images",
   shipmentImport: "shipment-imports",
   claim: "claims",
-  dashboardBanner: "dashboard-banners"
+  dashboardBanner: "dashboard-banners",
+  flightLinehaul: "flight-linehauls"
 } as const;
 
 export const claimDocumentTypeValues = ["evidence", "payment-proof", "beneficiary"] as const;
@@ -164,6 +165,10 @@ export function profileImageKey(userId: string, originalName: string) {
 
 export function dashboardBannerKey(originalName: string) {
   return joinKey(storageModules.dashboardBanner, generatedFilename(originalName));
+}
+
+export function flightLinehaulDocumentKey(flightId: string, originalName: string) {
+  return joinKey(storageModules.flightLinehaul, flightId, "documents", generatedFilename(originalName));
 }
 
 /**

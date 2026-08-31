@@ -234,7 +234,7 @@ export default function NewOperationsManifestPage() {
   }
 
   return (
-      <form onSubmit={submit} className="mx-auto max-w-5xl">
+      <form onSubmit={submit} className="mx-start max-w-8xl">
         <div className="mb-6 rounded-xl border border-[#EEEDED] bg-white p-5 shadow-sm">
           <h1 className="text-2xl font-semibold ">
             Create Operations Manifest

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { FiArrowLeft, FiCheck, FiEdit3, FiPlus, FiRefreshCw } from "react-icons/fi";
+import { useEffect, useRef, useState } from "react";
+import { FiArrowLeft, FiCheck, FiEdit3, FiPlus, FiRefreshCw, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { formatCreditMoney } from "@/lib/creditAccounts";
 import {
@@ -11,6 +11,7 @@ import {
   getFlightCostSheet,
   getFlightManifestPreview,
   getGbpToInrRate,
+  isBilledWeightOverride,
   isFlightRateEligible,
   listFlightBuyingRates,
   listFlightCostSheets,
@@ -21,18 +22,14 @@ import {
   type FlightCostSheet,
   type FlightCostTotals,
   type FlightManifestOption,
+  type FlightManifestPreview,
   type LogisticsVendor,
 } from "@/lib/profitability";
 import ProfitabilitySelect from "./ProfitabilitySelect";
 
 const inputClass =
   "mt-2 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10 disabled:bg-slate-100 disabled:text-slate-500";
-type Preview = FlightManifestOption & {
-  manifestWeightKg: number;
-  billedWeightKg: number;
-  portalDpdLabels: number;
-  externalPaidLabels: number;
-};
+type Preview = FlightManifestPreview;
 type Draft = {
   manifestId: string;
   rateId: string;
@@ -41,15 +38,12 @@ type Draft = {
   billedWeightReason: string;
   externalLabels: string;
   externalReference: string;
-  externalReason: string;
   fxRate: string;
   fxProvider: string;
   fxUpdatedAt: string | null;
   fxFetchedAt: string;
   manualFx: boolean;
-  manualFxReason: string;
   notes: string;
-  reason: string;
 };
 const emptyDraft = (): Draft => ({
   manifestId: "",
@@ -59,15 +53,12 @@ const emptyDraft = (): Draft => ({
   billedWeightReason: "",
   externalLabels: "0",
   externalReference: "",
-  externalReason: "",
   fxRate: "",
   fxProvider: "ExchangeRate-API",
   fxUpdatedAt: null,
   fxFetchedAt: new Date().toISOString(),
   manualFx: false,
-  manualFxReason: "",
   notes: "",
-  reason: "",
 });
 
 function calculatePreview(
@@ -120,6 +111,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
   const [vendorFilter, setVendorFilter] = useState("");
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
+  const [cancelDialog, setCancelDialog] = useState(false);
 
   async function load() {
     const [sheetResult, manifestResult, rateResult, vendorResult] = await Promise.all([
@@ -165,7 +157,8 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
     if (!preview) return false;
     return isFlightRateEligible(item, preview.header.destinationCountryCode, preview.header.departureDate);
   });
-  const billedWeight = Number(draft.billedWeight || preview?.totalWeightKg || 0);
+  const manifestWeight = preview?.manifestWeightKg ?? sheet?.manifestWeightKg ?? 0;
+  const billedWeight = Number(draft.billedWeight || manifestWeight || 0);
   const externalLabels = Math.max(0, Number(draft.externalLabels) || 0);
   const fxRate = Number(draft.fxRate);
   const totals =
@@ -202,7 +195,6 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
         fxUpdatedAt: result.rate.providerUpdatedAt,
         fxFetchedAt: result.rate.fetchedAt,
         manualFx: false,
-        manualFxReason: "",
       }));
       toast.success("GBP/INR rate refreshed.");
     } catch (error) {
@@ -227,7 +219,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
     try {
       const result = await getFlightManifestPreview(id);
       setPreview(result.manifest);
-      setDraft((current) => ({ ...current, manifestId: id, billedWeight: String(result.manifest.totalWeightKg) }));
+      setDraft((current) => ({ ...current, manifestId: id, billedWeight: String(result.manifest.manifestWeightKg), billedWeightReason: "" }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Manifest facts could not be loaded.");
     }
@@ -248,15 +240,12 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
         billedWeightReason: item.billedWeightOverrideReason,
         externalLabels: String(item.externalPaidLabels),
         externalReference: item.externalLabelReference,
-        externalReason: item.externalLabelReason,
         fxRate: String(item.fxSnapshot.gbpToInr),
         fxProvider: item.fxSnapshot.provider,
         fxUpdatedAt: item.fxSnapshot.providerUpdatedAt,
         fxFetchedAt: item.fxSnapshot.fetchedAt,
         manualFx: item.fxSnapshot.isManual,
-        manualFxReason: item.fxSnapshot.manualReason,
         notes: item.notes,
-        reason: "",
       });
       setEditor(true);
     } catch (error) {
@@ -265,8 +254,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
   }
 
   function payload() {
-    const manifestWeight = preview?.totalWeightKg ?? sheet?.manifestWeightKg ?? 0;
-    const override = Math.abs(billedWeight - manifestWeight) > 0.0005;
+    const override = isBilledWeightOverride(billedWeight, manifestWeight);
     return {
       buyingRateId: draft.rateId,
       airlineName: draft.airlineName.trim(),
@@ -274,17 +262,15 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
       billedWeightOverrideReason: override ? draft.billedWeightReason.trim() : "",
       externalPaidLabels: externalLabels,
       externalLabelReference: draft.externalReference.trim(),
-      externalLabelReason: draft.externalReason.trim(),
       fxSnapshot: {
         gbpToInr: fxRate,
         provider: draft.manualFx ? "Manual" : draft.fxProvider,
         providerUpdatedAt: draft.fxUpdatedAt,
         fetchedAt: draft.fxFetchedAt,
         isManual: draft.manualFx,
-        manualReason: draft.manualFx ? draft.manualFxReason.trim() : "",
+        manualReason: "",
       },
       notes: draft.notes.trim(),
-      reason: draft.reason.trim(),
     };
   }
 
@@ -292,7 +278,10 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
     if (!draft.manifestId || !draft.rateId || draft.airlineName.trim().length < 2)
       return toast.error("Select a manifest and rate, then enter the airline.");
     if (!Number.isFinite(fxRate) || fxRate <= 0) return toast.error("Enter a valid GBP/INR rate.");
-    if (draft.reason.trim().length < 3) return toast.error("Enter a reason for this change.");
+    if (isBilledWeightOverride(billedWeight, manifestWeight) && draft.billedWeightReason.trim().length < 3)
+      return toast.error("Enter a reason for the billed weight override.");
+    if (externalLabels > 0 && draft.externalReference.trim().length < 2)
+      return toast.error("Enter the external-label reference.");
     setSaving(true);
     try {
       const result = sheet
@@ -309,10 +298,10 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
   }
 
   async function finalize() {
-    if (!sheet || draft.reason.trim().length < 3) return toast.error("Enter a reason before finalizing.");
+    if (!sheet) return;
     setSaving(true);
     try {
-      const result = await finalizeFlightCostSheet(sheet.id, sheet.version, draft.reason.trim());
+      const result = await finalizeFlightCostSheet(sheet.id, sheet.version);
       toast.success(result.message);
       await load();
       await openExisting(result.sheet.id);
@@ -323,17 +312,19 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
     }
   }
 
-  async function cancelSheet() {
-    if (!sheet || draft.reason.trim().length < 3) return toast.error("Enter a reason before cancelling.");
+  async function cancelSheet(reason: string) {
+    if (!sheet) return;
     setSaving(true);
     try {
-      const result = await cancelFlightCostSheet(sheet.id, sheet.version, draft.reason.trim());
+      const result = await cancelFlightCostSheet(sheet.id, sheet.version, reason);
       toast.success(result.message);
       await load();
       setEditor(false);
       setSheet(null);
+      setCancelDialog(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Sheet could not be cancelled.");
+      throw error;
     } finally {
       setSaving(false);
     }
@@ -475,7 +466,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
   }
 
   const facts = {
-    totalWeightKg: preview?.totalWeightKg ?? sheet?.manifestWeightKg ?? 0,
+    manifestWeightKg: preview?.manifestWeightKg ?? sheet?.manifestWeightKg ?? 0,
     totalBags: preview?.totalBags ?? sheet?.totalBags ?? 0,
     totalParcels: preview?.totalParcels ?? sheet?.totalParcels ?? 0,
     portalLabels: preview?.portalDpdLabels ?? sheet?.portalDpdLabels ?? 0,
@@ -514,7 +505,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
           ) : null}
           {sheet && sheet.status !== "CANCELLED" && sheet.status !== "FINALIZED" ? (
             <button
-              onClick={() => void cancelSheet()}
+              onClick={() => setCancelDialog(true)}
               disabled={!sheet || saving}
               className="h-11 rounded-lg border border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
             >
@@ -548,7 +539,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
         <div className="grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-3 xl:grid-cols-6">
           {(
             [
-              ["Manifest weight", `${facts.totalWeightKg.toFixed(3)} kg`],
+              ["Manifest weight", `${facts.manifestWeightKg.toFixed(3)} kg`],
               ["Total bags", String(facts.totalBags)],
               ["Total parcels", String(facts.totalParcels)],
               ["Portal DPD labels", String(facts.portalLabels)],
@@ -626,7 +617,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
                 />
               </label>
             </div>
-            {Math.abs(billedWeight - facts.totalWeightKg) > 0.0005 ? (
+            {isBilledWeightOverride(billedWeight, facts.manifestWeightKg) ? (
               <label className="mt-4 block text-sm font-semibold text-slate-700">
                 Billed weight override reason
                 <input
@@ -685,7 +676,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
 
           <section className="rounded-xl border border-slate-200 bg-white p-5">
             <h2 className="font-bold text-slate-950">Label reconciliation</h2>
-            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-semibold text-slate-700">
                 External paid labels
                 <input
@@ -697,37 +688,22 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
                   className={inputClass}
                 />
               </label>
-              <label className="text-sm font-semibold text-slate-700">
-                Reference
+              {externalLabels > 0 ? <label className="text-sm font-semibold text-slate-700">
+                Payment reference
                 <input
                   value={draft.externalReference}
                   onChange={(event) => setDraft({ ...draft, externalReference: event.target.value })}
                   className={inputClass}
                 />
-              </label>
-              <label className="text-sm font-semibold text-slate-700">
-                Reason
-                <input
-                  value={draft.externalReason}
-                  onChange={(event) => setDraft({ ...draft, externalReason: event.target.value })}
-                  className={inputClass}
-                />
-              </label>
+              </label> : null}
             </div>
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-5">
-            <h2 className="font-bold text-slate-950">Save details</h2>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="text-sm font-semibold text-slate-700">
-                Change reason
-                <input value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} className={inputClass} />
-              </label>
-              <label className="text-sm font-semibold text-slate-700">
-                Notes
-                <input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className={inputClass} />
-              </label>
-            </div>
+            <label className="text-sm font-semibold text-slate-700">
+              Notes <span className="font-normal text-slate-500">(optional)</span>
+              <input value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} className={inputClass} />
+            </label>
           </section>
         </div>
 
@@ -743,8 +719,8 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               <SummaryRow label="EICF" value={totals?.eicfMinor} />
               <SummaryRow label="Customs" value={totals?.customsMinor} />
               <SummaryRow label="Transportation" value={totals?.transportationMinor} />
-              <SummaryRow label="CFL" value={totals?.cflInrMinor} />
-              <SummaryRow label="DPD labels" value={totals?.dpdLabelsInrMinor} />
+              <SummaryRow label="CFL" value={totals?.cflInrMinor} foreignValue={totals?.cflGbpMinor} />
+              <SummaryRow label="DPD labels" value={totals?.dpdLabelsInrMinor} foreignValue={totals?.dpdLabelsGbpMinor} />
               <div className="my-3 border-t border-slate-200" />
               <SummaryRow label="Total cost" value={totals?.totalCostMinor} strong />
               <SummaryRow label="Flight revenue" value={totals?.totalRevenueMinor} />
@@ -782,24 +758,14 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
                 className={inputClass}
               />
             </label>
-            {draft.manualFx ? (
-              <label className="mt-4 block text-sm font-semibold text-slate-700">
-                Manual rate reason
-                <input
-                  value={draft.manualFxReason}
-                  onChange={(event) => setDraft({ ...draft, manualFxReason: event.target.value })}
-                  className={inputClass}
-                />
-              </label>
-            ) : (
-              <p className="mt-3 text-xs text-slate-500">
-                {draft.fxProvider}
-                {draft.fxUpdatedAt ? ` · updated ${new Date(draft.fxUpdatedAt).toLocaleString("en-IN")}` : ""}
-              </p>
-            )}
+            <p className="mt-3 text-xs text-slate-500">
+              {draft.manualFx ? "Manual rate" : draft.fxProvider}
+              {!draft.manualFx && draft.fxUpdatedAt ? ` · updated ${new Date(draft.fxUpdatedAt).toLocaleString("en-IN")}` : ""}
+            </p>
           </section>
         </aside>
       </div>
+      {cancelDialog && sheet ? <ReasonDialog title="Cancel flight cost sheet?" actionLabel="Cancel sheet" busy={saving} onClose={() => setCancelDialog(false)} onConfirm={cancelSheet} /> : null}
     </div>
   );
 }
@@ -839,7 +805,7 @@ function CostLine({
     </div>
   );
 }
-function SummaryRow({ label, value, strong = false, profit = false }: { label: string; value?: number; strong?: boolean; profit?: boolean }) {
+function SummaryRow({ label, value, foreignValue, strong = false, profit = false }: { label: string; value?: number; foreignValue?: number; strong?: boolean; profit?: boolean }) {
   return (
     <div className={`flex items-center justify-between gap-4 text-sm ${strong ? "font-bold text-slate-950" : "text-slate-700"}`}>
       <span>{label}</span>
@@ -847,10 +813,47 @@ function SummaryRow({ label, value, strong = false, profit = false }: { label: s
         className={`tabular-nums ${profit && (value ?? 0) < 0 ? "font-bold text-red-700" : profit ? "font-bold text-emerald-700" : strong ? "text-base" : "font-medium"}`}
       >
         {value === undefined ? "—" : formatCreditMoney(value, "INR")}
+        {foreignValue !== undefined ? <small className="block font-normal text-slate-500">£{(foreignValue / 100).toFixed(2)}</small> : null}
       </span>
     </div>
   );
 }
+
+function ReasonDialog({ title, actionLabel, busy, onClose, onConfirm }: { title: string; actionLabel: string; busy: boolean; onClose: () => void; onConfirm: (reason: string) => Promise<void> }) {
+  const [reason, setReason] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !busy) onClose();
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), textarea:not([disabled])")];
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); previousFocus?.focus(); };
+  }, [busy, onClose]);
+
+  async function submit() {
+    if (reason.trim().length < 3) return toast.error("Enter a cancellation reason.");
+    try { await onConfirm(reason.trim()); } catch { /* the action already reports its error */ }
+  }
+
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label={title}>
+    <div ref={dialogRef} className="w-full max-w-md rounded-xl bg-white shadow-xl">
+      <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><h2 className="font-bold text-slate-950">{title}</h2><button ref={closeRef} onClick={onClose} disabled={busy} className="grid h-11 w-11 place-items-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Close"><FiX /></button></div>
+      <div className="p-5"><label className="text-sm font-semibold text-slate-700">Cancellation reason<textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={3} maxLength={500} className="mt-2 w-full rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10" /></label></div>
+      <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4"><button onClick={onClose} disabled={busy} className="h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">Keep sheet</button><button onClick={() => void submit()} disabled={busy} className="h-11 rounded-lg bg-red-700 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Cancelling…" : actionLabel}</button></div>
+    </div>
+  </div>;
+}
+
 function Status({ value }: { value: FlightCostSheet["status"] }) {
   const style =
     value === "FINALIZED"

@@ -14,6 +14,7 @@ export type OperationsManifestStatus = (typeof operationsManifestStatusValues)[n
 export interface IOperationsManifest extends mongoose.Document {
   manifestNumber: string;
   branchId: mongoose.Types.ObjectId;
+  flightLinehaulId?: mongoose.Types.ObjectId | null;
   header: {
     destinationAgent: string;
     destinationCountryCode: string;
@@ -46,6 +47,7 @@ export interface IOperationsManifest extends mongoose.Document {
 const operationsManifestSchema = new mongoose.Schema<IOperationsManifest>({
   manifestNumber: { type: String, required: true, unique: true, index: true, trim: true, uppercase: true, maxlength: 40 },
   branchId: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", required: true, index: true },
+  flightLinehaulId: { type: mongoose.Schema.Types.ObjectId, ref: "FlightLinehaul", default: null, index: true },
   header: {
     destinationAgent: { type: String, trim: true, maxlength: 1000, default: "" },
     destinationCountryCode: { type: String, trim: true, uppercase: true, maxlength: 2, default: "" },
@@ -74,5 +76,6 @@ const operationsManifestSchema = new mongoose.Schema<IOperationsManifest>({
 }, { timestamps: true });
 
 operationsManifestSchema.index({ branchId: 1, status: 1, updatedAt: -1 });
+operationsManifestSchema.index({ flightLinehaulId: 1, status: 1 });
 
 export const OperationsManifest = mongoose.model<IOperationsManifest>("OperationsManifest", operationsManifestSchema);

@@ -12,6 +12,7 @@ import {
   calculateFlightCostTotals,
   copyRateSnapshot,
   getGbpToInrRate,
+  isBilledWeightOverride,
   isFlightBuyingRateApplicable,
   loadFlightOperationalFacts,
   markSheetReviewRequiredIfChanged,
@@ -137,6 +138,48 @@ function serializeSheet(sheet: any) {
   };
 }
 
+function rateAuditValues(rate: any) {
+  return {
+    vendorId: String(rate.vendorId?._id ?? rate.vendorId),
+    region: rate.region,
+    airFreightRateMinorPerKg: rate.airFreightRateMinorPerKg,
+    gstBasisPoints: rate.gstBasisPoints,
+    eicfRateMinorPerKg: rate.eicfRateMinorPerKg,
+    customsMinor: rate.customsMinor,
+    transportationMinor: rate.transportationMinor,
+    cflMinorPerBagGbp: rate.cflMinorPerBagGbp,
+    dpdLabelMinorGbp: rate.dpdLabelMinorGbp,
+    effectiveFrom: rate.effectiveFrom,
+    effectiveTo: rate.effectiveTo ?? null,
+    status: rate.status
+  };
+}
+
+function sheetAuditValues(sheet: IFlightCostSheet) {
+  return {
+    buyingRateId: String(sheet.buyingRateId),
+    vendorId: String(sheet.vendorId),
+    airlineName: sheet.airlineName,
+    manifestWeightKg: sheet.manifestWeightKg,
+    billedWeightKg: sheet.billedWeightKg,
+    billedWeightOverrideReason: sheet.billedWeightOverrideReason,
+    externalPaidLabels: sheet.externalPaidLabels,
+    externalLabelReference: sheet.externalLabelReference,
+    fxSnapshot: {
+      gbpToInr: sheet.fxSnapshot.gbpToInr,
+      provider: sheet.fxSnapshot.provider,
+      providerUpdatedAt: sheet.fxSnapshot.providerUpdatedAt ?? null,
+      fetchedAt: sheet.fxSnapshot.fetchedAt,
+      isManual: sheet.fxSnapshot.isManual
+    },
+    notes: sheet.notes,
+    status: sheet.status,
+    revision: sheet.revision,
+    version: sheet.version,
+    totals: JSON.parse(JSON.stringify(sheet.totals))
+  };
+}
+
 const rateInput = z.object({
   vendorId: z.string().trim(),
   region: z.enum(flightRateRegionValues),
@@ -148,8 +191,7 @@ const rateInput = z.object({
   cflMinorPerBagGbp: z.number().int().min(0),
   dpdLabelMinorGbp: z.number().int().min(0),
   effectiveFrom: z.coerce.date(),
-  effectiveTo: z.coerce.date().nullable().optional(),
-  reason: z.string().trim().min(3).max(500)
+  effectiveTo: z.coerce.date().nullable().optional()
 }).refine((value) => !value.effectiveTo || value.effectiveTo >= value.effectiveFrom, {
   message: "The end date must not be before the start date."
 });
@@ -181,10 +223,10 @@ export async function createFlightBuyingRate(request: Request, response: Respons
     const rateId = await inFlightTransaction(async (session) => {
       if (!await LogisticsVendor.exists({ _id: vendorId, status: "ACTIVE" }).session(session)) flightError(400, "Select an active vendor.");
       if (await overlappingRate(parsed.data, undefined, session)) flightError(409, "An active rate already covers this vendor, region and date.");
-      const { reason, ...values } = parsed.data;
+      const values = parsed.data;
       const [rate] = await FlightBuyingRate.create([{ ...values, vendorId, effectiveTo: values.effectiveTo ?? null, createdBy: actor(request)._id }], { session });
       if (!rate) throw new Error("The buying rate could not be created.");
-      await createAuditLog({ action: "FLIGHT_BUYING_RATE_CREATED", entityType: "FLIGHT_BUYING_RATE", entityId: rate._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { vendorId, region: rate.region, reason } }, session);
+      await createAuditLog({ action: "FLIGHT_BUYING_RATE_CREATED", entityType: "FLIGHT_BUYING_RATE", entityId: rate._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { values: rateAuditValues(rate) } }, session);
       return rate._id as mongoose.Types.ObjectId;
     });
     const rate = await FlightBuyingRate.findById(rateId).populate("vendorId", "name code status").exec();
@@ -206,14 +248,13 @@ export async function updateFlightBuyingRate(request: Request, response: Respons
     await inFlightTransaction(async (session) => {
       if (!await LogisticsVendor.exists({ _id: vendorId, status: "ACTIVE" }).session(session)) flightError(400, "Select an active vendor.");
       if (await overlappingRate(parsed.data, rateId, session)) flightError(409, "An active rate already covers this vendor, region and date.");
-      const { reason, ...values } = parsed.data;
-      const rate = await FlightBuyingRate.findOneAndUpdate(
-        { _id: rateId, status: "ACTIVE" },
-        { $set: { ...values, vendorId, effectiveTo: values.effectiveTo ?? null, updatedBy: actor(request)._id } },
-        { returnDocument: "after", runValidators: true, session }
-      ).exec();
+      const values = parsed.data;
+      const rate = await FlightBuyingRate.findOne({ _id: rateId, status: "ACTIVE" }).session(session).exec();
       if (!rate) flightError(404, "Active buying rate not found.");
-      await createAuditLog({ action: "FLIGHT_BUYING_RATE_UPDATED", entityType: "FLIGHT_BUYING_RATE", entityId: rate._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { reason } }, session);
+      const before = rateAuditValues(rate);
+      rate.set({ ...values, vendorId, effectiveTo: values.effectiveTo ?? null, updatedBy: actor(request)._id });
+      await rate.save({ session });
+      await createAuditLog({ action: "FLIGHT_BUYING_RATE_UPDATED", entityType: "FLIGHT_BUYING_RATE", entityId: rate._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { before, after: rateAuditValues(rate) } }, session);
       return true;
     });
     const rate = await FlightBuyingRate.findById(rateId).populate("vendorId", "name code status").exec();
@@ -326,7 +367,7 @@ const fxInput = z.object({
   fetchedAt: z.coerce.date(),
   isManual: z.boolean().default(false),
   manualReason: z.string().trim().max(500).default("")
-}).refine((value) => !value.isManual || value.manualReason.length >= 3, { message: "Enter a reason for the manual exchange rate." });
+});
 
 const createSheetBase = z.object({
   operationsManifestId: z.string().trim(),
@@ -336,15 +377,12 @@ const createSheetBase = z.object({
   billedWeightOverrideReason: z.string().trim().max(500).default(""),
   externalPaidLabels: z.number().int().min(0).default(0),
   externalLabelReference: z.string().trim().max(120).default(""),
-  externalLabelReason: z.string().trim().max(500).default(""),
   fxSnapshot: fxInput,
-  notes: z.string().trim().max(1000).default(""),
-  reason: z.string().trim().min(3).max(500)
+  notes: z.string().trim().max(1000).default("")
 });
 
 const createSheetInput = createSheetBase
-  .refine((value) => !value.billedWeightKg || value.billedWeightOverrideReason.length >= 3, { message: "Enter a reason when overriding billed weight." })
-  .refine((value) => !value.externalPaidLabels || (value.externalLabelReference.length >= 2 && value.externalLabelReason.length >= 3), { message: "Enter the external-label reference and reason." });
+  .refine((value) => !value.externalPaidLabels || value.externalLabelReference.length >= 2, { message: "Enter the external-label reference." });
 
 const updateSheetBase = z.object({
   buyingRateId: z.string().trim(),
@@ -353,16 +391,13 @@ const updateSheetBase = z.object({
   billedWeightOverrideReason: z.string().trim().max(500).default(""),
   externalPaidLabels: z.number().int().min(0).default(0),
   externalLabelReference: z.string().trim().max(120).default(""),
-  externalLabelReason: z.string().trim().max(500).default(""),
   fxSnapshot: fxInput,
   notes: z.string().trim().max(1000).default(""),
-  reason: z.string().trim().min(3).max(500),
   expectedVersion: z.number().int().min(1)
 });
 
 const updateSheetInput = updateSheetBase
-  .refine((value) => !value.billedWeightKg || value.billedWeightOverrideReason.length >= 3, { message: "Enter a reason when overriding billed weight." })
-  .refine((value) => !value.externalPaidLabels || (value.externalLabelReference.length >= 2 && value.externalLabelReason.length >= 3), { message: "Enter the external-label reference and reason." });
+  .refine((value) => !value.externalPaidLabels || value.externalLabelReference.length >= 2, { message: "Enter the external-label reference." });
 
 function ensureManifestHeader(manifest: InstanceType<typeof OperationsManifest>) {
   if (!manifest.header.mawbNumber || !manifest.header.flightNumber || !manifest.header.departureDate || !manifest.header.destinationCountryCode) {
@@ -393,24 +428,29 @@ export async function createFlightCostSheet(request: Request, response: Response
       ensureRateMatchesManifest(rate, manifest);
       const { facts } = await loadFlightOperationalFacts(manifestId, parsed.data.externalPaidLabels, session);
       const billedWeightKg = parsed.data.billedWeightKg ?? facts.manifestWeightKg;
+      const weightOverridden = isBilledWeightOverride(billedWeightKg, facts.manifestWeightKg);
+      if (weightOverridden && parsed.data.billedWeightOverrideReason.length < 3) {
+        flightError(400, "Enter a reason when billed weight differs from manifest weight.");
+      }
       const totals = calculateFlightCostTotals({ rate: copyRateSnapshot(rate), facts: { ...facts, billedWeightKg }, gbpToInr: parsed.data.fxSnapshot.gbpToInr });
       const [sheet] = await FlightCostSheet.create([{
         operationsManifestId: manifestId, branchId: manifest.branchId, buyingRateId: rate._id, vendorId: rate.vendorId,
         manifestNumber: manifest.manifestNumber, region: rate.region, airlineName: parsed.data.airlineName,
         mawbNumber: manifest.header.mawbNumber, flightNumber: manifest.header.flightNumber, flightDate: manifest.header.departureDate,
         destinationCountryCode: manifest.header.destinationCountryCode, destinationCountryName: manifest.header.destinationCountryName,
-        manifestWeightKg: facts.manifestWeightKg, billedWeightKg, billedWeightOverrideReason: parsed.data.billedWeightOverrideReason,
+        manifestWeightKg: facts.manifestWeightKg, billedWeightKg,
+        billedWeightOverrideReason: weightOverridden ? parsed.data.billedWeightOverrideReason : "",
         totalBags: facts.totalBags, totalParcels: facts.totalParcels, portalDpdLabels: facts.portalDpdLabels,
         externalPaidLabels: parsed.data.externalPaidLabels, externalLabelReference: parsed.data.externalLabelReference,
-        externalLabelReason: parsed.data.externalLabelReason, billableLabels: facts.portalDpdLabels + parsed.data.externalPaidLabels,
+        externalLabelReason: "", billableLabels: facts.portalDpdLabels + parsed.data.externalPaidLabels,
         missingDpdLabels: Math.max(0, facts.totalParcels - facts.portalDpdLabels - parsed.data.externalPaidLabels),
-        rateSnapshot: copyRateSnapshot(rate), fxSnapshot: parsed.data.fxSnapshot, totals, status: "DRAFT",
-        version: 1, revision: 1, notes: parsed.data.notes, lastChangeReason: parsed.data.reason,
+        rateSnapshot: copyRateSnapshot(rate), fxSnapshot: { ...parsed.data.fxSnapshot, manualReason: "" }, totals, status: "DRAFT",
+        version: 1, revision: 1, notes: parsed.data.notes, lastChangeReason: "Flight cost sheet created",
         createdBy: actor(request)._id, updatedBy: actor(request)._id
       }], { session });
       if (!sheet) throw new Error("The flight cost sheet could not be created.");
       await rebuildFlightAllocations(sheet, session);
-      await createAuditLog({ action: "FLIGHT_COST_SHEET_CREATED", entityType: "FLIGHT_COST_SHEET", entityId: sheet._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { manifestId, rateId, reason: parsed.data.reason } }, session);
+      await createAuditLog({ action: "FLIGHT_COST_SHEET_CREATED", entityType: "FLIGHT_COST_SHEET", entityId: sheet._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { manifestId, rateId, values: sheetAuditValues(sheet) } }, session);
       return sheet._id as mongoose.Types.ObjectId;
     });
     const sheet = await FlightCostSheet.findById(sheetId).populate("vendorId", "name code status").exec();
@@ -438,6 +478,13 @@ export async function updateFlightCostSheet(request: Request, response: Response
       if (sheet.version !== parsed.data.expectedVersion) flightError(409, "Flight costs changed. Reload and review the latest values.");
       const manifest = await OperationsManifest.findById(sheet.operationsManifestId).session(session).exec();
       if (!manifest) flightError(404, "Operations manifest not found.");
+      const { facts } = await loadFlightOperationalFacts(sheet.operationsManifestId, parsed.data.externalPaidLabels, session);
+      const billedWeightKg = parsed.data.billedWeightKg ?? facts.manifestWeightKg;
+      const weightOverridden = isBilledWeightOverride(billedWeightKg, facts.manifestWeightKg);
+      if (weightOverridden && parsed.data.billedWeightOverrideReason.length < 3) {
+        flightError(400, "Enter a reason when billed weight differs from manifest weight.");
+      }
+      const before = sheetAuditValues(sheet);
       const changingRate = String(rateId) !== String(sheet.buyingRateId);
       if (changingRate) {
         const rate = await FlightBuyingRate.findOne({ _id: rateId, status: "ACTIVE" }).session(session).exec();
@@ -451,23 +498,23 @@ export async function updateFlightCostSheet(request: Request, response: Response
         sheet.region = rate.region;
         sheet.rateSnapshot = copyRateSnapshot(rate);
       }
-      const snapshotRevision = await saveFlightCostRevision(sheet, actor(request)._id, sheet.lastChangeReason || "Pre-amend snapshot", session);
+      const snapshotRevision = await saveFlightCostRevision(sheet, actor(request)._id, "Snapshot before flight cost save", session);
       sheet.revision = snapshotRevision + 1;
       sheet.airlineName = parsed.data.airlineName;
-      sheet.billedWeightKg = parsed.data.billedWeightKg ?? sheet.manifestWeightKg;
-      sheet.billedWeightOverrideReason = parsed.data.billedWeightOverrideReason;
+      sheet.billedWeightKg = billedWeightKg;
+      sheet.billedWeightOverrideReason = weightOverridden ? parsed.data.billedWeightOverrideReason : "";
       sheet.externalPaidLabels = parsed.data.externalPaidLabels;
       sheet.externalLabelReference = parsed.data.externalLabelReference;
-      sheet.externalLabelReason = parsed.data.externalLabelReason;
-      sheet.fxSnapshot = parsed.data.fxSnapshot;
+      sheet.externalLabelReason = "";
+      sheet.fxSnapshot = { ...parsed.data.fxSnapshot, manualReason: "" };
       sheet.notes = parsed.data.notes;
-      sheet.lastChangeReason = parsed.data.reason;
+      sheet.lastChangeReason = sheet.status === "FINALIZED" ? "Flight cost amendment saved" : "Flight cost draft saved";
       sheet.updatedBy = actor(request)._id;
       sheet.version += 1;
       if (sheet.status === "REVIEW_REQUIRED") sheet.status = "DRAFT";
       await refreshSheetFactsAndTotals(sheet, { session, billedWeightKg: sheet.billedWeightKg });
       await rebuildFlightAllocations(sheet, session);
-      await createAuditLog({ action: "FLIGHT_COST_SHEET_UPDATED", entityType: "FLIGHT_COST_SHEET", entityId: sheet._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { reason: parsed.data.reason, revision: sheet.revision, rateChanged: changingRate } }, session);
+      await createAuditLog({ action: "FLIGHT_COST_SHEET_UPDATED", entityType: "FLIGHT_COST_SHEET", entityId: sheet._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { before, after: sheetAuditValues(sheet), revision: sheet.revision, rateChanged: changingRate } }, session);
       return { id: sheet._id as mongoose.Types.ObjectId, finalized: sheet.status === "FINALIZED" };
     });
     const sheet = await FlightCostSheet.findById(saved.id).populate("vendorId", "name code status").exec();
@@ -480,9 +527,9 @@ export async function updateFlightCostSheet(request: Request, response: Response
 
 export async function finalizeFlightCostSheet(request: Request, response: Response) {
   const sheetId = objectId(request.params.sheetId);
-  const parsed = z.object({ expectedVersion: z.number().int().min(1), reason: z.string().trim().min(3).max(500) }).safeParse(request.body);
+  const parsed = z.object({ expectedVersion: z.number().int().min(1) }).safeParse(request.body);
   if (!sheetId) return reject(response, 404, "Flight cost sheet not found.");
-  if (!parsed.success) return reject(response, 400, parsed.error.issues[0]?.message ?? "Enter a finalization reason.");
+  if (!parsed.success) return reject(response, 400, parsed.error.issues[0]?.message ?? "The flight cost version is invalid.");
   try {
     const savedId = await inFlightTransaction(async (session) => {
       const sheet = await FlightCostSheet.findById(sheetId).session(session).exec();
@@ -493,17 +540,18 @@ export async function finalizeFlightCostSheet(request: Request, response: Respon
       if (sheet.version !== parsed.data.expectedVersion) flightError(409, "Flight costs changed. Reload and review the latest values.");
       const manifest = await OperationsManifest.findById(sheet.operationsManifestId).session(session).exec();
       if (!manifest || !["SEALED", "DISPATCHED"].includes(manifest.status)) flightError(409, "Seal or dispatch the manifest before finalizing flight costs.");
-      const snapshotRevision = await saveFlightCostRevision(sheet, actor(request)._id, sheet.lastChangeReason || "Pre-finalize snapshot", session);
+      const before = sheetAuditValues(sheet);
+      const snapshotRevision = await saveFlightCostRevision(sheet, actor(request)._id, "Snapshot before finalization", session);
       sheet.revision = snapshotRevision + 1;
       sheet.status = "FINALIZED";
       sheet.version += 1;
-      sheet.lastChangeReason = parsed.data.reason;
+      sheet.lastChangeReason = "Flight cost sheet finalized";
       sheet.finalizedBy = actor(request)._id;
       sheet.finalizedAt = new Date();
       sheet.updatedBy = actor(request)._id;
       await refreshSheetFactsAndTotals(sheet, { session });
       await rebuildFlightAllocations(sheet, session);
-      await createAuditLog({ action: "FLIGHT_COST_SHEET_FINALIZED", entityType: "FLIGHT_COST_SHEET", entityId: sheet._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { reason: parsed.data.reason, revision: sheet.revision } }, session);
+      await createAuditLog({ action: "FLIGHT_COST_SHEET_FINALIZED", entityType: "FLIGHT_COST_SHEET", entityId: sheet._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { before, after: sheetAuditValues(sheet), revision: sheet.revision } }, session);
       return sheet._id as mongoose.Types.ObjectId;
     });
     const sheet = await FlightCostSheet.findById(savedId).populate("vendorId", "name code status").exec();
@@ -518,7 +566,7 @@ export async function updateExternalLabels(request: Request, response: Response)
   const sheetId = objectId(request.params.sheetId);
   const parsed = z.object({
     expectedVersion: z.number().int().min(1), externalPaidLabels: z.number().int().min(0),
-    reference: z.string().trim().min(2).max(120), reason: z.string().trim().min(3).max(500)
+    reference: z.string().trim().min(2).max(120)
   }).safeParse(request.body);
   if (!sheetId) return reject(response, 404, "Flight cost sheet not found.");
   if (!parsed.success) return reject(response, 400, parsed.error.issues[0]?.message ?? "Enter valid external-label details.");
@@ -528,18 +576,19 @@ export async function updateExternalLabels(request: Request, response: Response)
       if (!sheet || !canAccessBranch(request, sheet.branchId)) flightError(404, "Flight cost sheet not found.");
       if (sheet.status === "CANCELLED") flightError(409, "Cancelled sheets cannot be updated.");
       if (sheet.version !== parsed.data.expectedVersion) flightError(409, "Label counts changed. Reload and review the latest values.");
-      const snapshotRevision = await saveFlightCostRevision(sheet, actor(request)._id, sheet.lastChangeReason || "Pre-label snapshot", session);
+      const before = sheetAuditValues(sheet);
+      const snapshotRevision = await saveFlightCostRevision(sheet, actor(request)._id, "Snapshot before external label update", session);
       sheet.revision = snapshotRevision + 1;
       sheet.externalPaidLabels = parsed.data.externalPaidLabels;
       sheet.externalLabelReference = parsed.data.reference;
-      sheet.externalLabelReason = parsed.data.reason;
-      sheet.lastChangeReason = parsed.data.reason;
+      sheet.externalLabelReason = "";
+      sheet.lastChangeReason = "External paid labels updated";
       sheet.updatedBy = actor(request)._id;
       sheet.version += 1;
       if (sheet.status === "REVIEW_REQUIRED") sheet.status = "DRAFT";
       await refreshSheetFactsAndTotals(sheet, { session });
       await rebuildFlightAllocations(sheet, session);
-      await createAuditLog({ action: "FLIGHT_COST_LABELS_RECONCILED", entityType: "FLIGHT_COST_SHEET", entityId: sheet._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { externalPaidLabels: parsed.data.externalPaidLabels, reference: parsed.data.reference, reason: parsed.data.reason, revision: sheet.revision } }, session);
+      await createAuditLog({ action: "FLIGHT_COST_LABELS_RECONCILED", entityType: "FLIGHT_COST_SHEET", entityId: sheet._id, performedBy: actor(request)._id, performedAt: new Date(), metadata: { before, after: sheetAuditValues(sheet), revision: sheet.revision } }, session);
       return sheet._id as mongoose.Types.ObjectId;
     });
     const sheet = await FlightCostSheet.findById(savedId).populate("vendorId", "name code status").exec();

@@ -152,6 +152,12 @@ const staffNavigation: Array<
         icon: FiArchive,
         roles: withAdmin(OPERATIONS_AREA),
       },
+      {
+        label: "Flight & Linehaul",
+        href: "/dashboard/flight-linehauls",
+        icon: FiTruck,
+        roles: withAdmin(OPERATIONS_AREA),
+      },
     ],
   },
   {

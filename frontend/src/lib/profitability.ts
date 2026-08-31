@@ -183,6 +183,24 @@ export type FlightManifestOption = {
   costSheet: { id: string; status: FlightCostSheet["status"] } | null;
 };
 
+export type FlightManifestPreview = Omit<FlightManifestOption, "totalWeightKg" | "costSheet"> & {
+  manifestWeightKg: number;
+  billedWeightKg: number;
+  portalDpdLabels: number;
+  externalPaidLabels: number;
+};
+
+export function isBilledWeightOverride(billedWeightKg: number, manifestWeightKg: number) {
+  return Number.isFinite(billedWeightKg)
+    && Number.isFinite(manifestWeightKg)
+    && Math.abs(billedWeightKg - manifestWeightKg) > 0.0005;
+}
+
+export function convertGbpMinorToInrMinor(gbpMinor: number, gbpToInr: number) {
+  if (!Number.isFinite(gbpMinor) || !Number.isFinite(gbpToInr) || gbpToInr <= 0) return null;
+  return Math.round(gbpMinor * gbpToInr);
+}
+
 export type FlightCostTotals = {
   airFreightBaseMinor: number;
   airFreightGstMinor: number;
@@ -330,7 +348,6 @@ export type FlightBuyingRateInput = {
   dpdLabelMinorGbp: number;
   effectiveFrom: string;
   effectiveTo: string | null;
-  reason: string;
 };
 
 export function createFlightBuyingRate(input: FlightBuyingRateInput) {
@@ -356,7 +373,7 @@ export function listFlightManifestOptions(branchId = "") {
 }
 
 export function getFlightManifestPreview(manifestId: string) {
-  return requestJson<{ success: true; manifest: FlightManifestOption & { manifestWeightKg: number; billedWeightKg: number; portalDpdLabels: number; externalPaidLabels: number } }>(`/api/v1/profitability/flight-manifests/${manifestId}/preview`);
+  return requestJson<{ success: true; manifest: FlightManifestPreview }>(`/api/v1/profitability/flight-manifests/${manifestId}/preview`);
 }
 
 export function listFlightCostSheets(filters: { branchId?: string; status?: string; vendorId?: string; from?: string; to?: string } = {}) {
@@ -400,10 +417,8 @@ export type FlightCostSheetInput = {
   billedWeightOverrideReason: string;
   externalPaidLabels: number;
   externalLabelReference: string;
-  externalLabelReason: string;
   fxSnapshot: { gbpToInr: number; provider: string; providerUpdatedAt: string | null; fetchedAt: string; isManual: boolean; manualReason: string };
   notes: string;
-  reason: string;
 };
 
 export function createFlightCostSheet(input: FlightCostSheetInput & { operationsManifestId: string }) {
@@ -418,8 +433,8 @@ export function updateFlightCostSheet(sheetId: string, input: FlightCostSheetInp
   });
 }
 
-export function finalizeFlightCostSheet(sheetId: string, expectedVersion: number, reason: string) {
+export function finalizeFlightCostSheet(sheetId: string, expectedVersion: number) {
   return requestJson<{ success: true; message: string; sheet: FlightCostSheet }>(`/api/v1/profitability/flight-cost-sheets/${sheetId}/finalize`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion, reason })
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expectedVersion })
   });
 }

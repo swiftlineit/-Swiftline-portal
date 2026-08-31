@@ -21,6 +21,14 @@ const viewports = [
 for (const viewport of viewports) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
+  await page.route("**/api/v1/**", async (route) => {
+    const current = new URL(route.request().url());
+    const target = new URL(api);
+    if (current.origin === target.origin) return route.continue();
+    current.protocol = target.protocol;
+    current.host = target.host;
+    return route.continue({ url: current.toString() });
+  });
   page.on("console", (message) => {
     if (message.type() === "error" && !/GSI_LOGGER|requestStorageAccess|Failed to load resource/.test(message.text())) {
       problems.push(`[${viewport.name}] console: ${message.text().slice(0, 240)}`);
@@ -53,8 +61,47 @@ for (const viewport of viewports) {
     if (tab === "Flight costs" && (viewport.name === "mobile" || viewport.name === "desktop")) {
       await page.getByRole("button", { name: "New cost sheet", exact: true }).click();
       await page.getByRole("heading", { name: "Flight details", exact: true }).waitFor();
+      for (const removedLabel of ["Change reason", "Manual rate reason", "External label reason"]) {
+        if (await page.getByText(removedLabel, { exact: true }).count()) problems.push(`[${viewport.name}] unnecessary field is visible: ${removedLabel}`);
+      }
+      const manifestSelect = page.getByLabel("Operations Manifest");
+      const manifestOptions = await manifestSelect.locator("option").count();
+      if (manifestOptions > 1) {
+        const optionValue = await manifestSelect.locator("option").nth(1).getAttribute("value");
+        if (optionValue) {
+          await manifestSelect.selectOption(optionValue);
+          await page.waitForTimeout(500);
+          const manifestWeightText = await page.getByText("Manifest weight", { exact: true }).locator("..").innerText();
+          const billedWeight = await page.getByLabel("Billed weight").inputValue();
+          if (!/\d+\.\d{3} kg/.test(manifestWeightText)) problems.push(`[${viewport.name}] selected manifest weight is not visible: ${manifestWeightText}`);
+          if (!Number.isFinite(Number(billedWeight)) || Number(billedWeight) <= 0) problems.push(`[${viewport.name}] billed weight was not loaded from the manifest`);
+          if (await page.getByText("Billed weight override reason", { exact: true }).count()) problems.push(`[${viewport.name}] exact manifest weight incorrectly requires an override reason`);
+        }
+      }
       await page.screenshot({ path: path.join(output, `${viewport.name}-new-cost-sheet.png`), fullPage: true });
       await page.getByRole("button", { name: "Flight costs", exact: true }).last().click();
+    }
+    if (tab === "Shipment margins") {
+      await Promise.all([
+        page.waitForResponse((response) => response.url().includes("/api/v1/profitability/shipments") && response.url().includes("coverage=ACTUAL") && response.ok(), { timeout: 15_000 }),
+        page.getByLabel("Coverage").selectOption("ACTUAL")
+      ]);
+      const legacyBadges = page.getByText("LEGACY", { exact: true });
+      await legacyBadges.first().waitFor({ state: "detached", timeout: 5_000 }).catch(() => {});
+      if (await legacyBadges.count()) problems.push(`[${viewport.name}] Actual coverage includes legacy shipments`);
+      await page.getByLabel("Coverage").selectOption("");
+    }
+    if (tab === "Buying rates" && (viewport.name === "mobile" || viewport.name === "desktop")) {
+      await page.getByRole("button", { name: "Add buying rate", exact: true }).click();
+      if (await page.getByText("Change reason", { exact: true }).count()) problems.push(`[${viewport.name}] buying-rate form still requires a change reason`);
+      await page.getByLabel("CFL per bag").fill("14");
+      await page.getByLabel("DPD label").fill("10");
+      for (const label of ["CFL per bag", "DPD label"]) {
+        const fieldCopy = await page.getByLabel(label).evaluate((element) => element.closest("label")?.textContent ?? "");
+        if (!fieldCopy.includes("INR") && !fieldCopy.includes("₹")) problems.push(`[${viewport.name}] ${label} does not show an INR counterpart`);
+      }
+      await page.screenshot({ path: path.join(output, `${viewport.name}-new-buying-rate.png`), fullPage: true });
+      await page.getByRole("button", { name: "Close rate form" }).click();
     }
   }
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

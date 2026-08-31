@@ -38,6 +38,13 @@ export function resolveProfitabilityAwb(...candidates: unknown[]) {
   return candidates.map(stringValue).find(Boolean) ?? "AWB Pending";
 }
 
+export function profitabilityCoverageMatch(coverage: string): Record<string, unknown> {
+  const normalized = coverage.trim().toUpperCase();
+  if (normalized === "ACTUAL") return { coverage: "ACTUAL", costSource: "FLIGHT_ALLOCATION" };
+  if (["MISSING", "PARTIAL", "ESTIMATED"].includes(normalized)) return { coverage: normalized };
+  return {};
+}
+
 export function blankProfitabilityCosts(): ShipmentProfitabilityCost[] {
   return profitabilityCostComponentValues.map((component) => ({
     component,

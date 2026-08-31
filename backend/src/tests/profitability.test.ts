@@ -6,6 +6,7 @@ import {
   calculateProfitabilityTotals,
   calculateVendorRateAmount,
   normalizeProfitabilityCosts,
+  profitabilityCoverageMatch,
   resolveProfitabilityAwb
 } from "../services/shipmentProfitability.service.js";
 import { allocateMinorUnits, calculateFlightCostTotals } from "../services/flightProfitability.service.js";
@@ -15,6 +16,14 @@ function actualCosts(values: Partial<Record<ShipmentProfitabilityCost["component
     ? { ...cost, amountMinor: 0, state: "ACTUAL" as const, source: "MANUAL" as const }
     : { ...cost, amountMinor: values[cost.component] ?? 0, state: "ACTUAL" as const, source: "MANUAL" as const });
 }
+
+test("actual shipment filtering excludes legacy manual rows", () => {
+  assert.deepEqual(profitabilityCoverageMatch("actual"), {
+    coverage: "ACTUAL",
+    costSource: "FLIGHT_ALLOCATION"
+  });
+  assert.deepEqual(profitabilityCoverageMatch("legacy"), {});
+});
 
 test("profitability keeps missing costs visibly incomplete", () => {
   const result = calculateProfitabilityTotals({ totalRevenueMinor: 100_000, costs: blankProfitabilityCosts() });
