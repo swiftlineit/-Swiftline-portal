@@ -162,6 +162,10 @@ export interface ShipmentParcel {
 export interface IShipmentDraft extends mongoose.Document {
   creationSource: ShipmentDraftSource;
   shipmentImportEntryId?: mongoose.Types.ObjectId | null;
+  /** The booked shipment draft this editable draft was copied from. */
+  rebookedFromDraftId?: mongoose.Types.ObjectId | null;
+  /** Request key used to make one rebook request safe to retry. */
+  rebookIdempotencyKey?: string | null;
   businessAccountId: mongoose.Types.ObjectId;
   /**
    * INDIVIDUAL marks a walk-in shipment booked at the counter. Those drafts point
@@ -434,6 +438,17 @@ const shipmentDraftSchema = new mongoose.Schema<IShipmentDraft>(
       ref: "ShipmentImportEntry",
       default: null,
     },
+    rebookedFromDraftId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ShipmentDraft",
+      default: null,
+    },
+    rebookIdempotencyKey: {
+      type: String,
+      trim: true,
+      maxlength: 200,
+      default: "",
+    },
     businessAccountId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "BusinessAccount",
@@ -553,6 +568,15 @@ shipmentDraftSchema.index(
     partialFilterExpression: {
       shipmentImportEntryId: { $type: "objectId" },
       deletedAt: null,
+    },
+  },
+);
+shipmentDraftSchema.index(
+  { rebookedFromDraftId: 1, rebookIdempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      rebookIdempotencyKey: { $type: "string", $gt: "" },
     },
   },
 );

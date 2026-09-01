@@ -24,6 +24,7 @@ import {
   type TrackingJourney
 } from "../services/shipmentJourney.service.js";
 import { buildTrackingPosition } from "../services/shipmentPosition.service.js";
+import { loadShipmentParcelActivities } from "../services/shipmentParcelActivity.service.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
   createShipmentImportBatch,
@@ -1163,7 +1164,7 @@ export async function getClientShipmentDetails(request: Request, response: Respo
     });
   }
 
-  const [labels, events, currentInvoice, originBranch] = await Promise.all([
+  const [labels, events, currentInvoice, originBranch, parcelActivities] = await Promise.all([
     dpdShipment
       ? LabelDocument.find({
           dpdShipmentId: dpdShipment._id,
@@ -1178,7 +1179,8 @@ export async function getClientShipmentDetails(request: Request, response: Respo
     ShipmentInvoice.findOne({ shipmentDraftId: draft._id }).select("invoiceNumber revision").lean().exec(),
     draft.branchId
       ? Branch.findById(draft.branchId).select("address.city").lean().exec()
-      : Promise.resolve(null)
+      : Promise.resolve(null),
+    loadShipmentParcelActivities(draft._id)
   ]);
 
   /**
@@ -1216,6 +1218,15 @@ export async function getClientShipmentDetails(request: Request, response: Respo
       // What the customer has to do, if anything. Null on a shipment that is
       // simply moving, which is most of them.
       trackingAttention: buildTrackingAttention(events),
+      // Client tracking receives only customer-safe parcel facts. Internal
+      // offload reasons, flight identifiers and staff references stay in the
+      // operations endpoint.
+      parcelActivities: parcelActivities.map((activity) => ({
+        parcelNumber: activity.parcelNumber,
+        status: activity.status,
+        eventAt: activity.eventAt,
+        message: activity.customerMessage
+      })),
       trackingPosition: buildTrackingPosition({
         events,
         journey,

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { FiCheck, FiEye, FiFileText, FiRefreshCw, FiX } from "react-icons/fi";
 import { GrDocumentConfig } from "react-icons/gr";
@@ -217,8 +218,14 @@ export default function AdminCreditAccountsPage() {
                       <td className="px-4 py-4 text-left text-slate-600">
                         {formatCreditMoney(account.usedCreditMinor, account.currency)}
                       </td>
-                      <td className="px-4 py-4 text-left text-slate-600">
-                        {formatCreditMoney(account.invoicedOutstandingMinor, account.currency)}
+                      <td className="px-4 py-4 text-left">
+                        <Link
+                          href={`/dashboard/credit-accounts/${account.businessAccountId}#billing-statements`}
+                          className="font-semibold text-red-600 hover:text-red-700 hover:underline focus:outline-none focus:ring-2 focus:ring-red-200 focus:ring-offset-1 rounded-sm"
+                          title="View statements for this credit account"
+                        >
+                          {formatCreditMoney(account.invoicedOutstandingMinor, account.currency)}
+                        </Link>
                       </td>
                       {/* Unbilled plus invoiced. Outstanding alone reads as zero until a
                           cycle closes, so it hid balances that were genuinely owed. */}

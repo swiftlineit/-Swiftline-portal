@@ -32,14 +32,14 @@ function sendError(response: Response, error: unknown) {
 const createSchema = z.object({
   branchId: z.string().min(1),
   flightNumber: z.string().trim().min(2).max(20),
-  airlineName: z.string().trim().max(120).optional().default(""),
-  mawbNumber: z.string().trim().max(40).optional().default(""),
-  originIataCode: z.string().trim().max(3).optional().default(""),
-  destinationIataCode: z.string().trim().max(3).optional().default(""),
+  airlineName: z.string().trim().min(2).max(120),
+  mawbNumber: z.string().trim().regex(/^\d{3}-?\d{8}$/, "Enter a valid MAWB (e.g., 098-12345678)."),
+  originIataCode: z.string().trim().regex(/^[A-Za-z]{3}$/, "Origin IATA must be 3 letters."),
+  destinationIataCode: z.string().trim().regex(/^[A-Za-z]{3}$/, "Destination IATA must be 3 letters."),
   transitIataCode: z.string().trim().max(3).optional().default(""),
   scheduledDepartureAt: z.string().min(1),
   scheduledArrivalAt: z.string().min(1),
-  capacityKg: z.coerce.number().min(0).max(100000),
+  capacityKg: z.coerce.number().positive().max(100000),
   destinationAgent: z.string().trim().max(1000).optional().default(""),
   finalMileCarrier: z.string().trim().max(200).optional().default(""),
   connection: z
@@ -140,7 +140,7 @@ export async function updateFlight(request: Request, response: Response) {
         transitIataCode: z.string().trim().max(3).optional(),
         scheduledDepartureAt: z.string().optional(),
         scheduledArrivalAt: z.string().optional(),
-        capacityKg: z.coerce.number().min(0).max(100000).optional(),
+        capacityKg: z.coerce.number().positive().max(100000).optional(),
         destinationAgent: z.string().trim().max(1000).optional(),
         finalMileCarrier: z.string().trim().max(200).optional()
       }),
@@ -343,9 +343,10 @@ export async function createOffload(request: Request, response: Response) {
         reason: z.string().trim().min(5).max(1000),
         offloadReason: z.enum(["AIRLINE_OFFLOAD", "CAPACITY", "WEATHER", "CUSTOMS", "MISSED_CONNECTION", "DAMAGE", "SECURITY", "OTHER"]),
         airline: z.string().trim().max(120).optional().default(""),
-        affectedShipmentIds: z.array(z.string()).optional().default([]),
-        affectedBagIds: z.array(z.string()).optional().default([]),
-        replacementFlightId: z.string().optional().nullable(),
+        affectedParcels: z.array(z.object({
+          shipmentDraftId: z.string().trim().min(1),
+          parcelNumber: z.string().trim().min(1).max(80)
+        })).min(1).max(100),
         responsibleEmployeeId: z.string().optional().nullable()
       }),
       request.body

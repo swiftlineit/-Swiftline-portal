@@ -15,9 +15,11 @@ import { OperationsManifestScan } from "../models/operationsManifestScan.model.j
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ShipmentCancellation } from "../models/shipmentCancellation.model.js";
+import type { PortalNotificationType } from "../models/portalNotification.model.js";
 import { User } from "../models/user.model.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
-import { notifyOperationsStaff } from "./portalNotification.service.js";
+import { resolveShipmentEventNote } from "./shipmentEventCopy.service.js";
+import { notifyFlightOperationsStaff } from "./portalNotification.service.js";
 
 export class FlightLinehaulServiceError extends Error {
   constructor(message: string, public readonly statusCode = 400) {
@@ -157,12 +159,46 @@ async function audit(
   );
 }
 
+async function notifyFlightStaffSafely(
+  branchId: mongoose.Types.ObjectId,
+  input: {
+    type: PortalNotificationType;
+    title: string;
+    message: string;
+    href: string;
+    idempotencyKey: string;
+    metadata?: Record<string, unknown>;
+  },
+  session?: mongoose.ClientSession
+) {
+  try {
+    await notifyFlightOperationsStaff(branchId, input, session);
+  } catch (error) {
+    // The flight state and audit trail are authoritative. Notification delivery
+    // is retried through the operational workflow/email outbox, so it must not
+    // make a valid flight transition fail.
+    console.error("Flight status notification could not be queued.", {
+      type: input.type,
+      idempotencyKey: input.idempotencyKey,
+      message: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+}
+
 async function maybeMarkCostSheetsForReview(flightId: mongoose.Types.ObjectId) {
   try {
     const manifests = await OperationsManifest.find({ flightLinehaulId: flightId }).select("_id").lean().exec();
     for (const manifest of manifests) {
       const { markSheetReviewRequiredIfChanged } = await import("./flightProfitability.service.js");
-      await markSheetReviewRequiredIfChanged(manifest._id as mongoose.Types.ObjectId, "Flight allocation/offload changed");
+      // Flight allocation/offload is a physical-flight change even when the
+      // sealed manifest snapshot is immutable and therefore its totals are
+      // unchanged. Force a review so a finalized manifest-linked cost sheet
+      // cannot remain silently treated as final after cargo changes.
+      await markSheetReviewRequiredIfChanged(
+        manifest._id as mongoose.Types.ObjectId,
+        "Flight allocation/offload changed",
+        { force: true }
+      );
     }
   } catch {
     // best effort
@@ -188,19 +224,12 @@ async function recalculateFlightTotals(flightId: mongoose.Types.ObjectId, sessio
   // Prefer manifest-derived if manifests exist? But spec says derived from allocations/manifests
   const allocatedWeightKg = roundWeight(allocations.reduce((sum, a) => sum + a.weightKg, 0));
   const totalShipments = allocations.length;
-  // Bags and pieces: sum from manifests if available else from allocations
+  // Bags come from manifests, but pieces must describe cargo still assigned to
+  // the flight. A sealed manifest is immutable historical evidence and can
+  // still contain parcels that were later offloaded.
   let totalBags = 0;
-  let totalPieces = 0;
-  if (manifests.length) {
-    totalBags = bags.length;
-    // pieces from allocations' snapshot pieces or from manifest consignments
-    totalPieces = allocations.reduce((sum, a) => sum + (a.pieces ?? 0), 0);
-    // Alternative: sum manifest parcels
-    const manifestPieces = manifests.reduce((s, m) => s + (m.totalPhysicalParcels ?? 0), 0);
-    if (manifestPieces > totalPieces) totalPieces = manifestPieces;
-  } else {
-    totalPieces = allocations.reduce((sum, a) => sum + (a.pieces ?? 0), 0);
-  }
+  if (manifests.length) totalBags = bags.length;
+  const totalPieces = allocations.reduce((sum, a) => sum + (a.pieces ?? 0), 0);
 
   flight.allocatedWeightKg = allocatedWeightKg;
   flight.totalShipments = totalShipments;
@@ -284,14 +313,28 @@ export async function createExceptionIdempotent(input: {
           : input.type === "OFFLOAD" ? "FLIGHT_OFFLOAD"
           : input.type === "RISKY_CONNECTION" || input.type === "MISSED_CONNECTION" ? "FLIGHT_CONNECTION_RISK"
           : "FLIGHT_EXCEPTION";
-        void notifyOperationsStaff({
-          type: notifType as never,
-          title: input.title,
-          message: input.description.slice(0, 200),
-          href: `/dashboard/flight-linehauls/${String(input.flightId)}`,
-          idempotencyKey: `FLIGHT_EXCEPTION:${input.dedupeKey}`,
-          metadata: { flightId: String(input.flightId), type: input.type, severity: input.severity }
-        }, session).catch(() => {});
+        try {
+          // Await this while the transaction is still open. The notification
+          // and email outbox rows must join the same transaction; a fire-and-
+          // forget call can otherwise use an ended session and silently lose
+          // the alert after the flight change commits.
+          await notifyFlightOperationsStaff(input.branchId, {
+            type: notifType as never,
+            title: input.title,
+            message: input.description.slice(0, 200),
+            href: `/dashboard/flight-linehauls/${String(input.flightId)}`,
+            idempotencyKey: `FLIGHT_EXCEPTION:${input.dedupeKey}`,
+            metadata: { flightId: String(input.flightId), type: input.type, severity: input.severity }
+          }, session);
+        } catch (notificationError) {
+          // The exception remains the source of truth. A notification failure
+          // must not roll back the operational exception itself.
+          console.error("Flight exception notification could not be queued.", {
+            flightId: String(input.flightId),
+            dedupeKey: input.dedupeKey,
+            message: notificationError instanceof Error ? notificationError.message : "Unknown error"
+          });
+        }
       }
     }
   } catch (error) {
@@ -328,14 +371,15 @@ export async function createFlightLinehaul(input: {
   if (!/^[A-Z0-9]{2,4}\d{1,4}[A-Z]?$/.test(flightNumber)) {
     throw new FlightLinehaulServiceError("Enter a valid flight number (e.g., AI131, EK412).", 400);
   }
+  const airlineName = (input.airlineName ?? "").trim();
+  if (airlineName.length < 2) throw new FlightLinehaulServiceError("Airline is required.", 400);
   const mawbNumber = (input.mawbNumber ?? "").trim().toUpperCase();
-  if (mawbNumber && !/^\d{3}-?\d{8}$/.test(mawbNumber) && mawbNumber.length < 5) {
-    // Allow flexible but warn; we will not block short dummy MAWBs in dev
-  }
+  if (!/^\d{3}-?\d{8}$/.test(mawbNumber)) throw new FlightLinehaulServiceError("Enter a valid MAWB (e.g., 098-12345678).", 400);
   const originIata = (input.originIataCode ?? "").trim().toUpperCase();
   const destIata = (input.destinationIataCode ?? "").trim().toUpperCase();
-  if (originIata && !/^[A-Z]{3}$/.test(originIata)) throw new FlightLinehaulServiceError("Origin IATA must be 3 letters.", 400);
-  if (destIata && !/^[A-Z]{3}$/.test(destIata)) throw new FlightLinehaulServiceError("Destination IATA must be 3 letters.", 400);
+  if (!/^[A-Z]{3}$/.test(originIata)) throw new FlightLinehaulServiceError("Origin IATA must be 3 letters.", 400);
+  if (!/^[A-Z]{3}$/.test(destIata)) throw new FlightLinehaulServiceError("Destination IATA must be 3 letters.", 400);
+  if (originIata === destIata) throw new FlightLinehaulServiceError("Origin and destination airports must be different.", 400);
   const transitIata = (input.transitIataCode ?? "").trim().toUpperCase();
   if (transitIata && !/^[A-Z]{3}$/.test(transitIata)) throw new FlightLinehaulServiceError("Transit IATA must be 3 letters.", 400);
 
@@ -345,7 +389,7 @@ export async function createFlightLinehaul(input: {
     throw new FlightLinehaulServiceError("Scheduled departure and arrival must be valid dates.", 400);
   }
   if (scheduledArrivalAt <= scheduledDepartureAt) throw new FlightLinehaulServiceError("Arrival must be after departure.", 400);
-  if (input.capacityKg < 0 || !Number.isFinite(input.capacityKg)) throw new FlightLinehaulServiceError("Capacity must be a positive number.", 400);
+  if (input.capacityKg <= 0 || !Number.isFinite(input.capacityKg)) throw new FlightLinehaulServiceError("Capacity must be a positive number.", 400);
 
   // Optional connection validation
   let connectionDoc: IFlightLinehaul["connection"] = null;
@@ -369,13 +413,9 @@ export async function createFlightLinehaul(input: {
     };
   }
 
-  // MAWB uniqueness per branch if provided (soft check)
-  if (mawbNumber) {
-    const existing = await FlightLinehaul.findOne({ branchId, mawbNumber, status: { $ne: "CANCELLED" } }).lean().exec();
-    if (existing) {
-      // Allow duplicate MAWB across different dates? For now warn but allow; enforce only same flightNumber+date uniqueness
-    }
-  }
+  // One active MAWB must identify one physical linehaul in a branch.
+  const existingMawb = await FlightLinehaul.findOne({ mawbNumber, status: { $nin: ["CANCELLED", "CLOSED"] } }).lean().exec();
+  if (existingMawb) throw new FlightLinehaulServiceError(`MAWB ${mawbNumber} is already assigned to an active flight.`, 409);
 
   // Enforce flightNumber + departure date uniqueness
   const departureDateKey = scheduledDepartureAt.toISOString().slice(0, 10);
@@ -401,7 +441,7 @@ export async function createFlightLinehaul(input: {
             flightLinehaulNumber,
             branchId,
             flightNumber,
-            airlineName: (input.airlineName ?? "").trim(),
+            airlineName,
             mawbNumber,
             originIataCode: originIata,
             destinationIataCode: destIata,
@@ -619,7 +659,24 @@ export async function getFlightLinehaulDetail(flightIdValue: string, options?: {
       totalPieces: allocations.filter((a) => a.status === "ALLOCATED").reduce((s, a) => s + a.pieces, 0),
       manifestCount: manifests.length
     },
-    allocations: allocations.map((a) => ({ ...a, id: String(a._id), flightLinehaulId: String(a.flightLinehaulId) })),
+    allocations: allocations.map((a) => {
+      const activeParcelNumbers = activeParcelNumbersForAllocation(a);
+      const activeSet = new Set(activeParcelNumbers);
+      const offloadedSet = new Set(normalizedParcelNumbers(a.offloadedParcelNumbers));
+      return {
+        ...a,
+        id: String(a._id),
+        flightLinehaulId: String(a.flightLinehaulId),
+        activeParcelNumbers,
+        offloadedParcelNumbers: [...offloadedSet],
+        parcelDetails: flightAllocationParcelDetails(a.snapshot).map((parcel) => ({
+          ...parcel,
+          status: offloadedSet.has(parcel.parcelNumber)
+            ? "OFFLOADED"
+            : activeSet.has(parcel.parcelNumber) ? "ALLOCATED" : "INACTIVE"
+        }))
+      };
+    }),
     manifests: manifests.map((m) => ({ ...m, id: String(m._id), flightLinehaulId: String(m.flightLinehaulId ?? "") })),
     bags: bags.map((b) => ({ ...b, id: String(b._id) })),
     consignments: consignments.map((c) => {
@@ -729,6 +786,58 @@ async function evaluateFlightExceptions(flight: IFlightLinehaul, allocations: Ar
   }
 }
 
+/**
+ * Scheduled exception pass for flights that are still operationally active.
+ * Detail-page reads also evaluate one flight for immediate feedback, but that
+ * cannot be the only trigger because a delayed flight may have no viewer.
+ * Exception dedupe keys make this safe to run repeatedly from cron.
+ */
+export async function runFlightLinehaulExceptionSweep() {
+  const activeStatuses: FlightLinehaulStatus[] = [
+    "PLANNED",
+    "BOOKING_CONFIRMED",
+    "CARGO_ALLOCATED",
+    "MANIFEST_READY",
+    "HANDED_TO_AIRLINE",
+    "DEPARTED",
+    "IN_TRANSIT",
+    "CONNECTION",
+    "ARRIVED_DESTINATION",
+    "CUSTOMS",
+    "HANDED_TO_FINAL_MILE"
+  ];
+  const flights = await FlightLinehaul.find({ status: { $in: activeStatuses } })
+    .sort({ scheduledDepartureAt: 1 })
+    .lean()
+    .exec();
+
+  if (!flights.length) return { evaluated: 0 };
+
+  const allocations = await FlightShipmentAllocation.find({
+    flightLinehaulId: { $in: flights.map((flight) => flight._id) }
+  })
+    .select("flightLinehaulId status weightKg")
+    .lean()
+    .exec();
+
+  const allocationsByFlight = new Map<string, Array<{ status: string; weightKg: number }>>();
+  for (const allocation of allocations) {
+    const flightKey = String(allocation.flightLinehaulId);
+    const current = allocationsByFlight.get(flightKey) ?? [];
+    current.push({ status: allocation.status, weightKg: allocation.weightKg });
+    allocationsByFlight.set(flightKey, current);
+  }
+
+  for (const flight of flights) {
+    await evaluateFlightExceptions(
+      flight as unknown as IFlightLinehaul,
+      allocationsByFlight.get(String(flight._id)) ?? []
+    );
+  }
+
+  return { evaluated: flights.length };
+}
+
 export async function updateFlightLinehaul(input: {
   flightId: string;
   updates: Partial<{
@@ -760,11 +869,21 @@ export async function updateFlightLinehaul(input: {
   if (input.updates.airlineName !== undefined) {
     before.airlineName = flight.airlineName;
     flight.airlineName = input.updates.airlineName.trim();
+    if (flight.airlineName && flight.airlineName.length < 2) throw new FlightLinehaulServiceError("Airline must contain at least 2 characters.", 400);
     after.airlineName = flight.airlineName;
   }
   if (input.updates.mawbNumber !== undefined) {
     before.mawbNumber = flight.mawbNumber;
     flight.mawbNumber = input.updates.mawbNumber.trim().toUpperCase();
+    if (flight.mawbNumber && !/^\d{3}-?\d{8}$/.test(flight.mawbNumber)) throw new FlightLinehaulServiceError("Enter a valid MAWB (e.g., 098-12345678).", 400);
+    if (flight.mawbNumber && flight.mawbNumber !== before.mawbNumber) {
+      const duplicate = await FlightLinehaul.findOne({
+        _id: { $ne: flight._id },
+        mawbNumber: flight.mawbNumber,
+        status: { $nin: ["CANCELLED", "CLOSED"] }
+      }).lean().exec();
+      if (duplicate) throw new FlightLinehaulServiceError(`MAWB ${flight.mawbNumber} is already assigned to an active flight.`, 409);
+    }
     after.mawbNumber = flight.mawbNumber;
   }
   if (input.updates.originIataCode !== undefined) {
@@ -780,6 +899,9 @@ export async function updateFlightLinehaul(input: {
     before.destinationIataCode = flight.destinationIataCode;
     flight.destinationIataCode = v;
     after.destinationIataCode = v;
+  }
+  if (flight.originIataCode && flight.destinationIataCode && flight.originIataCode === flight.destinationIataCode) {
+    throw new FlightLinehaulServiceError("Origin and destination airports must be different.", 400);
   }
   if (input.updates.transitIataCode !== undefined) {
     const v = input.updates.transitIataCode.trim().toUpperCase();
@@ -805,7 +927,7 @@ export async function updateFlightLinehaul(input: {
   if (flight.scheduledArrivalAt <= flight.scheduledDepartureAt) throw new FlightLinehaulServiceError("Arrival must be after departure.", 400);
 
   if (input.updates.capacityKg !== undefined) {
-    if (!Number.isFinite(input.updates.capacityKg) || input.updates.capacityKg < 0) throw new FlightLinehaulServiceError("Capacity must be positive.", 400);
+    if (!Number.isFinite(input.updates.capacityKg) || input.updates.capacityKg <= 0) throw new FlightLinehaulServiceError("Capacity must be positive.", 400);
     before.capacityKg = flight.capacityKg;
     flight.capacityKg = roundWeight(input.updates.capacityKg);
     after.capacityKg = flight.capacityKg;
@@ -822,11 +944,167 @@ export async function updateFlightLinehaul(input: {
     after.finalMileCarrier = flight.finalMileCarrier;
   }
 
+  // Once booking is confirmed, core airline identity and route data cannot be
+  // cleared. PLANNED flights may still be completed incrementally.
+  if (flight.status !== "PLANNED" && (
+    flight.airlineName.trim().length < 2
+    || !/^\d{3}-?\d{8}$/.test(flight.mawbNumber)
+    || !/^[A-Z]{3}$/.test(flight.originIataCode)
+    || !/^[A-Z]{3}$/.test(flight.destinationIataCode)
+  )) {
+    throw new FlightLinehaulServiceError("Airline, MAWB, origin, and destination are required after booking confirmation.", 409);
+  }
+
   flight.updatedBy = input.userId;
   await flight.save();
   await audit("FLIGHT_LINEHAUL_UPDATED", flight._id as mongoose.Types.ObjectId, input.userId, { before, after });
   await recalculateFlightTotals(flight._id as mongoose.Types.ObjectId);
   return flight;
+}
+
+async function assertFlightManifestReady(flightId: mongoose.Types.ObjectId, session: mongoose.ClientSession) {
+  const manifests = await OperationsManifest.find({ flightLinehaulId: flightId, status: { $ne: "CANCELLED" } })
+    .session(session)
+    .lean()
+    .exec();
+  if (manifests.length !== 1) {
+    throw new FlightLinehaulServiceError("V1 requires exactly one active operations manifest on the flight.", 409);
+  }
+
+  const manifest = manifests[0]!;
+  if (!("SEALED" === manifest.status || "DISPATCHED" === manifest.status)) {
+    throw new FlightLinehaulServiceError("The operations manifest must be sealed or dispatched before handover.", 409);
+  }
+
+  const [allocations, consignments, bags, criticalException] = await Promise.all([
+    FlightShipmentAllocation.find({ flightLinehaulId: flightId, status: { $in: ["ALLOCATED", "OFFLOADED"] } })
+      .session(session)
+      .select("shipmentDraftId status activeParcelNumbers offloadedParcelNumbers snapshot")
+      .lean()
+      .exec(),
+    OperationsManifestConsignment.find({ manifestId: manifest._id, status: { $ne: "REMOVED" } })
+      .session(session)
+      .select("shipmentDraftId status expectedParcelNumbers scannedParcelNumbers")
+      .lean()
+      .exec(),
+    OperationsManifestBag.find({ manifestId: manifest._id, status: { $ne: "CANCELLED" } })
+      .session(session)
+      .select("status")
+      .lean()
+      .exec(),
+    FlightException.exists({
+      flightLinehaulId: flightId,
+      severity: "CRITICAL",
+      status: { $in: ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"] }
+    }).session(session)
+  ]);
+
+  const activeAllocations = allocations.filter((allocation) => allocation.status === "ALLOCATED");
+  if (!activeAllocations.length) throw new FlightLinehaulServiceError("Allocate at least one active shipment before manifest readiness.", 409);
+  if (!bags.length || bags.some((bag) => bag.status !== "CLOSED")) {
+    throw new FlightLinehaulServiceError("Every active manifest bag must be closed before manifest readiness.", 409);
+  }
+  if (criticalException) {
+    throw new FlightLinehaulServiceError("Resolve every critical flight exception before manifest readiness.", 409);
+  }
+
+  const allowedManifestIds = new Set(allocations.map((allocation) => String(allocation.shipmentDraftId)));
+  const manifestedIds = new Set(consignments.map((consignment) => String(consignment.shipmentDraftId)));
+  if (activeAllocations.some((allocation) => !manifestedIds.has(String(allocation.shipmentDraftId)))) {
+    throw new FlightLinehaulServiceError("Every active flight allocation must be present in the operations manifest.", 409);
+  }
+  if (consignments.some((consignment) => !allowedManifestIds.has(String(consignment.shipmentDraftId)))) {
+    throw new FlightLinehaulServiceError("The operations manifest contains a shipment that is not allocated to this flight.", 409);
+  }
+  const consignmentByShipment = new Map(consignments.map((consignment) => [String(consignment.shipmentDraftId), consignment]));
+  for (const allocation of activeAllocations) {
+    const consignment = consignmentByShipment.get(String(allocation.shipmentDraftId));
+    const scanned = new Set(consignment?.scannedParcelNumbers.map((parcelNumber) => parcelNumber.toUpperCase()) ?? []);
+    const activeParcels = activeParcelNumbersForAllocation(allocation);
+    if (!activeParcels.length || activeParcels.some((parcelNumber) => !scanned.has(parcelNumber))) {
+      throw new FlightLinehaulServiceError("Every parcel still active on the flight must be scanned into the operations manifest.", 409);
+    }
+  }
+
+  return manifest;
+}
+
+type FlightTimelineAllocation = {
+  shipmentDraftId: mongoose.Types.ObjectId;
+  dpdShipmentId: mongoose.Types.ObjectId;
+  status: string;
+  activeParcelNumbers?: unknown;
+  offloadedParcelNumbers?: unknown;
+  snapshot: unknown;
+};
+
+/**
+ * Add only safe shipment-level flight milestones. A shipment event cannot
+ * represent a partially offloaded shipment, so those allocations remain at
+ * their previous shipment milestone and are shown through parcel activity.
+ */
+async function recordFlightShipmentMilestones(input: {
+  flight: IFlightLinehaul;
+  allocations: FlightTimelineAllocation[];
+  status: "FLIGHT_DEPARTED" | "DESTINATION_ARRIVED";
+  eventAt: Date;
+  userId: mongoose.Types.ObjectId;
+  session: mongoose.ClientSession;
+}) {
+  const laterStatuses = input.status === "FLIGHT_DEPARTED"
+    ? ["DESTINATION_ARRIVED", "IMPORT_CUSTOMS_CLEARANCE", "IMPORT_CUSTOMS_CLEARED", "DELIVERY_PARTNER_TRANSFERRED", "DELIVERY_HUB_ARRIVED", "OUT_FOR_DELIVERY", "DELIVERED", "RETURNED", "LOST", "DAMAGED"]
+    : ["IMPORT_CUSTOMS_CLEARANCE", "IMPORT_CUSTOMS_CLEARED", "DELIVERY_PARTNER_TRANSFERRED", "DELIVERY_HUB_ARRIVED", "OUT_FOR_DELIVERY", "DELIVERED", "RETURNED", "LOST", "DAMAGED"];
+  const milestoneKey = input.status === "FLIGHT_DEPARTED" ? "ORIGIN_HUB_DISPATCHED" : "DESTINATION_ARRIVED";
+  const location = input.status === "FLIGHT_DEPARTED" ? input.flight.originIataCode : input.flight.destinationIataCode;
+  const sourceReference = `FLIGHT:${String(input.flight._id)}:${input.status}`;
+
+  for (const allocation of input.allocations) {
+    if (allocation.status !== "ALLOCATED") continue;
+    const active = activeParcelNumbersForAllocation(allocation);
+    const offloaded = normalizedParcelNumbers(allocation.offloadedParcelNumbers);
+    // No shipment-level flight milestone is safe when the shipment is only
+    // partially travelling or has been completely removed from the flight.
+    if (!active.length || offloaded.length) continue;
+
+    const latest = await ShipmentEvent.findOne({ shipmentDraftId: allocation.shipmentDraftId })
+      .sort({ eventAt: -1, createdAt: -1 })
+      .select("status eventAt")
+      .session(input.session)
+      .lean()
+      .exec();
+    if (!latest) continue;
+    if (["ON_HOLD", "SHIPMENT_CANCELLED", "DELIVERED", "RETURNED", "LOST", "DAMAGED"].includes(String(latest.status))) continue;
+    if (laterStatuses.includes(String(latest.status)) || latest.eventAt > input.eventAt) continue;
+
+    // Manifest dispatch and a manual arrival update may already represent this
+    // milestone. Reuse either event instead of risking a duplicate-key failure
+    // when the flight status is synchronized later.
+    const existingMilestone = await ShipmentEvent.findOne({
+      shipmentDraftId: allocation.shipmentDraftId,
+      milestoneKey
+    }).session(input.session).select("_id").lean().exec();
+    if (existingMilestone) continue;
+
+    await ShipmentEvent.findOneAndUpdate(
+      { shipmentDraftId: allocation.shipmentDraftId, source: "SYSTEM", sourceReference },
+      {
+        $setOnInsert: {
+          shipmentDraftId: allocation.shipmentDraftId,
+          dpdShipmentId: allocation.dpdShipmentId,
+          status: input.status,
+          milestoneKey,
+          note: resolveShipmentEventNote("", input.status),
+          location,
+          source: "SYSTEM",
+          sourceReference,
+          customerVisible: true,
+          createdBy: input.userId,
+          eventAt: input.eventAt
+        }
+      },
+      { upsert: true, new: true, session: input.session }
+    ).lean().exec();
+  }
 }
 
 export async function transitionFlightStatus(input: {
@@ -857,16 +1135,21 @@ export async function transitionFlightStatus(input: {
         if (!flight.flightNumber || !flight.scheduledDepartureAt || !flight.scheduledArrivalAt) {
           throw new FlightLinehaulServiceError("Flight number and schedule required before booking confirmation.", 409);
         }
+        if (
+          flight.airlineName.trim().length < 2
+          || !/^\d{3}-?\d{8}$/.test(flight.mawbNumber)
+          || !/^[A-Z]{3}$/.test(flight.originIataCode)
+          || !/^[A-Z]{3}$/.test(flight.destinationIataCode)
+        ) {
+          throw new FlightLinehaulServiceError("Airline, valid MAWB, origin, and destination are required before booking confirmation.", 409);
+        }
       }
       if (to === "CARGO_ALLOCATED") {
         const count = await FlightShipmentAllocation.countDocuments({ flightLinehaulId: flightId, status: "ALLOCATED" }).session(session).exec();
         if (count === 0) throw new FlightLinehaulServiceError("Allocate at least one shipment before cargo allocation.", 409);
       }
       if (to === "MANIFEST_READY") {
-        const manifests = await OperationsManifest.find({ flightLinehaulId: flightId }).session(session).lean().exec();
-        if (!manifests.length) throw new FlightLinehaulServiceError("Attach at least one operations manifest.", 409);
-        const notReady = manifests.filter((m) => !["SEALED", "DISPATCHED"].includes(m.status));
-        if (notReady.length) throw new FlightLinehaulServiceError("All attached manifests must be sealed or dispatched before manifest ready.", 409);
+        await assertFlightManifestReady(flightId, session);
       }
       if (to === "HANDED_TO_AIRLINE") {
         const manifests = await OperationsManifest.find({ flightLinehaulId: flightId }).session(session).lean().exec();
@@ -904,10 +1187,38 @@ export async function transitionFlightStatus(input: {
       await audit("FLIGHT_LINEHAUL_STATUS_CHANGED", flight._id as mongoose.Types.ObjectId, input.userId, { from: before, to, reason: input.reason ?? "", metadata: input.metadata ?? {} }, session);
       updated = flight;
 
-      // Auto exceptions for missed transitions
-      if (to === "DEPARTED") {
-        const allocations = await FlightShipmentAllocation.find({ flightLinehaulId: flightId, status: "ALLOCATED" }).session(session).lean().exec();
-        if (!allocations.length) {
+      // Auto tracking is deliberately limited to shipments whose complete
+      // allocation is still on the flight. Partial offloads remain visible in
+      // the parcel activity panel and do not receive a misleading shipment
+      // departure/arrival milestone.
+      if (to === "DEPARTED" || to === "ARRIVED_DESTINATION") {
+        const allocations = await FlightShipmentAllocation.find({ flightLinehaulId: flightId, status: "ALLOCATED" })
+          .session(session)
+          .select("shipmentDraftId dpdShipmentId status activeParcelNumbers offloadedParcelNumbers snapshot")
+          .lean()
+          .exec();
+        await recordFlightShipmentMilestones({
+          flight,
+          allocations,
+          status: to === "DEPARTED" ? "FLIGHT_DEPARTED" : "DESTINATION_ARRIVED",
+          eventAt: to === "DEPARTED"
+            ? flight.actualDepartureAt ?? new Date()
+            : flight.arrivalAt ?? flight.actualArrivalAt ?? new Date(),
+          userId: input.userId,
+          session
+        });
+
+        await notifyFlightStaffSafely(flight.branchId, {
+          type: to === "DEPARTED" ? "FLIGHT_DEPARTED" : "FLIGHT_ARRIVED",
+          title: to === "DEPARTED" ? "Flight departed" : "Flight arrived at destination",
+          message: `${flight.flightNumber} ${to === "DEPARTED" ? "departed" : "arrived at destination"}.`,
+          href: `/dashboard/flight-linehauls/${String(flight._id)}`,
+          idempotencyKey: `FLIGHT_STATUS:${String(flight._id)}:${to}`,
+          metadata: { flightId: String(flight._id), flightNumber: flight.flightNumber, status: to }
+        }, session);
+
+        // Auto exception for a flight that departed without cargo.
+        if (to === "DEPARTED" && !allocations.length) {
           await createExceptionIdempotent({
             flightId,
             branchId: flight.branchId,
@@ -932,28 +1243,55 @@ export async function transitionFlightStatus(input: {
 
 export async function cancelFlightLinehaul(input: { flightId: string; reason: string; userId: mongoose.Types.ObjectId; allowedBranchIds?: string[] | null }) {
   const flightId = asObjectId(input.flightId, "Flight");
-  const flight = await FlightLinehaul.findById(flightId).exec();
-  if (!flight) throw new FlightLinehaulServiceError("Flight was not found.", 404);
-  if (input.allowedBranchIds !== null && input.allowedBranchIds !== undefined && !input.allowedBranchIds.includes(String(flight.branchId))) {
-    throw new FlightLinehaulServiceError("You do not have access to this flight's branch.", 403);
-  }
-  if (["CLOSED", "CANCELLED"].includes(flight.status)) throw new FlightLinehaulServiceError("Flight already closed or cancelled.", 409);
-  if (["DEPARTED", "IN_TRANSIT", "CONNECTION", "ARRIVED_DESTINATION", "CUSTOMS", "HANDED_TO_FINAL_MILE"].includes(flight.status)) {
-    throw new FlightLinehaulServiceError("Cannot cancel after departure.", 409);
-  }
   if (!input.reason.trim() || input.reason.trim().length < 5) throw new FlightLinehaulServiceError("Enter a cancellation reason of at least 5 characters.", 400);
-  flight.status = "CANCELLED";
-  flight.cancelledAt = new Date();
-  flight.cancelledBy = input.userId;
-  flight.cancellationReason = input.reason.trim();
-  flight.updatedBy = input.userId;
-  await flight.save();
-  await audit("FLIGHT_LINEHAUL_CANCELLED", flight._id as mongoose.Types.ObjectId, input.userId, { reason: input.reason.trim() });
-  // Return shipments to pool (mark allocations removed)
-  await FlightShipmentAllocation.updateMany({ flightLinehaulId: flightId, status: "ALLOCATED" }, { $set: { status: "REMOVED", removedAt: new Date(), removedBy: input.userId, removalReason: `Flight cancelled: ${input.reason.trim()}` } }).exec();
-  await OperationsManifest.updateMany({ flightLinehaulId: flightId }, { $set: { flightLinehaulId: null } }).exec();
+  const session = await mongoose.startSession();
+  let cancelledFlight: IFlightLinehaul | null = null;
+  try {
+    await session.withTransaction(async () => {
+      const flight = await FlightLinehaul.findById(flightId).session(session).exec();
+      if (!flight) throw new FlightLinehaulServiceError("Flight was not found.", 404);
+      if (input.allowedBranchIds !== null && input.allowedBranchIds !== undefined && !input.allowedBranchIds.includes(String(flight.branchId))) {
+        throw new FlightLinehaulServiceError("You do not have access to this flight's branch.", 403);
+      }
+      if (["CLOSED", "CANCELLED"].includes(flight.status)) throw new FlightLinehaulServiceError("Flight already closed or cancelled.", 409);
+      if (["DEPARTED", "IN_TRANSIT", "CONNECTION", "ARRIVED_DESTINATION", "CUSTOMS", "HANDED_TO_FINAL_MILE"].includes(flight.status)) {
+        throw new FlightLinehaulServiceError("Cannot cancel after departure.", 409);
+      }
+
+      const sealedManifest = await OperationsManifest.findOne({
+        flightLinehaulId: flightId,
+        status: { $in: ["SEALED", "DISPATCHED"] }
+      }).session(session).select("manifestNumber status").lean().exec();
+      if (sealedManifest) {
+        throw new FlightLinehaulServiceError("A sealed or dispatched manifest cannot be cancelled. Offload the affected parcels, or use Shipment Rebook to create a new full shipment.", 409);
+      }
+
+      const now = new Date();
+      flight.status = "CANCELLED";
+      flight.cancelledAt = now;
+      flight.cancelledBy = input.userId;
+      flight.cancellationReason = input.reason.trim();
+      flight.updatedBy = input.userId;
+      await flight.save({ session });
+      await FlightShipmentAllocation.updateMany(
+        { flightLinehaulId: flightId, status: "ALLOCATED" },
+        { $set: { status: "REMOVED", removedAt: now, removedBy: input.userId, removalReason: `Flight cancelled: ${input.reason.trim()}` } },
+        { session }
+      ).exec();
+      await OperationsManifest.updateMany(
+        { flightLinehaulId: flightId, status: { $ne: "CANCELLED" } },
+        { $set: { flightLinehaulId: null } },
+        { session }
+      ).exec();
+      await audit("FLIGHT_LINEHAUL_CANCELLED", flight._id as mongoose.Types.ObjectId, input.userId, { reason: input.reason.trim() }, session);
+      cancelledFlight = flight;
+    });
+  } finally {
+    await session.endSession();
+  }
+  if (!cancelledFlight) throw new FlightLinehaulServiceError("Flight cancellation failed.", 500);
   await recalculateFlightTotals(flightId);
-  return flight;
+  return cancelledFlight;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -964,19 +1302,121 @@ type EligibleShipment = {
   shipmentDraftId: mongoose.Types.ObjectId;
   dpdShipmentId: mongoose.Types.ObjectId;
   awb: string;
+  actualWeightKg: number;
+  volumetricWeightKg: number;
+  chargeableWeightKg: number;
   weightKg: number;
   pieces: number;
   destinationCountryCode: string;
   destinationCountryName: string;
+  parcelDetails: FlightAllocationParcelDetail[];
   snapshot: Record<string, unknown>;
 };
 
-async function buildShipmentSnapshot(draftId: mongoose.Types.ObjectId): Promise<EligibleShipment | null> {
-  const dpd = await DpdShipment.findOne({ shipmentDraftId: draftId, status: "LABEL_RECEIVED" }).lean().exec();
-  if (!dpd) return null;
+export type FlightAllocationParcelDetail = {
+  parcelNumber: string;
+  actualWeightKg: number;
+  volumetricWeightKg: number;
+  chargeableWeightKg: number;
+};
+
+export function flightAllocationParcelDetails(snapshotValue: unknown): FlightAllocationParcelDetail[] {
+  const snapshot = readShipmentBookingSnapshot(snapshotValue);
+  if (!snapshot) return [];
+  const pricingParcels = Array.isArray(snapshot.pricing.parcels) ? snapshot.pricing.parcels : [];
+
+  return snapshot.parcels.flatMap((parcel, index) => {
+    const parcelNumber = String(parcel.swiftlineParcelNumber ?? "").trim().toUpperCase();
+    const actualWeightKg = Number(parcel.actualWeightKg);
+    const priced = pricingParcels[index];
+    const volumetricWeightKg = Number(priced?.volumetricWeightKg);
+    const storedChargeableWeightKg = Number(priced?.chargeableWeightKg);
+    if (!parcelNumber || !Number.isFinite(actualWeightKg) || actualWeightKg <= 0) return [];
+    if (!Number.isFinite(volumetricWeightKg) || volumetricWeightKg < 0) return [];
+    const chargeableWeightKg = roundWeight(
+      Number.isFinite(storedChargeableWeightKg) && storedChargeableWeightKg > 0
+        ? storedChargeableWeightKg
+        : Math.max(actualWeightKg, volumetricWeightKg)
+    );
+    return [{
+      parcelNumber,
+      actualWeightKg: roundWeight(actualWeightKg),
+      volumetricWeightKg: roundWeight(volumetricWeightKg),
+      chargeableWeightKg
+    }];
+  });
+}
+
+function normalizedParcelNumbers(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map((value) => String(value).trim().toUpperCase()).filter(Boolean))];
+}
+
+function activeParcelNumbersForAllocation(allocation: {
+  activeParcelNumbers?: unknown;
+  offloadedParcelNumbers?: unknown;
+  snapshot: unknown;
+}) {
+  // An explicitly empty array means every parcel was offloaded. Only legacy
+  // documents that do not have this field should fall back to the snapshot.
+  if (Array.isArray(allocation.activeParcelNumbers)) {
+    return normalizedParcelNumbers(allocation.activeParcelNumbers);
+  }
+  const storedActive = normalizedParcelNumbers(allocation.activeParcelNumbers);
+  if (storedActive.length) return storedActive;
+  const offloaded = new Set(normalizedParcelNumbers(allocation.offloadedParcelNumbers));
+  return flightAllocationParcelDetails(allocation.snapshot)
+    .map((parcel) => parcel.parcelNumber)
+    .filter((parcelNumber) => !offloaded.has(parcelNumber));
+}
+
+export function remainingFlightAllocationTotals(
+  parcels: FlightAllocationParcelDetail[],
+  remainingParcelNumbers: string[]
+) {
+  const remaining = new Set(normalizedParcelNumbers(remainingParcelNumbers));
+  const selected = parcels.filter((parcel) => remaining.has(parcel.parcelNumber));
+  return {
+    actualWeightKg: roundWeight(selected.reduce((sum, parcel) => sum + parcel.actualWeightKg, 0)),
+    volumetricWeightKg: roundWeight(selected.reduce((sum, parcel) => sum + parcel.volumetricWeightKg, 0)),
+    chargeableWeightKg: roundWeight(selected.reduce((sum, parcel) => sum + parcel.chargeableWeightKg, 0)),
+    pieces: selected.length
+  };
+}
+
+async function latestShipmentEventStatus(draftId: mongoose.Types.ObjectId, session?: mongoose.ClientSession) {
+  const query = ShipmentEvent.findOne({ shipmentDraftId: draftId })
+    .sort({ eventAt: -1, createdAt: -1 })
+    .select("status")
+    .lean();
+  if (session) query.session(session);
+  const event = await query.exec();
+  return event?.status ?? null;
+}
+
+async function buildShipmentSnapshot(draftId: mongoose.Types.ObjectId, session?: mongoose.ClientSession): Promise<EligibleShipment | null> {
+  const dpdQuery = DpdShipment.findOne({ shipmentDraftId: draftId, status: "LABEL_RECEIVED" }).lean();
+  const hubQuery = ShipmentEvent.exists({ shipmentDraftId: draftId, status: "ORIGIN_HUB_PROCESSED" });
+  if (session) {
+    dpdQuery.session(session);
+    hubQuery.session(session);
+  }
+  const [dpd, hubReceived, latestStatus] = await Promise.all([
+    dpdQuery.exec(),
+    hubQuery.exec(),
+    latestShipmentEventStatus(draftId, session)
+  ]);
+  if (!dpd || !hubReceived) return null;
+  if (["ON_HOLD", "SHIPMENT_CANCELLED", "DELIVERED"].includes(String(latestStatus))) return null;
   const snapshot = readShipmentBookingSnapshot(dpd.currentShipmentSnapshot) ?? readShipmentBookingSnapshot(dpd.bookingSnapshot);
   if (!snapshot) return null;
-  const weightKg = snapshot.parcels.reduce((sum, p) => sum + (p.actualWeightKg ?? 0), 0);
+  if (!snapshot.parcels.length || !Array.isArray(snapshot.pricing.parcels) || snapshot.pricing.parcels.length !== snapshot.parcels.length) return null;
+
+  const parcelDetails = flightAllocationParcelDetails(snapshot);
+  if (parcelDetails.length !== snapshot.parcels.length) return null;
+  const actualWeightKg = roundWeight(parcelDetails.reduce((sum, parcel) => sum + parcel.actualWeightKg, 0));
+  const volumetricWeightKg = roundWeight(parcelDetails.reduce((sum, parcel) => sum + parcel.volumetricWeightKg, 0));
+  const chargeableWeightKg = roundWeight(parcelDetails.reduce((sum, parcel) => sum + parcel.chargeableWeightKg, 0));
   const pieces = snapshot.parcels.length;
   const party = snapshot.consignee as unknown as Record<string, unknown>;
   const destinationCountryCode = String((party as Record<string, unknown>)?.countryCode ?? "").toUpperCase();
@@ -985,10 +1425,14 @@ async function buildShipmentSnapshot(draftId: mongoose.Types.ObjectId): Promise<
     shipmentDraftId: draftId,
     dpdShipmentId: dpd._id as mongoose.Types.ObjectId,
     awb: snapshot.tracking.swiftlineTrackingNumber || dpd.swiftlineTrackingNumber || "",
-    weightKg: roundWeight(weightKg),
+    actualWeightKg,
+    volumetricWeightKg,
+    chargeableWeightKg,
+    weightKg: chargeableWeightKg,
     pieces,
     destinationCountryCode,
     destinationCountryName,
+    parcelDetails,
     snapshot: snapshot as unknown as Record<string, unknown>
   };
 }
@@ -1011,9 +1455,11 @@ export async function searchEligibleShipments(input: {
   // Only booked shipments not already allocated
   const allocatedIds = await FlightShipmentAllocation.distinct("shipmentDraftId", { status: "ALLOCATED" }).exec();
   const cancelledIds = await ShipmentCancellation.distinct("shipmentDraftId", { status: { $in: ["REQUESTED", "COMPLETED"] } }).exec();
-  const holdEvents = await ShipmentEvent.distinct("shipmentDraftId", { status: "ON_HOLD" }).exec();
 
-  const exclude = new Set([...allocatedIds, ...cancelledIds, ...holdEvents].map(String));
+  // Hold history is intentionally not an exclusion list: a released shipment
+  // can be allocated again. buildShipmentSnapshot checks the latest event so an
+  // active hold is still blocked without hiding released shipments forever.
+  const exclude = new Set([...allocatedIds, ...cancelledIds].map(String));
 
   // Find dpd shipments that are booked
   const dpdFilter: Record<string, unknown> = { status: "LABEL_RECEIVED" };
@@ -1092,7 +1538,7 @@ export async function allocateShipments(input: {
           results.push({ shipmentDraftId: draftIdStr, status: "skipped", reason: "Already allocated to another active flight." });
           continue;
         }
-        const snap = await buildShipmentSnapshot(draftId);
+        const snap = await buildShipmentSnapshot(draftId, session);
         if (!snap) {
           results.push({ shipmentDraftId: draftIdStr, status: "skipped", reason: "Shipment not booked or snapshot unavailable." });
           continue;
@@ -1111,21 +1557,25 @@ export async function allocateShipments(input: {
           results.push({ shipmentDraftId: draftIdStr, status: "skipped", reason: "Shipment has cancellation request." });
           continue;
         }
-        const hold = await ShipmentEvent.exists({ shipmentDraftId: draftId, status: "ON_HOLD" }).session(session).exec();
-        if (hold) {
-          results.push({ shipmentDraftId: draftIdStr, status: "skipped", reason: "Shipment is on hold." });
-          continue;
-        }
-
-        // Capacity enforcement — hard block if exceeding capacity
-        const currentWeight = await FlightShipmentAllocation.aggregate([
-          { $match: { flightLinehaulId: flightId, status: "ALLOCATED" } },
-          { $group: { _id: null, total: { $sum: "$weightKg" } } }
-        ]).session(session).exec();
-        const existingWeight = currentWeight[0]?.total ?? 0;
-        const projected = roundWeight(existingWeight + snap.weightKg);
-        if (flight.capacityKg > 0 && projected > flight.capacityKg) {
-          results.push({ shipmentDraftId: draftIdStr, status: "skipped", reason: `Capacity exceeded: ${projected.toFixed(3)} kg > ${flight.capacityKg.toFixed(3)} kg.` });
+        // Reserve capacity on the flight document itself. The conditional update
+        // serializes concurrent allocation requests; an aggregate-only check can
+        // let two transactions both pass against the same old total.
+        const capacityReservation = await FlightLinehaul.findOneAndUpdate(
+          {
+            _id: flightId,
+            status: { $in: ["PLANNED", "BOOKING_CONFIRMED", "CARGO_ALLOCATED", "MANIFEST_READY"] },
+            $expr: {
+              $or: [
+                { $eq: ["$capacityKg", 0] },
+                { $lte: [{ $add: [{ $ifNull: ["$allocatedWeightKg", 0] }, snap.chargeableWeightKg] }, "$capacityKg"] }
+              ]
+            }
+          },
+          { $inc: { allocatedWeightKg: snap.chargeableWeightKg } },
+          { session, new: true }
+        ).exec();
+        if (!capacityReservation) {
+          results.push({ shipmentDraftId: draftIdStr, status: "skipped", reason: "Capacity exceeded or flight is no longer accepting allocations." });
           continue;
         }
 
@@ -1138,10 +1588,15 @@ export async function allocateShipments(input: {
                 shipmentDraftId: draftId,
                 dpdShipmentId: snap.dpdShipmentId,
                 awb: snap.awb,
+                actualWeightKg: snap.actualWeightKg,
+                volumetricWeightKg: snap.volumetricWeightKg,
+                chargeableWeightKg: snap.chargeableWeightKg,
                 destinationCountryCode: snap.destinationCountryCode,
                 destinationCountryName: snap.destinationCountryName,
                 weightKg: snap.weightKg,
                 pieces: snap.pieces,
+                activeParcelNumbers: snap.parcelDetails.map((parcel) => parcel.parcelNumber),
+                offloadedParcelNumbers: [],
                 snapshot: snap.snapshot,
                 status: "ALLOCATED",
                 allocatedBy: input.userId,
@@ -1153,6 +1608,13 @@ export async function allocateShipments(input: {
           results.push({ shipmentDraftId: draftIdStr, status: "allocated" });
         } catch (error) {
           if (error instanceof mongoose.mongo.MongoServerError && error.code === 11000) {
+            // The reservation was made before the allocation insert. Release it
+            // when another request won the unique allocation race.
+            await FlightLinehaul.updateOne(
+              { _id: flightId },
+              { $inc: { allocatedWeightKg: -snap.chargeableWeightKg } },
+              { session }
+            ).exec();
             results.push({ shipmentDraftId: draftIdStr, status: "skipped", reason: "Duplicate allocation detected." });
             continue;
           }
@@ -1263,20 +1725,29 @@ export async function moveAllocation(input: {
       allocation.removalReason = `Moved to ${target.flightLinehaulNumber}: ${input.reason.trim()}`;
       await allocation.save({ session });
 
-      // Check capacity on target
-      const targetWeightAgg = await FlightShipmentAllocation.aggregate([
-        { $match: { flightLinehaulId: targetId, status: "ALLOCATED" } },
-        { $group: { _id: null, total: { $sum: "$weightKg" } } }
-      ]).session(session).exec();
-      const targetWeight = roundWeight((targetWeightAgg[0]?.total ?? 0) + allocation.weightKg);
-      if (target.capacityKg > 0 && targetWeight > target.capacityKg) {
-        throw new FlightLinehaulServiceError(`Target flight capacity exceeded: ${targetWeight.toFixed(3)} kg > ${target.capacityKg.toFixed(3)} kg.`, 409);
-      }
-
       // Create on target (preserve original allocation snapshot)
       const existsElsewhere = await FlightShipmentAllocation.findOne({ shipmentDraftId: allocation.shipmentDraftId, status: "ALLOCATED" }).session(session).exec();
       if (existsElsewhere && String(existsElsewhere._id) !== String(allocationId)) {
         throw new FlightLinehaulServiceError("Shipment already allocated elsewhere.", 409);
+      }
+
+      const moveWeightKg = allocation.chargeableWeightKg ?? allocation.weightKg;
+      const targetReservation = await FlightLinehaul.findOneAndUpdate(
+        {
+          _id: targetId,
+          status: { $in: ["PLANNED", "BOOKING_CONFIRMED", "CARGO_ALLOCATED", "MANIFEST_READY"] },
+          $expr: {
+            $or: [
+              { $eq: ["$capacityKg", 0] },
+              { $lte: [{ $add: [{ $ifNull: ["$allocatedWeightKg", 0] }, moveWeightKg] }, "$capacityKg"] }
+            ]
+          }
+        },
+        { $inc: { allocatedWeightKg: moveWeightKg } },
+        { session, new: true }
+      ).exec();
+      if (!targetReservation) {
+        throw new FlightLinehaulServiceError("Target flight capacity exceeded or it is no longer accepting allocations.", 409);
       }
 
       // Since we just marked source as REMOVED, the unique partial index allows new
@@ -1288,10 +1759,15 @@ export async function moveAllocation(input: {
             shipmentDraftId: allocation.shipmentDraftId,
             dpdShipmentId: allocation.dpdShipmentId,
             awb: allocation.awb,
+            actualWeightKg: allocation.actualWeightKg,
+            volumetricWeightKg: allocation.volumetricWeightKg,
+            chargeableWeightKg: allocation.chargeableWeightKg,
             destinationCountryCode: allocation.destinationCountryCode,
             destinationCountryName: allocation.destinationCountryName,
             weightKg: allocation.weightKg,
             pieces: allocation.pieces,
+            activeParcelNumbers: allocation.activeParcelNumbers,
+            offloadedParcelNumbers: allocation.offloadedParcelNumbers,
             snapshot: allocation.snapshot,
             status: "ALLOCATED",
             allocatedBy: input.userId,
@@ -1342,6 +1818,48 @@ export async function attachManifest(input: {
   if (manifest.status === "CANCELLED") throw new FlightLinehaulServiceError("Cancelled manifests cannot be attached.", 409);
   if (manifest.flightLinehaulId && String(manifest.flightLinehaulId) === String(flightId)) {
     throw new FlightLinehaulServiceError("Manifest already attached to this flight.", 409);
+  }
+
+  const existingManifest = await OperationsManifest.findOne({
+    flightLinehaulId: flightId,
+    _id: { $ne: manifestId },
+    status: { $ne: "CANCELLED" }
+  }).select("manifestNumber").lean().exec();
+  if (existingManifest) {
+    throw new FlightLinehaulServiceError(`Flight already has manifest ${existingManifest.manifestNumber}. V1 supports one active manifest per flight.`, 409);
+  }
+
+  const headerChecks: Array<[string, string, string]> = [
+    ["flight number", flight.flightNumber, manifest.header.flightNumber],
+    ["origin airport", flight.originIataCode, manifest.header.originIataCode],
+    ["destination airport", flight.destinationIataCode, manifest.header.destinationIataCode],
+    ["MAWB", flight.mawbNumber, manifest.header.mawbNumber]
+  ];
+  for (const [label, flightValue, manifestValue] of headerChecks) {
+    if (flightValue && manifestValue && flightValue.trim().toUpperCase() !== manifestValue.trim().toUpperCase()) {
+      throw new FlightLinehaulServiceError(`Manifest ${label} does not match the flight.`, 409);
+    }
+  }
+  const flightDate = flight.scheduledDepartureAt.toISOString().slice(0, 10);
+  if (manifest.header.departureDate && manifest.header.departureDate !== flightDate) {
+    throw new FlightLinehaulServiceError("Manifest departure date does not match the flight.", 409);
+  }
+
+  const consignments = await OperationsManifestConsignment.find({ manifestId, status: { $ne: "REMOVED" } })
+    .select("shipmentDraftId")
+    .lean()
+    .exec();
+  if (consignments.length) {
+    const shipmentIds = consignments.map((consignment) => consignment.shipmentDraftId);
+    const allocatedIds = await FlightShipmentAllocation.distinct("shipmentDraftId", {
+      flightLinehaulId: flightId,
+      shipmentDraftId: { $in: shipmentIds },
+      status: "ALLOCATED"
+    });
+    const allocatedSet = new Set(allocatedIds.map(String));
+    if (shipmentIds.some((shipmentId) => !allocatedSet.has(String(shipmentId)))) {
+      throw new FlightLinehaulServiceError("Every manifest shipment must already be allocated to this flight.", 409);
+    }
   }
 
   manifest.flightLinehaulId = flightId;
@@ -1476,9 +1994,7 @@ export async function createOffload(input: {
   reason: string;
   offloadReason: string;
   airline?: string;
-  affectedShipmentIds?: string[];
-  affectedBagIds?: string[];
-  replacementFlightId?: string | null;
+  affectedParcels: Array<{ shipmentDraftId: string; parcelNumber: string }>;
   responsibleEmployeeId?: string | null;
   userId: mongoose.Types.ObjectId;
   allowedBranchIds?: string[] | null;
@@ -1489,28 +2005,24 @@ export async function createOffload(input: {
   if (input.allowedBranchIds !== null && input.allowedBranchIds !== undefined && !input.allowedBranchIds.includes(String(flight.branchId))) {
     throw new FlightLinehaulServiceError("You do not have access to this flight's branch.", 403);
   }
+  if (["DEPARTED", "IN_TRANSIT", "CONNECTION", "ARRIVED_DESTINATION", "CUSTOMS", "HANDED_TO_FINAL_MILE", "CLOSED", "CANCELLED"].includes(flight.status)) {
+    throw new FlightLinehaulServiceError("Parcels cannot be offloaded after this flight has departed.", 409);
+  }
   if (!input.reason.trim() || input.reason.trim().length < 5) throw new FlightLinehaulServiceError("Offload reason must be at least 5 characters.", 400);
   const reasonValue = input.offloadReason;
   const validReasons = ["AIRLINE_OFFLOAD", "CAPACITY", "WEATHER", "CUSTOMS", "MISSED_CONNECTION", "DAMAGE", "SECURITY", "OTHER"];
   if (!validReasons.includes(reasonValue)) throw new FlightLinehaulServiceError("Invalid offload reason.", 400);
 
-  let replacementFlight: IFlightLinehaul | null = null;
-  if (input.replacementFlightId) {
-    const replId = asObjectId(input.replacementFlightId, "Replacement flight");
-    replacementFlight = await FlightLinehaul.findById(replId).exec();
-    if (!replacementFlight) throw new FlightLinehaulServiceError("Replacement flight was not found.", 404);
-    if (String(replacementFlight.branchId) !== String(flight.branchId)) throw new FlightLinehaulServiceError("Replacement flight must be same branch.", 409);
-    if (["CLOSED", "CANCELLED"].includes(replacementFlight.status)) throw new FlightLinehaulServiceError("Replacement flight is closed/cancelled.", 409);
-  }
-
-  const affectedShipmentIds = (input.affectedShipmentIds ?? []).filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id));
-  const affectedBagIds = (input.affectedBagIds ?? []).filter((id) => mongoose.Types.ObjectId.isValid(id)).map((id) => new mongoose.Types.ObjectId(id));
-
-  // Validate shipments are allocated to this flight
-  if (affectedShipmentIds.length) {
-    const count = await FlightShipmentAllocation.countDocuments({ flightLinehaulId: flightId, shipmentDraftId: { $in: affectedShipmentIds }, status: "ALLOCATED" }).exec();
-    if (count !== affectedShipmentIds.length) throw new FlightLinehaulServiceError("One or more shipments not allocated to this flight.", 409);
-  }
+  if (!input.affectedParcels.length) throw new FlightLinehaulServiceError("Select at least one parcel to offload.", 400);
+  if (input.affectedParcels.length > 100) throw new FlightLinehaulServiceError("Cannot offload more than 100 parcels at once.", 400);
+  const requestedParcels = input.affectedParcels.map((item) => ({
+    shipmentDraftId: asObjectId(item.shipmentDraftId, "Shipment"),
+    parcelNumber: item.parcelNumber.trim().toUpperCase()
+  }));
+  if (requestedParcels.some((item) => !item.parcelNumber)) throw new FlightLinehaulServiceError("Every selected parcel must have a parcel number.", 400);
+  const requestedKeys = requestedParcels.map((item) => `${String(item.shipmentDraftId)}:${item.parcelNumber}`);
+  if (new Set(requestedKeys).size !== requestedKeys.length) throw new FlightLinehaulServiceError("The same parcel was selected more than once.", 400);
+  const affectedShipmentIds = [...new Map(requestedParcels.map((item) => [String(item.shipmentDraftId), item.shipmentDraftId])).values()];
 
   // Idempotency: if identical offload was recorded in last 10s (double-click), return it instead of creating duplicate
   const recentDuplicate = await (FlightOffload.findOne as any)({
@@ -1521,35 +2033,109 @@ export async function createOffload(input: {
     createdAt: { $gte: new Date(Date.now() - 10000) }
   }).lean().exec();
   if (recentDuplicate) {
-    const recentKey = [...(recentDuplicate.affectedShipmentIds ?? [])].map(String).sort().join(",");
-    const currentKey = [...affectedShipmentIds].map(String).sort().join(",");
+    const recentKey = [...(recentDuplicate.affectedParcels ?? [])]
+      .map((item: { shipmentDraftId: unknown; parcelNumber: string }) => `${String(item.shipmentDraftId)}:${item.parcelNumber}`)
+      .sort()
+      .join(",");
+    const currentKey = [...requestedKeys].sort().join(",");
     if (recentKey === currentKey) return recentDuplicate as InstanceType<typeof FlightOffload>;
-  }
-
-  // Calculate affected weight
-  let affectedWeightKg = 0;
-  let affectedPieces = 0;
-  if (affectedShipmentIds.length) {
-    const allocs = await FlightShipmentAllocation.find({ flightLinehaulId: flightId, shipmentDraftId: { $in: affectedShipmentIds }, status: "ALLOCATED" }).lean().exec();
-    affectedWeightKg = roundWeight(allocs.reduce((s, a) => s + a.weightKg, 0));
-    affectedPieces = allocs.reduce((s, a) => s + a.pieces, 0);
   }
 
   const session = await mongoose.startSession();
   let offloadDoc: InstanceType<typeof FlightOffload> | null = null;
   try {
     await session.withTransaction(async () => {
+      // Re-check the flight inside the transaction. The first read is only a
+      // fast validation; without this guard a departure racing the request
+      // could still commit an offload after the flight became immutable.
+      const transactionalFlight = await FlightLinehaul.findById(flightId).session(session).exec();
+      if (!transactionalFlight) throw new FlightLinehaulServiceError("Flight was not found.", 404);
+      if (["DEPARTED", "IN_TRANSIT", "CONNECTION", "ARRIVED_DESTINATION", "CUSTOMS", "HANDED_TO_FINAL_MILE", "CLOSED", "CANCELLED"].includes(transactionalFlight.status)) {
+        throw new FlightLinehaulServiceError("Parcels cannot be offloaded after this flight has departed.", 409);
+      }
+
+      const allocations = await FlightShipmentAllocation.find({
+        flightLinehaulId: flightId,
+        shipmentDraftId: { $in: affectedShipmentIds },
+        status: "ALLOCATED"
+      }).session(session).exec();
+      if (allocations.length !== affectedShipmentIds.length) {
+        throw new FlightLinehaulServiceError("One or more selected parcels are not on an active allocation for this flight.", 409);
+      }
+
+      const selectedByShipment = new Map<string, Set<string>>();
+      for (const item of requestedParcels) {
+        const key = String(item.shipmentDraftId);
+        const selected = selectedByShipment.get(key) ?? new Set<string>();
+        selected.add(item.parcelNumber);
+        selectedByShipment.set(key, selected);
+      }
+
+      const affectedParcels: Array<{
+        shipmentDraftId: mongoose.Types.ObjectId;
+        parcelNumber: string;
+        actualWeightKg: number;
+        volumetricWeightKg: number;
+        chargeableWeightKg: number;
+      }> = [];
+      for (const allocation of allocations) {
+        const parcelDetails = flightAllocationParcelDetails(allocation.snapshot);
+        const parcelByNumber = new Map(parcelDetails.map((parcel) => [parcel.parcelNumber, parcel]));
+        const activeSet = new Set(activeParcelNumbersForAllocation(allocation));
+        const selected = selectedByShipment.get(String(allocation.shipmentDraftId)) ?? new Set<string>();
+        for (const parcelNumber of selected) {
+          const parcel = parcelByNumber.get(parcelNumber);
+          if (!parcel) throw new FlightLinehaulServiceError(`Parcel ${parcelNumber} does not belong to the selected shipment.`, 409);
+          if (!activeSet.has(parcelNumber)) throw new FlightLinehaulServiceError(`Parcel ${parcelNumber} is no longer active on this flight.`, 409);
+          affectedParcels.push({ shipmentDraftId: allocation.shipmentDraftId, ...parcel });
+        }
+      }
+      if (affectedParcels.length !== requestedParcels.length) {
+        throw new FlightLinehaulServiceError("One or more selected parcels could not be verified on this flight.", 409);
+      }
+
+      const manifests = await OperationsManifest.find({
+        flightLinehaulId: flightId,
+        status: { $ne: "CANCELLED" }
+      }).session(session).select("_id status").lean().exec();
+      const manifestIds = manifests.map((manifest) => manifest._id);
+      const acceptedScans = manifestIds.length
+        ? await OperationsManifestScan.find({
+            manifestId: { $in: manifestIds },
+            parcelNumber: { $in: affectedParcels.map((parcel) => parcel.parcelNumber) },
+            status: "ACCEPTED"
+          }).session(session).select("manifestId bagId parcelNumber").lean().exec()
+        : [];
+      const editableManifestIds = new Set(
+        manifests.filter((manifest) => ["DRAFT", "PACKING", "READY_TO_SEAL"].includes(manifest.status)).map((manifest) => String(manifest._id))
+      );
+      const editableAcceptedScan = acceptedScans.find((scan) => editableManifestIds.has(String(scan.manifestId)));
+      if (editableAcceptedScan) {
+        throw new FlightLinehaulServiceError(
+          `Parcel ${editableAcceptedScan.parcelNumber} is still packed in an editable operations manifest. Reopen its bag and remove the parcel scan before recording the offload.`,
+          409
+        );
+      }
+
+      const affectedBagIds = [...new Map(
+        acceptedScans.filter((scan) => scan.bagId).map((scan) => [String(scan.bagId), scan.bagId as mongoose.Types.ObjectId])
+      ).values()];
+      const affectedWeightKg = roundWeight(affectedParcels.reduce((sum, parcel) => sum + parcel.chargeableWeightKg, 0));
+      const affectedPieces = affectedParcels.length;
       const created = await FlightOffload.create(
         [
           {
             flightLinehaulId: flightId,
-            replacementFlightId: replacementFlight?._id ?? null,
-            branchId: flight.branchId,
+            // Rebooking is a separate whole-shipment operation. An offload
+            // must never move the original shipment to another flight.
+            replacementFlightId: null,
+            branchId: transactionalFlight.branchId,
             reason: reasonValue as never,
             detail: input.reason.trim(),
             airline: (input.airline ?? "").trim(),
             affectedShipmentIds,
             affectedBagIds,
+            affectedParcels,
             affectedWeightKg,
             affectedPieces,
             responsibleEmployeeId: input.responsibleEmployeeId && mongoose.Types.ObjectId.isValid(input.responsibleEmployeeId) ? new mongoose.Types.ObjectId(input.responsibleEmployeeId) : null,
@@ -1561,63 +2147,50 @@ export async function createOffload(input: {
       offloadDoc = created[0] ?? null;
       if (!offloadDoc) throw new FlightLinehaulServiceError("Offload could not be recorded.", 500);
 
-      // Mark allocations as OFFLOADED and optionally reallocate to replacement flight
-      if (affectedShipmentIds.length) {
-        await FlightShipmentAllocation.updateMany(
-          { flightLinehaulId: flightId, shipmentDraftId: { $in: affectedShipmentIds }, status: "ALLOCATED" },
-          { $set: { status: "OFFLOADED", offloadId: (offloadDoc as InstanceType<typeof FlightOffload>)._id, removedAt: new Date(), removedBy: input.userId, removalReason: `Offloaded: ${input.reason.trim()}` } },
-          { session }
-        ).exec();
+      // Offload changes only the physical parcels assigned to this flight. It
+      // never creates a replacement allocation or a parcel-level rebooking.
+      const now = new Date();
+      for (const allocation of allocations) {
+        const selected = selectedByShipment.get(String(allocation.shipmentDraftId)) ?? new Set<string>();
+        const active = activeParcelNumbersForAllocation(allocation);
+        const remaining = active.filter((parcelNumber) => !selected.has(parcelNumber));
+        const offloaded = new Set(normalizedParcelNumbers(allocation.offloadedParcelNumbers));
+        for (const parcelNumber of selected) offloaded.add(parcelNumber);
+        const totals = remainingFlightAllocationTotals(flightAllocationParcelDetails(allocation.snapshot), remaining);
 
-        if (replacementFlight) {
-          for (const draftId of affectedShipmentIds) {
-            const original = await FlightShipmentAllocation.findOne({ shipmentDraftId: draftId, offloadId: (offloadDoc as InstanceType<typeof FlightOffload>)._id }).session(session).exec();
-            if (!original) continue;
-            // Check capacity of replacement
-            const agg = await FlightShipmentAllocation.aggregate([
-              { $match: { flightLinehaulId: replacementFlight._id, status: "ALLOCATED" } },
-              { $group: { _id: null, total: { $sum: "$weightKg" } } }
-            ]).session(session).exec();
-            const proj = roundWeight((agg[0]?.total ?? 0) + original.weightKg);
-            if (replacementFlight.capacityKg > 0 && proj > replacementFlight.capacityKg) {
-              // Skip this one, leave offloaded without replacement
-              continue;
-            }
-            await FlightShipmentAllocation.create(
-              [
-                {
-                  flightLinehaulId: replacementFlight._id,
-                  branchId: replacementFlight.branchId,
-                  shipmentDraftId: draftId,
-                  dpdShipmentId: original.dpdShipmentId,
-                  awb: original.awb,
-                  destinationCountryCode: original.destinationCountryCode,
-                  destinationCountryName: original.destinationCountryName,
-                  weightKg: original.weightKg,
-                  pieces: original.pieces,
-                  snapshot: original.snapshot,
-                  status: "ALLOCATED",
-                  allocatedBy: input.userId,
-                  allocatedAt: new Date()
-                }
-              ],
-              { session }
-            );
-          }
+        allocation.activeParcelNumbers = remaining;
+        allocation.offloadedParcelNumbers = [...offloaded];
+        allocation.actualWeightKg = totals.actualWeightKg;
+        allocation.volumetricWeightKg = totals.volumetricWeightKg;
+        allocation.chargeableWeightKg = totals.chargeableWeightKg;
+        allocation.weightKg = totals.chargeableWeightKg;
+        allocation.pieces = totals.pieces;
+        if (!remaining.length) {
+          allocation.status = "OFFLOADED";
+          allocation.offloadId = (offloadDoc as InstanceType<typeof FlightOffload>)._id as mongoose.Types.ObjectId;
+          allocation.removedAt = now;
+          allocation.removedBy = input.userId;
+          allocation.removalReason = `All parcels offloaded: ${input.reason.trim()}`;
         }
+        await allocation.save({ session });
       }
 
-      await audit("FLIGHT_OFFLOAD_CREATED", flightId, input.userId, { offloadId: String((offloadDoc as InstanceType<typeof FlightOffload>)._id), reason: input.reason.trim(), affectedWeightKg, replacementFlightId: input.replacementFlightId ?? null }, session);
+      await audit("FLIGHT_OFFLOAD_CREATED", flightId, input.userId, {
+        offloadId: String((offloadDoc as InstanceType<typeof FlightOffload>)._id),
+        reason: input.reason.trim(),
+        affectedWeightKg,
+        affectedParcels: affectedParcels.map((parcel) => ({ shipmentDraftId: String(parcel.shipmentDraftId), parcelNumber: parcel.parcelNumber }))
+      }, session);
 
       // Auto exception for offload
       await createExceptionIdempotent(
         {
           flightId,
-          branchId: flight.branchId,
+          branchId: transactionalFlight.branchId,
           type: "OFFLOAD",
           severity: "HIGH",
-          title: "Shipments offloaded",
-          description: `${affectedShipmentIds.length || affectedBagIds.length} item(s) offloaded — ${input.reason.trim()}.`,
+          title: "Parcels offloaded",
+          description: `${affectedPieces} parcel(s) offloaded from ${affectedShipmentIds.length} shipment(s) - ${input.reason.trim()}.`,
           dedupeKey: `OFFLOAD:${String(flightId)}:${String((offloadDoc as InstanceType<typeof FlightOffload>)._id)}`,
           dueAt: new Date(Date.now() + 4 * 60 * 60 * 1000)
         },
@@ -1628,9 +2201,8 @@ export async function createOffload(input: {
     await session.endSession();
   }
 
-  await Promise.all([recalculateFlightTotals(flightId), replacementFlight ? recalculateFlightTotals(replacementFlight._id as mongoose.Types.ObjectId) : Promise.resolve()]);
+  await recalculateFlightTotals(flightId);
   void maybeMarkCostSheetsForReview(flightId);
-  if (replacementFlight) void maybeMarkCostSheetsForReview(replacementFlight._id as mongoose.Types.ObjectId);
 
   return offloadDoc;
 }
@@ -1716,6 +2288,29 @@ export async function updateDestinationHandover(input: {
   flight.updatedBy = input.userId;
   await flight.save();
   await audit("FLIGHT_HANDOVER_COMPLETED", flightId, input.userId, { before, after: { arrivalAt: flight.arrivalAt, customsStatus: flight.customsStatus, customsClearedAt: flight.customsClearedAt, destinationAgent: flight.destinationAgent, finalMileCarrier: flight.finalMileCarrier, handoverAt: flight.handoverAt, handoverReference: flight.handoverReference } });
+
+  const customsBecameHeld = input.customsStatus === "HELD" && before.customsStatus !== "HELD";
+  const handoverCompleted = Boolean(flight.handoverAt) && !before.handoverAt;
+  if (customsBecameHeld) {
+    await notifyFlightStaffSafely(flight.branchId, {
+      type: "FLIGHT_CUSTOMS_HOLD",
+      title: "Flight customs hold",
+      message: `${flight.flightNumber} is on customs hold and requires operations attention.`,
+      href: `/dashboard/flight-linehauls/${String(flight._id)}`,
+      idempotencyKey: `FLIGHT_CUSTOMS_HOLD:${String(flight._id)}:${flight.updatedAt.toISOString()}`,
+      metadata: { flightId: String(flight._id), flightNumber: flight.flightNumber, customsStatus: flight.customsStatus }
+    });
+  }
+  if (handoverCompleted) {
+    await notifyFlightStaffSafely(flight.branchId, {
+      type: "FLIGHT_FINAL_MILE_HANDOVER",
+      title: "Flight handed to final mile",
+      message: `${flight.flightNumber} was handed to the destination final-mile operation.`,
+      href: `/dashboard/flight-linehauls/${String(flight._id)}`,
+      idempotencyKey: `FLIGHT_FINAL_MILE_HANDOVER:${String(flight._id)}:${flight.handoverAt?.toISOString() ?? ""}`,
+      metadata: { flightId: String(flight._id), flightNumber: flight.flightNumber, handoverAt: flight.handoverAt }
+    });
+  }
 
   // Auto status progression
   if (flight.arrivalAt && flight.status === "IN_TRANSIT") {

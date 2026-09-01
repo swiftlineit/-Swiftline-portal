@@ -207,6 +207,31 @@ export async function notifyOperationsStaff(input: NotificationInput, session?: 
   await insertNotifications(staff.map((member) => member._id), input, session);
 }
 
+/**
+ * Flight control is branch-owned. Admins see every branch; operations staff
+ * only see flights for branches assigned to them. Keeping this audience
+ * resolution here prevents each flight workflow and scheduled sweep from
+ * accidentally broadcasting an internal exception across the company.
+ */
+export async function notifyFlightOperationsStaff(
+  branchId: mongoose.Types.ObjectId,
+  input: NotificationInput,
+  session?: mongoose.ClientSession
+) {
+  const staff = await User.find({
+    userStatus: "active",
+    $or: [
+      { role: "admin" },
+      { role: "operations", assignedBranches: branchId }
+    ]
+  })
+    .select("_id")
+    .session(session ?? null)
+    .lean()
+    .exec();
+  await insertNotifications(staff.map((member) => member._id), input, session);
+}
+
 export function serializePortalNotification(notification: InstanceType<typeof PortalNotification>) {
   return {
     id: String(notification._id),

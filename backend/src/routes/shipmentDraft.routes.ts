@@ -8,6 +8,7 @@ import {
   getShipmentDraftRateCardContext,
   getShipmentDraftCostEstimate,
   listEditableShipmentDrafts,
+  rebookShipmentDraftHandler,
   restoreShipmentDraftHandler,
   updateShipmentDraft,
   validateShipmentDraft
@@ -65,4 +66,5 @@ shipmentDraftRouter.post("/:id/parcels/:sequence/kyc-documents/:type", requireOp
 shipmentDraftRouter.delete("/:id/parcels/:sequence/kyc-documents/:type", requireOperations, deleteShipmentParcelKycDocument);
 shipmentDraftRouter.get("/:id/parcels/:sequence/kyc-documents/:type", requireOperations, downloadShipmentParcelKycDocument);
 shipmentDraftRouter.post("/:id/validate", requireOperations, validateShipmentDraft);
+shipmentDraftRouter.post("/:id/rebook", requireOperations, rebookShipmentDraftHandler);
 shipmentDraftRouter.post("/:id/create-shipment", requireOperations, createShipment);

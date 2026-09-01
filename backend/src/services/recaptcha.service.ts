@@ -17,7 +17,7 @@ type SiteverifyResponse = {
  * cutoff is only enforced when siteverify actually answers.
  */
 export async function verifyRecaptcha(token: string | undefined, remoteIp?: string): Promise<boolean> {
-  if (!env.RECAPTCHA_SECRET_KEY) return true;
+  if (!isRecaptchaEnabled() || !env.RECAPTCHA_SECRET_KEY) return true;
   if (!token) {
     console.warn("reCAPTCHA token missing on login attempt; allowing through (fail-open).");
     return true;
@@ -38,16 +38,33 @@ export async function verifyRecaptcha(token: string | undefined, remoteIp?: stri
         signal: controller.signal
       });
       result = await response.json() as SiteverifyResponse;
+
+      if (!response.ok) {
+        console.warn("reCAPTCHA siteverify returned a non-success HTTP status.", {
+          httpStatus: response.status,
+          errors: result["error-codes"]
+        });
+        return false;
+      }
     } finally {
       clearTimeout(timeout);
     }
 
     if (!result.success) {
-      console.warn("reCAPTCHA verification failed.", { errors: result["error-codes"] });
+      console.warn("reCAPTCHA verification failed.", {
+        errors: result["error-codes"],
+        action: result.action,
+        hostname: result.hostname
+      });
       return false;
     }
     if (typeof result.score === "number" && result.score < env.RECAPTCHA_MIN_SCORE) {
-      console.warn("reCAPTCHA score below threshold.", { score: result.score });
+      console.warn("reCAPTCHA score below threshold.", {
+        score: result.score,
+        minimumScore: env.RECAPTCHA_MIN_SCORE,
+        action: result.action,
+        hostname: result.hostname
+      });
       return false;
     }
     return true;
@@ -57,4 +74,8 @@ export async function verifyRecaptcha(token: string | undefined, remoteIp?: stri
     });
     return true;
   }
+}
+
+export function isRecaptchaEnabled() {
+  return env.RECAPTCHA_ENABLED ?? env.NODE_ENV === "production";
 }

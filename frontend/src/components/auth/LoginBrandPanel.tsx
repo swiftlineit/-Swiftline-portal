@@ -58,37 +58,19 @@ const WORLD_DOTS: [number, number][] = [
 
 const DOT_RADIUS = 1.35;
 
-/**
- * All 495 landmass dots collapse into one compound path (two arcs per dot)
- * instead of 495 <circle> nodes. Same pixels, one element- the DOM cost of
- * "photorealistic" dot density stays close to zero. Computed once at module
- * load, not per render.
- */
 const WORLD_DOTS_PATH = WORLD_DOTS.map(([x, y]) => {
   const r = DOT_RADIUS;
   return `M${x - r},${y}a${r},${r} 0 1,0 ${r * 2},0a${r},${r} 0 1,0 -${r * 2},0`;
 }).join(" ");
 
-/**
- * A single great-circle-style flight path arcing across the map, with a plane
- * riding it. Replaces the earlier hub/lane cluster: one clean gesture reads as
- * "we move things worldwide" without the busier multi-node network competing
- * with the headline beside it. All coordinates live in the same 400×166
- * projected space as WORLD_DOTS, so the path lands over real landmasses.
- */
 // Delhi, India
 const FLIGHT_ORIGIN = { x: 248, y: 74 };
 // London, United Kingdom
 const FLIGHT_DEST = { x: 191, y: 42 };
-
-/** Quadratic control point, bowed upward like a real long-haul route rather
- *  than a straight chord across the map. */
 const FLIGHT_CTRL = { x: 228, y: 12 };
 
 const FLIGHT_PATH = `M${FLIGHT_ORIGIN.x},${FLIGHT_ORIGIN.y} Q${FLIGHT_CTRL.x},${FLIGHT_CTRL.y} ${FLIGHT_DEST.x},${FLIGHT_DEST.y}`;
 
-
-/** Point on the quadratic bezier at parameter t (0 = origin, 1 = dest). */
 function bezierAt(t: number) {
   const mt = 1 - t;
   return {
@@ -103,7 +85,6 @@ function bezierAt(t: number) {
   };
 }
 
-/** Tangent angle (degrees) at t, so the plane points along its heading. */
 function bezierAngle(t: number) {
   const mt = 1 - t;
   const dx =
@@ -118,58 +99,20 @@ function bezierAngle(t: number) {
 }
 
 const PLANE_T = 0.58;
-
 const PLANE_POS = bezierAt(PLANE_T);
 const PLANE_ANGLE = bezierAngle(PLANE_T);
 
-/** Tabler "plane" glyph, authored on a 24×24 grid. Drawn as a filled mark and
- *  re-centered (translate -12,-12) so rotation pivots on the plane itself. */
 const PLANE_PATH =
   "M16 10h4a2 2 0 0 1 0 4h-4l-4 7h-3l2 -7h-4l-2 2h-3l2 -4l-2 -4h3l2 2h4l-2 -7h3l4 7";
 
-/**
- * Decorative only, and hidden from assistive tech.
- *
- * A dotted world map with a single flight path and a plane riding it, in
- * place of an abstract swirl: it reads as "global logistics" at a glance and
- * keeps the brand's navy/red without a busy multi-node network competing with
- * the headline. Drawn rather than photographed for the same reasons as before
- *- a stock photo dates quickly, costs weight on the one page every user must
- * load, and can't be tinted to the brand.
- *
- * Deliberately *contained* rather than full-bleed. Stretched across the whole
- * panel with `slice`, the map would get rescaled out of proportion and end up
- * cutting straight through the headline; boxed into the empty area beside it
- * with the default `meet`, the geometry stays as drawn and reads as a
- * considered mark.
- *
- * Vertically centered on the panel (`top-1/2 -translate-y-1/2`) rather than
- * pinned to the top corner: the headline block it sits beside isn't anchored
- * to the top of the card either, and centering- instead of guessing a fixed
- * offset- keeps the two aligned even as the headline's clamp()'d size
- * changes its height across breakpoints. `right-4` echoes the panel's own
- * `p-4`, rather than `right-0` overriding it and sitting flush with the edge.
- *
- * Desktop-only (`hidden lg:block`): on phones and tablets the panel stacks
- * below the sign-in form with no spare width beside the text, so the map would
- * have nowhere to sit- the mobile layout shows the headline and capabilities
- * alone.
- *
- * Positioned with a plain `absolute`, never a negative z-index: `relative`
- * alone does not open a stacking context, so `-z-10` escapes this section
- * entirely and paints behind the page background, where none of it is visible.
- */
 function WorldMapBackdrop() {
   return (
     <svg
       viewBox="0 0 400 166"
       aria-hidden="true"
-      className="pointer-events-none absolute right-4 top-30 hidden w-[46%] max-w-lg -translate-y-1/2 lg:block"
+      className="pointer-events-none absolute right-4 top-[30%] hidden w-[44%] max-w-lg -translate-y-1/2 lg:block"
     >
       <defs>
-        {/* Fades on every edge, so the dotted landmasses dissolve instead of
-            ending on a hard rectangle- that soft boundary is what stops the
-            map from looking like a misplaced block. */}
         <radialGradient id="world-map-fade" cx="54%" cy="40%" r="70%">
           <stop offset="0%" stopColor="#fff" stopOpacity="0.65" />
           <stop offset="60%" stopColor="#fff" stopOpacity="0.3" />
@@ -184,87 +127,56 @@ function WorldMapBackdrop() {
         <path d={WORLD_DOTS_PATH} fill="#0D1282" fillOpacity="0.5" />
       </g>
 
-      {/* Flight path + plane- left unmasked so the route stays legible even
-          where the dotted map field has faded out. The dash pattern reads as a
-          travel/route line rather than a solid border. */}
       <path
-  d={FLIGHT_PATH}
-  fill="none"
-  stroke="#D81F26"
-  strokeOpacity="0.65"
-  strokeWidth="1.8"
-  strokeLinecap="round"
-  strokeDasharray="2 6"
-/>
+        d={FLIGHT_PATH}
+        fill="none"
+        stroke="#D81F26"
+        strokeOpacity="0.65"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeDasharray="2 6"
+      />
 
-{/* India */}
-<circle
-  cx={FLIGHT_ORIGIN.x}
-  cy={FLIGHT_ORIGIN.y}
-  r="2.6"
-  fill="#D81F26"
-/>
+      <circle cx={FLIGHT_ORIGIN.x} cy={FLIGHT_ORIGIN.y} r="2.6" fill="#D81F26" />
+      <circle cx={FLIGHT_DEST.x} cy={FLIGHT_DEST.y} r="2.6" fill="#0D1282" />
 
-{/* UK */}
-<circle
-  cx={FLIGHT_DEST.x}
-  cy={FLIGHT_DEST.y}
-  r="2.6"
-  fill="#0D1282"
-/>
-
-<g
-  transform={`translate(${PLANE_POS.x.toFixed(1)}, ${PLANE_POS.y.toFixed(
-    1
-  )}) rotate(${PLANE_ANGLE.toFixed(1)}) scale(0.95) translate(-12,-12)`}
->
-  <path
-    d={PLANE_PATH}
-    fill="#D81F26"
-    stroke="#D81F26"
-    strokeWidth="1.2"
-    strokeLinejoin="round"
-  />
-</g>
+      <g
+        transform={`translate(${PLANE_POS.x.toFixed(1)}, ${PLANE_POS.y.toFixed(
+          1
+        )}) rotate(${PLANE_ANGLE.toFixed(1)}) scale(0.95) translate(-12,-12)`}
+      >
+        <path
+          d={PLANE_PATH}
+          fill="#D81F26"
+          stroke="#D81F26"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+      </g>
     </svg>
   );
 }
 
-/**
- * The marketing half of the sign-in screen. On small viewports it sits *below*
- * the form: someone opening the portal on a phone came to sign in, and should
- * not have to scroll past a value proposition to reach the field.
- *
- * Height is fluid below `lg` (`h-auto`) so the stacked mobile layout sizes to
- * its content instead of leaving a tall empty box; it only locks to the fixed
- * `lg:h-125` on desktop, where that height is what lines the panel up with the
- * non-scrolling login card beside it.
- */
 export function LoginBrandPanel() {
   return (
-    // `overflow-hidden` is important on phones: the oversized SLC artwork is a
-    // desktop-only decoration and must never widen the mobile document.
-    <section className="relative order-2 h-auto w-full min-w-0 overflow-hidden rounded-2xl bg-white p-4 shadow sm:p-5 lg:h-125 lg:order-1 lg:self-center lg:p-4 lg:pr-8">
+    <section className="relative order-2 flex h-auto w-full min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-[linear-gradient(135deg,#ffffff_0%,#f9faff_52%,#f2f5ff_100%)] p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_14px_36px_-18px_rgba(13,18,130,0.16)] sm:p-5 lg:order-1 lg:self-stretch lg:p-5 lg:pr-7 xl:p-6 xl:pr-8">
       <div
-    aria-hidden="true"
-        className="pointer-events-none absolute inset-0 hidden items-center justify-center lg:flex"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-28 top-42.5 hidden overflow-hidden lg:block xl:bottom-29.5"
       >
-        <span className="ml-[30%] select-none text-[min(40rem,52vw)] font-semibold tracking-[-0.08em] text-blue-500/5">
-      SLC
+        <span className="absolute mt-20 left-[4%] top-1/2 -translate-y-1/2 whitespace-nowrap text-[clamp(26.75rem,6.5vw,6rem)] font-semibold leading-none tracking-[-0.04em] text-[#0D1282]/[0.028]">
+          SLC
         </span>
       </div>
+
       <WorldMapBackdrop />
 
-      {/* Positioned so it paints above the absolute backdrop behind it. */}
-      <div className="relative">
+      <div className="relative flex h-full min-h-0 w-full flex-col">
         <p className="hidden text-[11px] font-semibold uppercase tracking-[0.22em] text-[#0D1282]/70 lg:block">
           Secure international logistics
         </p>
 
-        {/* On desktop the size is capped against the viewport's *height*: this
-            column sits beside a card that cannot scroll, so the headline is what
-            gives way first on a short laptop screen. */}
-        <h1 className="text-[clamp(1.65rem,8vw,2.25rem)] font-bold leading-[1.07] tracking-tight text-[#0D1282] sm:text-[clamp(1.85rem,5vw,2.6rem)] lg:mt-3 lg:text-[min(3.1rem,7vh)]">
+        <h1 className="text-[clamp(1.65rem,8vw,2.25rem)] font-bold leading-[1.06] tracking-tight text-[#0D1282] sm:text-[clamp(1.85rem,5vw,2.55rem)] lg:mt-2.5 lg:text-[clamp(2.3rem,4vw,3rem)]">
           Every Parcel.
           <br />
           A Promise.
@@ -272,37 +184,34 @@ export function LoginBrandPanel() {
           <span className="text-[#D81F26]">Swiftly Delivered.</span>
         </h1>
 
-        <div className="mt-4 flex items-center gap-1.5" aria-hidden="true">
+        <div className="mt-3.5 flex items-center gap-1.5" aria-hidden="true">
           <span className="h-1 w-9 rounded-full bg-[#0D1282]" />
           <span className="h-1 w-4 rounded-full bg-[#D81F26]" />
         </div>
 
-        <p className="mt-4 max-w-lg text-[13px] leading-relaxed text-slate-600 sm:text-[14.5px]">
-          Your trusted logistics partner for secure, reliable and compliant international courier
-          and cargo solutions.
+        <p className="mt-6.5 max-w-lg text-[13px] leading-5 text-slate-600 sm:text-[14px]">
+          Your trusted logistics partner for secure, reliable and compliant international
+          courier and cargo solutions.
         </p>
 
-        <p className="mt-5 text-[13px] font-semibold text-[#0D1282] sm:text-[15px]">
+        <p className="mt-5 text-[13px] font-semibold text-[#0D1282] sm:text-[14px]">
           One Platform. <span className="text-[#D81F26]">Complete Control.</span>
         </p>
 
-        <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-2.5 lg:grid-cols-5">
+        <ul className="mt-auto grid grid-cols-2 gap-2 pt-4 sm:grid-cols-3 sm:gap-2.5 lg:grid-cols-5 lg:pt-5">
           {capabilities.map(({ icon: Icon, label, sublabel, color }) => (
             <li
               key={label}
-              className="rounded-xl border border-slate-200/80 bg-white/80 px-2.5 py-2.5 text-center backdrop-blur-[2px] transition last:col-span-2 hover:border-[#0D1282]/25 hover:shadow-sm sm:px-3 sm:py-3 sm:last:col-span-1"
+              className="rounded-xl border border-slate-200/80 bg-white/80 px-2 py-2.5 text-center backdrop-blur-[2px] transition last:col-span-2 hover:border-[#0D1282]/25 hover:shadow-sm sm:px-2.5 sm:last:col-span-1"
             >
-              {/* Each card carries its own accent color, tinting both the icon
-                  chip and the label. Inline style rather than a Tailwind class
-                  because the value is data-driven per item and can't be known
-                  at build time for the JIT to generate. */}
               <span
-                className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg sm:h-8.5 sm:w-8.5"
+                className="mx-auto flex h-7 w-7 items-center justify-center rounded-lg sm:h-8 sm:w-8"
                 style={{ color }}
               >
                 <Icon size={18} strokeWidth={1.9} aria-hidden="true" />
               </span>
-              <span className="mt-1.5 block text-[10.5px] font-semibold leading-snug sm:mt-2 sm:text-[11px]">
+
+              <span className="mt-1.5 block text-[10px] font-semibold leading-snug sm:text-[10.5px]">
                 {label}
                 <br />
                 {sublabel}

@@ -62,7 +62,7 @@ export default function CreditSummaryCards({ account }: { account: CreditAccount
       label: "Billed Outstanding",
       value: money(account.invoicedOutstandingMinor),
       detail: billing?.nextDueAt ? `Due ${formatDashboardDate(billing.nextDueAt)}` : "Invoiced and not yet paid",
-      tone: "text-slate-950"
+      tone: "text-red-600"
     },
     {
       label: "Total Owed",

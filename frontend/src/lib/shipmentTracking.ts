@@ -32,3 +32,16 @@ export type TrackingPosition = {
   basisStatus: string;
   holdReasonLabel: string;
 };
+
+/** Parcel-specific operational facts shown separately from shipment milestones. */
+export type ParcelActivity = {
+  parcelNumber: string;
+  status: "OFFLOADED" | "CANCELLED";
+  eventAt: string;
+  reason?: string;
+  message?: string;
+  customerMessage?: string;
+  flightLinehaulId?: string | null;
+  flightLinehaulNumber?: string;
+  flightNumber?: string;
+};

@@ -11,6 +11,8 @@ import {
   ShipmentJourney,
   type DeliveryEstimate,
 } from "@/components/shipments/ShipmentJourney";
+import ParcelActivityPanel from "@/components/shipments/ParcelActivityPanel";
+import type { ParcelActivity } from "@/lib/shipmentTracking";
 
 /**
  * A tracked shipment, as the two signed-in portals draw it.
@@ -65,6 +67,7 @@ export type TrackingResultRecord = {
   attention: { label: string; detail: string } | null;
   journey?: TrackingJourney | null;
   position?: TrackingPosition | null;
+  parcelActivities?: ParcelActivity[];
 };
 
 /**
@@ -87,7 +90,7 @@ export function statusTone(status: string) {
     return "border-amber-200 bg-amber-50 text-amber-800";
   if (["SHIPMENT_BOOKED", "DPD_CREATED", "LABEL_RECEIVED"].includes(status))
     return "border-slate-200 bg-slate-50 text-slate-700";
-  return "border-blue-200 bg-blue-50 text-blue-800";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
 /**
@@ -157,6 +160,8 @@ export default function TrackingResult({
           </span>
         </div>
       ) : null}
+
+      <ParcelActivityPanel activities={record.parcelActivities} />
 
       {/* The journey and the promised date lead, because "where is it and will
           it arrive on time" is the whole reason anyone opens this. */}

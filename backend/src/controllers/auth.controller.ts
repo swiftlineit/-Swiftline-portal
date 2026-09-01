@@ -77,6 +77,13 @@ async function emailDomainExists(email: string): Promise<boolean> {
 
 const invalidEmailMessage = "Please enter a valid email address.";
 
+const captchaFailure = {
+  success: false,
+  code: "CAPTCHA_FAILED",
+  retryable: true,
+  message: "We could not complete the security check. Refresh the page and try again."
+};
+
 // Same message for "no such user", "invited but not activated", and "suspended/disabled"
 // so a failed Google sign-in can't be used to probe which emails exist in the system.
 const GOOGLE_LOGIN_GENERIC_ERROR = "Unable to sign in with Google for this account. Use your password, or contact your administrator.";
@@ -306,7 +313,7 @@ export async function login(req: Request, res: Response): Promise<Response> {
   }
 
   if (!await verifyRecaptcha(recaptchaToken, req.ip)) {
-    return res.status(400).json({ success: false, message: "Captcha verification failed. Please try again." });
+    return res.status(400).json(captchaFailure);
   }
 
   const user = await User.findOne({ email }).exec();
@@ -446,7 +453,7 @@ export async function requestLoginOtp(req: Request, res: Response): Promise<Resp
   }
 
   if (!await verifyRecaptcha(parsed.data.recaptchaToken, req.ip)) {
-    return res.status(400).json({ success: false, message: "Captcha verification failed. Please try again." });
+    return res.status(400).json(captchaFailure);
   }
 
   const user = await User.findOne({ email })

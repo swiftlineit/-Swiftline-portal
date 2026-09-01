@@ -1,8 +1,9 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { FiArrowLeft, FiCheckCircle, FiClock, FiFileText, FiMapPin, FiPackage, FiTruck, FiChevronDown  } from "react-icons/fi";
+import { BsArrowCounterclockwise } from "react-icons/bs";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
 import ShipmentAmendmentPanel from "@/components/shipments/ShipmentAmendmentPanel";
@@ -11,12 +12,14 @@ import ShipmentChargeVerificationPanel from "@/components/shipments/ShipmentChar
 import ShipmentInvoiceHistory from "@/components/shipments/ShipmentInvoiceHistory";
 import CustomsInvoiceCard from "@/components/shipments/CustomsInvoiceCard";
 import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel";
+import ParcelActivityPanel from "@/components/shipments/ParcelActivityPanel";
 import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/components/shipments/ShipmentKycDocumentsPanel";
 import StaffSupportingDocuments from "@/components/shipments/StaffSupportingDocuments";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import GatewayIataInput, { isValidGatewayIata } from "@/components/shipments/GatewayIataInput";
 import {
   DpdShipmentHistoryItem,
+  rebookShipmentDraft,
   ShipmentAmendmentInput,
   ShipmentHoldReason,
   ShipmentDraft,
@@ -105,9 +108,6 @@ function getTrackingEvents(draft: ShipmentDraft, history: DpdShipmentHistoryItem
     "ORIGIN_HUB_PROCESSED",
     "READY_FOR_EXPORT",
     "ORIGIN_HUB_DISPATCHED",
-    "EXPORT_CUSTOMS_CLEARED",
-    "FLIGHT_ASSIGNED",
-    "FLIGHT_DEPARTED",
     "DESTINATION_ARRIVED",
     "IMPORT_CUSTOMS_CLEARANCE",
     "IMPORT_CUSTOMS_CLEARED",
@@ -193,6 +193,7 @@ function hasReachedWarehouse(history: DpdShipmentHistoryItem | null) {
 
 export default function AdminShipmentDetailsPage() {
   const params = useParams<{ draftId: string }>();
+  const router = useRouter();
   const { user, loading } = useAdminUser(SHIPMENT_VIEW_AREA);
   const [draft, setDraft] = useState<ShipmentDraft | null>(null);
   const [history, setHistory] = useState<DpdShipmentHistoryItem | null>(null);
@@ -223,6 +224,7 @@ export default function AdminShipmentDetailsPage() {
   const [chargeVerified, setChargeVerified] = useState(false);
   const [cancellationBusy, setCancellationBusy] = useState(false);
   const [cancellationError, setCancellationError] = useState("");
+  const [rebooking, setRebooking] = useState(false);
 
   const totalWeight = useMemo(() => (
     draft?.parcelList.reduce((total, parcel) => total + (Number(parcel.weightKg) || 0), 0) ?? 0
@@ -427,6 +429,24 @@ export default function AdminShipmentDetailsPage() {
     }
   }
 
+  async function handleRebook() {
+    if (!draft || rebooking) return;
+    if (!history?.dpdShipment) {
+      toast.error("Only booked shipments can be rebooked.");
+      return;
+    }
+    setRebooking(true);
+    try {
+      const result = await rebookShipmentDraft(draft._id);
+      toast.success("Shipment cloned for rebooking. Complete the booking.");
+      router.push(`/dashboard/dpd-labels/${result.shipmentDraft._id}`);
+    } catch (caughtError) {
+      toast.error(caughtError instanceof Error ? caughtError.message : "Rebooking failed. Please try again.");
+    } finally {
+      setRebooking(false);
+    }
+  }
+
   if (loading || !user) return <DashboardLoading />;
 
   return (
@@ -440,6 +460,18 @@ export default function AdminShipmentDetailsPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <StatusPill label={getShipmentStatus(history)} tone={isOnHold ? "warning" : history?.dpdShipment ? "success" : "neutral"} />
+            {/* Rebook — only admin/operations may rebook. Delivery sees this page via SHIPMENT_VIEW_AREA but must not rebook. */}
+            {history?.dpdShipment && (user.role === "admin" || user.role === "operations") ? (
+              <button
+                type="button"
+                onClick={() => void handleRebook()}
+                disabled={rebooking}
+                className="inline-flex h-10 items-center gap-2 rounded-4xl border border-[#0D1282] bg-white px-4 text-sm font-semibold text-[#0D1282] transition hover:bg-[#0D1282]/5 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <BsArrowCounterclockwise aria-hidden="true" className="h-4 w-4" />
+                {rebooking ? "Rebooking..." : "Rebook"}
+              </button>
+            ) : null}
             {history?.dpdShipment && !cancellationLocked ? (
               <>
                 {!isOnHold ? (
@@ -839,6 +871,8 @@ export default function AdminShipmentDetailsPage() {
               onPreview={handleAmendmentPreview}
               onSubmit={handleAmendment}
             />
+
+          <ParcelActivityPanel activities={history?.parcelActivities} />
 
           <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
               {/* Destination card */}

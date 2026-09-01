@@ -29,6 +29,7 @@ import {
   createIndividualShipmentDraft,
   ManualShipmentDraftError
 } from "../services/manualShipmentDraft.service.js";
+import { rebookShipmentDraft } from "../services/rebookShipmentDraft.service.js";
 import { buildShipmentCostEstimate } from "../services/shipmentCostEstimate.service.js";
 import { getDeclaredGoodsValue } from "../services/parcelItems.service.js";
 import { RateCardRequiredError } from "../services/shipmentPricing.service.js";
@@ -488,6 +489,34 @@ export async function createIndividualShipmentDraftHandler(request: Request, res
       allowedBranchIds: draftCreationBranchScope(request)
     });
 
+    return response.status(201).json({ success: true, shipmentDraft });
+  } catch (error) {
+    if (error instanceof ManualShipmentDraftError) {
+      return response.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    throw error;
+  }
+}
+
+export async function rebookShipmentDraftHandler(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const idempotencyKey = String(request.header("Idempotency-Key") ?? "").trim();
+  if (idempotencyKey.length < 8 || idempotencyKey.length > 200) {
+    return response.status(400).json({ success: false, message: "A valid rebook request identifier is required." });
+  }
+
+  const draftId = getDraftId(request);
+  if (!draftId) return response.status(404).json({ success: false, message: "Shipment not found." });
+
+  try {
+    const shipmentDraft = await rebookShipmentDraft({
+      sourceDraftId: draftId,
+      createdBy: userId,
+      allowedBranchIds: draftCreationBranchScope(request),
+      idempotencyKey
+    });
     return response.status(201).json({ success: true, shipmentDraft });
   } catch (error) {
     if (error instanceof ManualShipmentDraftError) {

@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FiAlertTriangle, FiArchive, FiArrowDown, FiExternalLink, FiFileText, FiPlus, FiSearch, FiTrash2, FiX } from "react-icons/fi";
+import { BsArrowCounterclockwise } from "react-icons/bs";
 import { toast } from "react-toastify";
 import CreateManifestDialog, { type ManifestDialogValues } from "@/components/shipments/CreateManifestDialog";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -18,6 +19,7 @@ import { createBulkShipmentManifest, manifestsHref } from "@/lib/shipmentManifes
 import { shipmentInvoicePageUrl } from "@/lib/shipmentInvoices";
 import {
   bulkUpdateDpdShipmentOperationalStatus,
+  rebookShipmentDraft,
   shipmentOperationalStatusOptions,
   type BulkShipmentStatusResult,
   type ShipmentOperationalStatus
@@ -94,6 +96,7 @@ function isStatusUpdateEligible(shipment: ShipmentListItem) {
  * rendered here.
  */
 export default function ShipmentsListPage({ audience, role }: { audience: ShipmentAudience; role?: string }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const attentionOnly = searchParams.get("attention") === "1" || searchParams.get("attention") === "true";
   const [shipments, setShipments] = useState<ShipmentListItem[]>([]);
@@ -149,6 +152,8 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   // prompt can name the shipment the operator is about to remove.
   const [pendingDelete, setPendingDelete] = useState<ShipmentListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Single rebook in flight — tracks which booked shipment is being cloned.
+  const [rebookingId, setRebookingId] = useState<string | null>(null);
 
   // A selection may span pages, but it must never survive a change to the
   // query that defines those pages. Otherwise hidden rows from an earlier
@@ -169,6 +174,10 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   // Staff table only, and only for an administrator. Operations and delivery
   // work this list daily but do not remove rows from it.
   const canDelete = audience === "admin" && role === "admin";
+  // Rebook is staff-only: admin and operations may rebook any booked shipment
+  // into a new EDITABLE draft preserving its businessAccountId + branchId
+  // (individual shipments keep their original branch). Delivery/finance see no button.
+  const canRebook = audience === "admin" && (role === "admin" || role === "operations");
 
   /**
    * Columns a customer may hide. AWB and Actions are locked: one identifies the
@@ -397,6 +406,20 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
       toast.error(caught instanceof Error ? caught.message : "The bulk status update could not be completed.");
     } finally {
       setBulkStatusBusy(false);
+    }
+  }
+
+  async function handleRebook(shipmentId: string) {
+    if (rebookingId) return;
+    setRebookingId(shipmentId);
+    try {
+      const result = await rebookShipmentDraft(shipmentId);
+      toast.success("Shipment cloned for rebooking. Complete the booking.");
+      router.push(`/dashboard/dpd-labels/${result.shipmentDraft._id}`);
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "Rebooking failed. Please try again.");
+    } finally {
+      setRebookingId(null);
     }
   }
 
@@ -1045,6 +1068,18 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
                       >
                         <FiFileText aria-hidden="true" className="h-4 w-4" />Invoice
                       </Link>
+                      {canRebook ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleRebook(shipment.id)}
+                          disabled={rebookingId === shipment.id}
+                          aria-label={`Rebook shipment ${shipment.swiftlineTrackingNumber || shipment.id}`}
+                          className="inline-flex items-center gap-1 font-semibold text-[#0D1282] hover:text-[#0D1282]/80 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <BsArrowCounterclockwise aria-hidden="true" className="h-4 w-4" />
+                          {rebookingId === shipment.id ? "Rebooking..." : "Rebook"}
+                        </button>
+                      ) : null}
                       {canDelete ? (
                         <button
                           type="button"

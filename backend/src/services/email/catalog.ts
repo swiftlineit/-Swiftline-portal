@@ -24,6 +24,15 @@ const catalog: Record<string, CatalogEntry> = {
   // Staff-facing: a held shipment cannot move until someone looks at this.
   SHIPMENT_DOCUMENT_UPLOADED: { category: "TRANSACTIONAL", priority: 70 },
 
+  // Flight control: high/critical operational exceptions are also emailed to
+  // the branch's assigned operations team and active admins. Lower-severity
+  // flight information remains in-app to avoid alert fatigue.
+  FLIGHT_DELAY: { category: "OPERATIONAL", priority: 90 },
+  FLIGHT_OFFLOAD: { category: "OPERATIONAL", priority: 90 },
+  FLIGHT_CONNECTION_RISK: { category: "OPERATIONAL", priority: 90 },
+  FLIGHT_EXCEPTION: { category: "OPERATIONAL", priority: 85 },
+  FLIGHT_CUSTOMS_HOLD: { category: "OPERATIONAL", priority: 95 },
+
   // Amendments
   SHIPMENT_AMENDMENT_REQUESTED: { category: "TRANSACTIONAL", priority: 70 },
   SHIPMENT_AMENDMENT_APPROVED: { category: "TRANSACTIONAL", priority: 70 },
@@ -118,6 +127,7 @@ const catalog: Record<string, CatalogEntry> = {
   // Highest priority in the catalogue: someone is sitting on the sign-in screen
   // watching a countdown, so this must overtake every queued invoice and digest.
   LOGIN_OTP: { category: "TRANSACTIONAL", priority: 99 },
+  BUSINESS_ACCOUNT_EMAIL_OTP: { category: "TRANSACTIONAL", priority: 99 },
   PICKUP_OTP: { category: "TRANSACTIONAL", priority: 98 }
 };
 

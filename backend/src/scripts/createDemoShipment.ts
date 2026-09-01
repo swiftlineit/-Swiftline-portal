@@ -147,7 +147,7 @@ async function main() {
     if (!branch?.gstin) throw new Error("The assigned branch GSTIN is required for a billable statement test shipment.");
   }
 
-  const actorId = await resolveActor(account._id as mongoose.Types.ObjectId, account.createdBy);
+  const actorId = await resolveActor(account._id as mongoose.Types.ObjectId, (account.createdBy as mongoose.Types.ObjectId | null) ?? undefined as any);
   const now = new Date();
 
   const destinationPresets: Record<string, {

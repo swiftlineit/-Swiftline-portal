@@ -186,7 +186,8 @@ export interface IBusinessAccount extends mongoose.Document {
   ledgerViewedAt?: Date | null;
   assignedBranch?: mongoose.Types.ObjectId | null;
   rateCardBand?: RateCardBand | null;
-  createdBy: mongoose.Types.ObjectId;
+  origin?: "STAFF" | "PUBLIC";
+  createdBy: mongoose.Types.ObjectId | null;
   updatedBy?: mongoose.Types.ObjectId;
   submittedAt?: Date | null;
   createdAt: Date;
@@ -432,7 +433,9 @@ const businessAccountSchema = new mongoose.Schema<IBusinessAccount>(
     // their commercial rate card. The individual-shipment sentinel is backfilled
     // to BAND_A and continues to use the legacy counter tariff.
     rateCardBand: { type: String, enum: [...rateCardBandValues, null], default: null, index: true },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    // Public self-serve accounts have no internal creator; admin creates with a user.
+    origin: { type: String, enum: ["STAFF", "PUBLIC"], default: "STAFF", index: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: false, default: null, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     submittedAt: { type: Date, default: null }
   },

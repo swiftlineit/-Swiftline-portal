@@ -1650,6 +1650,19 @@ export async function updateBusinessAccountStatus(request: Request, response: Re
       idempotencyKey: `BUSINESS_ACCOUNT_STATUS:${String(account._id)}:${targetStatus}:${account.updatedAt.getTime()}`,
       metadata: { accountId: account.accountId, fromStatus: currentStatus, toStatus: targetStatus }
     });
+    // Public self-serve accounts have no portal members yet; still email the applicant on decision.
+    if (account.origin === "PUBLIC" && account.contact?.email) {
+      const { enqueueEmails } = await import("../services/email/enqueue.js");
+      const applicantName = `${account.contact.firstName ?? ""} ${account.contact.lastName ?? ""}`.trim() || account.contact.email;
+      await enqueueEmails({
+        notificationType: "BUSINESS_ACCOUNT_STATUS_CHANGED",
+        idempotencyKey: `BUSINESS_ACCOUNT_STATUS:${String(account._id)}:${targetStatus}:${account.updatedAt.getTime()}:applicant`,
+        recipients: [{ email: account.contact.email.toLowerCase(), name: applicantName, userId: null }],
+        businessAccountId: account._id as mongoose.Types.ObjectId,
+        subject: notice.title,
+        payload: { title: notice.title, message: notice.message, href: "/request/business-account", accountId: account.accountId }
+      }).catch(() => undefined);
+    }
   }
 
   const updatedAccount = await getPopulatedBusinessAccount(account.accountId);

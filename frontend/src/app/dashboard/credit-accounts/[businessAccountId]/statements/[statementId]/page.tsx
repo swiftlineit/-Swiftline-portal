@@ -51,7 +51,7 @@ export default function AdminCreditStatementDetailPage() {
   const pdfPath = `/api/v1/credit-accounts/${params.businessAccountId}/statements/${params.statementId}/pdf`;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="mx-auto max-w-8xl space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link

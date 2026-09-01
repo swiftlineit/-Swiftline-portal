@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -12,19 +12,18 @@ import {
   FiEdit2,
   FiEye,
   FiEyeOff,
-  FiHeadphones,
   FiLock,
   FiMail,
-  FiPhone,
   FiShield,
   FiSmartphone,
   FiUserCheck
 } from "react-icons/fi";
 import { LuSquareMousePointer } from "react-icons/lu";
 import { BsHeadset } from "react-icons/bs";
-import { apiUrl } from "@/lib/api";
 import {
+  AuthRequestError,
   loginWithGoogle,
+  loginWithPassword,
   requestLoginOtp,
   setAccessToken,
   takeSessionEndedReason,
@@ -93,6 +92,25 @@ function getEmailFormatError(value: string): string | null {
   const email = value.trim();
   if (!email) return "Enter your email address.";
   return EMAIL_FORMAT.test(email) ? null : "Please enter a valid email address.";
+}
+
+function getLoginErrorMessage(caught: unknown) {
+  if (caught instanceof AuthRequestError) {
+    const captchaError = caught.code === "CAPTCHA_FAILED" || /captcha|security check/i.test(caught.message);
+    if (captchaError) {
+      if (process.env.NODE_ENV !== "production") {
+        return "Local reCAPTCHA is enabled but this development URL is not registered. Set RECAPTCHA_ENABLED=false in backend/.env and restart the API.";
+      }
+      return "The security check did not complete. Refresh this page and try again. If it keeps happening, turn off a VPN or ad blocker, or contact Swiftline support.";
+    }
+    if (caught.status === 401) return "The email or password is incorrect.";
+    if (caught.status === 423 || caught.status === 429) return caught.message;
+    return caught.message;
+  }
+
+  return caught instanceof Error
+    ? caught.message
+    : "We could not sign you in. Check your connection and try again.";
 }
 
 export default function Home() {
@@ -289,24 +307,16 @@ export default function Home() {
 
     try {
       const recaptchaToken = await getRecaptchaToken();
-      const response = await fetch(apiUrl("/api/v1/auth/login"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ email: email.trim(), password, termsAccepted: true, recaptchaToken })
+      const data = await loginWithPassword({
+        email: email.trim(),
+        password,
+        termsAccepted: true,
+        recaptchaToken
       });
-
-      const data = await response.json();
-      if (!data.success) {
-        setError(data.message || "Invalid credentials");
-        setLoading(false);
-        return;
-      }
-
       setAccessToken(data.accessToken);
       router.push(destinationFor(data.user?.role));
-    } catch {
-      setError("Unable to sign in. Please try again.");
+    } catch (caught) {
+      setError(getLoginErrorMessage(caught));
       setLoading(false);
     }
   };
@@ -318,16 +328,14 @@ export default function Home() {
   };
 
   return (
-    // Mobile stays fluid and clips horizontal decoration; desktop keeps the
-    // original viewport-locked two-column experience from `lg` upward.
-    // Locked to the viewport from `lg` up so the whole screen is visible without
-    // scrolling. The card, not the page, is what gives way on a short laptop-
-    // a frame that stays put beats either a clipped footer or a scrolling page.
+    // Mobile remains a natural stacked document. From `lg` upward the page is
+    // viewport-locked, while the two primary cards use their content height and
+    // stretch to the same grid row so short laptops do not need an inner scrollbar.
     <div className="flex min-h-dvh w-full max-w-full flex-col overflow-x-hidden bg-[#F6F8FC] text-slate-900 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
       {/* Mobile header intentionally shows only the essentials; the richer company
           identity blocks progressively return as horizontal space becomes available. */}
       <header className="shrink-0 border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-350 items-center gap-2.5 px-4 py-2.5 sm:gap-4 sm:px-6 md:px-8 lg:gap-5 lg:py-2.5">
+        <div className="mx-auto flex w-full max-w-350 items-center gap-2.5 px-4 py-2.5 sm:gap-4 sm:px-6 md:px-8 lg:gap-5 lg:py-2">
           <Link href="/" className="shrink-0" aria-label="Swiftline Cargo and Express Logistics">
             <Image
               src="/slclogo1.png"
@@ -335,7 +343,7 @@ export default function Home() {
               width={1009}
               height={454}
               priority
-              className="h-11 w-auto object-contain sm:h-14 lg:h-20"
+              className="h-11 w-auto object-contain sm:h-14 lg:h-16"
             />
           </Link>
 
@@ -377,58 +385,60 @@ export default function Home() {
         </div>
       </header>
 
-      {/* A compact single-column flow on phones prevents the login card and brand
-          panel from shrinking into a desktop-width canvas. */}
-      <main className="mx-auto grid w-full max-w-350 min-w-0 flex-1 grid-cols-1 items-start gap-5 px-4 py-5 sm:gap-8 sm:px-6 sm:py-8 md:px-8 lg:min-h-0 lg:grid-cols-[1fr_minmax(400px,440px)] lg:items-center lg:gap-12 lg:py-8 xl:gap-16">
-        <LoginBrandPanel  />
+      {/* Phones stay stacked; desktop centers one shared-height row so the brand
+          panel and sign-in card remain aligned without introducing card scrolling. */}
+      <main className="mx-auto grid w-full max-w-350 min-w-0 flex-1 grid-cols-1 items-start gap-5 px-4 py-5 sm:gap-7 sm:px-6 sm:py-7 md:px-8 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(390px,430px)] lg:content-center lg:items-stretch lg:gap-10 lg:py-5 xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)] xl:gap-14">
+        <LoginBrandPanel />
 
-<section className="no-scrollbar order-1 mx-auto w-full min-w-0 max-w-130 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-12px_rgba(13,18,130,0.18)] sm:p-6 lg:order-2 lg:max-h-full lg:max-w-none lg:overflow-y-auto lg:p-4.5">
-          <h2 className="text-center text-[19px] font-bold tracking-tight text-slate-900 sm:text-[22px]">Welcome Back!</h2>
-          <p className="mt-0.5 text-center text-[13px] text-slate-500">Sign in to your SLC Portal</p>
+<section className="order-1 mx-auto w-full min-w-0 max-w-130 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_14px_36px_-16px_rgba(13,18,130,0.2)] sm:p-5 lg:order-2 lg:max-w-none lg:self-stretch lg:p-5">
+          <h2 className="text-center text-[20px] font-bold tracking-tight text-slate-950 sm:text-[22px]">Welcome Back!</h2>
+          <p className="mt-0.5 text-center text-[12.5px] text-slate-500">Sign in to your SLC Portal</p>
 
-          {/* Tabs stay mounted in every view so the card never changes width. */}
-          <div className="mt-4 grid grid-cols-2 border-b border-slate-200" role="tablist" aria-label="Sign-in method">
-            <button
-              type="button"
-              role="tab"
-              id="tab-mobile"
-              aria-selected={tab === "mobile"}
-              aria-controls="panel-signin"
-              disabled={!MOBILE_LOGIN_ENABLED}
-              onClick={() => setTab("mobile")}
-              className={`-mb-px flex min-w-0 items-center justify-center gap-1 border-b-2 pb-2.5 text-[11px] font-semibold transition sm:gap-1.5 sm:text-[13px] ${
-                tab === "mobile"
-                  ? "border-[#D81F26] text-[#0D1282]"
-                  : "border-transparent text-slate-400 enabled:hover:text-slate-600"
-              } disabled:cursor-not-allowed`}
-            >
-              Login with Mobile
-              {!MOBILE_LOGIN_ENABLED ? (
-                <span className="hidden rounded-full bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-slate-500 min-[360px]:inline">
-                  Soon
-                </span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              id="tab-email"
-              aria-selected={tab === "email"}
-              aria-controls="panel-signin"
-              onClick={() => setTab("email")}
-              className={`-mb-px min-w-0 border-b-2 pb-2.5 text-[11px] font-semibold transition sm:text-[13px] ${
-                tab === "email"
-                  ? "border-[#D81F26] text-[#0D1282]"
-                  : "border-transparent text-slate-400 hover:text-slate-600"
-              }`}
-            >
-              Login with Email
-            </button>
-          </div>
+          {/* The mobile tab is omitted completely until the feature is enabled. */}
+          {MOBILE_LOGIN_ENABLED ? (
+            <div className="mt-4 grid grid-cols-2 border-b border-slate-200" role="tablist" aria-label="Sign-in method">
+              <button
+                type="button"
+                role="tab"
+                id="tab-mobile"
+                aria-selected={tab === "mobile"}
+                aria-controls="panel-signin"
+                disabled={!MOBILE_LOGIN_ENABLED}
+                onClick={() => setTab("mobile")}
+                className={`-mb-px flex min-w-0 items-center justify-center gap-1 border-b-2 pb-2.5 text-[11px] font-semibold transition sm:gap-1.5 sm:text-[13px] ${
+                  tab === "mobile"
+                    ? "border-[#D81F26] text-[#0D1282]"
+                    : "border-transparent text-slate-400 enabled:hover:text-slate-600"
+                } disabled:cursor-not-allowed`}
+              >
+                Login with Mobile
+                {!MOBILE_LOGIN_ENABLED ? (
+                  <span className="hidden rounded-full bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-slate-500 min-[360px]:inline">
+                    Soon
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="tab-email"
+                aria-selected={tab === "email"}
+                aria-controls="panel-signin"
+                onClick={() => setTab("email")}
+                className={`-mb-px min-w-0 border-b-2 pb-2.5 text-[11px] font-semibold transition sm:text-[13px] ${
+                  tab === "email"
+                    ? "border-[#D81F26] text-[#0D1282]"
+                    : "border-transparent text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                Login with Email
+              </button>
+            </div>
+          ) : null}
 
-          <div id="panel-signin" role="tabpanel" aria-labelledby={tab === "mobile" ? "tab-mobile" : "tab-email"}>
+          <div id="panel-signin" role="tabpanel" aria-labelledby={MOBILE_LOGIN_ENABLED ? (tab === "mobile" ? "tab-mobile" : "tab-email") : undefined}>
             {tab === "mobile" ? (
-              <div className="mt-4">
+              <div className="mt-3.5">
                 <label htmlFor="mobile" className="block text-sm font-medium text-slate-700">
                   Mobile Number
                 </label>
@@ -469,7 +479,7 @@ export default function Home() {
             ) : null}
 
             {tab === "email" && view === "otp-request" ? (
-              <form onSubmit={handleRequestCode} className="mt-4">
+              <form onSubmit={handleRequestCode} className="mt-3.5">
                 <label htmlFor="email" className="block text-sm font-medium text-slate-700">
                   Email Address
                 </label>
@@ -507,7 +517,7 @@ export default function Home() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="mt-3.5 w-full rounded-xl bg-[#0D1282] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#0a0f6b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#0D1282]/25 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-3 w-full rounded-xl bg-[#0D1282] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#0a0f6b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#0D1282]/25 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? "Sending code…" : "Send OTP"}
                 </button>
@@ -515,7 +525,7 @@ export default function Home() {
             ) : null}
 
             {tab === "email" && view === "otp-verify" ? (
-              <div className="mt-4">
+              <div className="mt-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm text-slate-600">
                     Enter the {OTP_LENGTH}-digit code sent to
@@ -551,7 +561,7 @@ export default function Home() {
                   type="button"
                   disabled={loading || otp.length < OTP_LENGTH}
                   onClick={() => void handleVerifyCode(otp)}
-                  className="mt-3.5 w-full rounded-xl bg-[#0D1282] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#0a0f6b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#0D1282]/25 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-3 w-full rounded-xl bg-[#0D1282] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#0a0f6b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#0D1282]/25 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? "Verifying…" : "Verify & Sign in"}
                 </button>
@@ -573,7 +583,7 @@ export default function Home() {
             ) : null}
 
             {tab === "email" && view === "password" ? (
-              <form onSubmit={handlePasswordSubmit} className="mt-4">
+              <form onSubmit={handlePasswordSubmit} className="mt-3.5">
                 <label htmlFor="password-email" className="block text-sm font-medium text-slate-700">
                   Email Address
                 </label>
@@ -642,7 +652,7 @@ export default function Home() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="mt-3.5 w-full rounded-xl bg-[#0D1282] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#0a0f6b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#0D1282]/25 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-3 w-full rounded-xl bg-[#0D1282] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#0a0f6b] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#0D1282]/25 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? "Signing in…" : "Sign In"}
                 </button>
@@ -677,7 +687,7 @@ export default function Home() {
             </p>
           ) : null}
 
-          <div className="my-3 flex items-center gap-3" aria-hidden="true">
+          <div className="my-2.5 flex items-center gap-3" aria-hidden="true">
             <span className="h-px flex-1 bg-slate-200" />
             <span className="text-xs text-slate-400">or</span>
             <span className="h-px flex-1 bg-slate-200" />
@@ -714,7 +724,16 @@ export default function Home() {
               would have to be re-rendered from scratch on each remount. */}
           <div className={GOOGLE_CLIENT_ID ? "mt-2 flex w-full min-w-0 justify-center overflow-hidden" : "hidden"} ref={googleButtonRef} />
 
-          <p className="mt-3 text-center text-[11px] leading-relaxed text-slate-500">
+          <div className="mt-3 border-t border-slate-100 pt-3 text-center">
+            <p className="text-xs font-semibold text-slate-600">
+              New to Swiftline? {" "}
+              <Link href="/request/business-account" className="inline-flex items-center gap-1 font-bold text-[#0D1282] hover:underline">
+                Create business account <FiArrowLeft className="h-3 w-3 rotate-180" aria-hidden="true" />
+              </Link>
+            </p>
+          </div>
+
+          <p className="mt-2 text-center text-[10.5px] leading-relaxed text-slate-500">
             By continuing, you agree to Swiftline&apos;s terms and{" "}
             <Link
               href="/privacy-policy"
@@ -727,11 +746,11 @@ export default function Home() {
             .
           </p>
 
-          <ul className="mt-3 grid grid-cols-2 gap-x-2 gap-y-3 border-t border-slate-100 pt-3 min-[420px]:grid-cols-4">
+          <ul className="mt-2.5 grid grid-cols-4 gap-1.5 border-t border-slate-100 pt-2.5">
             {TRUST_SIGNALS.map(({ icon: Icon, label, sublabel }) => (
               <li key={label} className="text-center">
                 <Icon size={16} className="mx-auto text-[#0D1282]" aria-hidden="true" />
-                <span className="mt-1 block text-[9.5px] font-medium leading-tight text-slate-500">
+                <span className="mt-1 block text-[9px] font-medium leading-tight text-slate-500">
                   {label}
                   <br />
                   {sublabel}
@@ -740,61 +759,11 @@ export default function Home() {
             ))}
           </ul>
 
-          {/* `hide-on-short-desktop` is defined in globals.css- see the note
-              there on why this one rule is not a Tailwind utility. */}
-          <div className="hide-on-short-desktop mt-3 rounded-xl bg-slate-50/80 px-3.5 py-3">
-  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <div className="min-w-0">
-      <p className="text-[12.5px] font-bold text-slate-800">
-        Need Help?
-      </p>
-
-      <p className="mt-0.5 text-[10.5px] leading-4 text-slate-500">
-        Our support team is available 24/7
-      </p>
-    </div>
-
-    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[10.5px] sm:justify-end">
-      <Link
-        href={SUPPORT_PHONE_HREF}
-        className="font-bold text-[#D81F26] transition hover:underline"
-      >
-        {SUPPORT_PHONE}
-      </Link>
-
-      <span
-        aria-hidden="true"
-        className="hidden h-3 w-px bg-slate-300 sm:block"
-      />
-
-      <Link
-        href={`mailto:${SUPPORT_EMAIL}`}
-        className="max-w-full truncate text-slate-500 transition hover:text-[#0D1282] hover:underline"
-      >
-        {SUPPORT_EMAIL}
-      </Link>
-
-      <span
-        aria-hidden="true"
-        className="hidden h-3 w-px bg-slate-300 sm:block"
-      />
-
-      <Link
-        href="https://www.swiftlinefreight.com"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-slate-500 transition hover:text-[#0D1282] hover:underline"
-      >
-        swiftlinefreight.com
-      </Link>
-    </div>
-  </div>
-</div>
         </section>
       </main>
 
       <footer className="shrink-0 bg-[#0D1282] text-white">
-        <div className="mx-auto flex w-full max-w-350 flex-col gap-2.5 px-4 py-3.5 text-center sm:px-6 md:flex-row md:items-center md:justify-between md:px-8 md:text-left">
+        <div className="mx-auto flex w-full max-w-350 flex-col gap-2 px-4 py-2.5 text-center sm:px-6 md:flex-row md:items-center md:justify-between md:px-8 md:text-left">
           <div className="flex items-center justify-center gap-2.5 md:justify-start">
             
             <div>

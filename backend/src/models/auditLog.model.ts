@@ -14,6 +14,7 @@ export type AuditAction =
   | "SHIPMENT_DRAFT_UPDATED"
   | "SHIPMENT_DRAFT_DELETED"
   | "SHIPMENT_DRAFT_RESTORED"
+  | "SHIPMENT_DRAFT_REBOOKED"
   // Distinct from SHIPMENT_DRAFT_DELETED: that one can only ever remove an
   // unbooked draft, while this removes a shipment the carrier already holds.
   // Kept separate so an auditor can find the second kind without reading

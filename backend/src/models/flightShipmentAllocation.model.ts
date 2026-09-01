@@ -9,10 +9,19 @@ export interface IFlightShipmentAllocation extends mongoose.Document {
   shipmentDraftId: mongoose.Types.ObjectId;
   dpdShipmentId: mongoose.Types.ObjectId;
   awb: string;
+  /** Actual and volumetric weights are retained so the capacity decision is auditable. */
+  actualWeightKg?: number;
+  volumetricWeightKg?: number;
+  chargeableWeightKg?: number;
+  /** Legacy capacity field; new allocations store the chargeable weight here too. */
   destinationCountryCode: string;
   destinationCountryName: string;
   weightKg: number;
   pieces: number;
+  /** Parcels still physically assigned to this flight. Empty when fully offloaded. */
+  activeParcelNumbers?: string[];
+  /** Parcels removed from this flight without changing the shipment identity. */
+  offloadedParcelNumbers?: string[];
   snapshot: Record<string, unknown>;
   status: AllocationStatus;
   allocatedBy: mongoose.Types.ObjectId;
@@ -32,10 +41,15 @@ const schema = new mongoose.Schema<IFlightShipmentAllocation>(
     shipmentDraftId: { type: mongoose.Schema.Types.ObjectId, ref: "ShipmentDraft", required: true, index: true },
     dpdShipmentId: { type: mongoose.Schema.Types.ObjectId, ref: "DpdShipment", required: true, index: true },
     awb: { type: String, trim: true, uppercase: true, maxlength: 80, default: "" },
+    actualWeightKg: { type: Number, min: 0 },
+    volumetricWeightKg: { type: Number, min: 0 },
+    chargeableWeightKg: { type: Number, min: 0 },
     destinationCountryCode: { type: String, trim: true, uppercase: true, maxlength: 2, default: "" },
     destinationCountryName: { type: String, trim: true, maxlength: 100, default: "" },
     weightKg: { type: Number, required: true, min: 0 },
     pieces: { type: Number, required: true, min: 0 },
+    activeParcelNumbers: [{ type: String, trim: true, uppercase: true, maxlength: 80 }],
+    offloadedParcelNumbers: [{ type: String, trim: true, uppercase: true, maxlength: 80 }],
     snapshot: { type: mongoose.Schema.Types.Mixed, default: {} },
     status: { type: String, enum: allocationStatusValues, required: true, default: "ALLOCATED", index: true },
     allocatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -58,7 +72,14 @@ schema.index(
   }
 );
 schema.index({ flightLinehaulId: 1, status: 1 });
-schema.index({ flightLinehaulId: 1, shipmentDraftId: 1 }, { unique: true, name: "uniq_flight_shipment" });
+schema.index(
+  { flightLinehaulId: 1, shipmentDraftId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: "ALLOCATED" },
+    name: "uniq_active_flight_shipment"
+  }
+);
 schema.index({ branchId: 1, status: 1, allocatedAt: -1 });
 
 export const FlightShipmentAllocation = mongoose.model<IFlightShipmentAllocation>(

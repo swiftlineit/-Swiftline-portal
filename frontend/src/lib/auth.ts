@@ -25,6 +25,18 @@ export function takeSessionEndedReason() {
   return reason;
 }
 
+export class AuthRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+    public readonly retryable = false
+  ) {
+    super(message);
+    this.name = "AuthRequestError";
+  }
+}
+
 export function getAccessToken() {
   return accessToken;
 }
@@ -95,14 +107,41 @@ export async function logout() {
 }
 
 async function parseAuthResponse<T>(response: Response): Promise<T> {
-  const data = await readJsonSafely(response) as { success?: boolean; message?: string; errors?: unknown };
+  const data = await readJsonSafely(response) as {
+    success?: boolean;
+    message?: string;
+    code?: unknown;
+    retryable?: unknown;
+    errors?: unknown;
+  };
 
   if (!response.ok || !data.success) {
     const formattedError = findFirstApiError(data.errors);
-    throw new Error(data.message || formattedError || "Authentication request failed");
+    throw new AuthRequestError(
+      data.message || formattedError || "Authentication request failed",
+      response.status,
+      typeof data.code === "string" ? data.code : undefined,
+      data.retryable === true
+    );
   }
 
   return data as T;
+}
+
+export async function loginWithPassword(input: {
+  email: string;
+  password: string;
+  termsAccepted: true;
+  recaptchaToken?: string;
+}) {
+  const response = await fetch(apiUrl("/api/v1/auth/login"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(input)
+  });
+
+  return parseAuthResponse<LoginResult>(response);
 }
 
 function findFirstApiError(value: unknown): string {

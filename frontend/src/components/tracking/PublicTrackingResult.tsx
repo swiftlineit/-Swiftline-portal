@@ -18,6 +18,7 @@ import type {
   PublicTrackingResult as TrackingLookup,
 } from "@/lib/publicTracking";
 import PublicTrackingForm from "@/components/tracking/PublicTrackingForm";
+import ParcelActivityPanel from "@/components/shipments/ParcelActivityPanel";
 
 /**
  * The public tracking result page, top to bottom.
@@ -93,6 +94,8 @@ export default function PublicTrackingResult({
 
         {tracking.isParcelLevel ? <ParcelNotice tracking={tracking} /> : null}
 
+        <ParcelActivityPanel activities={tracking.parcelActivities} />
+
         <SummaryBand tracking={tracking} />
 
         <JourneyRail tracking={tracking} />
@@ -147,7 +150,7 @@ function statusDotClass(status: string) {
 
   if (status === "ON_HOLD") return "bg-amber-500";
 
-  return "bg-[#0D1282]";
+  return "bg-emerald-500";
 }
 
 function statusChipClass(status: string) {
@@ -167,7 +170,7 @@ function statusChipClass(status: string) {
     return "border-slate-200 bg-slate-50 text-slate-700";
   }
 
-  return "border-blue-200 bg-blue-50 text-blue-800";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
 function TrackingHeader({ tracking }: { tracking: PublicTracking }) {
@@ -444,7 +447,7 @@ function JourneyRail({ tracking }: { tracking: PublicTracking }) {
                   className={`flex h-7 w-7 items-center justify-center rounded-full border-2 transition ${
                     reached
                       ? stage.isCurrent
-                        ? "border-[#0D1282] bg-[#0D1282] text-white shadow-[0_0_0_4px_rgba(13,18,130,0.08)]"
+                        ? "border-emerald-500 bg-emerald-500 text-white shadow-[0_0_0_4px_rgba(16,185,129,0.12)]"
                         : "border-emerald-500 bg-emerald-500 text-white"
                       : "border-slate-200 bg-white text-slate-300"
                   }`}
@@ -465,7 +468,7 @@ function JourneyRail({ tracking }: { tracking: PublicTracking }) {
                   className={`text-xs font-semibold leading-5 ${
                     reached
                       ? stage.isCurrent
-                        ? "text-[#0D1282]"
+                        ? "text-emerald-700"
                         : "text-slate-900"
                       : "text-slate-400"
                   }`}
@@ -783,7 +786,7 @@ function Timeline({ tracking }: { tracking: PublicTracking }) {
                     className={[
                       "absolute left-0 top-4 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 sm:h-7 sm:w-7",
                       isLatest
-                        ? "border-[#0D1282] bg-[#0D1282] text-white shadow-[0_4px_12px_rgba(13,18,130,0.18)]"
+                        ? "border-emerald-500 bg-emerald-500 text-white shadow-[0_4px_12px_rgba(16,185,129,0.18)]"
                         : "border-emerald-200 bg-white text-emerald-600",
                     ].join(" ")}
                   >
@@ -794,7 +797,7 @@ function Timeline({ tracking }: { tracking: PublicTracking }) {
                     className={[
                       "rounded-xl border px-4 py-3.5 sm:px-5 sm:py-4",
                       isLatest
-                        ? "border-[#0D1282]/20 bg-[#0D1282]/[0.035]"
+                        ? "border-emerald-200 bg-emerald-50/40"
                         : "border-slate-200 bg-white",
                     ].join(" ")}
                   >

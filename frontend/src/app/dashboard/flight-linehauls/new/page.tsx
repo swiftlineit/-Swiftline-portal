@@ -23,8 +23,8 @@ export default function NewFlightPage() {
     flightNumber: "",
     airlineName: "",
     mawbNumber: "",
-    originIataCode: "DEL",
-    destinationIataCode: "LHR",
+    originIataCode: "",
+    destinationIataCode: "",
     transitIataCode: "",
     scheduledDepartureAt: "",
     scheduledArrivalAt: "",
@@ -38,21 +38,24 @@ export default function NewFlightPage() {
 
   useEffect(() => {
     if (!user) return;
-    listManifestBranches().then((r) => setBranches(r.branches)).catch(() => {});
+    listManifestBranches().then((r) => {
+      setBranches(r.branches);
+      if (r.branches.length) setForm((current) => current.branchId ? current : { ...current, branchId: r.branches[0]?.id ?? "" });
+    }).catch(() => {});
   }, [user]);
-
-  useEffect(() => {
-    if (branches.length && !form.branchId) setForm((c) => ({ ...c, branchId: branches[0]?.id ?? "" }));
-  }, [branches, form.branchId]);
 
   if (loading || !user) return <DashboardLoading />;
 
   async function submit() {
     if (!form.branchId) return toast.error("Select a branch.");
     if (!/^[A-Z0-9]{2,4}\d{1,4}[A-Z]?$/.test(form.flightNumber.trim().toUpperCase())) return toast.error("Enter a valid flight number (e.g., AI131).");
+    if (form.airlineName.trim().length < 2) return toast.error("Enter the airline name.");
+    if (!/^\d{3}-?\d{8}$/.test(form.mawbNumber.trim())) return toast.error("Enter a valid MAWB (e.g., 098-12345678).");
+    if (!/^[A-Za-z]{3}$/.test(form.originIataCode.trim()) || !/^[A-Za-z]{3}$/.test(form.destinationIataCode.trim())) return toast.error("Enter valid three-letter origin and destination IATA codes.");
+    if (form.originIataCode.trim().toUpperCase() === form.destinationIataCode.trim().toUpperCase()) return toast.error("Origin and destination airports must be different.");
     if (!form.scheduledDepartureAt || !form.scheduledArrivalAt) return toast.error("Select departure and arrival.");
     const cap = Number(form.capacityKg);
-    if (!Number.isFinite(cap) || cap < 0) return toast.error("Enter a valid capacity.");
+    if (!Number.isFinite(cap) || cap <= 0) return toast.error("Enter a valid positive capacity.");
     if (new Date(form.scheduledArrivalAt) <= new Date(form.scheduledDepartureAt)) return toast.error("Arrival must be after departure.");
     setSaving(true);
     try {
@@ -93,12 +96,12 @@ export default function NewFlightPage() {
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <label className="text-sm font-semibold text-slate-700">Branch *<select value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })} className={`${inputClass} `}><option value="">Select branch</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}</select></label>
           <label className="text-sm font-semibold text-slate-700">Flight number *<input value={form.flightNumber} onChange={(e) => setForm({ ...form, flightNumber: e.target.value })} placeholder="AI131" className={inputClass} /></label>
-          <label className="text-sm font-semibold text-slate-700">Airline<input value={form.airlineName} onChange={(e) => setForm({ ...form, airlineName: e.target.value })} placeholder="Air India" className={inputClass} /></label>
-          <label className="text-sm font-semibold text-slate-700">MAWB<input value={form.mawbNumber} onChange={(e) => setForm({ ...form, mawbNumber: e.target.value })} placeholder="098-12345678" className={inputClass} /></label>
-          <label className="text-sm font-semibold text-slate-700">Origin IATA<input value={form.originIataCode} onChange={(e) => setForm({ ...form, originIataCode: e.target.value })} placeholder="DEL" maxLength={3} className={inputClass} /></label>
-          <label className="text-sm font-semibold text-slate-700">Destination IATA<input value={form.destinationIataCode} onChange={(e) => setForm({ ...form, destinationIataCode: e.target.value })} placeholder="LHR" maxLength={3} className={inputClass} /></label>
+          <label className="text-sm font-semibold text-slate-700">Airline *<input required value={form.airlineName} onChange={(e) => setForm({ ...form, airlineName: e.target.value })} placeholder="Air India" className={inputClass} /></label>
+          <label className="text-sm font-semibold text-slate-700">MAWB *<input required value={form.mawbNumber} onChange={(e) => setForm({ ...form, mawbNumber: e.target.value })} placeholder="098-12345678" className={inputClass} /></label>
+          <label className="text-sm font-semibold text-slate-700">Origin IATA *<input required value={form.originIataCode} onChange={(e) => setForm({ ...form, originIataCode: e.target.value })} placeholder="DEL" maxLength={3} className={inputClass} /></label>
+          <label className="text-sm font-semibold text-slate-700">Destination IATA *<input required value={form.destinationIataCode} onChange={(e) => setForm({ ...form, destinationIataCode: e.target.value })} placeholder="LHR" maxLength={3} className={inputClass} /></label>
           <label className="text-sm font-semibold text-slate-700">Transit IATA (optional)<input value={form.transitIataCode} onChange={(e) => setForm({ ...form, transitIataCode: e.target.value })} placeholder="DXB" maxLength={3} className={inputClass} /></label>
-          <label className="text-sm font-semibold text-slate-700">Capacity (kg) *<input type="number" min={0} step={0.1} value={form.capacityKg} onChange={(e) => setForm({ ...form, capacityKg: e.target.value })} className={inputClass} /></label>
+          <label className="text-sm font-semibold text-slate-700">Capacity (kg) *<input required type="number" min={0.1} step={0.1} value={form.capacityKg} onChange={(e) => setForm({ ...form, capacityKg: e.target.value })} className={inputClass} /></label>
           <label className="text-sm font-semibold text-slate-700">Scheduled departure *<input type="datetime-local" value={form.scheduledDepartureAt} onChange={(e) => setForm({ ...form, scheduledDepartureAt: e.target.value })} className={inputClass} /></label>
           <label className="text-sm font-semibold text-slate-700">Scheduled arrival *<input type="datetime-local" value={form.scheduledArrivalAt} onChange={(e) => setForm({ ...form, scheduledArrivalAt: e.target.value })} className={inputClass} /></label>
           <label className="text-sm font-semibold text-slate-700 sm:col-span-2">Destination agent<textarea value={form.destinationAgent} onChange={(e) => setForm({ ...form, destinationAgent: e.target.value })} rows={2} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0D1282]" placeholder="Destination handling agent details" /></label>

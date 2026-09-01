@@ -103,6 +103,7 @@ export default function AdminCreditAccountDetailPage() {
   // Page-level UI state.
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
+  const [highlightStatements, setHighlightStatements] = useState(false);
 
   // Loads the account, statements, payments, and ledger together, then
   // pre-fills the payment form with the oldest outstanding statement.
@@ -140,6 +141,27 @@ export default function AdminCreditAccountDetailPage() {
 
     return () => window.clearTimeout(initialLoad);
   }, [load, user]);
+
+  // When navigated via an Outstanding link (#billing-statements), scroll to and briefly highlight the statements section.
+  useEffect(() => {
+    if (loading) return;
+    const highlightFromHash = () => {
+      const hash = window.location.hash;
+      if (hash === "#billing-statements" || hash === "#statements") {
+        const element = document.getElementById("billing-statements");
+        if (element) {
+          window.requestAnimationFrame(() => {
+            element.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+          setHighlightStatements(true);
+          window.setTimeout(() => setHighlightStatements(false), 2800);
+        }
+      }
+    };
+    highlightFromHash();
+    window.addEventListener("hashchange", highlightFromHash);
+    return () => window.removeEventListener("hashchange", highlightFromHash);
+  }, [loading]);
 
   // Closes the currently completed billing cycle.
   async function closeCycle() {
@@ -264,13 +286,13 @@ export default function AdminCreditAccountDetailPage() {
   if (userLoading || !user) return <DashboardLoading />;
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-5">
+    <div className="mx-auto max-w-8xl space-y-5">
       {/* Page header: account identity + lifecycle actions */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <Link href="/dashboard/credit-accounts" className="text-sm font-semibold text-blue-900">
+            {/* <Link href="/dashboard/credit-accounts" className="text-sm font-semibold text-blue-900">
               Back to credit accounts
-            </Link>
+            </Link> */}
             <h1 className="mt-2 text-2xl font-semibold text-slate-950">
               {account?.businessAccount?.companyName || "Credit Account"}
             </h1>
@@ -375,7 +397,10 @@ export default function AdminCreditAccountDetailPage() {
         {account ? <CreditRestrictionAlert restriction={account.restriction} gracePeriodDays={account.gracePeriodDays} /> : null}
 
         {/* Billing statements table */}
-        <section className="overflow-x-auto border border-slate-200 bg-white rounded-2xl">
+        <section
+          id="billing-statements"
+          className={`overflow-x-auto border bg-white rounded-2xl scroll-mt-6 transition-all duration-500 ${highlightStatements ? "border-amber-400 ring-4 ring-amber-200 shadow-lg" : "border-slate-200"}`}
+        >
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 p-5">
             <div>
               <h2 className="font-semibold text-slate-950">Billing Statements</h2>

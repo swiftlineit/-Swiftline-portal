@@ -19,6 +19,7 @@ import { labelStatus } from "@/lib/shipmentJourney";
 import type { TrackingJourney } from "@/lib/shipmentJourney";
 import type {
   TrackingAttention,
+  ParcelActivity,
   TrackingPosition,
   TrackingSummary,
 } from "@/lib/shipmentTracking";
@@ -43,6 +44,7 @@ type TrackingRecord = {
   attention: TrackingAttention | null;
   journey: TrackingJourney | null;
   position: TrackingPosition | null;
+  parcelActivities: ParcelActivity[];
 };
 
 type ShipmentTrackingPageProps = {
@@ -85,6 +87,7 @@ function fromAdmin(item: DpdShipmentHistoryItem): TrackingRecord {
     attention: item.trackingAttention ?? null,
     journey: item.trackingJourney ?? null,
     position: item.trackingPosition ?? null,
+    parcelActivities: item.parcelActivities ?? [],
   };
 }
 
@@ -131,6 +134,7 @@ function fromClient(shipment: ClientShipmentDetails): TrackingRecord {
     attention: shipment.trackingAttention ?? null,
     journey: shipment.trackingJourney ?? null,
     position: shipment.trackingPosition ?? null,
+    parcelActivities: shipment.parcelActivities ?? [],
   };
 }
 

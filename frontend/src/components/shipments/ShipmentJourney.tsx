@@ -155,7 +155,7 @@ export function ShipmentJourney({
                 className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${
                   reached
                     ? stage.isCurrent
-                      ? "border-[#0D1282] bg-[#0D1282] text-white"
+                      ? "border-emerald-500 bg-emerald-500 text-white ring-4 ring-emerald-100"
                       : "border-emerald-400 bg-emerald-400 text-white"
                     : "border-slate-200 bg-white text-slate-300"
                 }`}

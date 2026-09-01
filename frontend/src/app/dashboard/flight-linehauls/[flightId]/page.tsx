@@ -2,16 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
-  FiArrowLeft,
   FiAlertTriangle,
   FiUpload,
   FiTrash2,
   FiDownload,
   FiPlus,
   FiRefreshCw,
-  FiExternalLink,
 } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
@@ -31,10 +29,8 @@ import {
   updateConnection,
   createOffload,
   updateHandover,
-  listFlightDocuments,
   uploadFlightDocument,
   deleteFlightDocument,
-  listFlightExceptions,
   acknowledgeException,
   updateException,
   resolveException,
@@ -102,7 +98,6 @@ function statusBadge(status: string) {
 export default function FlightDetailPage() {
   const { user, loading } = useAdminUser(OPERATIONS_AREA);
   const params = useParams<{ flightId: string }>();
-  const router = useRouter();
   const flightId = params.flightId;
   const [detail, setDetail] = useState<FlightDetail | null>(null);
   const [busy, setBusy] = useState(true);
@@ -123,6 +118,8 @@ export default function FlightDetailPage() {
   }, [flightId]);
 
   useEffect(() => {
+    // This effect synchronizes an async API request with page state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (user) void load();
   }, [load, user]);
 
@@ -313,7 +310,7 @@ export default function FlightDetailPage() {
         </div>
         <div className="p-5">
           {tab === "Overview" && (
-            <OverviewTab detail={detail} onRefresh={load} />
+            <OverviewTab detail={detail} />
           )}
           {tab === "Shipments" && (
             <ShipmentsTab
@@ -347,7 +344,6 @@ export default function FlightDetailPage() {
           {tab === "Exceptions" && (
             <ExceptionsTab
               detail={detail}
-              flightId={flightId}
               onRefresh={load}
             />
           )}
@@ -389,10 +385,8 @@ function Stat({
 // ── Overview ───────────────────────────────────────────────────────────────
 function OverviewTab({
   detail,
-  onRefresh,
 }: {
   detail: FlightDetail;
-  onRefresh: () => void;
 }) {
   const flight = detail.flight;
   return (
@@ -1275,7 +1269,9 @@ function ConnectionTab({
       : "",
   });
   useEffect(() => {
-    if (c)
+    if (c) {
+      // The form mirrors refreshed connection data returned by the API.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setForm({
         transitAirportCode: c.transitAirportCode,
         scheduledArrivalAt: c.scheduledArrivalAt
@@ -1291,6 +1287,7 @@ function ConnectionTab({
           ? new Date(c.actualDepartureAt).toISOString().slice(0, 16)
           : "",
       });
+    }
   }, [c]);
   return (
     <div className="space-y-4">
@@ -1431,12 +1428,9 @@ function OffloadSection({
     offloadReason: "AIRLINE_OFFLOAD",
     reason: "",
     airline: "",
-    replacementFlightId: "",
   });
-  const [selectedShipments, setSelectedShipments] = useState<Set<string>>(new Set());
-  const [flightOptions, setFlightOptions] = useState<Array<{id:string; flightLinehaulNumber:string; flightNumber:string}>>([]);
+  const [selectedParcels, setSelectedParcels] = useState<Set<string>>(new Set());
   const allocated = detail.allocations.filter((a)=>a.status==="ALLOCATED");
-  async function loadFlights(){ try{ const r=await listFlights({limit:20}); setFlightOptions(r.items.filter(f=>f.id!==flightId).map(f=>({id:f.id, flightLinehaulNumber:f.flightLinehaulNumber, flightNumber:f.flightNumber})));}catch{}}
   return (
     <div className="mt-3 space-y-3">
       <div className="overflow-hidden rounded-xl border border-slate-200">
@@ -1445,8 +1439,8 @@ function OffloadSection({
             <tr>
               <th className="px-3 py-2">Reason</th>
               <th className="px-3 py-2">Detail</th>
+              <th className="px-3 py-2">Parcels</th>
               <th className="px-3 py-2 text-right">Weight</th>
-              <th className="px-3 py-2">Replacement</th>
               <th className="px-3 py-2">At</th>
             </tr>
           </thead>
@@ -1455,13 +1449,11 @@ function OffloadSection({
               <tr key={o.id}>
                 <td className="px-3 py-2 font-semibold">{o.reason}</td>
                 <td className="px-3 py-2 max-w-64 truncate">{o.detail}</td>
+                <td className="px-3 py-2 font-mono text-xs">
+                  {(o.affectedParcels ?? []).map((parcel) => parcel.parcelNumber).join(", ") || "Legacy record"}
+                </td>
                 <td className="px-3 py-2 text-right">
                   {o.affectedWeightKg.toFixed(1)} kg · {o.affectedPieces} pcs
-                </td>
-                <td className="px-3 py-2">
-                  {o.replacementFlightId
-                    ? o.replacementFlightId.slice(-6)
-                    : "—"}
                 </td>
                 <td className="px-3 py-2 text-xs">
                   {new Date(o.createdAt).toLocaleString("en-IN")}
@@ -1483,7 +1475,7 @@ function OffloadSection({
       </div>
       {!show ? (
         <button
-          onClick={() => { setShow(true); void loadFlights(); }}
+          onClick={() => { setShow(true); }}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
         >
           <FiPlus /> Record offload
@@ -1524,50 +1516,84 @@ function OffloadSection({
               <input
                 value={form.reason}
                 onChange={(e) => setForm({ ...form, reason: e.target.value })}
-                placeholder="Reason with affected weight/bags - e.g. 3 shipments offloaded at DXB"
+                placeholder="Explain why the selected parcels were offloaded"
                 className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
               />
             </label>
             <div className="sm:col-span-2 rounded-xl border border-white bg-white p-3">
-              <p className="text-xs font-semibold text-slate-700">Affected shipments — select by AWB (Shipment) {selectedShipments.size ? "("+selectedShipments.size+" selected)" : "(leave empty for bags only)"}</p>
-              <p className="text-xs text-slate-500">Each row shows AWB (= Swiftline tracking), destination, weight. This is what "Affected Shipments ID" means.</p>
-              <div className="mt-2 max-h-40 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-200">
-                {allocated.length ? allocated.map((a)=> (
-                  <label key={a.id} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer">
-                    <input type="checkbox" checked={selectedShipments.has(a.shipmentDraftId)} onChange={(e)=>{ const s=new Set(selectedShipments); if(e.target.checked) s.add(a.shipmentDraftId); else s.delete(a.shipmentDraftId); setSelectedShipments(s);}} />
-                    <span className="font-mono text-xs font-semibold">{a.awb || a.shipmentDraftId.slice(-8)}</span>
-                    <span className="text-xs text-slate-600">{a.destinationCountryName || a.destinationCountryCode} · {a.weightKg.toFixed(3)}kg · {a.pieces} pcs</span>
-                  </label>
-                )) : <p className="px-3 py-4 text-center text-xs text-slate-500">No allocated shipments to offload</p>}
+              <p className="text-xs font-semibold text-slate-800">
+                Select affected parcels {selectedParcels.size ? `(${selectedParcels.size} selected)` : ""}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Select only the physical parcels removed from this flight. The shipment itself is not rebooked or moved.
+              </p>
+              <div className="mt-2 max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-200">
+                {allocated.length ? allocated.map((allocation) => {
+                  const activeParcels = allocation.parcelDetails.filter((parcel) => parcel.status === "ALLOCATED");
+                  return (
+                    <div key={allocation.id} className="px-3 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-semibold text-slate-950">
+                          {allocation.awb || allocation.shipmentDraftId.slice(-8)}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {allocation.destinationCountryName || allocation.destinationCountryCode} · {activeParcels.length} active
+                        </span>
+                      </div>
+                      <div className="mt-2 space-y-1.5">
+                        {activeParcels.map((parcel) => {
+                          const selectionKey = `${allocation.shipmentDraftId}|${parcel.parcelNumber}`;
+                          return (
+                            <label key={parcel.parcelNumber} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-slate-50">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={selectedParcels.has(selectionKey)}
+                                onChange={(event) => {
+                                  const next = new Set(selectedParcels);
+                                  if (event.target.checked) next.add(selectionKey);
+                                  else next.delete(selectionKey);
+                                  setSelectedParcels(next);
+                                }}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block break-all font-mono text-xs font-semibold text-slate-800">{parcel.parcelNumber}</span>
+                                <span className="mt-0.5 block text-xs text-slate-500">
+                                  Actual {parcel.actualWeightKg.toFixed(3)} kg · Volumetric {parcel.volumetricWeightKg.toFixed(3)} kg · Chargeable {parcel.chargeableWeightKg.toFixed(3)} kg
+                                </span>
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }) : <p className="px-3 py-4 text-center text-xs text-slate-500">No active parcels are available to offload.</p>}
               </div>
             </div>
-            <label className="text-xs font-semibold text-slate-600 sm:col-span-2">
-              Replacement flight (optional) — reallocation preserves original history
-              <select
-                value={form.replacementFlightId}
-                onChange={(e) => setForm({ ...form, replacementFlightId: e.target.value })}
-                className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-              >
-                <option value="">No replacement — keep offloaded</option>
-                {flightOptions.map((f)=><option key={f.id} value={f.id}>{f.flightLinehaulNumber} · {f.flightNumber}</option>)}
-              </select>
-            </label>
           </div>
           <div className="flex justify-end gap-2">
-            <button onClick={() => { setShow(false); setSelectedShipments(new Set()); }} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold" disabled={saving}>Cancel</button>
-            <button disabled={saving} onClick={async () => {
+            <button onClick={() => { setShow(false); setSelectedParcels(new Set()); }} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold" disabled={saving}>Cancel</button>
+            <button disabled={saving || !selectedParcels.size} onClick={async () => {
               if (form.reason.trim().length < 5) return toast.error("Reason required.");
+              if (!selectedParcels.size) return toast.error("Select at least one parcel.");
               if (saving) return;
               setSaving(true);
               try {
-                await createOffload(flightId, { reason: form.reason.trim(), offloadReason: form.offloadReason, airline: form.airline.trim(), affectedShipmentIds: [...selectedShipments], affectedBagIds: [], replacementFlightId: form.replacementFlightId.trim() || null });
-                toast.success("Offload recorded. Exception created and reallocation attempted.");
-                setShow(false); setForm({ offloadReason: "AIRLINE_OFFLOAD", reason: "", airline: "", replacementFlightId: "" }); setSelectedShipments(new Set());
+                const affectedParcels = [...selectedParcels].map((selection) => {
+                  const [shipmentDraftId, parcelNumber] = selection.split("|");
+                  return { shipmentDraftId, parcelNumber };
+                });
+                await createOffload(flightId, { reason: form.reason.trim(), offloadReason: form.offloadReason, airline: form.airline.trim(), affectedParcels });
+                toast.success("Offload recorded. Use Shipment Rebook separately if the shipment must travel again.");
+                setShow(false); setForm({ offloadReason: "AIRLINE_OFFLOAD", reason: "", airline: "" }); setSelectedParcels(new Set());
                 await onRefresh();
               } catch (e) { toast.error(e instanceof Error ? e.message : "Offload failed."); } finally { setSaving(false); }
             }} className="h-10 rounded-xl bg-[#0D1282] px-4 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Save offload"}</button>
           </div>
-          <p className="text-xs text-slate-500">Offload is idempotent — double-click is blocked. Replacement flight must be same branch.</p>
+          <p className="text-xs leading-5 text-slate-600">
+            If a selected parcel is still scanned into an editable manifest, reopen its bag and remove that parcel scan first. If the shipment must travel again, use Shipment Rebook to create a new shipment.
+          </p>
         </div>
       )}
     </div>
@@ -1790,6 +1816,8 @@ function HandoverTab({
     handoverReference: f.handoverReference ?? "",
   });
   useEffect(() => {
+    // The form mirrors refreshed handover data returned by the API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setForm({
       arrivalAt: f.arrivalAt
         ? new Date(f.arrivalAt).toISOString().slice(0, 16)
@@ -1935,11 +1963,9 @@ function HandoverTab({
 
 function ExceptionsTab({
   detail,
-  flightId,
   onRefresh,
 }: {
   detail: FlightDetail;
-  flightId: string;
   onRefresh: () => void;
 }) {
   const [filter, setFilter] = useState("");

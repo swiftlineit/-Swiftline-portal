@@ -257,6 +257,7 @@ export type ClientShipmentDetails = {
   trackingAttention?: TrackingAttention | null;
   trackingJourney?: import("@/lib/shipmentJourney").TrackingJourney | null;
   trackingPosition?: import("@/lib/shipmentTracking").TrackingPosition | null;
+  parcelActivities?: import("@/lib/shipmentTracking").ParcelActivity[];
 };
 
 export type ClientPrepaidAccount = {

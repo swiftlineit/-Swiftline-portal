@@ -133,5 +133,19 @@ schema.index({ branchId: 1, status: 1, scheduledDepartureAt: -1 });
 schema.index({ branchId: 1, flightNumber: 1, scheduledDepartureAt: 1 }, { unique: false });
 schema.index({ mawbNumber: 1 }, { partialFilterExpression: { mawbNumber: { $type: "string", $gt: "" } }, unique: false });
 schema.index({ "connection.transitAirportCode": 1 });
+// A MAWB identifies one active physical air-cargo movement. Empty legacy
+// values are excluded so older draft records remain readable, while closed or
+// cancelled flights may release the number for a corrected record.
+schema.index(
+  { mawbNumber: 1 },
+  {
+    unique: true,
+    name: "uniq_active_flight_mawb",
+    partialFilterExpression: {
+      mawbNumber: { $gt: "" },
+      status: { $in: flightLinehaulStatusValues.filter((status) => status !== "CANCELLED" && status !== "CLOSED") }
+    }
+  }
+);
 
 export const FlightLinehaul = mongoose.model<IFlightLinehaul>("FlightLinehaul", schema);

@@ -72,6 +72,10 @@ import {
 } from "../services/shipmentJourney.service.js";
 import { buildTrackingPosition } from "../services/shipmentPosition.service.js";
 import { resolveTrackingGatewayCode } from "../services/shipmentGateway.service.js";
+import {
+  loadShipmentParcelActivities,
+  loadShipmentParcelActivitiesByDraftIds
+} from "../services/shipmentParcelActivity.service.js";
 
 // Where the scan happened. Optional on every action: Operations records it when
 // they know it, and an event without one is still a valid event.
@@ -793,6 +797,7 @@ export async function listDpdShipments(request: Request, response: Response): Pr
       .exec()
   ]);
   const eventsByDraftId = await getShipmentEventsByDraftIds(draftIds as mongoose.Types.ObjectId[]);
+  const parcelActivitiesByDraftId = await loadShipmentParcelActivitiesByDraftIds(draftIds as mongoose.Types.ObjectId[]);
   const labelsByShipment = new Map<string, typeof labels>();
   const draftsById = new Map(drafts.map((draft) => [String(draft._id), draft]));
   const branchesById = new Map(branches.map((branch) => [String(branch._id), branch]));
@@ -877,6 +882,7 @@ export async function listDpdShipments(request: Request, response: Response): Pr
           ? buildTrackingSummary({ draft, dpdShipment: shipment, events })
           : null,
         trackingAttention: buildTrackingAttention(events),
+        parcelActivities: parcelActivitiesByDraftId.get(String(shipment.shipmentDraftId)) ?? [],
         trackingPosition: draft && journey
           ? buildTrackingPosition({
             events,
@@ -899,7 +905,7 @@ export async function getDpdShipment(request: Request, response: Response): Prom
   const shipment = await DpdShipment.findById(dpdShipmentId).lean().exec();
   if (!shipment) return response.status(404).json({ success: false, message: "Shipment not found" });
 
-  const [labels, events, draft] = await Promise.all([
+  const [labels, events, draft, parcelActivities] = await Promise.all([
     LabelDocument.find({
       dpdShipmentId: shipment._id,
       labelVersion: shipment.snapshotRevision || 1
@@ -908,7 +914,8 @@ export async function getDpdShipment(request: Request, response: Response): Prom
       .sort({ eventAt: -1, createdAt: -1 })
       .lean()
       .exec(),
-    ShipmentDraft.findById(shipment.shipmentDraftId).lean().exec()
+    ShipmentDraft.findById(shipment.shipmentDraftId).lean().exec(),
+    loadShipmentParcelActivities(shipment.shipmentDraftId)
   ]);
   const originBranch = draft?.branchId
     ? await Branch.findById(draft.branchId).select("address.city").lean().exec()
@@ -933,6 +940,7 @@ export async function getDpdShipment(request: Request, response: Response): Prom
     events: normalizeVisibleTrackingHistory(events, journey)
       .map((event) => serializeShipmentEvent(event, journey)),
     trackingJourney: journey ?? null,
+    parcelActivities,
     trackingPosition: draft && journey
       ? buildTrackingPosition({
         events,

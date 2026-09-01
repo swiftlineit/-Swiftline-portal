@@ -248,3 +248,51 @@ export const otpRequestLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false
 });
+
+function publicBusinessAccountKey(request: Request) {
+  const email = typeof request.body?.email === "string" ? request.body?.email.trim().toLowerCase() : normalizedBodyEmail(request);
+  return `${requestIp(request)}:${email}`;
+}
+
+export const publicBusinessAccountLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: env.NODE_ENV === "production" ? 20 : 300,
+  message: { success: false, message: "Too many business account requests. Please wait a moment and try again." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+export const publicBusinessAccountHourlyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: env.NODE_ENV === "production" ? 60 : 1000,
+  message: { success: false, message: "Too many business account requests from this network. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+export const publicBusinessAccountCreateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: env.NODE_ENV === "production" ? 5 : 100,
+  keyGenerator: publicBusinessAccountKey,
+  message: { success: false, message: "Too many business account submissions. Please wait a few minutes and try again." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+export const publicEmailOtpRequestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: env.NODE_ENV === "production" ? 5 : 100,
+  keyGenerator: publicBusinessAccountKey,
+  message: { success: false, message: "Too many verification code requests. Please wait a few minutes and try again." },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+export const publicEmailOtpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: env.NODE_ENV === "production" ? 10 : 100,
+  keyGenerator: publicBusinessAccountKey,
+  message: { success: false, message: "Too many verification attempts. Please request a new code." },
+  standardHeaders: true,
+  legacyHeaders: false
+});

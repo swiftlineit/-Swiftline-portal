@@ -83,6 +83,15 @@ export type FlightAllocation = {
   destinationCountryName: string;
   weightKg: number;
   pieces: number;
+  activeParcelNumbers: string[];
+  offloadedParcelNumbers: string[];
+  parcelDetails: Array<{
+    parcelNumber: string;
+    actualWeightKg: number;
+    volumetricWeightKg: number;
+    chargeableWeightKg: number;
+    status: "ALLOCATED" | "OFFLOADED" | "INACTIVE";
+  }>;
   status: "ALLOCATED" | "REMOVED" | "OFFLOADED";
   allocatedAt: string;
   snapshot?: Record<string, unknown>;
@@ -120,6 +129,13 @@ export type FlightOffload = {
   airline: string;
   affectedShipmentIds: string[];
   affectedBagIds: string[];
+  affectedParcels?: Array<{
+    shipmentDraftId: string;
+    parcelNumber: string;
+    actualWeightKg: number;
+    volumetricWeightKg: number;
+    chargeableWeightKg: number;
+  }>;
   affectedWeightKg: number;
   affectedPieces: number;
   replacementFlightId: string | null;
@@ -298,7 +314,7 @@ export function updateConnection(flightId: string, input: { transitAirportCode: 
   });
 }
 
-export function createOffload(flightId: string, input: { reason: string; offloadReason: string; airline?: string; affectedShipmentIds?: string[]; affectedBagIds?: string[]; replacementFlightId?: string | null; responsibleEmployeeId?: string | null }) {
+export function createOffload(flightId: string, input: { reason: string; offloadReason: string; airline?: string; affectedParcels: Array<{ shipmentDraftId: string; parcelNumber: string }>; responsibleEmployeeId?: string | null }) {
   return requestJson<{ success: true; message: string; offload: FlightOffload }>(`/api/v1/flight-linehauls/${flightId}/offloads`, {
     method: "POST",
     body: JSON.stringify(input)

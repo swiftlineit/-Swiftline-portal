@@ -1,9 +1,4 @@
-import {
-  FiBox,
-  FiFileText,
-  FiGlobe,
-  FiTruck,
-} from "react-icons/fi";
+import { FiBox, FiFileText, FiGlobe, FiTruck } from "react-icons/fi";
 
 import PublicTrackingForm from "@/components/tracking/PublicTrackingForm";
 import { siteUrl } from "@/lib/siteUrl";
@@ -160,10 +155,10 @@ export default function PublicTrackingLanding() {
           backgroundSize: "cover",
         }}
       >
-        <div className="absolute inset-0 bg-black/70" />
+        {/* <div className="absolute inset-0 bg-black/70" />
         <div className="absolute inset-0 bg-gradient-to-b from-[#07113f]/80 via-[#07113f]/65 to-black/75" />
         <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/40 to-transparent" />
-        <div className="absolute left-0 top-0 h-1 w-full bg-[#d71920]" />
+        <div className="absolute left-0 top-0 h-1 w-full bg-[#d71920]" /> */}
 
         <div className="relative mx-auto flex min-h-[500px] max-w-7xl items-center justify-center px-4 py-14 sm:min-h-[560px] sm:px-6 sm:py-16 lg:min-h-[620px] lg:px-8 lg:py-20">
           <div className="mx-auto w-full max-w-3xl text-center">
@@ -179,7 +174,6 @@ export default function PublicTrackingLanding() {
 
             <h1 className="text-3xl font-semibold tracking-[-0.035em] text-white sm:text-5xl lg:text-6xl lg:leading-[1.08]">
               Track Your Shipment
-             
             </h1>
 
             <p className="mx-auto mt-5 max-w-2xl text-sm leading-6 text-white/70 sm:text-base sm:leading-7 lg:text-lg lg:leading-8">
@@ -197,103 +191,103 @@ export default function PublicTrackingLanding() {
               </div>
 
               <p className="mx-auto mt-4 max-w-xl text-[11px] leading-5 text-white/55 sm:text-xs md:text-lg">
-               <span> Every parcel a promise, swiftly delivered.</span> 
+                <span> Every parcel a promise, swiftly delivered.</span>
               </p>
             </div>
           </div>
         </div>
       </section>
 
-   {/* Services */}
-<section className="mt-14 sm:mt-16 lg:mt-20">
-  <div className="mx-auto max-w-7xl">
-    <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {services.map((service, index) => {
-        const Icon = service.icon;
+      {/* Services */}
+      <section className="mt-14 sm:mt-16 lg:mt-20">
+        <div className="mx-auto max-w-7xl">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {services.map((service, index) => {
+              const Icon = service.icon;
 
-        return (
-          <article
-            key={service.title}
-            className="group relative flex min-h-[195px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition duration-300 hover:-translate-y-1 hover:border-[#0D1282]/20 hover:shadow-[0_20px_50px_rgba(15,23,42,0.10)] sm:p-6"
-          >
-            {/* Premium top accent */}
-            {/* <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#d71920] via-[#d71920] to-[#0D1282]" /> */}
+              return (
+                <article
+                  key={service.title}
+                  className="group relative flex min-h-[195px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 transition duration-300 hover:-translate-y-1 hover:border-[#0D1282]/20 hover:shadow-[0_20px_50px_rgba(15,23,42,0.10)] sm:p-6"
+                >
+                  {/* Premium top accent */}
+                  {/* <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#d71920] via-[#d71920] to-[#0D1282]" /> */}
 
-            {/* Subtle decorative red glow */}
-            <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-[#d71920]/[0.04] blur-2xl transition duration-300 group-hover:bg-[#d71920]/[0.08]" />
+                  {/* Subtle decorative red glow */}
+                  <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-[#d71920]/[0.04] blur-2xl transition duration-300 group-hover:bg-[#d71920]/[0.08]" />
 
-            <div className="relative flex items-start justify-between gap-4">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#0D1282]/10 bg-[#0D1282]/[0.06] text-[#0D1282] transition duration-300 group-hover:border-[#0D1282] group-hover:bg-[#0D1282] group-hover:text-white">
-                <Icon className="h-[19px] w-[19px]" />
-              </span>
+                  <div className="relative flex items-start justify-between gap-4">
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[#0D1282]/10 bg-[#0D1282]/[0.06] text-[#0D1282] transition duration-300 group-hover:border-[#0D1282] group-hover:bg-[#0D1282] group-hover:text-white">
+                      <Icon className="h-[19px] w-[19px]" />
+                    </span>
 
-              {/* <span className="mt-1 text-[11px] font-semibold tracking-[0.16em] text-[#d71920]/70">
+                    {/* <span className="mt-1 text-[11px] font-semibold tracking-[0.16em] text-[#d71920]/70">
                 {String(index + 1).padStart(2, "0")}
               </span> */}
+                  </div>
+
+                  <div className="relative mt-5">
+                    {/* <div className="mb-3 h-[2px] w-7 bg-[#d71920]" /> */}
+
+                    <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                      {service.title}
+                    </h3>
+
+                    <p className="mt-2.5 text-sm leading-6 text-slate-600">
+                      {service.description}
+                    </p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="mt-14 pt-14 sm:mt-16 sm:pt-16 lg:mt-10 lg:pt-10">
+        <div className="mx-auto max-w-7xl">
+          <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.06)]">
+            {/* Top accent */}
+            <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#d71920] via-[#d71920] to-[#0D1282]" />
+
+            {/* Background detail */}
+            <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-[#d71920]/[0.035] blur-3xl" />
+
+            <div className="relative">
+              {faqs.map((faq, index) => (
+                <details
+                  key={faq.question}
+                  className="group border-b border-slate-100 last:border-b-0 open:bg-[#0D1282]/[0.025]"
+                >
+                  <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-4 marker:hidden transition duration-200 hover:bg-slate-50/70 sm:gap-4 sm:px-6 sm:py-5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-[11px] font-semibold text-slate-500 shadow-sm transition duration-200 group-open:border-[#d71920]/25 group-open:bg-[#d71920]/[0.08] group-open:text-[#d71920]">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+
+                    <span className="flex-1 text-sm font-semibold leading-6 text-slate-900 transition duration-200 group-open:text-[#0D1282] sm:text-[15px]">
+                      {faq.question}
+                    </span>
+
+                    <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition duration-200 group-open:border-[#d71920]/20 group-open:bg-[#d71920]/[0.06] group-open:text-[#d71920]">
+                      <span className="absolute h-px w-3 bg-current" />
+                      <span className="absolute h-3 w-px bg-current transition duration-200 group-open:rotate-90 group-open:opacity-0" />
+                    </span>
+                  </summary>
+
+                  <div className="relative px-4 pb-5 sm:pl-[80px] sm:pr-8">
+                    <div className="mb-3 h-px w-full bg-gradient-to-r from-[#d71920]/20 via-slate-200 to-transparent" />
+
+                    <p className="max-w-5xl text-sm leading-6 text-slate-600">
+                      {faq.answer}
+                    </p>
+                  </div>
+                </details>
+              ))}
             </div>
-
-            <div className="relative mt-5">
-              {/* <div className="mb-3 h-[2px] w-7 bg-[#d71920]" /> */}
-
-              <h3 className="text-lg font-semibold tracking-tight text-slate-950">
-                {service.title}
-              </h3>
-
-              <p className="mt-2.5 text-sm leading-6 text-slate-600">
-                {service.description}
-              </p>
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  </div>
-</section>
-
-{/* FAQ */}
-<section className="mt-14 pt-14 sm:mt-16 sm:pt-16 lg:mt-10 lg:pt-10">
-  <div className="mx-auto max-w-7xl">
-    <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.06)]">
-      {/* Top accent */}
-      <div className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-[#d71920] via-[#d71920] to-[#0D1282]" />
-
-      {/* Background detail */}
-      <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-[#d71920]/[0.035] blur-3xl" />
-
-      <div className="relative">
-        {faqs.map((faq, index) => (
-          <details
-            key={faq.question}
-            className="group border-b border-slate-100 last:border-b-0 open:bg-[#0D1282]/[0.025]"
-          >
-            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-4 marker:hidden transition duration-200 hover:bg-slate-50/70 sm:gap-4 sm:px-6 sm:py-5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-[11px] font-semibold text-slate-500 shadow-sm transition duration-200 group-open:border-[#d71920]/25 group-open:bg-[#d71920]/[0.08] group-open:text-[#d71920]">
-                {String(index + 1).padStart(2, "0")}
-              </span>
-
-              <span className="flex-1 text-sm font-semibold leading-6 text-slate-900 transition duration-200 group-open:text-[#0D1282] sm:text-[15px]">
-                {faq.question}
-              </span>
-
-              <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 transition duration-200 group-open:border-[#d71920]/20 group-open:bg-[#d71920]/[0.06] group-open:text-[#d71920]">
-                <span className="absolute h-px w-3 bg-current" />
-                <span className="absolute h-3 w-px bg-current transition duration-200 group-open:rotate-90 group-open:opacity-0" />
-              </span>
-            </summary>
-
-            <div className="relative px-4 pb-5 sm:pl-[80px] sm:pr-8">
-              <div className="mb-3 h-px w-full bg-gradient-to-r from-[#d71920]/20 via-slate-200 to-transparent" />
-
-              <p className="max-w-5xl text-sm leading-6 text-slate-600">
-                {faq.answer}
-              </p>
-            </div>
-          </details>
-        ))}
-      </div>
-    </div>
-  </div>
-</section>
+          </div>
+        </div>
+      </section>
       {/* About Swiftline */}
       <section className="relative left-1/2 mt-16 w-screen -translate-x-1/2 overflow-hidden bg-[#07113f] sm:mt-20 lg:mt-24">
         <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-white/[0.03] blur-3xl" />
@@ -330,9 +324,8 @@ export default function PublicTrackingLanding() {
                 <p>
                   Our operational infrastructure includes Delhi
                   Customs-authorised operations, Swiftline-managed network
-                  capabilities and dedicated CFL connectivity, supporting a
-                  more controlled and transparent international logistics
-                  experience.
+                  capabilities and dedicated CFL connectivity, supporting a more
+                  controlled and transparent international logistics experience.
                 </p>
               </div>
             </div>
@@ -355,18 +348,14 @@ export default function PublicTrackingLanding() {
                     key={item.country}
                     className={[
                       "p-5 transition duration-200 hover:bg-white/[0.05] sm:p-6",
-                      index === 0
-                        ? "border-b border-white/10"
-                        : "",
+                      index === 0 ? "border-b border-white/10" : "",
                       index === 1
                         ? "border-b border-white/10 sm:border-l sm:border-white/10"
                         : "",
                       index === 2
                         ? "border-b border-white/10 sm:border-b-0"
                         : "",
-                      index === 3
-                        ? "sm:border-l sm:border-white/10"
-                        : "",
+                      index === 3 ? "sm:border-l sm:border-white/10" : "",
                     ].join(" ")}
                   >
                     <span className="text-lg font-semibold text-white">

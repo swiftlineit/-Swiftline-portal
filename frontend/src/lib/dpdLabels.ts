@@ -140,6 +140,8 @@ export type ShipmentDraft = {
   _id: string;
   creationSource: "MANUAL" | "INDIVIDUAL" | "SHIPMENT_IMPORT";
   shipmentImportEntryId?: string;
+  rebookedFromDraftId?: string | null;
+  rebookIdempotencyKey?: string | null;
   businessAccountId: string;
   /**
    * INDIVIDUAL is a walk-in booked at the counter: paid in full up front, billed
@@ -484,6 +486,7 @@ export type DpdShipmentHistoryItem = {
   trackingAttention?: TrackingAttention | null;
   trackingJourney?: TrackingJourney | null;
   trackingPosition?: import("@/lib/shipmentTracking").TrackingPosition | null;
+  parcelActivities?: import("@/lib/shipmentTracking").ParcelActivity[];
 };
 
 export type ShipmentBookingConfirmation = {
@@ -946,6 +949,26 @@ export async function reconcileDpdShipmentDocuments(dpdShipmentId: string) {
   return parseApiResponse<{
     success: true;
     message: string;
+  }>(response);
+}
+
+export function createRebookIdempotencyKey() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `rebook-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export async function rebookShipmentDraft(
+  shipmentDraftId: string,
+  idempotencyKey = createRebookIdempotencyKey()
+) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/shipment-drafts/${shipmentDraftId}/rebook`), {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey }
+  });
+
+  return parseApiResponse<{
+    success: true;
+    shipmentDraft: ShipmentDraft;
   }>(response);
 }
 

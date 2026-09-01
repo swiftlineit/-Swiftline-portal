@@ -61,7 +61,7 @@ function keyForSecret(prefix: string, secret: string) {
  * instead and is never awaited on a request.
  */
 async function enqueueAndSendNow(params: {
-  notificationType: "CLIENT_INVITATION" | "PASSWORD_RESET" | "LOGIN_OTP" | "PICKUP_OTP";
+  notificationType: "CLIENT_INVITATION" | "PASSWORD_RESET" | "LOGIN_OTP" | "BUSINESS_ACCOUNT_EMAIL_OTP" | "PICKUP_OTP";
   idempotencyKey: string;
   to: string;
   name: string;
@@ -130,6 +130,24 @@ export async function sendLoginOtpEmail(input: LoginOtpEmailInput): Promise<Mail
     to: input.to,
     name: input.name,
     subject: "Your Swiftline Portal sign-in code",
+    payload: {
+      code: input.code,
+      expiresAt: input.expiresAt,
+      expiresInMinutes
+    },
+    context: { to: input.to }
+  });
+}
+
+export async function sendBusinessAccountOtpEmail(input: LoginOtpEmailInput): Promise<MailDeliveryResult> {
+  const expiresInMinutes = Math.max(1, Math.round((input.expiresAt.getTime() - Date.now()) / 60_000));
+
+  return enqueueAndSendNow({
+    notificationType: "BUSINESS_ACCOUNT_EMAIL_OTP",
+    idempotencyKey: keyForSecret("BUSINESS_ACCOUNT_EMAIL_OTP", `${input.to.toLowerCase()}:${input.code}:${input.expiresAt.getTime()}`),
+    to: input.to,
+    name: input.name,
+    subject: "Verify your Swiftline business account request",
     payload: {
       code: input.code,
       expiresAt: input.expiresAt,

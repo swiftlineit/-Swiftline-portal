@@ -11,6 +11,7 @@ import ShipmentAmendmentPanel from "@/components/shipments/ShipmentAmendmentPane
 import ShipmentInvoiceHistory from "@/components/shipments/ShipmentInvoiceHistory";
 import CustomsInvoiceCard from "@/components/shipments/CustomsInvoiceCard";
 import ShipmentManifestPanel from "@/components/shipments/ShipmentManifestPanel";
+import ParcelActivityPanel from "@/components/shipments/ParcelActivityPanel";
 import ShipmentCancellationPanel from "@/components/shipments/ShipmentCancellationPanel";
 import { ShipmentLabelsPanel } from "@/components/shipments/ShipmentLabelsPanel";
 import ShipmentKycDocumentsPanel, { collectShipmentKycDocuments } from "@/components/shipments/ShipmentKycDocumentsPanel";
@@ -114,9 +115,6 @@ function getTrackingEvents(shipment: ClientShipmentDetails) {
     "ORIGIN_HUB_PROCESSED",
     "READY_FOR_EXPORT",
     "ORIGIN_HUB_DISPATCHED",
-    "EXPORT_CUSTOMS_CLEARED",
-    "FLIGHT_ASSIGNED",
-    "FLIGHT_DEPARTED",
     "DESTINATION_ARRIVED",
     "IMPORT_CUSTOMS_CLEARANCE",
     "IMPORT_CUSTOMS_CLEARED",
@@ -482,6 +480,8 @@ export default function ClientShipmentDetailsPage() {
               onSubmit={handleAmendment}
             />
             </div>
+
+            <ParcelActivityPanel activities={shipment.parcelActivities} />
 
             <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
               <div className="border border-slate-200 bg-white p-5 rounded-2xl">

@@ -63,6 +63,10 @@ export const portalNotificationTypeValues = [
   ,"FLIGHT_OFFLOAD"
   ,"FLIGHT_CONNECTION_RISK"
   ,"FLIGHT_EXCEPTION"
+  ,"FLIGHT_DEPARTED"
+  ,"FLIGHT_ARRIVED"
+  ,"FLIGHT_CUSTOMS_HOLD"
+  ,"FLIGHT_FINAL_MILE_HANDOVER"
   // Claims. Client-facing events first, then the ones only staff ever see.
   ,"CLAIM_SUBMITTED"
   ,"CLAIM_DOCUMENTS_REQUIRED"

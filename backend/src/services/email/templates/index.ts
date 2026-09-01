@@ -7,6 +7,7 @@ import { loginOtpTemplate } from "./loginOtp.js";
 import { pickupOtpTemplate } from "./pickupOtp.js";
 import { rateCardSharedTemplate } from "./rateCardShared.js";
 import { claimDecisionTemplate } from "./claimDecision.js";
+import { businessAccountOtpTemplate } from "./businessAccountOtp.js";
 
 export type EmailTemplateContext = {
   recipientName: string;
@@ -47,6 +48,7 @@ const registry: Record<string, EmailTemplate> = {
   CLIENT_INVITATION: clientInvitationTemplate,
   PASSWORD_RESET: passwordResetTemplate,
   LOGIN_OTP: loginOtpTemplate,
+  BUSINESS_ACCOUNT_EMAIL_OTP: businessAccountOtpTemplate,
   PICKUP_OTP: pickupOtpTemplate,
   RATE_CARD_SHARED: rateCardSharedTemplate,
   // Every other claim notification renders through the generic template; only

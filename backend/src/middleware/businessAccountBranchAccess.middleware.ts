@@ -39,7 +39,9 @@ export async function businessAccountBranchFilter(request: Request): Promise<Rec
     $or: [
       ...(branchObjectIds.length ? [{ assignedBranch: { $in: branchObjectIds } }] : []),
       // `null` also matches accounts saved before the field existed.
-      { assignedBranch: null, createdBy: { $in: creatorIds } }
+      { assignedBranch: null, createdBy: { $in: creatorIds } },
+      // Public self-serve accounts have no assignedBranch/createdBy yet but must be reviewable by ops assigned to any branch.
+      { origin: "PUBLIC", assignedBranch: null }
     ]
   };
 }

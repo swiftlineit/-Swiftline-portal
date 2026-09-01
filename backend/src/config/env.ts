@@ -97,6 +97,9 @@ const environmentSchema = z.object({
   GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
   // reCAPTCHA v3 siteverify secret for the email/password login form.
   RECAPTCHA_SECRET_KEY: z.string().optional(),
+  // Keep captcha off for local development even if a shared secret is present.
+  // Production defaults to enabled; set this explicitly for staging overrides.
+  RECAPTCHA_ENABLED: booleanFromEnv.optional(),
   RECAPTCHA_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.5),
   // Verifies a login email's domain exists (DNS MX/A lookup) before accepting it.
   // Disable only in environments without outbound DNS.

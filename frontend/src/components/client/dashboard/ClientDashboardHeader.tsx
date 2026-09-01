@@ -70,22 +70,24 @@ export default function ClientDashboardHeader({
   return (
     <section
       id="business-accounts"
-      className={`relative overflow-hidden ${panelSurface} !bg-white`}
+      className={`relative overflow-hidden ${panelSurface} !bg-[linear-gradient(135deg,#fbfcff_0%,#f6f8ff_52%,#eef2ff_100%)]`}
     >
-      {/* Greeting and banner now form one seamless dashboard hero. */}
-      <div className="relative grid overflow-hidden lg:grid-cols-[minmax(0,0.9fr)_minmax(440px,1.1fr)] lg:items-stretch xl:grid-cols-[minmax(0,0.88fr)_minmax(520px,1.12fr)]">
-        {/* Light greeting panel */}
-        <div className="relative flex min-w-0 flex-col justify-center overflow-hidden bg-[linear-gradient(135deg,#fbfcff_0%,#f6f8ff_52%,#eef2ff_100%)] px-5 py-6 sm:px-6 sm:py-7 lg:min-h-[240px] lg:px-7 lg:py-7 xl:px-8">
-          {/* Subtle theme details stay only behind the greeting content. */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 overflow-hidden"
-          >
-            <div className="absolute -left-24 -top-28 h-64 w-64 rounded-full bg-[#0D1282]/[0.045] blur-3xl" />
-            <div className="absolute -bottom-28 right-8 h-56 w-56 rounded-full bg-[#0D1282]/[0.04] blur-3xl" />
-            <div className="absolute bottom-0 right-0 h-24 w-24 rounded-tl-[80px] bg-[#0D1282]/[0.025]" />
-          </div>
+      {/* Shared background across the complete client hero */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[240px] overflow-hidden"
+      >
+        <div className="absolute -left-24 -top-28 h-64 w-64 rounded-full bg-[#0D1282]/[0.045] blur-3xl" />
 
+        <div className="absolute left-[38%] -top-24 h-56 w-56 rounded-full bg-[#0D1282]/[0.025] blur-3xl" />
+
+        <div className="absolute -bottom-32 right-[12%] h-64 w-64 rounded-full bg-[#0D1282]/[0.035] blur-3xl" />
+      </div>
+
+      {/* Greeting + banner share one continuous background */}
+      <div className="relative grid overflow-hidden lg:grid-cols-[minmax(0,0.9fr)_minmax(440px,1.1fr)] lg:items-stretch xl:grid-cols-[minmax(0,0.88fr)_minmax(520px,1.12fr)]">
+        {/* Greeting */}
+        <div className="relative flex min-w-0 flex-col justify-center px-5 py-6 sm:px-6 sm:py-7 lg:min-h-[240px] lg:px-7 lg:py-7 xl:px-8">
           <div className="relative z-10">
             {/* Client + date */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -155,6 +157,7 @@ export default function ClientDashboardHeader({
                     aria-hidden="true"
                     className="h-4 w-4 shrink-0"
                   />
+
                   Create Shipment
                 </Link>
               ) : null}
@@ -167,6 +170,7 @@ export default function ClientDashboardHeader({
                   aria-hidden="true"
                   className="h-4 w-4 shrink-0"
                 />
+
                 Track Shipment
               </Link>
 
@@ -179,6 +183,7 @@ export default function ClientDashboardHeader({
                     aria-hidden="true"
                     className="h-4 w-4 shrink-0"
                   />
+
                   Make Payment
                 </Link>
               ) : null}
@@ -186,15 +191,17 @@ export default function ClientDashboardHeader({
           </div>
         </div>
 
-        {/* Banner fills the complete right side and inherits the outer rounded edge. */}
-        <div className="min-w-0 border-t border-slate-200/70 lg:min-h-[240px] lg:border-l lg:border-t-0">
-          <DashboardBanner />
+        {/* Banner / transparent empty-state area */}
+        <div className="relative min-h-[210px] min-w-0 sm:min-h-[220px] lg:min-h-[240px]">
+          <div className="absolute inset-0">
+            <DashboardBanner />
+          </div>
         </div>
       </div>
 
       {/* Account / branch switchers */}
       {hasMultipleAccounts || hasMultipleBranches ? (
-        <div className="border-t border-slate-200/80 bg-slate-50/65 px-4 py-4 sm:px-5 lg:px-6">
+        <div className="relative border-t border-slate-200/80 bg-white/55 px-4 py-4 backdrop-blur-[2px] sm:px-5 lg:px-6">
           <div
             className={`grid gap-3 ${
               hasMultipleAccounts && hasMultipleBranches

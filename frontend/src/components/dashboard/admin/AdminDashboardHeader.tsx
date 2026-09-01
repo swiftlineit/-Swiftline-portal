@@ -1,5 +1,3 @@
-
-
 import Link from "next/link";
 import {
   FiArchive,
@@ -73,22 +71,23 @@ export default function AdminDashboardHeader({
 
   return (
     <section
-      className={`relative overflow-hidden ${panelSurface} !bg-white`}
+      className={`relative overflow-hidden ${panelSurface} !bg-[linear-gradient(135deg,#fbfcff_0%,#f6f8ff_52%,#eef2ff_100%)]`}
     >
-      {/* Matches the client dashboard hero structure exactly. */}
-      <div className="relative grid overflow-hidden lg:grid-cols-[minmax(0,0.9fr)_minmax(440px,1.1fr)] lg:items-stretch xl:grid-cols-[minmax(0,0.88fr)_minmax(520px,1.12fr)]">
-        {/* Light greeting panel */}
-        <div className="relative flex min-w-0 flex-col justify-center overflow-hidden bg-[linear-gradient(135deg,#fbfcff_0%,#f6f8ff_52%,#eef2ff_100%)] px-5 py-6 sm:px-6 sm:py-7 lg:min-h-[240px] lg:px-7 lg:py-7 xl:px-8">
-          {/* Subtle theme details stay only behind the greeting content. */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 overflow-hidden"
-          >
-            <div className="absolute -left-24 -top-28 h-64 w-64 rounded-full bg-[#0D1282]/[0.045] blur-3xl" />
-            <div className="absolute -bottom-28 right-8 h-56 w-56 rounded-full bg-[#0D1282]/[0.04] blur-3xl" />
-            <div className="absolute bottom-0 right-0 h-24 w-24 rounded-tl-[80px] bg-[#0D1282]/[0.025]" />
-          </div>
+      {/* Shared background across the complete hero */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        <div className="absolute -left-24 -top-28 h-64 w-64 rounded-full bg-[#0D1282]/[0.045] blur-3xl" />
 
+        <div className="absolute left-[38%] -top-24 h-56 w-56 rounded-full bg-[#0D1282]/[0.025] blur-3xl" />
+
+        <div className="absolute -bottom-32 right-[12%] h-64 w-64 rounded-full bg-[#0D1282]/[0.035] blur-3xl" />
+      </div>
+
+      <div className="relative grid overflow-hidden lg:grid-cols-[minmax(0,0.9fr)_minmax(440px,1.1fr)] lg:items-stretch xl:grid-cols-[minmax(0,0.88fr)_minmax(520px,1.12fr)]">
+        {/* Greeting */}
+        <div className="relative flex min-w-0 flex-col justify-center px-5 py-6 sm:px-6 sm:py-7 lg:min-h-[240px] lg:px-7 lg:py-7 xl:px-8">
           <div className="relative z-10">
             {/* Role + date */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -132,7 +131,7 @@ export default function AdminDashboardHeader({
                     className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D1282]/30 focus-visible:ring-offset-2 sm:min-h-11 ${
                       action.primary
                         ? "bg-[#F0DE36] text-[#0D1282] shadow-sm hover:bg-[#e5d331]"
-                        : "border border-slate-200/90 bg-white/90 text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.02)] hover:border-[#0D1282]/25 hover:bg-white hover:text-[#0D1282]"
+                        : "border border-slate-200/90 bg-white/90 text-slate-700 hover:border-[#0D1282]/25 hover:bg-white hover:text-[#0D1282]"
                     }`}
                   >
                     <Icon
@@ -148,17 +147,12 @@ export default function AdminDashboardHeader({
           </div>
         </div>
 
-        {/*
-          The admin action row can wrap to two lines, making the left side taller
-          than the banner's own min-height. This wrapper stretches with the grid
-          row and the absolute child forces DashboardBanner to fill that exact
-          height, so there is no white strip below the image.
-        */}
-<div className="relative min-h-[210px] min-w-0 border-t border-slate-200/70 sm:min-h-[220px] lg:min-h-[240px] lg:border-l lg:border-t-0">
-  <div className="absolute inset-0">
-    <DashboardBanner />
-  </div>
-</div>
+        {/* Banner / empty decorative area */}
+        <div className="relative min-h-[210px] min-w-0 sm:min-h-[220px] lg:min-h-[240px]">
+          <div className="absolute inset-0">
+            <DashboardBanner />
+          </div>
+        </div>
       </div>
     </section>
   );

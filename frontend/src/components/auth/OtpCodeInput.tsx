@@ -1,4 +1,4 @@
-"use client";
+
 
 import { ClipboardEvent, KeyboardEvent, useRef } from "react";
 
@@ -22,7 +22,14 @@ type OtpCodeInputProps = {
  * keyboard behaviour predictable: box `i` always shows `value[i]`, so backspace,
  * arrows and a pasted code all reduce to plain string edits.
  */
-export function OtpCodeInput({ value, onChange, onComplete, disabled, invalid, label }: OtpCodeInputProps) {
+export function OtpCodeInput({
+  value,
+  onChange,
+  onComplete,
+  disabled,
+  invalid,
+  label,
+}: OtpCodeInputProps) {
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   const commit = (next: string) => {
@@ -32,7 +39,8 @@ export function OtpCodeInput({ value, onChange, onComplete, disabled, invalid, l
   };
 
   const focusAt = (index: number) => {
-    const target = inputsRef.current[Math.min(Math.max(index, 0), OTP_LENGTH - 1)];
+    const target =
+      inputsRef.current[Math.min(Math.max(index, 0), OTP_LENGTH - 1)];
     target?.focus();
     target?.select();
   };
@@ -43,11 +51,18 @@ export function OtpCodeInput({ value, onChange, onComplete, disabled, invalid, l
 
     // Slicing from `index` overwrites this box and any boxes a multi-digit entry
     // spills into, rather than inserting and pushing digits off the end.
-    commit(value.slice(0, index) + digits + value.slice(index + digits.length));
+    commit(
+      value.slice(0, index) +
+        digits +
+        value.slice(index + digits.length),
+    );
     focusAt(index + digits.length);
   };
 
-  const handleKeyDown = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (
+    index: number,
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
     if (event.key === "Backspace") {
       event.preventDefault();
       // Backspace in an empty box reaches back and clears the previous one,
@@ -84,7 +99,7 @@ export function OtpCodeInput({ value, onChange, onComplete, disabled, invalid, l
   };
 
   return (
-    <div className="grid grid-cols-6 gap-2">
+    <div className="grid grid-cols-6 gap-1.5 sm:gap-2">
       {Array.from({ length: OTP_LENGTH }, (_, index) => (
         <input
           key={index}
@@ -104,7 +119,7 @@ export function OtpCodeInput({ value, onChange, onComplete, disabled, invalid, l
           onKeyDown={(event) => handleKeyDown(index, event)}
           onPaste={handlePaste}
           onFocus={(event) => event.target.select()}
-          className={`h-12 w-full rounded-xl border bg-white text-center text-lg font-semibold text-slate-900 tabular-nums outline-none transition focus:border-[#0D1282] focus:ring-4 focus:ring-[#0D1282]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 ${
+          className={`h-11 w-full rounded-lg border bg-white text-center text-base font-semibold text-slate-900 tabular-nums outline-none transition focus:border-[#0D1282] focus:ring-4 focus:ring-[#0D1282]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 sm:text-lg ${
             invalid ? "border-[#D81F26]" : "border-slate-300"
           }`}
         />

@@ -439,7 +439,11 @@ export async function restoreLegacyProfitabilityForSheet(sheet: IFlightCostSheet
   await FlightCostAllocation.deleteMany({ flightCostSheetId: sheet._id }).session(session ?? null).exec();
 }
 
-export async function markSheetReviewRequiredIfChanged(manifestId: mongoose.Types.ObjectId, reason = "Operations manifest changed") {
+export async function markSheetReviewRequiredIfChanged(
+  manifestId: mongoose.Types.ObjectId,
+  reason = "Operations manifest changed",
+  options: { force?: boolean } = {}
+) {
   const session = await mongoose.startSession();
   let sheetId: mongoose.Types.ObjectId | null = null;
   try {
@@ -448,7 +452,8 @@ export async function markSheetReviewRequiredIfChanged(manifestId: mongoose.Type
       const sheet = await FlightCostSheet.findOne({ operationsManifestId: manifestId, status: { $in: ["DRAFT", "FINALIZED"] } }).session(session).exec();
       if (!sheet) return;
       const { manifest, facts } = await loadFlightOperationalFacts(manifestId, sheet.externalPaidLabels, session);
-      const changed = sheet.manifestWeightKg !== facts.manifestWeightKg
+      const changed = options.force === true
+        || sheet.manifestWeightKg !== facts.manifestWeightKg
         || sheet.totalBags !== facts.totalBags
         || sheet.totalParcels !== facts.totalParcels
         || sheet.mawbNumber !== manifest.header.mawbNumber

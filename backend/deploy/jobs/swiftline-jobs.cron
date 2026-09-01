@@ -34,6 +34,11 @@ MAILTO=""
 # alerted on at all.
 */20 * * * *  ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:tickets:sla-escalation
 
+# Evaluate active flight delays, customs deadlines, manifest gaps, and
+# connection risks even when nobody has opened the flight detail page. Each
+# exception and its alert is deduplicated by a stable key.
+*/10 * * * *  ubuntu  /var/www/Swiftline-portal/backend/deploy/jobs/run-job.sh job:flight:exceptions
+
 # Mark due-passed statements overdue, expire credit facilities past their
 # validity window, and send utilisation warnings.
 # Note: overdue *blocking* is computed live at booking time and does not depend

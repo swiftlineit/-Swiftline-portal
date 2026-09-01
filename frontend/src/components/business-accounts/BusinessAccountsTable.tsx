@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FiChevronDown } from "react-icons/fi";
 import {
   BusinessAccount,
@@ -126,9 +127,12 @@ export function BusinessAccountsTable({
             return (
               <tr key={account.accountId} className="transition-colors hover:bg-[#EEEDED]/40">
                 <td className="px-4 py-3.5">
-                  <p className="font-semibold text-slate-900 capitalize">{account.company.companyName}</p>
+                  <p className="font-semibold text-slate-900 capitalize">{account.company.companyName || "—"}</p>
                   {/* <p className="mt-1 text-xs font-semibold text-[#0D1282]">{account.accountId}</p> */}
-                  <p className="mt-1 text-xs text-slate-500">{account.contact.firstName} {account.contact.lastName}</p>
+                  <p className="mt-1 text-xs text-slate-500">{account.contact.firstName} {account.contact.lastName} · {account.contact.email}</p>
+                  {account.origin === "PUBLIC" ? (
+                    <span className="mt-1.5 inline-flex items-center rounded-full bg-[#0D1282]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#0D1282] ring-1 ring-[#0D1282]/15">Public request</span>
+                  ) : null}
                 </td>
                 <td className="px-4 py-3.5">
                   {!creditByBusinessId ? (
@@ -144,10 +148,13 @@ export function BusinessAccountsTable({
                 </td>
                 <td className="px-4 py-3.5">
                   {creditByBusinessId && credit?.approvedCreditLimitMinor ? (
-                    // Anything owed is worth spotting, so a non-zero balance is red.
-                    <span className={credit.invoicedOutstandingMinor ? "font-semibold text-red-600" : "text-slate-700"}>
+                    <Link
+                      href={`/dashboard/credit-accounts/${account._id}#billing-statements`}
+                      className="font-semibold text-red-600 hover:text-red-700 hover:underline focus:outline-none focus:ring-2 focus:ring-red-200 focus:ring-offset-1 rounded-sm"
+                      title="View statements for this credit account"
+                    >
                       {formatMinorMoney(credit.invoicedOutstandingMinor ?? 0)}
-                    </span>
+                    </Link>
                   ) : (
                     <span className="text-slate-400">-</span>
                   )}

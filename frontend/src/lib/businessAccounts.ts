@@ -172,7 +172,8 @@ export type BusinessAccount = {
     status?: string;
   } | string | null;
   rateCardBand?: RateCardBand | null;
-  createdBy?: { email?: string; name?: string };
+  origin?: "STAFF" | "PUBLIC";
+  createdBy?: { email?: string; name?: string } | null;
   createdAt: string;
   submittedAt?: string | null;
 };

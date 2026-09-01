@@ -77,5 +77,18 @@ const operationsManifestSchema = new mongoose.Schema<IOperationsManifest>({
 
 operationsManifestSchema.index({ branchId: 1, status: 1, updatedAt: -1 });
 operationsManifestSchema.index({ flightLinehaulId: 1, status: 1 });
+// V1 permits one active manifest per flight. Cancelled manifests are excluded
+// so their audit history does not prevent a later replacement manifest.
+operationsManifestSchema.index(
+  { flightLinehaulId: 1 },
+  {
+    unique: true,
+    name: "uniq_active_manifest_per_flight",
+    partialFilterExpression: {
+      flightLinehaulId: { $type: "objectId" },
+      status: { $in: ["DRAFT", "PACKING", "READY_TO_SEAL", "SEALED", "DISPATCHED"] }
+    }
+  }
+);
 
 export const OperationsManifest = mongoose.model<IOperationsManifest>("OperationsManifest", operationsManifestSchema);
