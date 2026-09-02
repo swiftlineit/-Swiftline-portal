@@ -6,6 +6,7 @@ import { AuditLog } from "../models/auditLog.model.js";
 import { FlightBuyingRate, flightRateRegionValues } from "../models/flightBuyingRate.model.js";
 import { FlightCostAllocation } from "../models/flightCostAllocation.model.js";
 import { FlightCostSheet, flightCostSheetStatusValues, type IFlightCostSheet } from "../models/flightCostSheet.model.js";
+import { FlightLinehaul } from "../models/flightLinehaul.model.js";
 import { LogisticsVendor } from "../models/logisticsVendor.model.js";
 import { OperationsManifest } from "../models/operationsManifest.model.js";
 import {
@@ -300,7 +301,14 @@ export async function getExchangeRate(_request: Request, response: Response) {
 
 export async function listFlightManifestOptions(request: Request, response: Response) {
   try {
-    const filter: Record<string, unknown> = { ...branchFilter(request), status: { $ne: "CANCELLED" } };
+    // A cost sheet is the financial record for one air movement. Standalone
+    // manifests have no flight owner, so offering them here would create a
+    // sheet that cannot be reconciled to a flight later.
+    const filter: Record<string, unknown> = {
+      ...branchFilter(request),
+      status: { $ne: "CANCELLED" },
+      flightLinehaulId: { $type: "objectId" }
+    };
     const manifests = await OperationsManifest.find(filter).sort({ updatedAt: -1 }).limit(200).lean().exec();
     const sheets = await FlightCostSheet.find({ operationsManifestId: { $in: manifests.map((item) => item._id) } }).select("operationsManifestId status _id").lean().exec();
     const sheetByManifest = new Map(sheets.map((item) => [String(item.operationsManifestId), item]));
@@ -326,6 +334,7 @@ export async function getFlightManifestPreview(request: Request, response: Respo
   if (!manifestId) return reject(response, 404, "Operations manifest not found.");
   const manifest = await OperationsManifest.findById(manifestId).exec();
   if (!manifest || !canAccessBranch(request, manifest.branchId)) return reject(response, 404, "Operations manifest not found.");
+  if (!manifest.flightLinehaulId) return reject(response, 409, "Attach this manifest to a flight before creating a cost sheet.");
   const { facts } = await loadFlightOperationalFacts(manifestId, 0);
   return response.status(200).json({
     success: true,
@@ -357,6 +366,42 @@ export async function listFlightCostSheets(request: Request, response: Response)
     return response.status(200).json({ success: true, sheets: sheets.map(serializeSheet) });
   } catch (error) {
     return reject(response, error instanceof Error && error.message === "Branch not found" ? 404 : 400, error instanceof Error ? error.message : "Flight costs could not be loaded.");
+  }
+}
+
+/**
+ * Operations needs a narrow view so it can clean up provisional sheets without
+ * receiving the finance workspace's rates, vendor controls, or finalized
+ * profitability history.
+ */
+export async function listFlightCostDrafts(request: Request, response: Response) {
+  try {
+    const filter: Record<string, unknown> = branchFilter(request);
+    filter.status = "DRAFT";
+    const sheets = await FlightCostSheet.find(filter)
+      .sort({ flightDate: -1, updatedAt: -1 })
+      .limit(250)
+      .lean()
+      .exec();
+    return response.status(200).json({
+      success: true,
+      sheets: sheets.map((sheet: any) => ({
+        id: String(sheet._id),
+        manifestNumber: sheet.manifestNumber,
+        mawbNumber: sheet.mawbNumber,
+        airlineName: sheet.airlineName,
+        flightNumber: sheet.flightNumber,
+        flightDate: sheet.flightDate,
+        destinationCountryName: sheet.destinationCountryName,
+        billedWeightKg: sheet.billedWeightKg,
+        totalParcels: sheet.totalParcels,
+        totals: { totalCostMinor: sheet.totals?.totalCostMinor ?? 0 },
+        status: sheet.status,
+        updatedAt: sheet.updatedAt
+      }))
+    });
+  } catch (error) {
+    return reject(response, error instanceof Error && error.message === "Branch not found" ? 404 : 400, error instanceof Error ? error.message : "Flight cost drafts could not be loaded.");
   }
 }
 
@@ -422,7 +467,30 @@ export async function createFlightCostSheet(request: Request, response: Response
       const manifest = await OperationsManifest.findById(manifestId).session(session).exec();
       if (!manifest || !canAccessBranch(request, manifest.branchId)) flightError(404, "Operations manifest not found.");
       try { ensureManifestHeader(manifest); } catch (error) { flightError(409, (error as Error).message); }
-      if (await FlightCostSheet.exists({ operationsManifestId: manifestId }).session(session)) flightError(409, "This manifest already has a flight cost sheet.");
+      if (!manifest.flightLinehaulId) {
+        flightError(409, "Attach this manifest to a flight before creating a cost sheet. One cost sheet belongs to one flight.");
+      }
+      const flight = await FlightLinehaul.findById(manifest.flightLinehaulId).session(session).exec();
+      if (!flight || String(flight.branchId) !== String(manifest.branchId)) {
+        flightError(409, "This manifest is attached to an unavailable flight. Reattach it to a valid flight before creating costs.");
+      }
+      const comparable = (value: string) => value.trim().replace(/-/g, "").toUpperCase();
+      if (
+        comparable(manifest.header.flightNumber) !== comparable(flight.flightNumber)
+        || comparable(manifest.header.mawbNumber) !== comparable(flight.mawbNumber)
+        || comparable(manifest.header.originIataCode) !== comparable(flight.originIataCode)
+        || comparable(manifest.header.destinationIataCode) !== comparable(flight.destinationIataCode)
+      ) {
+        flightError(409, "Manifest flight number, MAWB, origin and destination must match the attached flight before costs can be created.");
+      }
+      const manifestsForFlight = await OperationsManifest.find({ flightLinehaulId: manifest.flightLinehaulId })
+        .select("_id")
+        .session(session)
+        .lean()
+        .exec();
+      if (await FlightCostSheet.exists({ operationsManifestId: { $in: manifestsForFlight.map((item) => item._id) } }).session(session)) {
+        flightError(409, "This flight already has a cost sheet. One cost sheet is allowed per flight.");
+      }
       const rate = await FlightBuyingRate.findOne({ _id: rateId, status: "ACTIVE" }).session(session).exec();
       if (!rate) flightError(404, "Active buying rate not found.");
       ensureRateMatchesManifest(rate, manifest);
@@ -434,7 +502,7 @@ export async function createFlightCostSheet(request: Request, response: Response
       }
       const totals = calculateFlightCostTotals({ rate: copyRateSnapshot(rate), facts: { ...facts, billedWeightKg }, gbpToInr: parsed.data.fxSnapshot.gbpToInr });
       const [sheet] = await FlightCostSheet.create([{
-        operationsManifestId: manifestId, branchId: manifest.branchId, buyingRateId: rate._id, vendorId: rate.vendorId,
+        operationsManifestId: manifestId, flightLinehaulId: manifest.flightLinehaulId, branchId: manifest.branchId, buyingRateId: rate._id, vendorId: rate.vendorId,
         manifestNumber: manifest.manifestNumber, region: rate.region, airlineName: parsed.data.airlineName,
         mawbNumber: manifest.header.mawbNumber, flightNumber: manifest.header.flightNumber, flightDate: manifest.header.departureDate,
         destinationCountryCode: manifest.header.destinationCountryCode, destinationCountryName: manifest.header.destinationCountryName,
@@ -625,6 +693,47 @@ export async function cancelFlightCostSheet(request: Request, response: Response
     const sheet = await FlightCostSheet.findById(savedId).populate("vendorId", "name code status").exec();
     if (!sheet) return reject(response, 500, "The cancelled flight cost sheet could not be reloaded.");
     return response.status(200).json({ success: true, message: "Flight cost sheet cancelled and shipment margins restored.", sheet: serializeSheet(sheet) });
+  } catch (error) {
+    return handleFlightError(response, error);
+  }
+}
+
+export async function deleteDraftFlightCostSheet(request: Request, response: Response) {
+  const sheetId = objectId(request.params.sheetId);
+  if (!sheetId) return reject(response, 404, "Flight cost sheet not found.");
+
+  try {
+    await inFlightTransaction(async (session) => {
+      const sheet = await FlightCostSheet.findById(sheetId).session(session).exec();
+      if (!sheet || !canAccessBranch(request, sheet.branchId)) flightError(404, "Flight cost sheet not found.");
+      if (sheet.status !== "DRAFT") {
+        flightError(409, "Only draft flight cost sheets can be deleted. Finalized, review-required, and cancelled sheets must be retained for audit.");
+      }
+
+      const before = sheetAuditValues(sheet);
+      await restoreLegacyProfitabilityForSheet(sheet, session);
+      await FlightCostSheetRevision.deleteMany({ flightCostSheetId: sheet._id }).session(session).exec();
+      const deleted = await FlightCostSheet.deleteOne({ _id: sheet._id }).session(session).exec();
+      if (deleted.deletedCount !== 1) flightError(404, "Flight cost sheet not found.");
+
+      await createAuditLog({
+        action: "FLIGHT_COST_SHEET_DRAFT_DELETED",
+        entityType: "FLIGHT_COST_SHEET",
+        entityId: sheet._id,
+        performedBy: actor(request)._id,
+        performedAt: new Date(),
+        metadata: {
+          manifestId: String(sheet.operationsManifestId),
+          flightLinehaulId: sheet.flightLinehaulId ? String(sheet.flightLinehaulId) : null,
+          before
+        }
+      }, session);
+    });
+
+    return response.status(200).json({
+      success: true,
+      message: "Draft flight cost sheet deleted. Provisional shipment allocations were removed and legacy profitability was restored."
+    });
   } catch (error) {
     return handleFlightError(response, error);
   }

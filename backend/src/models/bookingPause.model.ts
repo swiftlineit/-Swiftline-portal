@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 /**
- * Booking pause — temporarily blocks all bookings for selected destinations.
+ * Booking pause - temporarily blocks all bookings for selected destinations.
  * `countries` stores tokens: GB (United Kingdom), US, CA, EUROPE, ALL.
  * EUROPE expands to ~44 European ISO2 codes; ALL matches any country.
  */

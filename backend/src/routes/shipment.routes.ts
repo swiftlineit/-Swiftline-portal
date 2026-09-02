@@ -1,7 +1,8 @@
 import { Router } from "express";
 import {
   deleteBookedShipmentHandler,
-  listAdminBookedShipments
+  listAdminBookedShipments,
+  summarizeAdminBookedShipments
 } from "../controllers/shipmentListing.controller.js";
 import {
   downloadStaffShipmentDocument,
@@ -17,6 +18,7 @@ shipmentRouter.use(attachUser);
 shipmentRouter.use(requireRole("admin", "operations", "delivery"));
 // Staff global search, over every account this user may see.
 shipmentRouter.get("/search", searchStaff);
+shipmentRouter.get("/summary", summarizeAdminBookedShipments);
 // Documents the customer sent after booking, which is where a held shipment
 // gets unblocked.
 shipmentRouter.get("/:draftId/documents", listStaffShipmentDocuments);

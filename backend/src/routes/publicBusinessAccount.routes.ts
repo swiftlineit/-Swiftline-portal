@@ -16,7 +16,7 @@ import { businessDocumentUpload } from "../middleware/businessDocumentUpload.mid
 
 export const publicBusinessAccountRouter = Router();
 
-// Public — no attachUser, no requireRole. Two-bucket burst+hourly limiter.
+// Public - no attachUser, no requireRole. Two-bucket burst+hourly limiter.
 publicBusinessAccountRouter.use(publicBusinessAccountLimiter);
 publicBusinessAccountRouter.use(publicBusinessAccountHourlyLimiter);
 
@@ -27,5 +27,5 @@ publicBusinessAccountRouter.get("/validate-unique", validatePublicBusinessAccoun
 publicBusinessAccountRouter.post("/email-otp/request", publicEmailOtpRequestLimiter, requestPublicBusinessAccountEmailOtp);
 publicBusinessAccountRouter.post("/email-otp/verify", publicEmailOtpVerifyLimiter, verifyPublicBusinessAccountEmailOtp);
 
-// Create — multipart + strict limiter
+// Create - multipart + strict limiter
 publicBusinessAccountRouter.post("/", publicBusinessAccountCreateLimiter, businessDocumentUpload, createPublicBusinessAccount);

@@ -12,6 +12,7 @@ const MANIFEST_INDEX_NAME = "uniq_active_manifest_per_flight";
 const ACTIVE_ALLOCATION_INDEX_NAME = "uniq_active_flight_shipment";
 const LEGACY_ALLOCATION_INDEX_NAME = "uniq_flight_shipment";
 const FLIGHT_MAWB_INDEX_NAME = "uniq_active_flight_mawb";
+const FLIGHT_COST_SHEET_INDEX_NAME = "uniq_flight_cost_sheet_per_flight";
 
 async function duplicateActiveManifests() {
   return mongoose.connection.collection("operationsmanifests").aggregate([
@@ -64,6 +65,67 @@ async function duplicateActiveMawbs() {
   ]).toArray();
 }
 
+async function duplicateFlightCostSheets() {
+  return mongoose.connection.collection("flightcostsheets").aggregate([
+    {
+      $lookup: {
+        from: "operationsmanifests",
+        localField: "operationsManifestId",
+        foreignField: "_id",
+        as: "manifest"
+      }
+    },
+    { $unwind: "$manifest" },
+    { $match: { "manifest.flightLinehaulId": { $type: "objectId" } } },
+    {
+      $group: {
+        _id: "$manifest.flightLinehaulId",
+        count: { $sum: 1 },
+        sheetIds: { $push: "$_id" }
+      }
+    },
+    { $match: { count: { $gt: 1 } } }
+  ]).toArray();
+}
+
+async function standaloneFlightCostSheets() {
+  return mongoose.connection.collection("flightcostsheets").aggregate([
+    {
+      $lookup: {
+        from: "operationsmanifests",
+        localField: "operationsManifestId",
+        foreignField: "_id",
+        as: "manifest"
+      }
+    },
+    {
+      $match: {
+        $or: [
+          { manifest: { $size: 0 } },
+          { "manifest.flightLinehaulId": { $not: { $type: "objectId" } } }
+        ]
+      }
+    },
+    { $project: { _id: 1, operationsManifestId: 1 } }
+  ]).toArray();
+}
+
+async function attachedFlightCostSheetMappings() {
+  return mongoose.connection.collection("flightcostsheets").aggregate([
+    {
+      $lookup: {
+        from: "operationsmanifests",
+        localField: "operationsManifestId",
+        foreignField: "_id",
+        as: "manifest"
+      }
+    },
+    { $unwind: "$manifest" },
+    { $match: { "manifest.flightLinehaulId": { $type: "objectId" } } },
+    { $project: { _id: 1, flightLinehaulId: "$manifest.flightLinehaulId" } }
+  ]).toArray();
+}
+
 async function existingIndexNames(collectionName: string) {
   try {
     return (await mongoose.connection.collection(collectionName).listIndexes().toArray())
@@ -82,12 +144,24 @@ async function migrate() {
     const duplicates = await duplicateActiveManifests();
     const duplicateAllocations = await duplicateActiveAllocations();
     const duplicateMawbs = await duplicateActiveMawbs();
-    console.log("Flight linehaul index audit.", { apply, duplicateManifestGroups: duplicates, duplicateAllocationGroups: duplicateAllocations, duplicateActiveMawbs: duplicateMawbs });
-    if (duplicates.length || duplicateAllocations.length || duplicateMawbs.length) {
-      throw new Error("Resolve duplicate active manifests/allocations/MAWBs before creating the unique indexes. Nothing was changed.");
+    const duplicateCostSheets = await duplicateFlightCostSheets();
+    const standaloneCostSheets = await standaloneFlightCostSheets();
+    console.log("Flight linehaul index audit.", {
+      apply,
+      duplicateManifestGroups: duplicates,
+      duplicateAllocationGroups: duplicateAllocations,
+      duplicateActiveMawbs: duplicateMawbs,
+      duplicateFlightCostSheetGroups: duplicateCostSheets,
+      standaloneCostSheets
+    });
+    if (duplicates.length || duplicateAllocations.length || duplicateMawbs.length || duplicateCostSheets.length) {
+      throw new Error("Resolve duplicate active manifests/allocations/MAWBs/cost sheets before creating the unique indexes. Nothing was changed.");
+    }
+    if (standaloneCostSheets.length && apply) {
+      throw new Error("Resolve standalone flight cost sheets before applying the unique flight cost-sheet index. Nothing was changed.");
     }
     if (!apply) {
-      console.log(`Dry run passed. Re-run with --apply to create or repair ${MANIFEST_INDEX_NAME}, ${ACTIVE_ALLOCATION_INDEX_NAME}, and ${FLIGHT_MAWB_INDEX_NAME}.`);
+      console.log(`Dry run passed. Re-run with --apply to create or repair ${MANIFEST_INDEX_NAME}, ${ACTIVE_ALLOCATION_INDEX_NAME}, ${FLIGHT_MAWB_INDEX_NAME}, and ${FLIGHT_COST_SHEET_INDEX_NAME}.`);
       return;
     }
 
@@ -127,7 +201,26 @@ async function migrate() {
         }
       }
     );
-    console.log(`Created or confirmed ${MANIFEST_INDEX_NAME}, ${ACTIVE_ALLOCATION_INDEX_NAME}, and ${FLIGHT_MAWB_INDEX_NAME}.`);
+    const costSheetMappings = await attachedFlightCostSheetMappings();
+    if (costSheetMappings.length) {
+      await mongoose.connection.collection("flightcostsheets").bulkWrite(
+        costSheetMappings.map((sheet) => ({
+          updateOne: {
+            filter: { _id: sheet._id },
+            update: { $set: { flightLinehaulId: sheet.flightLinehaulId } }
+          }
+        }))
+      );
+    }
+    await mongoose.connection.collection("flightcostsheets").createIndex(
+      { flightLinehaulId: 1 },
+      {
+        unique: true,
+        name: FLIGHT_COST_SHEET_INDEX_NAME,
+        partialFilterExpression: { flightLinehaulId: { $type: "objectId" } }
+      }
+    );
+    console.log(`Created or confirmed ${MANIFEST_INDEX_NAME}, ${ACTIVE_ALLOCATION_INDEX_NAME}, ${FLIGHT_MAWB_INDEX_NAME}, and ${FLIGHT_COST_SHEET_INDEX_NAME}.`);
   } finally {
     await mongoose.disconnect();
   }

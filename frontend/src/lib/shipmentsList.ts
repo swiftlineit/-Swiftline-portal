@@ -68,9 +68,19 @@ export type ShipmentListItem = {
 
 export type ShipmentListPagination = { page: number; limit: number; total: number; totalPages: number };
 
+export type ShipmentDashboardSummary = {
+  bookedToday: number;
+  bookedYesterday: number;
+  inTransit: number;
+  delivered: number;
+  onHold: number;
+  exceptions: number;
+};
+
 /** Statuses a booked shipment can currently be in, newest stage last. */
 export const shipmentStatusOptions = [
   { value: "SHIPMENT_BOOKED", label: "Shipment Booked" },
+  { value: "IN_TRANSIT", label: "In Transit" },
   { value: "ON_HOLD", label: "On Hold" },
   { value: "RELEASED_FROM_HOLD", label: "Released From Hold" },
   { value: "PARCEL_COLLECTED", label: "Shipment Collected" },
@@ -150,6 +160,10 @@ export function shipmentListParams(input: {
   limit?: number;
   status?: string;
   attention?: boolean;
+  /** Filters by the carrier booking's calendar day, not draft creation day. */
+  bookedDate?: string;
+  /** Keeps only shipments whose draft was created by the rebooking flow. */
+  rebooked?: boolean;
   search?: string;
   dateRange?: DateRange;
   businessAccountId?: string;
@@ -161,6 +175,8 @@ export function shipmentListParams(input: {
   params.set("limit", String(input.limit ?? 20));
   if (input.status) params.set("status", input.status);
   if (input.attention) params.set("attention", "1");
+  if (input.bookedDate) params.set("bookedDate", input.bookedDate);
+  if (input.rebooked) params.set("rebooked", "1");
   if (input.search?.trim()) params.set("search", input.search.trim());
   setDateRangeParams(params, input.dateRange);
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
@@ -174,6 +190,8 @@ export async function listShipments(audience: ShipmentAudience, input: {
   limit?: number;
   status?: string;
   attention?: boolean;
+  bookedDate?: string;
+  rebooked?: boolean;
   /** Free text over AWB, piece number, consignee, consignee address (including destination country/county/postcode), and your own reference. */
   search?: string;
   dateRange?: DateRange;
@@ -190,6 +208,10 @@ export async function listShipments(audience: ShipmentAudience, input: {
     shipments: ShipmentListItem[];
     pagination: ShipmentListPagination;
   }>(`${base}?${params.toString()}`);
+}
+
+export async function getShipmentDashboardSummary() {
+  return requestJson<{ success: true } & ShipmentDashboardSummary>("/api/v1/shipments/summary");
 }
 
 /**

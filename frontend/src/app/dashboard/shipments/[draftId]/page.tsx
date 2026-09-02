@@ -29,6 +29,7 @@ import {
   findMissingStatusPrerequisites,
   findRecordedLaterStatusMilestones,
   firstAllowedOperationalStatus,
+  generateExistingDpdLabel,
   hasRecordedOperationalStatus,
   getDpdLabelAccessUrl,
   getShipmentDraft,
@@ -83,6 +84,9 @@ function getDestination(draft: ShipmentDraft) {
 }
 
 function getShipmentStatus(history: DpdShipmentHistoryItem | null) {
+  if (history?.currentEvent?.status === "DESTINATION_ARRIVED" && history.trackingJourney?.context.gatewayLabel) {
+    return `Arrived at ${history.trackingJourney.context.gatewayLabel}`;
+  }
   if (history?.currentEvent?.statusLabel) return history.currentEvent.statusLabel;
   if (history?.dpdShipment.status === "LABEL_RECEIVED") return "Shipment Booked";
   if (history?.dpdShipment.status === "DPD_CREATED") return "Documents Need Review";
@@ -93,28 +97,41 @@ function getShipmentStatus(history: DpdShipmentHistoryItem | null) {
   return "Ready for Booking";
 }
 
+function hasDpdCarrierLabel(history: DpdShipmentHistoryItem | null) {
+  return Boolean(history?.labels.some((label) => label.labelType === "DPD"));
+}
+
+/**
+ * Internal-only bookings were historically stored as LABEL_RECEIVED even
+ * though only Swiftline parcel labels existed. Keep those records actionable,
+ * but never expose a retry action when a carrier reference or DPD document is
+ * already present.
+ */
+function canGenerateDpdCarrierLabel(history: DpdShipmentHistoryItem | null) {
+  if (!history || history.dpdShipment.dpdShipmentId?.trim() || hasDpdCarrierLabel(history)) return false;
+  return ["DPD_CREATED", "LABEL_RECEIVED"].includes(history.dpdShipment.status);
+}
+
 function getTrackingEvents(draft: ShipmentDraft, history: DpdShipmentHistoryItem | null) {
-  if (history?.trackingJourney?.milestones.length) {
-    return history.trackingJourney.milestones.map((milestone) => ({
-      label: milestone.label,
-      value: milestone.reachedAt ? formatDashboardDate(milestone.reachedAt) : "Pending",
-      done: Boolean(milestone.reachedAt)
-    }));
-  }
-  const orderedStatuses = [
-    "SHIPMENT_BOOKED",
-    "PARCEL_COLLECTED",
-    "WAREHOUSE_SCAN_IN",
-    "ORIGIN_HUB_PROCESSED",
-    "READY_FOR_EXPORT",
-    "ORIGIN_HUB_DISPATCHED",
-    "DESTINATION_ARRIVED",
-    "IMPORT_CUSTOMS_CLEARANCE",
-    "IMPORT_CUSTOMS_CLEARED",
-    "DELIVERY_PARTNER_TRANSFERRED",
-    "DELIVERY_HUB_ARRIVED",
-    "OUT_FOR_DELIVERY",
-    "DELIVERED"
+  // The public journey groups some operational events. The staff detail page
+  // must retain every checkpoint, especially Parcel Collected, even when the
+  // public journey has already reached Origin Received.
+  const orderedStatuses: Array<{ status: string; label: string }> = [
+    { status: "SHIPMENT_BOOKED", label: "Shipment Booked" },
+    { status: "PARCEL_COLLECTED", label: "Parcel Collected" },
+    { status: "WAREHOUSE_SCAN_IN", label: "Warehouse Scan In" },
+    { status: "ORIGIN_HUB_PROCESSED", label: "Origin Hub Processed" },
+    { status: "READY_FOR_EXPORT", label: "Ready for Export" },
+    { status: "ORIGIN_HUB_DISPATCHED", label: "Dispatched from Delhi Hub" },
+    { status: "DESTINATION_ARRIVED", label: history?.trackingJourney?.context.gatewayLabel
+      ? `Arrived at ${history.trackingJourney.context.gatewayLabel}`
+      : "Arrived at Destination Gateway" },
+    { status: "IMPORT_CUSTOMS_CLEARANCE", label: "Customs Clearance in Progress" },
+    { status: "IMPORT_CUSTOMS_CLEARED", label: "Customs Cleared" },
+    { status: "DELIVERY_PARTNER_TRANSFERRED", label: `Transferred to ${history?.trackingJourney?.context.deliveryPartnerName || "Delivery Partner"}` },
+    { status: "DELIVERY_HUB_ARRIVED", label: "Arrived at Delivery Hub" },
+    { status: "OUT_FOR_DELIVERY", label: "Out for Delivery" },
+    { status: "DELIVERED", label: "Delivered" }
   ];
   const sourceEvents = [...(history?.events ?? [])].reverse();
   const eventsByStatus = new Map(sourceEvents.map((event) => [event.status, event]));
@@ -131,10 +148,10 @@ function getTrackingEvents(draft: ShipmentDraft, history: DpdShipmentHistoryItem
   const cancellationEvent = eventsByStatus.get("SHIPMENT_CANCELLED");
   if (cancellationEvent) {
     for (const status of orderedStatuses) {
-      const event = eventsByStatus.get(status);
+      const event = eventsByStatus.get(status.status);
       if (!event) continue;
       events.push({
-        label: event.statusLabel ?? formatLabel(status),
+        label: status.label,
         value: `${formatDashboardDate(event.eventAt)} - ${event.note || "Shipment progress updated."}`,
         done: true
       });
@@ -148,10 +165,10 @@ function getTrackingEvents(draft: ShipmentDraft, history: DpdShipmentHistoryItem
   }
 
   for (const status of orderedStatuses) {
-    if (status === "SHIPMENT_BOOKED" && history?.dpdShipment && !eventsByStatus.has(status)) continue;
-    const event = eventsByStatus.get(status);
+    if (status.status === "SHIPMENT_BOOKED" && history?.dpdShipment && !eventsByStatus.has(status.status)) continue;
+    const event = eventsByStatus.get(status.status);
     events.push({
-      label: event?.statusLabel ?? formatLabel(status),
+      label: status.label,
       value: event
         ? `${formatDashboardDate(event.eventAt)} • ${event.note || "Shipment progress updated."}`
         : "Pending",
@@ -236,6 +253,10 @@ export default function AdminShipmentDetailsPage() {
   const isOnHold = history?.currentEvent?.status === "ON_HOLD";
   const cancellationLocked = cancellation?.status === "REQUESTED" || cancellation?.status === "COMPLETED";
   const isUkRoute = draft?.consigneeEnteredAddress.countryCode?.toUpperCase() === "GB";
+  const canManageDpdLabel = user?.role === "admin" || user?.role === "operations";
+  const canRequestDpdLabel = canManageDpdLabel && isUkRoute && canGenerateDpdCarrierLabel(history);
+  const needsCarrierDocumentReview = canManageDpdLabel
+    && (history?.dpdShipment.status === "DPD_CREATED" || canRequestDpdLabel);
   const arrivalEvent = useMemo(
     () => (history?.events ?? []).find((event) => event.status === "DESTINATION_ARRIVED") ?? null,
     [history]
@@ -271,7 +292,7 @@ export default function AdminShipmentDetailsPage() {
     try {
       const [draftData, shipmentData, cancellationData] = await Promise.all([
         getShipmentDraft(params.draftId),
-        listDpdShipments(100),
+        listDpdShipments(100, "", false, true),
         getAdminShipmentCancellation(params.draftId)
       ]);
       const matchingShipment = shipmentData.shipments.find((item) => item.shipmentDraft?.id === params.draftId) ?? null;
@@ -383,6 +404,34 @@ export default function AdminShipmentDetailsPage() {
     }
   }
 
+  async function handleGenerateDpdLabel() {
+    if (!history?.dpdShipment || !canRequestDpdLabel) return;
+    if (history.dpdShipment.dpdShipmentId) {
+      setActionFeedback({
+        message: "This booking already has a carrier reference. Do not request another label; contact Swiftline Operations to reconcile the stored document.",
+        tone: "warning"
+      });
+      return;
+    }
+    if (!window.confirm("This will request the DPD carrier label for this existing shipment. It will not create another shipment or invoice. Continue?")) return;
+
+    setActionBusy(true);
+    setActionFeedback(null);
+    try {
+      const result = await generateExistingDpdLabel(history.dpdShipment.id);
+      toast.success(result.message);
+      await loadShipment();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error
+        ? caughtError.message
+        : "The DPD carrier label could not be generated. Check the shipment audit history before retrying.";
+      setActionFeedback({ message, tone: "error" });
+      toast.error(message);
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   async function handleAmendment(input: ShipmentAmendmentInput) {
     if (!draft) return;
 
@@ -460,7 +509,7 @@ export default function AdminShipmentDetailsPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <StatusPill label={getShipmentStatus(history)} tone={isOnHold ? "warning" : history?.dpdShipment ? "success" : "neutral"} />
-            {/* Rebook — only admin/operations may rebook. Delivery sees this page via SHIPMENT_VIEW_AREA but must not rebook. */}
+            {/* Rebook - only admin/operations may rebook. Delivery sees this page via SHIPMENT_VIEW_AREA but must not rebook. */}
             {history?.dpdShipment && (user.role === "admin" || user.role === "operations") ? (
               <button
                 type="button"
@@ -750,20 +799,40 @@ export default function AdminShipmentDetailsPage() {
               </section>
         ) : null}
 
-        {history?.dpdShipment.status === "DPD_CREATED" ? (
+        {needsCarrierDocumentReview ? (
           <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4">
             <div>
-              <h2 className="font-semibold text-amber-950">Carrier booking accepted, documents need review</h2>
-              <p className="mt-1 text-sm text-amber-800">Finalize the saved booking without creating another shipment.</p>
+              <h2 className="font-semibold text-amber-950">
+                {canRequestDpdLabel ? "Internal labels ready; DPD label not generated" : "Carrier booking accepted, documents need review"}
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm text-amber-800">
+                {canRequestDpdLabel
+                  ? "This shipment already exists with Swiftline labels. An authorized Admin or Operations user can generate its DPD carrier label here without creating another shipment or invoice."
+                  : "The shipment already exists. Complete the carrier document review here without creating another shipment or invoice. If the carrier result is uncertain, do not retry."}
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={handleDocumentReconciliation}
-              disabled={actionBusy}
-              className="h-10 border border-amber-700 bg-white rounded-xl px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60"
-            >
-              {actionBusy ? "Finalizing..." : "Finalize Documents"}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {canRequestDpdLabel ? (
+                <button
+                  type="button"
+                  onClick={handleGenerateDpdLabel}
+                  disabled={actionBusy}
+                  className="h-10 rounded-xl bg-amber-800 px-4 text-sm font-semibold text-white hover:bg-amber-900 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {actionBusy ? "Generating..." : "Generate DPD label"}
+                </button>
+              ) : null}
+              {history && history.dpdShipment.status === "DPD_CREATED" && !history.dpdShipment.dpdShipmentId ? (
+                <button
+                  type="button"
+                  onClick={handleDocumentReconciliation}
+                  disabled={actionBusy}
+                  className="h-10 rounded-xl border border-amber-700 bg-white px-4 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {actionBusy ? "Finalizing..." : "Finalize without DPD label"}
+                </button>
+              ) : null}
+            </div>
           </section>
         ) : null}
 

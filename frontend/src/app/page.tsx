@@ -328,10 +328,10 @@ export default function Home() {
   };
 
   return (
-    // Mobile remains a natural stacked document. From `lg` upward the page is
-    // viewport-locked, while the two primary cards use their content height and
-    // stretch to the same grid row so short laptops do not need an inner scrollbar.
-    <div className="flex min-h-dvh w-full max-w-full flex-col overflow-x-hidden bg-[#F6F8FC] text-slate-900 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
+    // Mobile remains a natural stacked document. Desktop uses a viewport-locked
+    // layout when there is room, and the short-viewport CSS fallback below lets
+    // the document scroll without putting a scrollbar inside either card.
+    <div className="login-page flex min-h-dvh w-full max-w-full flex-col overflow-x-hidden bg-[#F6F8FC] text-slate-900 lg:h-dvh lg:min-h-0 lg:overflow-hidden">
       {/* Mobile header intentionally shows only the essentials; the richer company
           identity blocks progressively return as horizontal space becomes available. */}
       <header className="shrink-0 border-b border-slate-200 bg-white">
@@ -387,7 +387,7 @@ export default function Home() {
 
       {/* Phones stay stacked; desktop centers one shared-height row so the brand
           panel and sign-in card remain aligned without introducing card scrolling. */}
-      <main className="mx-auto grid w-full max-w-350 min-w-0 flex-1 grid-cols-1 items-start gap-5 px-4 py-5 sm:gap-7 sm:px-6 sm:py-7 md:px-8 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(390px,430px)] lg:content-center lg:items-stretch lg:gap-10 lg:py-5 xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)] xl:gap-14">
+      <main className="login-page__main mx-auto grid w-full max-w-350 min-w-0 flex-1 grid-cols-1 items-start gap-5 px-4 py-5 sm:gap-7 sm:px-6 sm:py-7 md:px-8 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(390px,430px)] lg:content-center lg:items-stretch lg:gap-10 lg:py-5 xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)] xl:gap-14">
         <LoginBrandPanel />
 
 <section className="order-1 mx-auto w-full min-w-0 max-w-130 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_14px_36px_-16px_rgba(13,18,130,0.2)] sm:p-5 lg:order-2 lg:max-w-none lg:self-stretch lg:p-5">

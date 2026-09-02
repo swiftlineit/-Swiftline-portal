@@ -269,9 +269,18 @@ export async function rebuildFlightAllocations(sheet: IFlightCostSheet, session?
     const weights = component.component === "DPD_LABEL" ? parcelUnits : weightUnits;
     allocatedByComponent.set(component.component, allocateMinorUnits(component.amountMinor, weights, stableIds));
   }
+  const allocatedGbpByComponent = new Map<"CFL" | "DPD_LABEL", number[]>();
+  allocatedGbpByComponent.set("CFL", allocateMinorUnits(sheet.totals.cflGbpMinor, parcelUnits, stableIds));
+  allocatedGbpByComponent.set("DPD_LABEL", allocateMinorUnits(sheet.totals.dpdLabelsGbpMinor, parcelUnits, stableIds));
   const rows = consignments.map((consignment, index) => {
     const profile = profitabilityByDraft.get(String(consignment.shipmentDraftId));
-    const rowComponents = components.map(({ component }) => ({ component, amountMinor: allocatedByComponent.get(component)?.[index] ?? 0 }));
+    const rowComponents = components.map(({ component }) => ({
+      component,
+      amountMinor: allocatedByComponent.get(component)?.[index] ?? 0,
+      amountMinorGbp: component === "CFL" || component === "DPD_LABEL"
+        ? allocatedGbpByComponent.get(component)?.[index] ?? 0
+        : null
+    }));
     const totalCostMinor = rowComponents.reduce((sum, item) => sum + item.amountMinor, 0);
     const totalRevenueMinor = profile?.totalRevenueMinor ?? 0;
     const grossProfitMinor = totalRevenueMinor - totalCostMinor;
@@ -323,6 +332,7 @@ export async function rebuildFlightAllocations(sheet: IFlightCostSheet, session?
           flightCostSheetId: sheet._id,
           operationsManifestId: sheet.operationsManifestId,
           flightAllocation: row.components,
+          flightFxGbpToInr: sheet.fxSnapshot.gbpToInr,
           totalCostMinor: row.totalCostMinor,
           grossProfitMinor: row.grossProfitMinor,
           marginBasisPoints: row.marginBasisPoints,

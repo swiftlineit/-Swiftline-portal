@@ -189,6 +189,12 @@ const staffNavigation: Array<
         roles: withAdmin(OPERATIONS_AREA),
       },
       {
+        label: "Flight Cost Drafts",
+        href: "/dashboard/flight-cost-drafts",
+        icon: FiFileText,
+        roles: withAdmin(OPERATIONS_AREA),
+      },
+      {
         label: "Swiftline Routes",
         href: "/dashboard/swiftline-routes",
         icon: FiGlobe,

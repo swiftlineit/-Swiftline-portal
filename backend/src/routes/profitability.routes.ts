@@ -16,6 +16,18 @@ import * as flightController from "../controllers/flightProfitability.controller
 export const profitabilityRouter = Router();
 
 profitabilityRouter.use(attachUser);
+// Operations may see and remove only provisional flight-cost drafts. The full
+// profitability workspace remains finance-only below.
+profitabilityRouter.get(
+  "/flight-cost-drafts",
+  requireRole("admin", "operations"),
+  flightController.listFlightCostDrafts
+);
+profitabilityRouter.delete(
+  "/flight-cost-sheets/:sheetId",
+  requireRole("admin", "operations"),
+  flightController.deleteDraftFlightCostSheet
+);
 profitabilityRouter.patch(
   "/flight-cost-sheets/:sheetId/external-labels",
   requireRole("admin", "finance", "operations"),

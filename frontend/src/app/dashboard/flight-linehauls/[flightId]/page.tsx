@@ -4,12 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-  FiAlertTriangle,
-  FiUpload,
-  FiTrash2,
+  FiArrowRight,
   FiDownload,
   FiPlus,
   FiRefreshCw,
+  FiTrash2,
+  FiUpload,
 } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
@@ -38,6 +38,7 @@ import {
   type FlightStatus,
 } from "@/lib/flightLinehaul";
 import { listFlights } from "@/lib/flightLinehaul";
+import { normalizeFlightNumber } from "@/lib/flightNumber";
 
 const tabs = [
   "Overview",
@@ -83,7 +84,7 @@ const allowedNext: Record<string, FlightStatus[]> = {
 
 function statusBadge(status: string) {
   const base =
-    "inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold";
+    "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-bold tracking-[0.02em]";
   if (status === "CANCELLED")
     return `${base} bg-red-50 text-red-700 border-red-200`;
   if (status === "CLOSED")
@@ -104,6 +105,8 @@ export default function FlightDetailPage() {
   const [tab, setTab] = useState<Tab>("Overview");
   const [transitionTo, setTransitionTo] = useState<FlightStatus | "">("");
   const [actionReason, setActionReason] = useState("");
+  const [actualDepartureAt, setActualDepartureAt] = useState("");
+  const [actualArrivalAt, setActualArrivalAt] = useState("");
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -135,12 +138,19 @@ export default function FlightDetailPage() {
 
   async function doTransition() {
     if (!transitionTo) return toast.error("Select a target status.");
+    if (transitionTo === "DEPARTED" && !actualDepartureAt) {
+      return toast.error("Enter the actual departure date and time before marking the flight departed.");
+    }
+    if (transitionTo === "ARRIVED_DESTINATION" && !actualArrivalAt) {
+      return toast.error("Enter the actual arrival date and time before marking the flight arrived.");
+    }
     try {
       const meta: Record<string, unknown> = {};
-      if (transitionTo === "DEPARTED")
-        meta.actualDepartureAt = new Date().toISOString();
-      if (transitionTo === "ARRIVED_DESTINATION")
-        meta.arrivalAt = new Date().toISOString();
+      if (transitionTo === "DEPARTED") meta.actualDepartureAt = new Date(actualDepartureAt).toISOString();
+      if (transitionTo === "ARRIVED_DESTINATION") {
+        meta.actualArrivalAt = new Date(actualArrivalAt).toISOString();
+        meta.arrivalAt = new Date(actualArrivalAt).toISOString();
+      }
       await transitionFlight(
         flightId,
         transitionTo as FlightStatus,
@@ -150,6 +160,8 @@ export default function FlightDetailPage() {
       toast.success(`Flight moved to ${transitionTo}.`);
       setTransitionTo("");
       setActionReason("");
+      setActualDepartureAt("");
+      setActualArrivalAt("");
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Transition failed.");
@@ -170,154 +182,288 @@ export default function FlightDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-8xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {/* <Link
-            href="/dashboard/flight-linehauls"
-            className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-          >
-            <FiArrowLeft />
-          </Link> */}
-          <div>
-            <h1 className="text-xl font-semibold text-[#0D1282]">
-              {flight.flightLinehaulNumber} · {flight.flightNumber}{" "}
-              <span className="ml-2 text-sm font-normal text-slate-500">
-                {flight.airlineName}
+    <div className="flight-detail-page mx-auto w-full max-w-[1600px] space-y-5">
+      {/* Flight identity */}
+      <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white shadow-[0_4px_14px_rgba(15,23,42,0.035)]">
+        <div className="flex flex-col gap-4 px-5 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-7">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#0D1282]">
+                {flight.flightLinehaulNumber}
               </span>
-            </h1>
-            <p className="text-sm text-slate-500">
-              {flight.originIataCode} → {flight.destinationIataCode}{" "}
-              {flight.transitIataCode ? `via ${flight.transitIataCode}` : ""} ·
-              MAWB {flight.mawbNumber || "pending"} ·{" "}
-              {flight.branch?.name ?? ""} ({flight.branch?.code ?? ""})
-            </p>
+              <span className={statusBadge(flight.status)}>
+                {flight.status.replaceAll("_", " ")}
+              </span>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="text-2xl font-bold tracking-[-0.03em] text-slate-950 sm:text-[29px]">
+                {normalizeFlightNumber(flight.flightNumber)}
+              </h1>
+              <span className="text-sm font-semibold text-slate-500">
+                {flight.airlineName || "Airline pending"}
+              </span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-slate-500">
+              <div className="inline-flex items-center gap-2">
+                <span className="rounded-md border border-[#E1E6EC] bg-[#F8FAFC] px-2.5 py-1 font-bold text-slate-800">
+                  {flight.originIataCode || "???"}
+                </span>
+
+                <FiArrowRight className="h-3.5 w-3.5 text-slate-400" />
+
+                {flight.transitIataCode ? (
+                  <>
+                    <span className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 font-bold text-amber-700">
+                      {flight.transitIataCode}
+                    </span>
+                    <FiArrowRight className="h-3.5 w-3.5 text-slate-400" />
+                  </>
+                ) : null}
+
+                <span className="rounded-md border border-[#E1E6EC] bg-[#F8FAFC] px-2.5 py-1 font-bold text-slate-800">
+                  {flight.destinationIataCode || "???"}
+                </span>
+              </div>
+
+              <span className="hidden h-4 w-px bg-slate-200 sm:block" />
+
+              <span>
+                MAWB{" "}
+                <span className="font-semibold text-slate-700">
+                  {flight.mawbNumber || "Pending"}
+                </span>
+              </span>
+
+              {flight.branch?.code ? (
+                <>
+                  <span className="hidden h-4 w-px bg-slate-200 sm:block" />
+                  <span className="font-semibold text-slate-600">
+                    {flight.branch.code}
+                  </span>
+                </>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[#D9E0E8] bg-white px-3.5 text-xs font-semibold text-slate-600 transition hover:border-[#C0C9D5] hover:bg-slate-50 hover:text-slate-900"
+            >
+              <FiRefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+
+            {flight.status !== "CLOSED" && flight.status !== "CANCELLED" ? (
+              <button
+                type="button"
+                onClick={doCancel}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-red-200 bg-white px-4 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+              >
+                Cancel flight
+              </button>
+            ) : null}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={statusBadge(flight.status)}>
-            {flight.status.replaceAll("_", " ")}
-          </span>
-          <button
-            onClick={() => void load()}
-            className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-          >
-            <FiRefreshCw className={busy ? "animate-spin" : ""} />
-          </button>
-          {flight.status !== "CLOSED" && flight.status !== "CANCELLED" ? (
-            <button
-              onClick={doCancel}
-              className="h-10 rounded-xl border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50"
-            >
-              Cancel flight
-            </button>
-          ) : null}
-        </div>
-      </div>
 
-      {/* Header stats */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 rounded-2xl border border-[#EEEDED] bg-white p-4 shadow-sm">
-        <Stat
-          label="Capacity"
-          value={`${flight.allocatedWeightKg.toFixed(1)} / ${flight.capacityKg.toFixed(1)} kg`}
-          sub={`${detail.stats.utilisationPercent.toFixed(1)}% utilised`}
-          alert={flight.allocatedWeightKg > flight.capacityKg}
-        />
-        <Stat
-          label="Shipments"
-          value={String(detail.stats.totalShipments)}
-          sub={`${flight.totalShipments} allocated`}
-        />
-        <Stat
-          label="Pieces"
-          value={String(detail.stats.totalPieces)}
-          sub={`${detail.stats.totalPieces} pcs`}
-        />
-        <Stat
-          label="Bags"
-          value={String(detail.stats.totalBags)}
-          sub={`${detail.stats.manifestCount} manifests`}
-        />
-        <Stat
-          label="Schedule"
-          value={new Date(flight.scheduledDepartureAt).toLocaleDateString(
-            "en-IN",
-          )}
-          sub={new Date(flight.scheduledDepartureAt).toLocaleTimeString(
-            "en-IN",
-            { timeZone: "Asia/Kolkata" },
-          )}
-        />
-        <Stat
-          label="Customs"
-          value={flight.customsStatus}
-          sub={
-            flight.customsClearedAt
-              ? new Date(flight.customsClearedAt).toLocaleDateString("en-IN")
-              : "Pending"
-          }
-        />
-      </div>
+        {/* Essential flight metadata */}
+        <div className="grid gap-px border-t border-[#E7EBF0] bg-[#E7EBF0] sm:grid-cols-2 lg:grid-cols-4">
+          <HeaderMeta
+            label="Scheduled departure"
+            value={new Date(flight.scheduledDepartureAt).toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+            })}
+          />
+          <HeaderMeta
+            label="Scheduled arrival"
+            value={new Date(flight.scheduledArrivalAt).toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+            })}
+          />
+          <HeaderMeta
+            label="Shipments"
+            value={`${detail.stats.totalShipments} allocated`}
+          />
+          <HeaderMeta
+            label="Customs"
+            value={flight.customsStatus.replaceAll("_", " ")}
+          />
+        </div>
+      </section>
+
+      {/* Flight snapshot */}
+      <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white shadow-[0_4px_14px_rgba(15,23,42,0.035)]">
+        <div className="border-b border-[#EEF1F4] px-5 py-3.5 sm:px-6">
+          <h2 className="text-sm font-bold text-slate-950">Flight snapshot</h2>
+        </div>
+
+        <div className="grid grid-cols-2 gap-px bg-[#E7EBF0] sm:grid-cols-3 xl:grid-cols-6">
+          <Stat
+            label="Capacity"
+            value={`${flight.allocatedWeightKg.toFixed(1)} / ${flight.capacityKg.toFixed(1)} kg`}
+            sub={`${detail.stats.utilisationPercent.toFixed(1)}% utilised`}
+            alert={flight.allocatedWeightKg > flight.capacityKg}
+          />
+          <Stat
+            label="Shipments"
+            value={String(detail.stats.totalShipments)}
+            sub={`${flight.totalShipments} allocated`}
+          />
+          <Stat
+            label="Pieces"
+            value={String(detail.stats.totalPieces)}
+            sub={`${detail.stats.totalPieces} pcs`}
+          />
+          <Stat
+            label="Bags"
+            value={String(detail.stats.totalBags)}
+            sub={`${detail.stats.manifestCount} manifests`}
+          />
+          <Stat
+            label="Departure"
+            value={new Date(flight.scheduledDepartureAt).toLocaleDateString("en-IN")}
+            sub={new Date(flight.scheduledDepartureAt).toLocaleTimeString("en-IN", {
+              timeZone: "Asia/Kolkata",
+            })}
+          />
+          <Stat
+            label="Customs"
+            value={flight.customsStatus.replaceAll("_", " ")}
+            sub={
+              flight.customsClearedAt
+                ? new Date(flight.customsClearedAt).toLocaleDateString("en-IN")
+                : "Pending"
+            }
+          />
+        </div>
+      </section>
 
       {/* Status transition */}
       {nextOptions.length ? (
-        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-[#EEEDED] bg-white p-4 shadow-sm">
-          <label className="text-xs font-semibold text-slate-600">
-            Transition to
-            <select
-              value={transitionTo}
-              onChange={(e) => setTransitionTo(e.target.value as FlightStatus)}
-              className="mt-1 flex h-10 min-w-48 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+        <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white shadow-[0_4px_16px_rgba(15,23,42,0.035)]">
+          <div className="flex flex-col gap-3 border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+            <div className="flex min-w-0 items-start gap-3">
+              
+              <div>
+                <h2 className="text-sm font-bold text-slate-950">Update flight status</h2>
+                <p className="mt-0.5 max-w-2xl text-xs leading-5 text-slate-500">
+                  Move this flight to its next operational milestone. Departure and arrival changes can also update shipment tracking.
+
+                     <span>
+                The system validates every active shipment first. If a required earlier milestone is missing, the entire update is blocked.
+              </span>
+                </p>
+                
+              </div>
+            </div>
+
+            <div className="flex max-w-xl items-start gap-2 rounded-lg border border-[#DDE3EC] bg-white px-3 py-2 text-[11px] leading-4 text-slate-500">
+           
+            </div>
+          </div>
+
+          <div className="grid gap-3 p-4 sm:p-5 lg:grid-cols-[220px_minmax(0,1fr)_auto] lg:items-end">
+            <label className="block text-xs font-semibold text-slate-600">
+              Transition to
+              <select
+                value={transitionTo}
+                onChange={(e) => setTransitionTo(e.target.value as FlightStatus)}
+                className="mt-1.5 h-11 w-full border border-[#CDD5DF] bg-white px-3.5 text-sm font-medium text-slate-700"
+              >
+                <option value="">Select status</option>
+                {nextOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s.replaceAll("_", " ")}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {transitionTo === "DEPARTED" ? (
+                <label className="block text-xs font-semibold text-slate-600">
+                  Actual departure time <span className="text-red-600">*</span>
+                  <input
+                    type="datetime-local"
+                    value={actualDepartureAt}
+                    onChange={(e) => setActualDepartureAt(e.target.value)}
+                    className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+                  />
+                </label>
+              ) : null}
+
+              {transitionTo === "ARRIVED_DESTINATION" ? (
+                <label className="block text-xs font-semibold text-slate-600">
+                  Actual arrival time <span className="text-red-600">*</span>
+                  <input
+                    type="datetime-local"
+                    value={actualArrivalAt}
+                    onChange={(e) => setActualArrivalAt(e.target.value)}
+                    className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+                  />
+                </label>
+              ) : null}
+
+              <label
+                className={`block text-xs font-semibold text-slate-600 ${
+                  transitionTo === "DEPARTED" || transitionTo === "ARRIVED_DESTINATION"
+                    ? ""
+                    : "sm:col-span-2"
+                }`}
+              >
+                Reason / note
+                <input
+                  value={actionReason}
+                  onChange={(e) => setActionReason(e.target.value)}
+                  placeholder="Optional operational note"
+                  className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+                />
+              </label>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void doTransition()}
+              className="group inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#0D1282] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0A0F6D]"
             >
-              <option value="">Select status</option>
-              {nextOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s.replaceAll("_", " ")}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex-1 text-xs font-semibold text-slate-600">
-            Reason / note
-            <input
-              value={actionReason}
-              onChange={(e) => setActionReason(e.target.value)}
-              placeholder="Reason for change"
-              className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#0D1282]"
-            />
-          </label>
-          <button
-            onClick={() => void doTransition()}
-            className="h-10 rounded-xl bg-[#0D1282] px-5 text-sm font-semibold text-white hover:bg-[#0D1282]/90"
-          >
-            Move
-          </button>
-        </div>
+              Apply status
+              <FiArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+            </button>
+          </div>
+        </section>
       ) : null}
 
-      {/* Tabs */}
-      <div className="overflow-hidden rounded-2xl border border-[#EEEDED] bg-white shadow-sm">
-        <div className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2">
-          {tabs.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-semibold ${tab === t ? "bg-white text-[#0D1282] shadow-sm ring-1 ring-slate-200" : "text-slate-600 hover:bg-white hover:text-slate-900"}`}
-            >
-              {t}
-            </button>
-          ))}
+      {/* Workspace tabs */}
+      <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white shadow-[0_4px_16px_rgba(15,23,42,0.035)]">
+        <div className="overflow-x-auto border-b border-[#E7EBF0] bg-[#FBFCFD]">
+          <div className="flex min-w-max px-2 sm:px-3">
+            {tabs.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                className={`relative whitespace-nowrap px-3.5 py-3.5 text-sm font-semibold transition sm:px-4 ${
+                  tab === t
+                    ? "text-[#0D1282]"
+                    : "text-slate-500 hover:text-slate-900"
+                }`}
+              >
+                {t}
+                {tab === t ? (
+                  <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#0D1282]" />
+                ) : null}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="p-5">
-          {tab === "Overview" && (
-            <OverviewTab detail={detail} />
-          )}
+
+        <div className="bg-white p-4 sm:p-5 lg:p-6">
+          {tab === "Overview" && <OverviewTab detail={detail} />}
           {tab === "Shipments" && (
-            <ShipmentsTab
-              detail={detail}
-              flightId={flightId}
-              onRefresh={load}
-            />
+            <ShipmentsTab detail={detail} flightId={flightId} onRefresh={load} />
           )}
           {tab === "Bags" && <BagsTab detail={detail} />}
           {tab === "Manifest" && (
@@ -325,31 +471,67 @@ export default function FlightDetailPage() {
           )}
           {tab === "Timeline" && <TimelineTab detail={detail} />}
           {tab === "Connection" && (
-            <ConnectionTab
-              detail={detail}
-              flightId={flightId}
-              onRefresh={load}
-            />
+            <ConnectionTab detail={detail} flightId={flightId} onRefresh={load} />
           )}
           {tab === "Documents" && (
-            <DocumentsTab
-              detail={detail}
-              flightId={flightId}
-              onRefresh={load}
-            />
+            <DocumentsTab detail={detail} flightId={flightId} onRefresh={load} />
           )}
           {tab === "Destination handover" && (
             <HandoverTab detail={detail} flightId={flightId} onRefresh={load} />
           )}
           {tab === "Exceptions" && (
-            <ExceptionsTab
-              detail={detail}
-              onRefresh={load}
-            />
+            <ExceptionsTab detail={detail} onRefresh={load} />
           )}
           {tab === "Audit history" && <AuditTab detail={detail} />}
         </div>
-      </div>
+      </section>
+
+      {/* Consistent form controls across all tabs */}
+      <style jsx global>{`
+        .flight-detail-page select {
+          -webkit-appearance: none;
+          appearance: none;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364758b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: right 14px center;
+          background-size: 16px 16px;
+          padding-right: 2.75rem !important;
+          border-radius: 8px !important;
+          outline: none;
+        }
+
+        .flight-detail-page select:focus {
+          border-color: #0d1282 !important;
+          box-shadow: 0 0 0 3px rgba(13, 18, 130, 0.08);
+        }
+
+        .flight-detail-page input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+        .flight-detail-page textarea {
+          border-radius: 8px !important;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function HeaderMeta({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0 bg-[#FBFCFD] px-5 py-3.5 lg:px-6">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+        {label}
+      </p>
+      <p
+        className="mt-1 truncate text-xs font-semibold text-slate-700"
+        title={value}
+      >
+        {value}
+      </p>
     </div>
   );
 }
@@ -367,17 +549,21 @@ function Stat({
 }) {
   return (
     <div
-      className={`rounded-xl border p-4 ${alert ? "border-red-200 bg-red-50/50" : "border-slate-100 bg-slate-50"}`}
+      className={`min-w-0 px-4 py-4 ${
+        alert ? "bg-red-50/40" : "bg-white"
+      }`}
     >
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-slate-400">
         {label}
       </p>
       <p
-        className={`mt-1 text-sm font-bold ${alert ? "text-red-700" : "text-slate-900"}`}
+        className={`mt-1.5 break-words text-[15px] font-bold leading-5 ${
+          alert ? "text-red-700" : "text-slate-950"
+        }`}
       >
         {value}
       </p>
-      <p className="text-xs text-slate-500">{sub}</p>
+      <p className="mt-1 text-[11px] text-slate-500">{sub}</p>
     </div>
   );
 }
@@ -389,194 +575,271 @@ function OverviewTab({
   detail: FlightDetail;
 }) {
   const flight = detail.flight;
+  const activeExceptions = detail.exceptions.filter((e) =>
+    ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"].includes(e.status),
+  ).length;
+
   return (
-    <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 p-4">
-          <h3 className="font-semibold text-slate-900">Flight details</h3>
-          <dl className="mt-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Flight</dt>
-              <dd className="font-semibold">{flight.flightNumber}</dd>
+    <div className="grid gap-4 xl:grid-cols-[1.25fr_0.85fr]">
+      {/* Flight information */}
+      <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white">
+        <div className="border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-bold text-slate-950">
+              Flight information
+            </h3>
+
+            <div className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+              <span>{flight.originIataCode || "???"}</span>
+              <FiArrowRight className="h-3.5 w-3.5 text-slate-400" />
+              {flight.transitIataCode ? (
+                <>
+                  <span className="text-amber-700">{flight.transitIataCode}</span>
+                  <FiArrowRight className="h-3.5 w-3.5 text-slate-400" />
+                </>
+              ) : null}
+              <span>{flight.destinationIataCode || "???"}</span>
             </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">MAWB</dt>
-              <dd className="font-semibold">{flight.mawbNumber || "—"}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Branch</dt>
-              <dd>
-                {flight.branch?.name} ({flight.branch?.code})
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Airline</dt>
-              <dd>{flight.airlineName || "—"}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Departure</dt>
-              <dd>
-                {new Date(flight.scheduledDepartureAt).toLocaleString("en-IN", {
-                  timeZone: "Asia/Kolkata",
-                })}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Arrival</dt>
-              <dd>
-                {new Date(flight.scheduledArrivalAt).toLocaleString("en-IN", {
-                  timeZone: "Asia/Kolkata",
-                })}
-              </dd>
-            </div>
-            {flight.actualDepartureAt ? (
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Actual dep.</dt>
-                <dd className="font-semibold text-amber-700">
-                  {new Date(flight.actualDepartureAt).toLocaleString("en-IN", {
-                    timeZone: "Asia/Kolkata",
-                  })}
-                </dd>
-              </div>
-            ) : null}
-          </dl>
+          </div>
         </div>
-        <div className="rounded-xl border border-slate-200 p-4">
-          <h3 className="font-semibold text-slate-900">Capacity</h3>
-          <div className="mt-3">
-            <div className="flex justify-between text-sm">
-              <span>Utilisation</span>
-              <span
-                className={`font-bold ${detail.stats.utilisationPercent > 100 ? "text-red-600" : detail.stats.utilisationPercent > 90 ? "text-amber-600" : "text-[#0D1282]"}`}
-              >
-                {detail.stats.utilisationPercent.toFixed(1)}%
-              </span>
+
+        <dl className="grid sm:grid-cols-2">
+          <OverviewRow
+            label="Flight"
+            value={normalizeFlightNumber(flight.flightNumber)}
+            strong
+          />
+          <OverviewRow label="Airline" value={flight.airlineName || "—"} />
+          <OverviewRow label="MAWB" value={flight.mawbNumber || "Pending"} />
+          <OverviewRow
+            label="Branch"
+            value={
+              flight.branch?.name
+                ? `${flight.branch.name} (${flight.branch?.code ?? ""})`
+                : "—"
+            }
+          />
+          <OverviewRow
+            label="Scheduled departure"
+            value={new Date(flight.scheduledDepartureAt).toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+            })}
+          />
+          <OverviewRow
+            label="Scheduled arrival"
+            value={new Date(flight.scheduledArrivalAt).toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+            })}
+          />
+          {flight.actualDepartureAt ? (
+            <OverviewRow
+              label="Actual departure"
+              value={new Date(flight.actualDepartureAt).toLocaleString("en-IN", {
+                timeZone: "Asia/Kolkata",
+              })}
+              tone="warning"
+            />
+          ) : null}
+        </dl>
+      </section>
+
+      <div className="space-y-4">
+        {/* Capacity */}
+        <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white">
+          <div className="flex items-center justify-between gap-3 border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5">
+            <h3 className="text-sm font-bold text-slate-950">Capacity</h3>
+            <span
+              className={`text-xs font-bold ${
+                detail.stats.utilisationPercent > 100
+                  ? "text-red-700"
+                  : detail.stats.utilisationPercent > 90
+                    ? "text-amber-700"
+                    : "text-[#0D1282]"
+              }`}
+            >
+              {detail.stats.utilisationPercent.toFixed(1)}%
+            </span>
+          </div>
+
+          <div className="p-4">
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-medium text-slate-500">
+                  Allocated weight
+                </p>
+                <p className="mt-1 text-lg font-bold text-slate-950">
+                  {flight.allocatedWeightKg.toFixed(1)} /{" "}
+                  {flight.capacityKg.toFixed(1)} kg
+                </p>
+              </div>
             </div>
-            <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100">
+
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EEF1F4]">
               <div
-                className={`h-full ${detail.stats.utilisationPercent > 100 ? "bg-red-600" : detail.stats.utilisationPercent > 90 ? "bg-amber-500" : "bg-[#0D1282]"}`}
+                className={`h-full rounded-full ${
+                  detail.stats.utilisationPercent > 100
+                    ? "bg-red-600"
+                    : detail.stats.utilisationPercent > 90
+                      ? "bg-amber-500"
+                      : "bg-[#0D1282]"
+                }`}
                 style={{
                   width: `${Math.min(detail.stats.utilisationPercent, 100)}%`,
                 }}
               />
             </div>
-            <p className="mt-2 text-xs text-slate-500">
-              {flight.allocatedWeightKg.toFixed(1)} kg of{" "}
-              {flight.capacityKg.toFixed(1)} kg used ·{" "}
-              {detail.stats.totalShipments} shipments ·{" "}
-              {detail.stats.totalPieces} pieces · {detail.stats.totalBags} bags
-              · {detail.stats.manifestCount} manifests
-            </p>
+
+            <div className="mt-4 grid grid-cols-4 gap-px overflow-hidden rounded-lg border border-[#E7EBF0] bg-[#E7EBF0]">
+              <MiniMetric label="Shipments" value={detail.stats.totalShipments} />
+              <MiniMetric label="Pieces" value={detail.stats.totalPieces} />
+              <MiniMetric label="Bags" value={detail.stats.totalBags} />
+              <MiniMetric label="Manifests" value={detail.stats.manifestCount} />
+            </div>
+
             {flight.allocatedWeightKg > flight.capacityKg ? (
-              <p className="mt-2 rounded-lg bg-red-50 p-2 text-xs font-semibold text-red-700">
-                Over capacity — remove or offload shipments before departure.
+              <p className="mt-3 text-xs font-semibold text-red-700">
+                Over capacity — action required before departure.
+              </p>
+            ) : detail.stats.utilisationPercent >= 90 ? (
+              <p className="mt-3 text-xs font-semibold text-amber-700">
+                Capacity is at or above 90%.
               </p>
             ) : null}
-            {detail.stats.utilisationPercent >= 90 &&
-            detail.stats.utilisationPercent <= 100 ? (
-              <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs font-semibold text-amber-700">
-                Capacity warning — utilisation ≥90%.
-              </p>
-            ) : null}
-          </div>
-          <h3 className="mt-6 font-semibold text-slate-900">Connection</h3>
-          {flight.connection?.transitAirportCode ? (
-            <div className="mt-2 rounded-lg bg-slate-50 p-3 text-sm">
-              <p className="font-semibold">
-                {flight.connection.transitAirportCode} · layover{" "}
-                {flight.connection.layoverMinutes ?? "—"} min ·{" "}
+
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#EEF1F4] pt-3">
+              <div>
+                <p className="text-[11px] font-semibold text-slate-500">
+                  Connection
+                </p>
+                <p className="mt-0.5 text-xs font-semibold text-slate-800">
+                  {flight.connection?.transitAirportCode
+                    ? `${flight.connection.transitAirportCode} · ${
+                        flight.connection.layoverMinutes ?? "—"
+                      } min`
+                    : "Direct flight"}
+                </p>
+              </div>
+
+              {flight.connection?.transitAirportCode ? (
                 <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-bold ${["HIGH", "CRITICAL", "MISSED"].includes(flight.connection.riskLevel) ? "bg-red-100 text-red-700" : flight.connection.riskLevel === "MEDIUM" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}
+                  className={`rounded-md px-2 py-1 text-[10px] font-bold ${
+                    ["HIGH", "CRITICAL", "MISSED"].includes(
+                      flight.connection.riskLevel,
+                    )
+                      ? "bg-red-50 text-red-700"
+                      : flight.connection.riskLevel === "MEDIUM"
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-emerald-50 text-emerald-700"
+                  }`}
                 >
                   {flight.connection.riskLevel}
                 </span>
-              </p>
-              <p className="text-xs text-slate-500">
-                Sched{" "}
-                {flight.connection.scheduledArrivalAt
-                  ? new Date(
-                      flight.connection.scheduledArrivalAt,
-                    ).toLocaleString("en-IN")
-                  : "—"}{" "}
-                →{" "}
-                {flight.connection.scheduledDepartureAt
-                  ? new Date(
-                      flight.connection.scheduledDepartureAt,
-                    ).toLocaleString("en-IN")
-                  : "—"}
-              </p>
+              ) : null}
             </div>
-          ) : (
-            <p className="mt-2 text-sm text-slate-500">
-              No transit connection configured (direct flight).
-            </p>
-          )}
-        </div>
-        <div className="rounded-xl border border-slate-200 p-4">
-          <h3 className="font-semibold text-slate-900">
-            Destination & handover
-          </h3>
-          <dl className="mt-3 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Agent</dt>
-              <dd className="max-w-40 truncate font-medium">
-                {flight.destinationAgent || "—"}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Final-mile</dt>
-              <dd>{flight.finalMileCarrier || "—"}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Customs</dt>
-              <dd>
-                <span className={statusBadge(flight.customsStatus)}>
-                  {flight.customsStatus}
-                </span>
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Arrival</dt>
-              <dd>
-                {flight.arrivalAt
+          </div>
+        </section>
+
+        {/* Destination */}
+        <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white">
+          <div className="flex items-center justify-between gap-3 border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5">
+            <h3 className="text-sm font-bold text-slate-950">
+              Destination &amp; handover
+            </h3>
+
+            {activeExceptions ? (
+              <span className="rounded-md bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700">
+                {activeExceptions} action required
+              </span>
+            ) : (
+              <span className="rounded-md bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                Clear
+              </span>
+            )}
+          </div>
+
+          <dl className="grid sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+            <OverviewRow
+              label="Agent"
+              value={flight.destinationAgent || "—"}
+            />
+            <OverviewRow
+              label="Final-mile"
+              value={flight.finalMileCarrier || "—"}
+            />
+            <OverviewRow
+              label="Customs"
+              value={flight.customsStatus.replaceAll("_", " ")}
+            />
+            <OverviewRow
+              label="Arrival"
+              value={
+                flight.arrivalAt
                   ? new Date(flight.arrivalAt).toLocaleString("en-IN")
-                  : "—"}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Handover</dt>
-              <dd>
-                {flight.handoverAt
+                  : "—"
+              }
+            />
+            <OverviewRow
+              label="Handover"
+              value={
+                flight.handoverAt
                   ? new Date(flight.handoverAt).toLocaleString("en-IN")
-                  : "—"}
-              </dd>
-            </div>
+                  : "—"
+              }
+            />
             {flight.handoverReference ? (
-              <div className="flex justify-between">
-                <dt className="text-slate-500">Ref</dt>
-                <dd className="font-mono text-xs">
-                  {flight.handoverReference}
-                </dd>
-              </div>
+              <OverviewRow
+                label="Reference"
+                value={flight.handoverReference}
+                mono
+              />
             ) : null}
           </dl>
-          {detail.exceptions.filter((e) =>
-            ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"].includes(e.status),
-          ).length ? (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3">
-              <p className="flex items-center gap-2 text-sm font-semibold text-red-800">
-                <FiAlertTriangle />{" "}
-                {
-                  detail.exceptions.filter((e) =>
-                    ["OPEN", "ACKNOWLEDGED", "IN_PROGRESS"].includes(e.status),
-                  ).length
-                }{" "}
-                action-required exception(s)
-              </p>
-            </div>
-          ) : null}
-        </div>
+        </section>
       </div>
+    </div>
+  );
+}
+
+function OverviewRow({
+  label,
+  value,
+  strong,
+  mono,
+  tone,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  mono?: boolean;
+  tone?: "warning";
+}) {
+  return (
+    <div className="min-w-0 border-b border-r border-[#EEF1F4] px-4 py-3.5 last:border-b-0">
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-400">
+        {label}
+      </dt>
+      <dd
+        className={`mt-1.5 min-w-0 break-words text-xs leading-5 ${
+          strong ? "font-bold text-slate-950" : "font-semibold text-slate-700"
+        } ${mono ? "font-mono" : ""} ${
+          tone === "warning" ? "text-amber-700" : ""
+        }`}
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="bg-[#FBFCFD] px-2.5 py-2.5 text-center">
+      <p className="text-[9px] font-semibold uppercase tracking-[0.05em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-bold text-slate-900 tabular-nums">
+        {value}
+      </p>
     </div>
   );
 }
@@ -663,16 +926,21 @@ function ShipmentsTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 p-4">
+      <div className="flex flex-wrap items-end gap-2 rounded-xl border border-[#DDE3EC] p-4">
+        <Link
+          href="/dashboard/operations-manifests/new"
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#0D1282] px-4 text-sm font-semibold text-[#0D1282] hover:bg-[#0D1282]/5"
+        >
+          <FiPlus /> Create manifest
+        </Link>
         <label className="flex-1 text-xs font-semibold text-slate-600">
-          Search eligible booked shipments (not yet allocated, not
-          cancelled/on-hold)
+        
           <div className="mt-1 flex">
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void search()}
-              placeholder="AWB or tracking"
+              placeholder="AWB or tracking number"
               className="h-10 flex-1 rounded-l-xl border border-slate-200 px-3 text-sm outline-none focus:border-[#0D1282]"
             />
             <button
@@ -691,9 +959,12 @@ function ShipmentsTab({
           Allocate selected ({selected.size})
         </button>
       </div>
+      <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-sm leading-6 text-blue-950">
+        Create the manifest first, pack and seal it in Operations Manifests, then attach it here. Before attaching, Flight number, MAWB, origin, destination, and departure date must match this flight. Use one format everywhere, for example <span className="font-bold">EY-219</span>.
+      </div>
 
       {options.length ? (
-        <div className="overflow-hidden rounded-xl border border-slate-200">
+        <div className="overflow-hidden rounded-xl border border-[#DDE3EC]">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs text-slate-600">
               <tr>
@@ -750,10 +1021,10 @@ function ShipmentsTab({
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="overflow-hidden rounded-xl border border-[#DDE3EC]">
         <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
           <h3 className="font-semibold text-slate-900">
-            Allocated shipments —{" "}
+            Allocated shipments -{" "}
             {detail.allocations.filter((a) => a.status === "ALLOCATED").length}{" "}
             active ·{" "}
             {detail.allocations.filter((a) => a.status !== "ALLOCATED").length}{" "}
@@ -799,7 +1070,7 @@ function ShipmentsTab({
                   <td className="px-4 py-3">
                     {a.destinationCountryName ||
                       a.destinationCountryCode ||
-                      "—"}
+                      "-"}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {a.weightKg.toFixed(3)} kg
@@ -849,7 +1120,7 @@ function ShipmentsTab({
                         </button>
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">—</span>
+                      <span className="text-xs text-slate-400">-</span>
                     )}
                   </td>
                 </tr>
@@ -880,7 +1151,7 @@ function ShipmentsTab({
               <select
                 value={targetFlight}
                 onChange={(e) => setTargetFlight(e.target.value)}
-                className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                className="mt-1 h-11 w-full rounded-xl border border-[#DDE3EC] bg-white px-3 text-sm"
               >
                 <option value="">Select flight</option>
                 {flightOptions.map((f) => (
@@ -896,7 +1167,7 @@ function ShipmentsTab({
                   setMoveFor(null);
                   setTargetFlight("");
                 }}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold"
+                className="h-10 rounded-xl border border-[#DDE3EC] bg-white px-4 text-sm font-semibold"
               >
                 Cancel
               </button>
@@ -924,7 +1195,7 @@ function ShipmentsTab({
                     );
                   }
                 }}
-                className="h-10 rounded-xl bg-[#0D1282] px-4 text-sm font-semibold text-white"
+                className="h-10 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white"
               >
                 Move
               </button>
@@ -938,13 +1209,13 @@ function ShipmentsTab({
 
 function BagsTab({ detail }: { detail: FlightDetail }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200">
+    <div className="overflow-hidden rounded-xl border border-[#DDE3EC]">
       <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between">
         <h3 className="font-semibold text-slate-900">
-          Bags across attached manifests — {detail.bags.length} bags
+          Bags across attached manifests - {detail.bags.length} bags
         </h3>
         <span className="text-xs text-slate-500">
-          Bag IDs preserved from manifest packing. No second scanning system.
+          {detail.bags.length} total
         </span>
       </div>
       <div className="overflow-x-auto">
@@ -1023,15 +1294,21 @@ function ManifestTab({
   }, [flightId]);
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 p-4">
+      <div className="flex flex-wrap items-end gap-2 rounded-xl border border-[#DDE3EC] p-4">
+        <Link
+          href="/dashboard/operations-manifests/new"
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#0D1282] px-4 text-sm font-semibold text-[#0D1282] hover:bg-[#0D1282]/5"
+        >
+          <FiPlus /> Create manifest
+        </Link>
         <label className="flex-1 text-xs font-semibold text-slate-600">
-          Attach operations manifest (must be same branch)
           <select
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
-            className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            className="mt-1 h-10 w-full rounded-xl border border-[#DDE3EC] bg-white px-3 text-sm"
           >
-            <option value="">Select manifest</option>
+            <option value="">Select manifest Attach operations manifest (must be same branch)
+</option>
             {options.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.manifestNumber} · {o.status} · {o.totalWeightKg.toFixed(1)}{" "}
@@ -1054,12 +1331,12 @@ function ManifestTab({
               toast.error(e instanceof Error ? e.message : "Attach failed.");
             }
           }}
-          className="h-10 rounded-xl bg-[#0D1282] px-4 text-sm font-semibold text-white"
+          className="h-10 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white"
         >
           Attach
         </button>
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="overflow-hidden rounded-xl border border-[#DDE3EC]">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs text-slate-600">
             <tr>
@@ -1082,7 +1359,7 @@ function ManifestTab({
                   </Link>
                   <p className="text-xs text-slate-500">
                     {m.header.originIataCode}→{m.header.destinationIataCode} ·{" "}
-                    {m.header.flightNumber}
+                    {normalizeFlightNumber(m.header.flightNumber)}
                   </p>
                 </td>
                 <td className="px-4 py-3">
@@ -1139,14 +1416,17 @@ function ManifestTab({
           </tbody>
         </table>
       </div>
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-sm leading-6 text-blue-950">
+        Create the manifest first, pack and seal it in Operations Manifests, then attach it here. Before attaching, Flight number, MAWB, origin, destination, and departure date must match this flight. Use one format everywhere, for example <span className="font-bold">EY-219</span>.
+      </div>
+      <div className="rounded-xl border border-[#DDE3EC] bg-slate-50 p-4">
         <h4 className="font-semibold text-slate-900">
           Flight-level visibility
         </h4>
         <p className="mt-1 text-sm text-slate-600">
           All bags and consignments from attached manifests are visible in Bags
           tab. Sealed snapshot, bag closing, seal and dispatch rules are reused
-          from the existing manifest service — this flight does not re-implement
+          from the existing manifest service - this flight does not re-implement
           scanning.
         </p>
         <div className="mt-2 overflow-hidden rounded-lg border border-white bg-white">
@@ -1166,7 +1446,7 @@ function ManifestTab({
                     {c.displayConsignmentNumber}
                   </td>
                   <td className="px-3 py-2">
-                    {(c.bagNumbers ?? []).join(", ") || "—"}
+                    {(c.bagNumbers ?? []).join(", ") || "-"}
                   </td>
                   <td className="px-3 py-2 text-right">
                     {c.weightKg.toFixed(3)} kg
@@ -1216,7 +1496,7 @@ function TimelineTab({ detail }: { detail: FlightDetail }) {
           );
         })}
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="overflow-hidden rounded-xl border border-[#DDE3EC]">
         <div className="bg-slate-50 px-4 py-3 font-semibold text-slate-900">
           Recent transitions
         </div>
@@ -1268,6 +1548,7 @@ function ConnectionTab({
       ? new Date(c.actualDepartureAt).toISOString().slice(0, 16)
       : "",
   });
+
   useEffect(() => {
     if (c) {
       // The form mirrors refreshed connection data returned by the API.
@@ -1289,126 +1570,153 @@ function ConnectionTab({
       });
     }
   }, [c]);
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
-        <h3 className="font-semibold text-amber-900">
-          Single transit connection — one airport for now
-        </h3>
-        <p className="text-sm text-amber-800">
-          Layover risk is calculated server-side: &lt;90 min CRITICAL, &lt;120
-          HIGH, &lt;180 MEDIUM. Offloads and missed connections automatically
-          create HIGH/CRITICAL exceptions.
-        </p>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 rounded-xl border border-slate-200 p-4">
-        <label className="text-sm font-semibold text-slate-700">
-          Transit airport (IATA)
-          <input
-            value={form.transitAirportCode}
-            onChange={(e) =>
-              setForm({ ...form, transitAirportCode: e.target.value })
-            }
-            maxLength={3}
-            placeholder="DXB"
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-          />
-        </label>
-        <div className="text-sm">
-          <span className="font-semibold text-slate-700">Current risk</span>
-          <p className="mt-1">
+    <div className="space-y-5">
+      {/* Connection */}
+      <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white">
+        <div className="flex flex-col gap-2 border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div>
+            <h3 className="text-sm font-bold text-slate-950">
+              Transit connection
+            </h3>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              Optional intermediate airport and layover timing.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium text-slate-400">
+              Current risk
+            </span>
             <span
-              className={`rounded-full px-3 py-1 text-xs font-bold ${!c ? "bg-slate-100 text-slate-600" : ["HIGH", "CRITICAL", "MISSED"].includes(c.riskLevel) ? "bg-red-100 text-red-700" : c.riskLevel === "MEDIUM" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}
+              className={`rounded-md px-2.5 py-1 text-[10px] font-bold ${
+                !c
+                  ? "bg-slate-100 text-slate-600"
+                  : ["HIGH", "CRITICAL", "MISSED"].includes(c.riskLevel)
+                    ? "bg-red-50 text-red-700"
+                    : c.riskLevel === "MEDIUM"
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-emerald-50 text-emerald-700"
+              }`}
             >
-              {c?.riskLevel ?? "—"}{" "}
+              {c?.riskLevel ?? "-"}{" "}
               {c?.layoverMinutes != null ? `· ${c.layoverMinutes} min` : ""}
             </span>
-          </p>
+          </div>
         </div>
-        <label className="text-sm font-semibold text-slate-700">
-          Scheduled arrival (transit)
-          <input
-            type="datetime-local"
-            value={form.scheduledArrivalAt}
-            onChange={(e) =>
-              setForm({ ...form, scheduledArrivalAt: e.target.value })
-            }
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-          />
-        </label>
-        <label className="text-sm font-semibold text-slate-700">
-          Scheduled departure (transit)
-          <input
-            type="datetime-local"
-            value={form.scheduledDepartureAt}
-            onChange={(e) =>
-              setForm({ ...form, scheduledDepartureAt: e.target.value })
-            }
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-          />
-        </label>
-        <label className="text-sm font-semibold text-slate-700">
-          Actual arrival
-          <input
-            type="datetime-local"
-            value={form.actualArrivalAt}
-            onChange={(e) =>
-              setForm({ ...form, actualArrivalAt: e.target.value })
-            }
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-          />
-        </label>
-        <label className="text-sm font-semibold text-slate-700">
-          Actual departure
-          <input
-            type="datetime-local"
-            value={form.actualDepartureAt}
-            onChange={(e) =>
-              setForm({ ...form, actualDepartureAt: e.target.value })
-            }
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
-          />
-        </label>
-      </div>
-      <button
-        onClick={async () => {
-          if (!form.transitAirportCode.trim())
-            return toast.error("Transit airport required.");
-          try {
-            await updateConnection(flightId, {
-              transitAirportCode: form.transitAirportCode.trim().toUpperCase(),
-              scheduledArrivalAt: form.scheduledArrivalAt
-                ? new Date(form.scheduledArrivalAt).toISOString()
-                : null,
-              scheduledDepartureAt: form.scheduledDepartureAt
-                ? new Date(form.scheduledDepartureAt).toISOString()
-                : null,
-              actualArrivalAt: form.actualArrivalAt
-                ? new Date(form.actualArrivalAt).toISOString()
-                : null,
-              actualDepartureAt: form.actualDepartureAt
-                ? new Date(form.actualDepartureAt).toISOString()
-                : null,
-            });
-            toast.success("Connection updated.");
-            await onRefresh();
-          } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Update failed.");
-          }
-        }}
-        className="h-11 rounded-xl bg-[#0D1282] px-5 text-sm font-semibold text-white"
-      >
-        Save connection
-      </button>
 
-      <div className="rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900">Offload records</h3>
-        <OffloadSection
-          flightId={flightId}
-          detail={detail}
-          onRefresh={onRefresh}
-        />
-      </div>
+        <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3">
+          <label className="text-xs font-semibold text-slate-600">
+            Transit airport (IATA)
+            <input
+              value={form.transitAirportCode}
+              onChange={(e) =>
+                setForm({ ...form, transitAirportCode: e.target.value })
+              }
+              maxLength={3}
+              placeholder="DXB"
+              className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+            />
+          </label>
+
+          <label className="text-xs font-semibold text-slate-600">
+            Scheduled arrival
+            <input
+              type="datetime-local"
+              value={form.scheduledArrivalAt}
+              onChange={(e) =>
+                setForm({ ...form, scheduledArrivalAt: e.target.value })
+              }
+              className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+            />
+          </label>
+
+          <label className="text-xs font-semibold text-slate-600">
+            Scheduled departure
+            <input
+              type="datetime-local"
+              value={form.scheduledDepartureAt}
+              onChange={(e) =>
+                setForm({ ...form, scheduledDepartureAt: e.target.value })
+              }
+              className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+            />
+          </label>
+
+          <label className="text-xs font-semibold text-slate-600">
+            Actual arrival
+            <input
+              type="datetime-local"
+              value={form.actualArrivalAt}
+              onChange={(e) =>
+                setForm({ ...form, actualArrivalAt: e.target.value })
+              }
+              className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+            />
+          </label>
+
+          <label className="text-xs font-semibold text-slate-600">
+            Actual departure
+            <input
+              type="datetime-local"
+              value={form.actualDepartureAt}
+              onChange={(e) =>
+                setForm({ ...form, actualDepartureAt: e.target.value })
+              }
+              className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+            />
+          </label>
+        </div>
+
+        <div className="flex justify-end border-t border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3 sm:px-5">
+          <button
+            type="button"
+            onClick={async () => {
+              if (!form.transitAirportCode.trim())
+                return toast.error("Transit airport required.");
+              try {
+                await updateConnection(flightId, {
+                  transitAirportCode: form.transitAirportCode.trim().toUpperCase(),
+                  scheduledArrivalAt: form.scheduledArrivalAt
+                    ? new Date(form.scheduledArrivalAt).toISOString()
+                    : null,
+                  scheduledDepartureAt: form.scheduledDepartureAt
+                    ? new Date(form.scheduledDepartureAt).toISOString()
+                    : null,
+                  actualArrivalAt: form.actualArrivalAt
+                    ? new Date(form.actualArrivalAt).toISOString()
+                    : null,
+                  actualDepartureAt: form.actualDepartureAt
+                    ? new Date(form.actualDepartureAt).toISOString()
+                    : null,
+                });
+                toast.success("Connection updated.");
+                await onRefresh();
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Update failed.");
+              }
+            }}
+            className="h-10 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white transition hover:bg-[#0A0F6D]"
+          >
+            Save connection
+          </button>
+        </div>
+      </section>
+
+      {/* Offloads stay in the Connection tab, but in their own section */}
+      <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white">
+        <div className="border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5 sm:px-5">
+          <h3 className="text-sm font-bold text-slate-950">Offloads</h3>
+        </div>
+        <div className="p-4 sm:p-5">
+          <OffloadSection
+            flightId={flightId}
+            detail={detail}
+            onRefresh={onRefresh}
+          />
+        </div>
+      </section>
     </div>
   );
 }
@@ -1430,59 +1738,28 @@ function OffloadSection({
     airline: "",
   });
   const [selectedParcels, setSelectedParcels] = useState<Set<string>>(new Set());
-  const allocated = detail.allocations.filter((a)=>a.status==="ALLOCATED");
+  const allocated = detail.allocations.filter((a) => a.status === "ALLOCATED");
+
   return (
-    <div className="mt-3 space-y-3">
-      <div className="overflow-hidden rounded-xl border border-slate-200">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500">
-            <tr>
-              <th className="px-3 py-2">Reason</th>
-              <th className="px-3 py-2">Detail</th>
-              <th className="px-3 py-2">Parcels</th>
-              <th className="px-3 py-2 text-right">Weight</th>
-              <th className="px-3 py-2">At</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {detail.offloads.map((o) => (
-              <tr key={o.id}>
-                <td className="px-3 py-2 font-semibold">{o.reason}</td>
-                <td className="px-3 py-2 max-w-64 truncate">{o.detail}</td>
-                <td className="px-3 py-2 font-mono text-xs">
-                  {(o.affectedParcels ?? []).map((parcel) => parcel.parcelNumber).join(", ") || "Legacy record"}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {o.affectedWeightKg.toFixed(1)} kg · {o.affectedPieces} pcs
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  {new Date(o.createdAt).toLocaleString("en-IN")}
-                </td>
-              </tr>
-            ))}
-            {!detail.offloads.length ? (
-              <tr>
-                <td
-                  colSpan={5}
-                  className="px-3 py-6 text-center text-slate-500"
-                >
-                  No offloads. Offloads automatically create HIGH exceptions.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        {!show ? (
+          <button
+            type="button"
+            onClick={() => {
+              setShow(true);
+            }}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#CBD4DF] bg-white px-4 text-sm font-semibold text-[#0D1282] transition hover:bg-[#F7F8FC]"
+          >
+            <FiPlus className="h-4 w-4" />
+            Record offload
+          </button>
+        ) : null}
       </div>
-      {!show ? (
-        <button
-          onClick={() => { setShow(true); }}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          <FiPlus /> Record offload
-        </button>
-      ) : (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+
+      {show ? (
+        <div className="overflow-hidden rounded-lg border border-[#DDE3EC] bg-[#FBFCFD]">
+          <div className="grid gap-3 p-4 sm:grid-cols-2">
             <label className="text-xs font-semibold text-slate-600">
               Offload category
               <select
@@ -1490,7 +1767,7 @@ function OffloadSection({
                 onChange={(e) =>
                   setForm({ ...form, offloadReason: e.target.value })
                 }
-                className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
               >
                 <option value="AIRLINE_OFFLOAD">Airline offload</option>
                 <option value="CAPACITY">Capacity</option>
@@ -1502,103 +1779,227 @@ function OffloadSection({
                 <option value="OTHER">Other</option>
               </select>
             </label>
+
             <label className="text-xs font-semibold text-slate-600">
               Airline
               <input
                 value={form.airline}
                 onChange={(e) => setForm({ ...form, airline: e.target.value })}
                 placeholder="Emirates"
-                className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
               />
             </label>
+
             <label className="text-xs font-semibold text-slate-600 sm:col-span-2">
               Detail *
               <input
                 value={form.reason}
                 onChange={(e) => setForm({ ...form, reason: e.target.value })}
                 placeholder="Explain why the selected parcels were offloaded"
-                className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
               />
             </label>
-            <div className="sm:col-span-2 rounded-xl border border-white bg-white p-3">
-              <p className="text-xs font-semibold text-slate-800">
-                Select affected parcels {selectedParcels.size ? `(${selectedParcels.size} selected)` : ""}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">
-                Select only the physical parcels removed from this flight. The shipment itself is not rebooked or moved.
-              </p>
-              <div className="mt-2 max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-200">
-                {allocated.length ? allocated.map((allocation) => {
-                  const activeParcels = allocation.parcelDetails.filter((parcel) => parcel.status === "ALLOCATED");
-                  return (
-                    <div key={allocation.id} className="px-3 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-mono text-xs font-semibold text-slate-950">
-                          {allocation.awb || allocation.shipmentDraftId.slice(-8)}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {allocation.destinationCountryName || allocation.destinationCountryCode} · {activeParcels.length} active
-                        </span>
-                      </div>
-                      <div className="mt-2 space-y-1.5">
-                        {activeParcels.map((parcel) => {
-                          const selectionKey = `${allocation.shipmentDraftId}|${parcel.parcelNumber}`;
-                          return (
-                            <label key={parcel.parcelNumber} className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-slate-50">
-                              <input
-                                type="checkbox"
-                                className="mt-0.5"
-                                checked={selectedParcels.has(selectionKey)}
-                                onChange={(event) => {
-                                  const next = new Set(selectedParcels);
-                                  if (event.target.checked) next.add(selectionKey);
-                                  else next.delete(selectionKey);
-                                  setSelectedParcels(next);
-                                }}
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block break-all font-mono text-xs font-semibold text-slate-800">{parcel.parcelNumber}</span>
-                                <span className="mt-0.5 block text-xs text-slate-500">
-                                  Actual {parcel.actualWeightKg.toFixed(3)} kg · Volumetric {parcel.volumetricWeightKg.toFixed(3)} kg · Chargeable {parcel.chargeableWeightKg.toFixed(3)} kg
+
+            <div className="sm:col-span-2">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-slate-700">
+                  Affected parcels
+                </p>
+                {selectedParcels.size ? (
+                  <span className="rounded-md bg-[#F1F3FA] px-2 py-1 text-[10px] font-bold text-[#0D1282]">
+                    {selectedParcels.size} selected
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-[#DDE3EC] bg-white">
+                {allocated.length ? (
+                  allocated.map((allocation) => {
+                    const activeParcels = allocation.parcelDetails.filter(
+                      (parcel) => parcel.status === "ALLOCATED",
+                    );
+
+                    return (
+                      <div key={allocation.id} className="px-3 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono text-xs font-semibold text-slate-950">
+                            {allocation.awb ||
+                              allocation.shipmentDraftId.slice(-8)}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {allocation.destinationCountryName ||
+                              allocation.destinationCountryCode}{" "}
+                            · {activeParcels.length} active
+                          </span>
+                        </div>
+
+                        <div className="mt-2 space-y-1.5">
+                          {activeParcels.map((parcel) => {
+                            const selectionKey = `${allocation.shipmentDraftId}|${parcel.parcelNumber}`;
+
+                            return (
+                              <label
+                                key={parcel.parcelNumber}
+                                className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-2 hover:bg-slate-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5"
+                                  checked={selectedParcels.has(selectionKey)}
+                                  onChange={(event) => {
+                                    const next = new Set(selectedParcels);
+                                    if (event.target.checked)
+                                      next.add(selectionKey);
+                                    else next.delete(selectionKey);
+                                    setSelectedParcels(next);
+                                  }}
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block break-all font-mono text-xs font-semibold text-slate-800">
+                                    {parcel.parcelNumber}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs text-slate-500">
+                                    Actual {parcel.actualWeightKg.toFixed(3)} kg ·
+                                    Volumetric {parcel.volumetricWeightKg.toFixed(3)} kg ·
+                                    Chargeable {parcel.chargeableWeightKg.toFixed(3)} kg
+                                  </span>
                                 </span>
-                              </span>
-                            </label>
-                          );
-                        })}
+                              </label>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  );
-                }) : <p className="px-3 py-4 text-center text-xs text-slate-500">No active parcels are available to offload.</p>}
+                    );
+                  })
+                ) : (
+                  <p className="px-3 py-4 text-center text-xs text-slate-500">
+                    No active parcels are available to offload.
+                  </p>
+                )}
               </div>
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <button onClick={() => { setShow(false); setSelectedParcels(new Set()); }} className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold" disabled={saving}>Cancel</button>
-            <button disabled={saving || !selectedParcels.size} onClick={async () => {
-              if (form.reason.trim().length < 5) return toast.error("Reason required.");
-              if (!selectedParcels.size) return toast.error("Select at least one parcel.");
-              if (saving) return;
-              setSaving(true);
-              try {
-                const affectedParcels = [...selectedParcels].map((selection) => {
-                  const [shipmentDraftId, parcelNumber] = selection.split("|");
-                  return { shipmentDraftId, parcelNumber };
-                });
-                await createOffload(flightId, { reason: form.reason.trim(), offloadReason: form.offloadReason, airline: form.airline.trim(), affectedParcels });
-                toast.success("Offload recorded. Use Shipment Rebook separately if the shipment must travel again.");
-                setShow(false); setForm({ offloadReason: "AIRLINE_OFFLOAD", reason: "", airline: "" }); setSelectedParcels(new Set());
-                await onRefresh();
-              } catch (e) { toast.error(e instanceof Error ? e.message : "Offload failed."); } finally { setSaving(false); }
-            }} className="h-10 rounded-xl bg-[#0D1282] px-4 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Save offload"}</button>
+
+          <div className="flex justify-end gap-2 border-t border-[#E7EBF0] bg-white px-4 py-3">
+            <button
+              type="button"
+              onClick={() => {
+                setShow(false);
+                setSelectedParcels(new Set());
+              }}
+              className="h-10 rounded-lg border border-[#CDD5DF] bg-white px-4 text-sm font-semibold"
+              disabled={saving}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              disabled={saving || !selectedParcels.size}
+              onClick={async () => {
+                if (form.reason.trim().length < 5)
+                  return toast.error("Reason required.");
+                if (!selectedParcels.size)
+                  return toast.error("Select at least one parcel.");
+                if (saving) return;
+                setSaving(true);
+                try {
+                  const affectedParcels = [...selectedParcels].map(
+                    (selection) => {
+                      const [shipmentDraftId, parcelNumber] =
+                        selection.split("|");
+                      return { shipmentDraftId, parcelNumber };
+                    },
+                  );
+                  await createOffload(flightId, {
+                    reason: form.reason.trim(),
+                    offloadReason: form.offloadReason,
+                    airline: form.airline.trim(),
+                    affectedParcels,
+                  });
+                  toast.success(
+                    "Offload recorded. Use Shipment Rebook separately if the shipment must travel again.",
+                  );
+                  setShow(false);
+                  setForm({
+                    offloadReason: "AIRLINE_OFFLOAD",
+                    reason: "",
+                    airline: "",
+                  });
+                  setSelectedParcels(new Set());
+                  await onRefresh();
+                } catch (e) {
+                  toast.error(
+                    e instanceof Error ? e.message : "Offload failed.",
+                  );
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              className="h-10 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save offload"}
+            </button>
           </div>
-          <p className="text-xs leading-5 text-slate-600">
-            If a selected parcel is still scanned into an editable manifest, reopen its bag and remove that parcel scan first. If the shipment must travel again, use Shipment Rebook to create a new shipment.
-          </p>
         </div>
-      )}
+      ) : null}
+
+      <div className="overflow-hidden rounded-lg border border-[#DDE3EC]">
+        <div className="flex items-center justify-between border-b border-[#EEF1F4] bg-[#FBFCFD] px-3.5 py-2.5">
+          <p className="text-xs font-bold text-slate-700">Offload history</p>
+          <span className="text-[11px] text-slate-400">
+            {detail.offloads.length} record{detail.offloads.length === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="bg-white text-xs text-slate-500">
+              <tr>
+                <th className="px-3 py-2.5">Reason</th>
+                <th className="px-3 py-2.5">Detail</th>
+                <th className="px-3 py-2.5">Parcels</th>
+                <th className="px-3 py-2.5 text-right">Weight</th>
+                <th className="px-3 py-2.5">At</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {detail.offloads.map((o) => (
+                <tr key={o.id}>
+                  <td className="px-3 py-2.5 font-semibold">{o.reason}</td>
+                  <td className="max-w-64 truncate px-3 py-2.5">{o.detail}</td>
+                  <td className="px-3 py-2.5 font-mono text-xs">
+                    {(o.affectedParcels ?? [])
+                      .map((parcel) => parcel.parcelNumber)
+                      .join(", ") || "Legacy record"}
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    {o.affectedWeightKg.toFixed(1)} kg · {o.affectedPieces} pcs
+                  </td>
+                  <td className="px-3 py-2.5 text-xs">
+                    {new Date(o.createdAt).toLocaleString("en-IN")}
+                  </td>
+                </tr>
+              ))}
+
+              {!detail.offloads.length ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-3 py-7 text-center text-slate-500"
+                  >
+                    No offload records.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
+
 function DocumentsTab({
   detail,
   flightId,
@@ -1612,21 +2013,24 @@ function DocumentsTab({
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900">Upload flight document</h3>
-        <p className="text-xs text-slate-500">
-          MAWB, booking confirmation, cargo/bag manifest, security, customs,
-          handover etc. 10 MB max. Stored via secure storage service.
-        </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+    <div className="space-y-5">
+      <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white">
+        <div className="border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5 sm:px-5">
+          <h3 className="text-sm font-bold text-slate-950">
+            Upload document
+          </h3>
+          <p className="mt-0.5 text-[11px] text-slate-500">Maximum 10 MB.</p>
+        </div>
+
+        <div className="grid gap-3 p-4 sm:p-5 lg:grid-cols-[220px_minmax(0,1fr)_minmax(270px,0.9fr)]">
           <label className="text-xs font-semibold text-slate-600">
             Type
             <select
               value={type}
               onChange={(e) => setType(e.target.value)}
-              className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
             >
               <option>MAWB</option>
               <option>BOOKING_CONFIRMATION</option>
@@ -1639,153 +2043,177 @@ function DocumentsTab({
               <option>OTHER</option>
             </select>
           </label>
+
           <label className="text-xs font-semibold text-slate-600">
             Note
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Optional note"
-              className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm outline-none focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
             />
           </label>
-          <label className="text-xs font-semibold text-slate-600">
+
+          <label className="block text-xs font-semibold text-slate-600">
             File
             <input
               type="file"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="mt-1 block w-full text-sm"
+              className="mt-1.5 block h-11 w-full cursor-pointer overflow-hidden rounded-lg border border-[#CDD5DF] bg-white text-xs font-medium text-slate-500 file:mr-3 file:h-full file:border-0 file:border-r file:border-[#E1E6EC] file:bg-[#F7F8FA] file:px-4 file:text-xs file:font-semibold file:text-[#0D1282] hover:file:bg-[#F1F3F8]"
             />
           </label>
         </div>
-        <button
-          disabled={uploading || !file}
-          onClick={async () => {
-            if (!file) return toast.error("Select a file.");
-            setUploading(true);
-            try {
-              await uploadFlightDocument(flightId, file, type, note);
-              toast.success("Document uploaded.");
-              setFile(null);
-              setNote("");
-              await onRefresh();
-            } catch (e) {
-              toast.error(e instanceof Error ? e.message : "Upload failed.");
-            } finally {
-              setUploading(false);
-            }
-          }}
-          className="mt-3 inline-flex items-center gap-2 h-10 rounded-xl bg-[#0D1282] px-4 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          <FiUpload /> {uploading ? "Uploading…" : "Upload"}
-        </button>
-      </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-500">
-            <tr>
-              <th className="px-4 py-3">File</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Size</th>
-              <th className="px-4 py-3">Uploaded</th>
-              <th className="px-4 py-3 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {detail.documents.map((d) => (
-              <tr key={d.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3">
-                  <p className="font-medium">{d.originalName}</p>
-                  <p className="text-xs text-slate-500">{d.note || "—"}</p>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold">
-                    {d.documentType}
-                  </span>
-                </td>
-                <td className="px-4 py-3">{(d.size / 1024).toFixed(1)} KB</td>
-                <td className="px-4 py-3 text-xs">
-                  {new Date(d.createdAt).toLocaleString("en-IN")}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex justify-end gap-1">
-                    <button
-                      onClick={async () => {
-                        try {
-                          const { apiUrl } = await import("@/lib/api");
-                          const { getAccessToken, refreshAccessToken } =
-                            await import("@/lib/auth");
-                          let token =
-                            getAccessToken() ?? (await refreshAccessToken());
-                          if (!token) throw new Error("Session expired.");
-                          let res = await fetch(
-                            apiUrl(
-                              `/api/v1/flight-linehauls/${flightId}/documents/${d.id}/download`,
-                            ),
-                            { headers: { Authorization: `Bearer ${token}` } },
-                          );
-                          if (res.status === 401) {
-                            token = await refreshAccessToken();
+
+        <div className="flex justify-end border-t border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3 sm:px-5">
+          <button
+            type="button"
+            disabled={uploading || !file}
+            onClick={async () => {
+              if (!file) return toast.error("Select a file.");
+              setUploading(true);
+              try {
+                await uploadFlightDocument(flightId, file, type, note);
+                toast.success("Document uploaded.");
+                setFile(null);
+                setNote("");
+                await onRefresh();
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Upload failed.");
+              } finally {
+                setUploading(false);
+              }
+            }}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white transition hover:bg-[#0A0F6D] disabled:opacity-50"
+          >
+            <FiUpload className="h-4 w-4" />
+            {uploading ? "Uploading…" : "Upload document"}
+          </button>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white">
+        <div className="flex items-center justify-between border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5">
+          <h3 className="text-sm font-bold text-slate-950">Documents</h3>
+          <span className="text-[11px] text-slate-400">
+            {detail.documents.length} file{detail.documents.length === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-white text-xs text-slate-500">
+              <tr>
+                <th className="px-4 py-3">File</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Size</th>
+                <th className="px-4 py-3">Uploaded</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {detail.documents.map((d) => (
+                <tr key={d.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3">
+                    <p className="font-medium">{d.originalName}</p>
+                    {d.note ? (
+                      <p className="text-xs text-slate-500">{d.note}</p>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold">
+                      {d.documentType}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">{(d.size / 1024).toFixed(1)} KB</td>
+                  <td className="px-4 py-3 text-xs">
+                    {new Date(d.createdAt).toLocaleString("en-IN")}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Download ${d.originalName}`}
+                        onClick={async () => {
+                          try {
+                            const { apiUrl } = await import("@/lib/api");
+                            const { getAccessToken, refreshAccessToken } =
+                              await import("@/lib/auth");
+                            let token =
+                              getAccessToken() ?? (await refreshAccessToken());
                             if (!token) throw new Error("Session expired.");
-                            res = await fetch(
+                            let res = await fetch(
                               apiUrl(
                                 `/api/v1/flight-linehauls/${flightId}/documents/${d.id}/download`,
                               ),
                               { headers: { Authorization: `Bearer ${token}` } },
                             );
+                            if (res.status === 401) {
+                              token = await refreshAccessToken();
+                              if (!token) throw new Error("Session expired.");
+                              res = await fetch(
+                                apiUrl(
+                                  `/api/v1/flight-linehauls/${flightId}/documents/${d.id}/download`,
+                                ),
+                                { headers: { Authorization: `Bearer ${token}` } },
+                              );
+                            }
+                            if (!res.ok) throw new Error("Download failed.");
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = d.originalName;
+                            a.click();
+                            setTimeout(() => URL.revokeObjectURL(url), 30000);
+                          } catch (e) {
+                            toast.error(
+                              e instanceof Error ? e.message : "Download failed.",
+                            );
                           }
-                          if (!res.ok) throw new Error("Download failed.");
-                          const blob = await res.blob();
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = d.originalName;
-                          a.click();
-                          setTimeout(() => URL.revokeObjectURL(url), 30000);
-                        } catch (e) {
-                          toast.error(
-                            e instanceof Error ? e.message : "Download failed.",
-                          );
-                        }
-                      }}
-                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-[#0D1282] hover:bg-slate-50"
-                    >
-                      <FiDownload />
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (!confirm("Delete document?")) return;
-                        try {
-                          await deleteFlightDocument(flightId, d.id);
-                          toast.success("Deleted.");
-                          await onRefresh();
-                        } catch (e) {
-                          toast.error(
-                            e instanceof Error ? e.message : "Delete failed.",
-                          );
-                        }
-                      }}
-                      className="rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
-                    >
-                      <FiTrash2 />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!detail.documents.length ? (
-              <tr>
-                <td
-                  colSpan={5}
-                  className="px-4 py-10 text-center text-slate-500"
-                >
-                  No documents yet. Upload MAWB, booking confirmation, manifests
-                  etc.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
+                        }}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-[#0D1282] hover:bg-slate-50"
+                      >
+                        <FiDownload className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-label={`Delete ${d.originalName}`}
+                        onClick={async () => {
+                          if (!confirm("Delete document?")) return;
+                          try {
+                            await deleteFlightDocument(flightId, d.id);
+                            toast.success("Deleted.");
+                            await onRefresh();
+                          } catch (e) {
+                            toast.error(
+                              e instanceof Error ? e.message : "Delete failed.",
+                            );
+                          }
+                        }}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-700 hover:bg-red-50"
+                      >
+                        <FiTrash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {!detail.documents.length ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-4 py-10 text-center text-slate-500"
+                  >
+                    No documents uploaded.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1815,6 +2243,7 @@ function HandoverTab({
       : "",
     handoverReference: f.handoverReference ?? "",
   });
+
   useEffect(() => {
     // The form mirrors refreshed handover data returned by the API.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -1834,31 +2263,40 @@ function HandoverTab({
       handoverReference: f.handoverReference ?? "",
     });
   }, [f]);
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-sm text-amber-900">
-        Completion is audited and protected from silent edits. Customs SLA 12h,
-        critical at 24h; final-mile SLA 24h, critical at 48h (IST). Handover
-        requires customs CLEARED.
+    <section className="overflow-hidden rounded-xl border border-[#DDE3EC] bg-white">
+      <div className="flex items-center justify-between gap-3 border-b border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3.5 sm:px-5">
+        <div>
+          <h3 className="text-sm font-bold text-slate-950">
+            Destination handover
+          </h3>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            {detail.stats.totalBags} bags · {detail.stats.totalShipments} shipments ·{" "}
+            {detail.stats.totalPieces} pieces
+          </p>
+        </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 rounded-xl border border-slate-200 p-4">
-        <label className="text-sm font-semibold text-slate-700">
-          Arrival at (destination)
+
+      <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3">
+        <label className="text-xs font-semibold text-slate-600">
+          Arrival at destination
           <input
             type="datetime-local"
             value={form.arrivalAt}
             onChange={(e) => setForm({ ...form, arrivalAt: e.target.value })}
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
           />
         </label>
-        <label className="text-sm font-semibold text-slate-700">
+
+        <label className="text-xs font-semibold text-slate-600">
           Customs status
           <select
             value={form.customsStatus}
             onChange={(e) =>
               setForm({ ...form, customsStatus: e.target.value as never })
             }
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
           >
             <option value="PENDING">PENDING</option>
             <option value="SUBMITTED">SUBMITTED</option>
@@ -1866,7 +2304,8 @@ function HandoverTab({
             <option value="HELD">HELD</option>
           </select>
         </label>
-        <label className="text-sm font-semibold text-slate-700">
+
+        <label className="text-xs font-semibold text-slate-600">
           Customs cleared at
           <input
             type="datetime-local"
@@ -1874,20 +2313,22 @@ function HandoverTab({
             onChange={(e) =>
               setForm({ ...form, customsClearedAt: e.target.value })
             }
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
           />
         </label>
-        <label className="text-sm font-semibold text-slate-700">
+
+        <label className="text-xs font-semibold text-slate-600">
           Destination agent
           <input
             value={form.destinationAgent}
             onChange={(e) =>
               setForm({ ...form, destinationAgent: e.target.value })
             }
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
           />
         </label>
-        <label className="text-sm font-semibold text-slate-700">
+
+        <label className="text-xs font-semibold text-slate-600">
           Final-mile carrier
           <input
             value={form.finalMileCarrier}
@@ -1895,19 +2336,21 @@ function HandoverTab({
               setForm({ ...form, finalMileCarrier: e.target.value })
             }
             placeholder="DPD UK / local partner"
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
           />
         </label>
-        <label className="text-sm font-semibold text-slate-700">
+
+        <label className="text-xs font-semibold text-slate-600">
           Handover at
           <input
             type="datetime-local"
             value={form.handoverAt}
             onChange={(e) => setForm({ ...form, handoverAt: e.target.value })}
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
           />
         </label>
-        <label className="text-sm font-semibold text-slate-700 sm:col-span-2">
+
+        <label className="text-xs font-semibold text-slate-600 sm:col-span-2 lg:col-span-3">
           Handover reference
           <input
             value={form.handoverReference}
@@ -1915,49 +2358,43 @@ function HandoverTab({
               setForm({ ...form, handoverReference: e.target.value })
             }
             placeholder="AWB handover ref / POD"
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            className="mt-1.5 h-11 w-full rounded-lg border border-[#CDD5DF] bg-white px-3 text-sm"
           />
         </label>
       </div>
-      <button
-        onClick={async () => {
-          try {
-            await updateHandover(flightId, {
-              arrivalAt: form.arrivalAt
-                ? new Date(form.arrivalAt).toISOString()
-                : null,
-              customsStatus: form.customsStatus,
-              customsClearedAt: form.customsClearedAt
-                ? new Date(form.customsClearedAt).toISOString()
-                : null,
-              destinationAgent: form.destinationAgent,
-              finalMileCarrier: form.finalMileCarrier,
-              handoverAt: form.handoverAt
-                ? new Date(form.handoverAt).toISOString()
-                : null,
-              handoverReference: form.handoverReference,
-            });
-            toast.success("Handover updated.");
-            await onRefresh();
-          } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Update failed.");
-          }
-        }}
-        className="h-11 rounded-xl bg-[#0D1282] px-5 text-sm font-semibold text-white"
-      >
-        Save handover
-      </button>
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
-        <p className="font-semibold text-slate-900">
-          Bags & shipments handed over
-        </p>
-        <p className="text-slate-600">
-          {detail.stats.totalBags} bags · {detail.stats.totalShipments}{" "}
-          shipments · {detail.stats.totalPieces} pieces on this flight.
-          Proof/document upload in Documents tab.
-        </p>
+
+      <div className="flex justify-end border-t border-[#EEF1F4] bg-[#FBFCFD] px-4 py-3 sm:px-5">
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await updateHandover(flightId, {
+                arrivalAt: form.arrivalAt
+                  ? new Date(form.arrivalAt).toISOString()
+                  : null,
+                customsStatus: form.customsStatus,
+                customsClearedAt: form.customsClearedAt
+                  ? new Date(form.customsClearedAt).toISOString()
+                  : null,
+                destinationAgent: form.destinationAgent,
+                finalMileCarrier: form.finalMileCarrier,
+                handoverAt: form.handoverAt
+                  ? new Date(form.handoverAt).toISOString()
+                  : null,
+                handoverReference: form.handoverReference,
+              });
+              toast.success("Handover updated.");
+              await onRefresh();
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Update failed.");
+            }
+          }}
+          className="h-10 rounded-lg bg-[#0D1282] px-4 text-sm font-semibold text-white transition hover:bg-[#0A0F6D]"
+        >
+          Save handover
+        </button>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -1979,7 +2416,7 @@ function ExceptionsTab({
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+          className="h-9 rounded-xl border border-[#DDE3EC] bg-white px-3 text-sm"
         >
           <option value="">All</option>
           <option value="OPEN">OPEN</option>
@@ -1988,10 +2425,10 @@ function ExceptionsTab({
           <option value="RESOLVED">RESOLVED</option>
         </select>
         <span className="ml-auto text-xs text-slate-500">
-          {items.length} exception(s) · SLA tracked via dueAt
+          {items.length} exception{items.length === 1 ? "" : "s"}
         </span>
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="overflow-hidden rounded-xl border border-[#DDE3EC]">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs text-slate-600">
             <tr>
@@ -2028,7 +2465,7 @@ function ExceptionsTab({
                   </span>
                 </td>
                 <td className="px-3 py-2 text-xs">
-                  {e.dueAt ? new Date(e.dueAt).toLocaleString("en-IN") : "—"}
+                  {e.dueAt ? new Date(e.dueAt).toLocaleString("en-IN") : "-"}
                 </td>
                 <td className="px-3 py-2 text-right">
                   <div className="flex justify-end gap-1">
@@ -2101,8 +2538,7 @@ function ExceptionsTab({
                   colSpan={6}
                   className="px-3 py-8 text-center text-slate-500"
                 >
-                  No exceptions. System will auto-create for delay, offload,
-                  missed/risky connection, arrival without customs, etc.
+                  No exceptions.
                 </td>
               </tr>
             ) : null}
@@ -2115,7 +2551,7 @@ function ExceptionsTab({
 
 function AuditTab({ detail }: { detail: FlightDetail }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200">
+    <div className="overflow-hidden rounded-xl border border-[#DDE3EC]">
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs text-slate-500">
           <tr>

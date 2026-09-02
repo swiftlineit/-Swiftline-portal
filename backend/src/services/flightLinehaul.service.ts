@@ -20,6 +20,8 @@ import { User } from "../models/user.model.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 import { resolveShipmentEventNote } from "./shipmentEventCopy.service.js";
 import { notifyFlightOperationsStaff } from "./portalNotification.service.js";
+import { comparableFlightNumber, normalizeFlightNumber } from "../utils/flightNumber.js";
+import { describeMissingPrerequisites, findMissingPrerequisites } from "./shipmentStatusSequence.service.js";
 
 export class FlightLinehaulServiceError extends Error {
   constructor(message: string, public readonly statusCode = 400) {
@@ -36,7 +38,7 @@ function roundWeight(value: number) {
   return Number(Number(value).toFixed(3));
 }
 
-// SLA thresholds — industry standard air-cargo values, operating in IST
+// SLA thresholds - industry standard air-cargo values, operating in IST
 export const FLIGHT_SLA = {
   delayThresholdMinutes: 120, // 2h after scheduled departure without actual departure
   connectionMinMinutes: 90,
@@ -367,9 +369,9 @@ export async function createFlightLinehaul(input: {
   const branch = await Branch.findOne({ _id: branchId, status: "ACTIVE" }).lean().exec();
   if (!branch) throw new FlightLinehaulServiceError("Select an active branch.", 409);
 
-  const flightNumber = input.flightNumber.trim().toUpperCase();
-  if (!/^[A-Z0-9]{2,4}\d{1,4}[A-Z]?$/.test(flightNumber)) {
-    throw new FlightLinehaulServiceError("Enter a valid flight number (e.g., AI131, EK412).", 400);
+  const flightNumber = normalizeFlightNumber(input.flightNumber);
+  if (!/^[A-Z0-9]{2,4}-\d{1,4}[A-Z]?$/.test(flightNumber)) {
+    throw new FlightLinehaulServiceError("Enter a valid flight number (e.g., EY-219 or AI-131).", 400);
   }
   const airlineName = (input.airlineName ?? "").trim();
   if (airlineName.length < 2) throw new FlightLinehaulServiceError("Airline is required.", 400);
@@ -778,7 +780,7 @@ async function evaluateFlightExceptions(flight: IFlightLinehaul, allocations: Ar
         type: risk === "MISSED" ? "MISSED_CONNECTION" : "RISKY_CONNECTION",
         severity: risk === "MISSED" || risk === "CRITICAL" ? "CRITICAL" : "HIGH",
         title: risk === "MISSED" ? "Missed connection" : "Risky connection",
-        description: `Transit layover ${flight.connection.layoverMinutes} min — risk ${risk}.`,
+        description: `Transit layover ${flight.connection.layoverMinutes} min - risk ${risk}.`,
         dedupeKey: `${risk === "MISSED" ? "MISSED" : "RISKY"}:${String(flight._id)}:${flight.connection.transitAirportCode}`,
         dueAt: new Date(now.getTime() + 3 * 60 * 60 * 1000)
       });
@@ -1066,15 +1068,24 @@ async function recordFlightShipmentMilestones(input: {
     // partially travelling or has been completely removed from the flight.
     if (!active.length || offloaded.length) continue;
 
-    const latest = await ShipmentEvent.findOne({ shipmentDraftId: allocation.shipmentDraftId })
-      .sort({ eventAt: -1, createdAt: -1 })
+    const recordedEvents = await ShipmentEvent.find({ shipmentDraftId: allocation.shipmentDraftId })
+      .sort({ eventAt: 1, createdAt: 1 })
       .select("status eventAt")
       .session(input.session)
       .lean()
       .exec();
+    const latest = recordedEvents[recordedEvents.length - 1];
     if (!latest) continue;
     if (["ON_HOLD", "SHIPMENT_CANCELLED", "DELIVERED", "RETURNED", "LOST", "DAMAGED"].includes(String(latest.status))) continue;
     if (laterStatuses.includes(String(latest.status)) || latest.eventAt > input.eventAt) continue;
+
+    const missing = findMissingPrerequisites(milestoneKey, recordedEvents.map((event) => event.status));
+    if (missing.length) {
+      throw new FlightLinehaulServiceError(
+        `Flight cannot be marked ${input.status === "FLIGHT_DEPARTED" ? "departed" : "arrived at destination"} because shipment ${String(allocation.shipmentDraftId).slice(-8)} is missing required milestones. ${describeMissingPrerequisites(milestoneKey, missing)} No flight or shipment status was changed.`,
+        409
+      );
+    }
 
     // Manifest dispatch and a manual arrival update may already represent this
     // milestone. Reuse either event instead of risking a duplicate-key failure
@@ -1148,6 +1159,9 @@ export async function transitionFlightStatus(input: {
         const count = await FlightShipmentAllocation.countDocuments({ flightLinehaulId: flightId, status: "ALLOCATED" }).session(session).exec();
         if (count === 0) throw new FlightLinehaulServiceError("Allocate at least one shipment before cargo allocation.", 409);
       }
+      if (to === "CONNECTION" && !flight.connection?.transitAirportCode) {
+        throw new FlightLinehaulServiceError("Configure the optional transit connection before marking this flight at Connection.", 409);
+      }
       if (to === "MANIFEST_READY") {
         await assertFlightManifestReady(flightId, session);
       }
@@ -1160,10 +1174,17 @@ export async function transitionFlightStatus(input: {
           // Allow transition with provided actual time, otherwise require it now
           throw new FlightLinehaulServiceError("Provide actual departure time.", 400);
         }
+        if (input.metadata?.actualDepartureAt && Number.isNaN(new Date(String(input.metadata.actualDepartureAt)).getTime())) {
+          throw new FlightLinehaulServiceError("Actual departure time must be a valid date.", 400);
+        }
       }
       if (to === "ARRIVED_DESTINATION") {
-        if (!input.metadata?.arrivalAt && !flight.arrivalAt && !flight.actualArrivalAt) {
-          // Allow but set arrivalAt automatically
+        if (!input.metadata?.actualArrivalAt && !input.metadata?.arrivalAt && !flight.arrivalAt && !flight.actualArrivalAt) {
+          throw new FlightLinehaulServiceError("Provide actual arrival time.", 400);
+        }
+        const arrivalValue = input.metadata?.actualArrivalAt ?? input.metadata?.arrivalAt;
+        if (arrivalValue && Number.isNaN(new Date(String(arrivalValue)).getTime())) {
+          throw new FlightLinehaulServiceError("Actual arrival time must be a valid date.", 400);
         }
       }
 
@@ -1330,14 +1351,11 @@ export function flightAllocationParcelDetails(snapshotValue: unknown): FlightAll
     const actualWeightKg = Number(parcel.actualWeightKg);
     const priced = pricingParcels[index];
     const volumetricWeightKg = Number(priced?.volumetricWeightKg);
-    const storedChargeableWeightKg = Number(priced?.chargeableWeightKg);
     if (!parcelNumber || !Number.isFinite(actualWeightKg) || actualWeightKg <= 0) return [];
     if (!Number.isFinite(volumetricWeightKg) || volumetricWeightKg < 0) return [];
-    const chargeableWeightKg = roundWeight(
-      Number.isFinite(storedChargeableWeightKg) && storedChargeableWeightKg > 0
-        ? storedChargeableWeightKg
-        : Math.max(actualWeightKg, volumetricWeightKg)
-    );
+    // Capacity is governed by the two auditable physical measures. Do not
+    // trust a stale persisted chargeable value if it is lower than either one.
+    const chargeableWeightKg = roundWeight(Math.max(actualWeightKg, volumetricWeightKg));
     return [{
       parcelNumber,
       actualWeightKg: roundWeight(actualWeightKg),
@@ -1395,7 +1413,10 @@ async function latestShipmentEventStatus(draftId: mongoose.Types.ObjectId, sessi
 }
 
 async function buildShipmentSnapshot(draftId: mongoose.Types.ObjectId, session?: mongoose.ClientSession): Promise<EligibleShipment | null> {
-  const dpdQuery = DpdShipment.findOne({ shipmentDraftId: draftId, status: "LABEL_RECEIVED" }).lean();
+  // A Swiftline booking may travel with a DPD label supplied later by the
+  // client or another approved source. Allocation therefore needs a durable
+  // booking snapshot, not a locally stored DPD label at this point.
+  const dpdQuery = DpdShipment.findOne({ shipmentDraftId: draftId, status: { $in: ["DPD_CREATED", "LABEL_RECEIVED"] } }).lean();
   const hubQuery = ShipmentEvent.exists({ shipmentDraftId: draftId, status: "ORIGIN_HUB_PROCESSED" });
   if (session) {
     dpdQuery.session(session);
@@ -1462,7 +1483,7 @@ export async function searchEligibleShipments(input: {
   const exclude = new Set([...allocatedIds, ...cancelledIds].map(String));
 
   // Find dpd shipments that are booked
-  const dpdFilter: Record<string, unknown> = { status: "LABEL_RECEIVED" };
+  const dpdFilter: Record<string, unknown> = { status: { $in: ["DPD_CREATED", "LABEL_RECEIVED"] } };
   if (input.q?.trim()) {
     const term = input.q.trim().toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     dpdFilter.$or = [
@@ -1471,7 +1492,7 @@ export async function searchEligibleShipments(input: {
     ];
   }
 
-  // Need to filter via ShipmentDraft branch — join via drafts
+  // Need to filter via ShipmentDraft branch - join via drafts
   const drafts = await ShipmentDraft.find({ ...branchFilter, deletedAt: null }).select("_id businessAccountId branchId").lean().exec();
   const draftIds = drafts.map((d) => d._id);
   if (!draftIds.length) return { shipments: [] };
@@ -1836,7 +1857,10 @@ export async function attachManifest(input: {
     ["MAWB", flight.mawbNumber, manifest.header.mawbNumber]
   ];
   for (const [label, flightValue, manifestValue] of headerChecks) {
-    if (flightValue && manifestValue && flightValue.trim().toUpperCase() !== manifestValue.trim().toUpperCase()) {
+    const valuesMatch = label === "flight number"
+      ? comparableFlightNumber(flightValue) === comparableFlightNumber(manifestValue)
+      : flightValue.trim().toUpperCase() === manifestValue.trim().toUpperCase();
+    if (flightValue && manifestValue && !valuesMatch) {
       throw new FlightLinehaulServiceError(`Manifest ${label} does not match the flight.`, 409);
     }
   }
@@ -1976,7 +2000,7 @@ export async function updateConnection(input: {
       type: flight.connection.riskLevel === "MISSED" ? "MISSED_CONNECTION" : "RISKY_CONNECTION",
       severity: flight.connection.riskLevel === "MISSED" || flight.connection.riskLevel === "CRITICAL" ? "CRITICAL" : "HIGH",
       title: flight.connection.riskLevel === "MISSED" ? "Missed connection" : "Risky connection",
-      description: `Transit ${code} layover ${layover} min — risk ${flight.connection.riskLevel}.`,
+      description: `Transit ${code} layover ${layover} min - risk ${flight.connection.riskLevel}.`,
       dedupeKey: `CONNECTION_RISK:${String(flightId)}:${code}:${layover}`,
       dueAt: new Date(Date.now() + 2 * 60 * 60 * 1000)
     });

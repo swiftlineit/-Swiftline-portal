@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { FiChevronDown } from "react-icons/fi";
+import { FiChevronDown, FiSearch, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
+import { normalizeFlightNumber } from "@/lib/flightNumber";
 import { DashboardLoading } from "@/components/DashboardShell";
 import CountryFlag from "@/components/CountryFlag";
 import { countryCodeOptions } from "@/lib/countries";
+import { findCountries, resolveCountry } from "@/lib/countryLookup";
 import {
   createOperationsManifest,
   listManifestBranches,
@@ -87,7 +89,7 @@ function SelectShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** Flags need a listbox, because a native `<option>` can only contain text. */
+/** Searchable country field: type to filter, flags + code stay visible, UI stays compact. */
 function CountrySelect({
   value,
   onChange,
@@ -96,8 +98,25 @@ function CountrySelect({
   onChange: (code: string, name: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listboxId = useId();
   const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(0);
   const selected = countryCodeOptions.find((item) => item.code === value);
+  const [query, setQuery] = useState(selected?.name ?? "");
+
+  const hasValue = !!selected;
+
+  useEffect(() => {
+    // Sync the visible text when the stored code changes externally (e.g., draft load),
+    // but never clobber what the user is actively typing.
+    if (document.activeElement !== inputRef.current) {
+      setQuery(selected?.name ?? "");
+    }
+  }, [value, selected?.name]);
+
+  const suggestions = useMemo(() => findCountries(query).slice(0, 8), [query]);
+  const activeIndex = Math.min(highlighted, Math.max(suggestions.length - 1, 0));
 
   useEffect(() => {
     if (!open) return;
@@ -115,53 +134,152 @@ function CountrySelect({
     };
   }, [open]);
 
+  function selectCountry(code: string, name: string) {
+    setQuery(name);
+    onChange(code, name);
+    setOpen(false);
+    setHighlighted(0);
+  }
+
+  function handleInputChange(next: string) {
+    setQuery(next);
+    setOpen(true);
+    setHighlighted(0);
+    const trimmed = next.trim();
+    if (!trimmed) {
+      onChange("", "");
+      return;
+    }
+    const exact = resolveCountry(next);
+    if (exact) {
+      onChange(exact.iso2.toUpperCase(), exact.name);
+    } else if (value) {
+      // Clear stale code while the text no longer matches a country exactly.
+      onChange("", "");
+    }
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      setHighlighted((prev) => Math.min(prev + 1, suggestions.length - 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlighted((prev) => Math.max(prev - 1, 0));
+      return;
+    }
+    if (event.key === "Enter" && open && suggestions[activeIndex]) {
+      event.preventDefault();
+      const pick = suggestions[activeIndex];
+      selectCountry(pick.iso2.toUpperCase(), pick.name);
+    }
+  }
+
   return (
     <div ref={containerRef} className="relative mt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className={`${controlBase} flex items-center gap-2 pr-10 text-left`}
-      >
-        {selected ? <CountryFlag code={selected.code} /> : null}
-        <span
-          className={
-            selected ? "truncate text-slate-950" : "truncate text-slate-400"
+      <div className="relative">
+        {hasValue ? (
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+            <CountryFlag code={selected!.code} />
+          </span>
+        ) : (
+          <FiSearch
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+          />
+        )}
+        <input
+          ref={inputRef}
+          type="text"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            open && suggestions[activeIndex] ? `${listboxId}-${activeIndex}` : undefined
           }
-        >
-          {selected?.name ?? "Select country"}
-        </span>
-      </button>
-      <FiChevronDown
-        aria-hidden
-        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
-      />
+          autoComplete="off"
+          value={query}
+          onChange={(event) => handleInputChange(event.target.value)}
+          onFocus={() => {
+            setOpen(true);
+            setHighlighted(0);
+          }}
+          onBlur={() => {
+            // If the typed text is an alias (e.g. "UK") normalise the visible text
+            // to the canonical country name so the field and the stored value match.
+            if (selected && query && query !== selected.name) {
+              const exact = resolveCountry(query);
+              if (exact && exact.iso2.toUpperCase() === selected.code) {
+                setQuery(selected.name);
+              }
+            }
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Type to search country..."
+          className={`${controlBase} !pl-9 !pr-16 text-left placeholder:text-slate-400`}
+        />
+        {query ? (
+          <button
+            type="button"
+            aria-label="Clear country"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setQuery("");
+              onChange("", "");
+              setOpen(true);
+              setHighlighted(0);
+              inputRef.current?.focus();
+            }}
+            className="absolute right-8 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <FiX className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        <FiChevronDown
+          aria-hidden
+          className={`pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </div>
 
       {open ? (
         <div
+          id={listboxId}
           role="listbox"
-          className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white py-1 shadow-lg"
         >
-          {countryCodeOptions.map((item) => (
-            <button
-              key={item.code}
-              type="button"
-              role="option"
-              aria-selected={item.code === value}
-              onClick={() => {
-                onChange(item.code, item.name);
-                setOpen(false);
-              }}
-              className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-[#EEEDED] ${item.code === value ? "bg-[#EEEDED]/70 font-semibold text-[#0D1282]" : "text-slate-800"}`}
-            >
-              <CountryFlag code={item.code} />
-              <span className="truncate">{item.name}</span>
-              <span className="ml-auto shrink-0 text-[11px] text-slate-400">
-                {item.code}
-              </span>
-            </button>
-          ))}
+          {suggestions.length ? (
+            suggestions.map((item, index) => (
+              <button
+                key={item.iso2}
+                type="button"
+                id={`${listboxId}-${index}`}
+                role="option"
+                aria-selected={index === activeIndex}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  selectCountry(item.iso2.toUpperCase(), item.name);
+                }}
+                onMouseEnter={() => setHighlighted(index)}
+                className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-slate-50 ${index === activeIndex ? "bg-[#EEEDED]/70 font-medium text-[#0D1282]" : "text-slate-800"}`}
+              >
+                <CountryFlag code={item.iso2} />
+                <span className="truncate">{item.name}</span>
+                <span className="ml-auto shrink-0 text-[11px] font-semibold tracking-wide text-slate-400">
+                  {item.iso2.toUpperCase()}
+                </span>
+              </button>
+            ))
+          ) : (
+            <p className="px-3 py-3 text-center text-sm text-slate-500">No matching countries</p>
+          )}
         </div>
       ) : null}
     </div>
@@ -301,7 +419,7 @@ export default function NewOperationsManifestPage() {
               <input
                 value={header.flightNumber}
                 onChange={(event) =>
-                  field("flightNumber", event.target.value.toUpperCase())
+                  field("flightNumber", normalizeFlightNumber(event.target.value))
                 }
                 placeholder="EY-219"
                 className={controlClass}

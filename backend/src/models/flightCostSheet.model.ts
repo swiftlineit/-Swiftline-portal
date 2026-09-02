@@ -23,6 +23,9 @@ export type FlightCostTotals = {
 
 export interface IFlightCostSheet extends mongoose.Document {
   operationsManifestId: mongoose.Types.ObjectId;
+  /** The air movement this financial sheet belongs to. Legacy rows may be null
+   * until the flight-cost index migration backfills them from the manifest. */
+  flightLinehaulId?: mongoose.Types.ObjectId | null;
   branchId: mongoose.Types.ObjectId;
   buyingRateId: mongoose.Types.ObjectId;
   vendorId: mongoose.Types.ObjectId;
@@ -108,6 +111,7 @@ const totalsSchema = new mongoose.Schema({
 
 const schema = new mongoose.Schema<IFlightCostSheet>({
   operationsManifestId: { type: mongoose.Schema.Types.ObjectId, ref: "OperationsManifest", required: true, unique: true, index: true },
+  flightLinehaulId: { type: mongoose.Schema.Types.ObjectId, ref: "FlightLinehaul", default: null, index: true },
   branchId: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", required: true, index: true },
   buyingRateId: { type: mongoose.Schema.Types.ObjectId, ref: "FlightBuyingRate", required: true, index: true },
   vendorId: { type: mongoose.Schema.Types.ObjectId, ref: "LogisticsVendor", required: true, index: true },
@@ -153,5 +157,17 @@ const schema = new mongoose.Schema<IFlightCostSheet>({
 
 schema.index({ branchId: 1, flightDate: -1, status: 1 });
 schema.index({ vendorId: 1, flightDate: -1 });
+// A flight has one financial cost sheet. The partial index keeps legacy
+// standalone rows readable until the migration either backfills or explicitly
+// flags them for review, while preventing concurrent duplicate creation for
+// every migrated/new flight sheet.
+schema.index(
+  { flightLinehaulId: 1 },
+  {
+    unique: true,
+    name: "uniq_flight_cost_sheet_per_flight",
+    partialFilterExpression: { flightLinehaulId: { $type: "objectId" } }
+  }
+);
 
 export const FlightCostSheet = mongoose.model<IFlightCostSheet>("FlightCostSheet", schema);

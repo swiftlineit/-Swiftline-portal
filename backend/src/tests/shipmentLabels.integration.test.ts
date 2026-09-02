@@ -11,7 +11,9 @@ import { SwiftlineStationCounter } from "../models/swiftlineStationCounter.model
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import {
+  DpdLabelUnavailableError,
   createLabelForShipmentDraft,
+  generateDpdLabelForExistingShipment,
   regenerateShipmentLabels
 } from "../services/dpdShipment.service.js";
 import {
@@ -595,5 +597,70 @@ describe("Swiftline tracking sequence", () => {
     );
     assert.deepEqual(revisedSnapshot.parcels.map((parcel) => parcel.actualWeightKg), [8, 12]);
     assert.equal((await ShipmentDraft.findById(draft._id).orFail().lean().exec()).bookingState, "BOOKED");
+  });
+
+  test("does not duplicate an existing booking when DPD label generation is unavailable", async () => {
+    const userId = new mongoose.Types.ObjectId();
+    const draft = await ShipmentDraft.create({
+      creationSource: "MANUAL",
+      businessAccountId: new mongoose.Types.ObjectId(),
+      branchId: new mongoose.Types.ObjectId(),
+      consigneeEnteredAddress: {
+        companyName: "Existing Booking Customer",
+        contactName: "Asha Patel",
+        email: "asha@example.test",
+        mobileCountryCode: "+44",
+        mobileNumber: "7123456789",
+        countryCode: "GB",
+        countryName: "United Kingdom",
+        postcode: "SW1A 2AA",
+        addressLine1: "10 Downing Street",
+        townOrCity: "London"
+      },
+      parcelList: [{
+        sequence: 1,
+        weightKg: 6,
+        lengthCm: 30,
+        widthCm: 20,
+        heightCm: 10,
+        shipmentContentType: "PARCEL",
+        contentsDescription: "Documents"
+      }],
+      status: "READY_FOR_DPD",
+      bookingState: "BOOKED",
+      createdBy: userId
+    });
+    const booking = await DpdShipment.create({
+      shipmentDraftId: draft._id,
+      idempotencyKey: `existing-booking-${Date.now()}`,
+      serviceCode: "DPD UK NEXTDAY",
+      bookingSnapshot: {},
+      currentShipmentSnapshot: {},
+      requestSnapshot: {},
+      responseSnapshot: {},
+      paymentSource: "TEST",
+      swiftlineTrackingNumber: "SLCDEL020926901",
+      parcelNumbers: [],
+      status: "DPD_CREATED"
+    });
+
+    const previousAlsEnabled = env.ALS_ENABLED;
+    (env as { ALS_ENABLED: boolean }).ALS_ENABLED = false;
+    try {
+      await assert.rejects(
+        generateDpdLabelForExistingShipment(String(booking._id), userId),
+        (error: unknown) => {
+          assert.ok(error instanceof DpdLabelUnavailableError);
+          assert.equal(error.statusCode, 503);
+          return true;
+        }
+      );
+    } finally {
+      (env as { ALS_ENABLED: boolean }).ALS_ENABLED = previousAlsEnabled;
+    }
+
+    assert.equal(await DpdShipment.countDocuments({ shipmentDraftId: draft._id }), 1);
+    assert.equal(await LabelDocument.countDocuments({ dpdShipmentId: booking._id }), 0);
+    assert.equal((await DpdShipment.findById(booking._id).orFail().lean().exec()).status, "DPD_CREATED");
   });
 });

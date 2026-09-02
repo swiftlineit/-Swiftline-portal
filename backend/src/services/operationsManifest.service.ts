@@ -42,6 +42,7 @@ import {
   formatShipmentEventLabel
 } from "./shipmentStatusSequence.service.js";
 import { resolveShipmentEventNote } from "./shipmentEventCopy.service.js";
+import { normalizeFlightNumber } from "../utils/flightNumber.js";
 
 export class OperationsManifestServiceError extends Error {
   constructor(message: string, public readonly statusCode = 400) {
@@ -446,6 +447,7 @@ export async function createOperationsManifest(input: {
   userId: mongoose.Types.ObjectId;
 }) {
   const branchId = asObjectId(input.branchId, "Branch");
+  const header = { ...input.header, flightNumber: normalizeFlightNumber(input.header.flightNumber) };
   const branch = await Branch.findOne({ _id: branchId, status: "ACTIVE" }).exec();
   if (!branch) throw new OperationsManifestServiceError("Select an active Swiftline branch.", 409);
   const session = await mongoose.startSession();
@@ -457,7 +459,7 @@ export async function createOperationsManifest(input: {
       const created = await OperationsManifest.create([{
         manifestNumber,
         branchId,
-        header: input.header,
+        header,
         status: "DRAFT",
         totalBags: 1,
         createdBy: input.userId
@@ -484,7 +486,7 @@ export async function updateOperationsManifest(input: {
   const manifest = await OperationsManifest.findById(asObjectId(input.manifestId, "Operations manifest")).exec();
   if (!manifest) throw new OperationsManifestServiceError("Operations manifest was not found.", 404);
   if (!isEditable(manifest)) throw new OperationsManifestServiceError("A sealed, dispatched or cancelled manifest cannot be edited.", 409);
-  manifest.header = input.header;
+  manifest.header = { ...input.header, flightNumber: normalizeFlightNumber(input.header.flightNumber) };
   await manifest.save();
   await audit("OPERATIONS_MANIFEST_UPDATED", manifest._id as mongoose.Types.ObjectId, input.userId, { headerUpdated: true });
   return manifest;
@@ -688,7 +690,7 @@ export async function scanOperationsParcel(input: {
   if (!isEditable(manifest)) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "This manifest is locked and cannot accept parcel scans." });
 
   if (!label) return recordRejectedScan({ manifestId, bagId, parcelNumber, scanRequestId, userId: input.userId, ...scanMetadata, message: "No Swiftline parcel was found for this barcode." });
-  const shipment = await DpdShipment.findOne({ _id: label.dpdShipmentId, status: "LABEL_RECEIVED" }).exec();
+  const shipment = await DpdShipment.findOne({ _id: label.dpdShipmentId, status: { $in: ["DPD_CREATED", "LABEL_RECEIVED"] } }).exec();
   const snapshot = shipment
     ? readShipmentBookingSnapshot(shipment.currentShipmentSnapshot) ?? readShipmentBookingSnapshot(shipment.bookingSnapshot)
     : null;

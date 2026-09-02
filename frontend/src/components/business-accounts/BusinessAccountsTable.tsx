@@ -127,7 +127,7 @@ export function BusinessAccountsTable({
             return (
               <tr key={account.accountId} className="transition-colors hover:bg-[#EEEDED]/40">
                 <td className="px-4 py-3.5">
-                  <p className="font-semibold text-slate-900 capitalize">{account.company.companyName || "—"}</p>
+                  <p className="font-semibold text-slate-900 capitalize">{account.company.companyName || "-"}</p>
                   {/* <p className="mt-1 text-xs font-semibold text-[#0D1282]">{account.accountId}</p> */}
                   <p className="mt-1 text-xs text-slate-500">{account.contact.firstName} {account.contact.lastName} · {account.contact.email}</p>
                   {account.origin === "PUBLIC" ? (

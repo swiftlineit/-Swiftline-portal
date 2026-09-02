@@ -9,7 +9,8 @@ import { ShipmentDraftPolicyError } from "../services/shipmentDraftPolicy.servic
 import {
   allShipmentStatuses,
   bookedShipmentStatuses,
-  listBookedShipments
+  listBookedShipments,
+  summarizeBookedShipments
 } from "../services/shipmentListing.service.js";
 import { dateRangeParams } from "../utils/dateRangeFilter.js";
 import { shipmentExportColumns } from "../services/export/exportColumns.js";
@@ -62,7 +63,8 @@ function sendShipmentExport(
       Status: request.query.status,
       Search: request.query.search,
       From: request.query.dateFrom,
-      To: request.query.dateTo
+      To: request.query.dateTo,
+      Rebooked: request.query.rebooked === "1" || request.query.rebooked === "true" ? "Yes" : undefined
     })
   });
 }
@@ -77,6 +79,8 @@ export async function listAdminBookedShipments(request: Request, response: Respo
     actorRole: "admin",
     status: typeof request.query.status === "string" ? request.query.status : "",
     attention: request.query.attention === "1" || request.query.attention === "true",
+    bookedDate: typeof request.query.bookedDate === "string" ? request.query.bookedDate : "",
+    rebookedOnly: request.query.rebooked === "1" || request.query.rebooked === "true",
     search: typeof request.query.search === "string" ? request.query.search.slice(0, 80) : "",
     sort: typeof request.query.sort === "string" ? request.query.sort : "",
     ...dateRangeParams(request.query),
@@ -89,6 +93,19 @@ export async function listAdminBookedShipments(request: Request, response: Respo
 
   if (format) return sendShipmentExport(request, response, format, result.shipments, "Swiftline staff");
   return response.status(200).json({ success: true, ...result });
+}
+
+export async function summarizeAdminBookedShipments(request: Request, response: Response) {
+  const businessAccountId = objectIdParam(request, "businessAccountId");
+  const branchId = objectIdParam(request, "branchId");
+  const summary = await summarizeBookedShipments({
+    actorRole: "admin",
+    businessAccountIds: businessAccountId ? [businessAccountId] : undefined,
+    branchIds: branchId ? [branchId] : undefined,
+    bookingStatuses: allShipmentStatuses
+  });
+
+  return response.status(200).json({ success: true, ...summary });
 }
 
 /**
@@ -187,6 +204,7 @@ export async function listClientBookedShipments(request: Request, response: Resp
     actorRole: "client",
     status: typeof request.query.status === "string" ? request.query.status : "",
     attention: request.query.attention === "1" || request.query.attention === "true",
+    rebookedOnly: request.query.rebooked === "1" || request.query.rebooked === "true",
     search: typeof request.query.search === "string" ? request.query.search.slice(0, 80) : "",
     sort: typeof request.query.sort === "string" ? request.query.sort : "",
     ...dateRangeParams(request.query),

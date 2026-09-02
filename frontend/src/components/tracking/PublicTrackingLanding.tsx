@@ -155,8 +155,8 @@ export default function PublicTrackingLanding() {
           backgroundSize: "cover",
         }}
       >
-        {/* <div className="absolute inset-0 bg-black/70" />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#07113f]/80 via-[#07113f]/65 to-black/75" />
+        <div className="absolute inset-0 bg-black/80" />
+        {/* <div className="absolute inset-0 bg-gradient-to-b from-[#07113f]/80 via-[#07113f]/65 to-black/75" />
         <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/40 to-transparent" />
         <div className="absolute left-0 top-0 h-1 w-full bg-[#d71920]" /> */}
 

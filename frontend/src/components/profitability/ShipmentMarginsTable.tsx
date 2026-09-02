@@ -4,9 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { FiChevronLeft, FiChevronRight, FiEye, FiX } from "react-icons/fi";
 import { formatCreditMoney } from "@/lib/creditAccounts";
 import { flightAllocationLabels, type ProfitabilityRow } from "@/lib/profitability";
+import { normalizeFlightNumber } from "@/lib/flightNumber";
 
 function money(value: number) { return formatCreditMoney(value, "INR"); }
-function margin(value: number | null) { return value === null ? "—" : `${(value / 100).toFixed(2)}%`; }
+function visualGbp(amountMinor: number, rate?: number | null) {
+  return rate && rate > 0 ? `£${(amountMinor / 100 / rate).toFixed(2)}` : null;
+}
+function margin(value: number | null) { return value === null ? "-" : `${(value / 100).toFixed(2)}%`; }
 
 function Coverage({ row }: { row: ProfitabilityRow }) {
   const value = row.costSource === "FLIGHT_ALLOCATION" ? row.coverage : "LEGACY";
@@ -36,8 +40,8 @@ function AllocationDrawer({ row, onClose }: { row: ProfitabilityRow; onClose: ()
     <div ref={dialogRef} className="h-full w-full max-w-lg overflow-y-auto bg-white shadow-xl" role="dialog" aria-modal="true" aria-labelledby="allocation-title">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4"><div><h2 id="allocation-title" className="font-bold text-slate-950">Shipment allocation</h2><p className="mt-1 text-sm font-semibold text-[#0D1282]">{row.awb}</p></div><button ref={closeRef} onClick={onClose} className="grid h-11 w-11 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0D1282]/30" aria-label="Close allocation"><FiX /></button></div>
       <div className="space-y-5 p-5">
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200">{[["Customer", row.customerName], ["Destination", row.destinationCountryName], ["Chargeable weight", `${row.chargeableWeightKg.toFixed(3)} kg`], ["Cost source", row.costSource === "FLIGHT_ALLOCATION" ? "Flight allocation" : "Legacy shipment costs"], ["Flight", row.flight?.flightNumber || "—"], ["MAWB", row.flight?.mawbNumber || "—"]].map(([label, value]) => <div key={label} className="min-w-0 bg-slate-50 p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p></div>)}</div>
-        {row.flightAllocation.length ? <section className="overflow-hidden rounded-lg border border-slate-200"><div className="border-b border-slate-200 bg-slate-50 px-4 py-3"><h3 className="text-sm font-bold text-slate-900">Allocated flight costs</h3></div>{row.flightAllocation.map((item) => <div key={item.component} className="flex items-center justify-between border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"><span className="text-slate-700">{flightAllocationLabels[item.component]}</span><span className="font-semibold tabular-nums text-slate-950">{money(item.amountMinor)}</span></div>)}</section> : <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">This shipment has legacy costs. New adjustments must be made from a flight cost sheet.</div>}
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200">{[["Customer", row.customerName], ["Destination", row.destinationCountryName], ["Chargeable weight", `${row.chargeableWeightKg.toFixed(3)} kg`], ["Cost source", row.costSource === "FLIGHT_ALLOCATION" ? "Flight allocation" : "Legacy shipment costs"], ["Flight", row.flight?.flightNumber ? normalizeFlightNumber(row.flight.flightNumber) : "-"], ["MAWB", row.flight?.mawbNumber || "-"]].map(([label, value]) => <div key={label} className="min-w-0 bg-slate-50 p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</p></div>)}</div>
+        {row.flightAllocation.length ? <section className="overflow-hidden rounded-lg border border-slate-200"><div className="border-b border-slate-200 bg-slate-50 px-4 py-3"><h3 className="text-sm font-bold text-slate-900">Allocated flight costs</h3><p className="mt-1 text-xs text-slate-500">INR is the accounting amount. GBP is a visual equivalent using the flight sheet FX rate.</p></div>{row.flightAllocation.map((item) => <div key={item.component} className="flex items-center justify-between border-b border-slate-100 px-4 py-3 text-sm last:border-b-0"><span className="text-slate-700">{flightAllocationLabels[item.component]}</span><span className="text-right font-semibold tabular-nums text-slate-950">{money(item.amountMinor)}{visualGbp(item.amountMinor, row.flightFxGbpToInr) ? <span className="ml-2 text-xs font-medium text-slate-500">({visualGbp(item.amountMinor, row.flightFxGbpToInr)})</span> : null}</span></div>)}</section> : <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">This shipment has legacy costs. New adjustments must be made from a flight cost sheet.</div>}
         <section className="rounded-lg border border-slate-200 p-4"><Summary label="Revenue" value={row.totalRevenueMinor} /><Summary label="Allocated cost" value={row.totalCostMinor} /><Summary label="Gross profit" value={row.grossProfitMinor} profit /><div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3"><span className="font-semibold text-slate-700">Margin</span><span className={`text-lg font-bold tabular-nums ${row.grossProfitMinor < 0 ? "text-red-700" : "text-slate-950"}`}>{margin(row.marginBasisPoints)}</span></div></section>
       </div>
     </div>
@@ -49,8 +53,8 @@ function Summary({ label, value, profit = false }: { label: string; value: numbe
 }
 
 function FlightIdentity({ row }: { row: ProfitabilityRow }) {
-  if (!row.flight) return <span className="text-slate-500">—</span>;
-  return <div className="whitespace-nowrap"><p className="font-semibold text-slate-900">{row.flight.flightNumber || row.flight.manifestNumber}</p><p className="mt-0.5 text-xs text-slate-500">MAWB {row.flight.mawbNumber || "—"}</p></div>;
+  if (!row.flight) return <span className="text-slate-500">-</span>;
+  return <div className="whitespace-nowrap"><p className="font-semibold text-slate-900">{row.flight.flightNumber ? normalizeFlightNumber(row.flight.flightNumber) : row.flight.manifestNumber}</p><p className="mt-0.5 text-xs text-slate-500">MAWB {row.flight.mawbNumber || "-"}</p></div>;
 }
 
 export default function ShipmentMarginsTable({ rows, page, pages, total, onPage }: { rows: ProfitabilityRow[]; page: number; pages: number; total: number; onPage: (page: number) => void }) {

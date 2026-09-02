@@ -23,6 +23,8 @@ export type ShipmentProfitabilityCost = {
 export type ShipmentFlightAllocationCost = {
   component: "AIR_FREIGHT" | "AIR_FREIGHT_GST" | "EICF" | "CUSTOMS" | "TRANSPORTATION" | "CFL" | "DPD_LABEL";
   amountMinor: number;
+  /** Optional visual equivalent using the flight sheet's locked GBP/INR rate. */
+  amountMinorGbp?: number | null;
 };
 
 export interface IShipmentProfitability extends mongoose.Document {
@@ -36,6 +38,7 @@ export interface IShipmentProfitability extends mongoose.Document {
   flightCostSheetId?: mongoose.Types.ObjectId | null;
   operationsManifestId?: mongoose.Types.ObjectId | null;
   flightAllocation: ShipmentFlightAllocationCost[];
+  flightFxGbpToInr?: number | null;
   awb: string;
   customerName: string;
   originCountryCode: string;
@@ -76,7 +79,8 @@ const costSchema = new mongoose.Schema<ShipmentProfitabilityCost>({
 
 const flightAllocationSchema = new mongoose.Schema<ShipmentFlightAllocationCost>({
   component: { type: String, enum: ["AIR_FREIGHT", "AIR_FREIGHT_GST", "EICF", "CUSTOMS", "TRANSPORTATION", "CFL", "DPD_LABEL"], required: true },
-  amountMinor: { type: Number, required: true, min: 0, validate: Number.isSafeInteger }
+  amountMinor: { type: Number, required: true, min: 0, validate: Number.isSafeInteger },
+  amountMinorGbp: { type: Number, default: null, min: 0, validate: (value: number | null) => value === null || Number.isSafeInteger(value) }
 }, { _id: false });
 
 const schema = new mongoose.Schema<IShipmentProfitability>({
@@ -90,6 +94,7 @@ const schema = new mongoose.Schema<IShipmentProfitability>({
   flightCostSheetId: { type: mongoose.Schema.Types.ObjectId, ref: "FlightCostSheet", default: null, index: true },
   operationsManifestId: { type: mongoose.Schema.Types.ObjectId, ref: "OperationsManifest", default: null, index: true },
   flightAllocation: { type: [flightAllocationSchema], required: true, default: [] },
+  flightFxGbpToInr: { type: Number, default: null, min: 0.000001 },
   awb: { type: String, required: true, trim: true, maxlength: 40, index: true },
   customerName: { type: String, required: true, trim: true, maxlength: 160, index: true },
   originCountryCode: { type: String, required: true, trim: true, uppercase: true, minlength: 2, maxlength: 2, default: "IN" },

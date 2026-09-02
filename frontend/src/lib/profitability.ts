@@ -40,7 +40,8 @@ export type ProfitabilityRow = {
   flightCostSheetId: string | null;
   operationsManifestId: string | null;
   flight: { manifestNumber: string; mawbNumber: string; flightNumber: string; flightDate: string } | null;
-  flightAllocation: Array<{ component: FlightAllocationComponent; amountMinor: number }>;
+  flightAllocation: Array<{ component: FlightAllocationComponent; amountMinor: number; amountMinorGbp?: number | null }>;
+  flightFxGbpToInr?: number | null;
   awb: string;
   customerName: string;
   originCountryCode: string;
@@ -378,6 +379,31 @@ export function getFlightManifestPreview(manifestId: string) {
 
 export function listFlightCostSheets(filters: { branchId?: string; status?: string; vendorId?: string; from?: string; to?: string } = {}) {
   return requestJson<{ success: true; sheets: FlightCostSheet[] }>(`/api/v1/profitability/flight-cost-sheets${queryString(filters as Record<string, string|number|undefined>)}`);
+}
+
+export type FlightCostDraftSummary = {
+  id: string;
+  manifestNumber: string;
+  mawbNumber: string;
+  airlineName: string;
+  flightNumber: string;
+  flightDate: string;
+  destinationCountryName: string;
+  billedWeightKg: number;
+  totalParcels: number;
+  totals: { totalCostMinor: number };
+  status: "DRAFT";
+  updatedAt: string;
+};
+
+export function listFlightCostDrafts() {
+  return requestJson<{ success: true; sheets: FlightCostDraftSummary[] }>("/api/v1/profitability/flight-cost-drafts");
+}
+
+export function deleteDraftFlightCostSheet(sheetId: string) {
+  return requestJson<{ success: true; message: string }>(`/api/v1/profitability/flight-cost-sheets/${sheetId}`, {
+    method: "DELETE"
+  });
 }
 
 export function getFlightCostSheet(sheetId: string) {

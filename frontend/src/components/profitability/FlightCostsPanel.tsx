@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FiArrowLeft, FiCheck, FiEdit3, FiPlus, FiRefreshCw, FiX } from "react-icons/fi";
+import { FiArrowLeft, FiCheck, FiEdit3, FiPlus, FiRefreshCw, FiTrash2, FiX } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { formatCreditMoney } from "@/lib/creditAccounts";
 import {
   cancelFlightCostSheet,
   createFlightCostSheet,
+  deleteDraftFlightCostSheet,
   finalizeFlightCostSheet,
   getFlightCostSheet,
   getFlightManifestPreview,
@@ -96,13 +97,14 @@ function calculatePreview(
   };
 }
 
-export default function FlightCostsPanel({ branchId }: { branchId: string }) {
+export default function FlightCostsPanel({ branchId, canDeleteDrafts }: { branchId: string; canDeleteDrafts: boolean }) {
   const [sheets, setSheets] = useState<FlightCostSheet[]>([]);
   const [manifests, setManifests] = useState<FlightManifestOption[]>([]);
   const [rates, setRates] = useState<FlightBuyingRate[]>([]);
   const [vendors, setVendors] = useState<LogisticsVendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editor, setEditor] = useState(false);
   const [sheet, setSheet] = useState<FlightCostSheet | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -312,6 +314,25 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
     }
   }
 
+  async function deleteDraft(item: FlightCostSheet) {
+    if (item.status !== "DRAFT") return;
+    const confirmed = window.confirm(
+      `Delete draft ${item.manifestNumber}? This removes the provisional cost allocations and restores the shipment profitability values. Only draft sheets can be deleted; finalized, review-required, and cancelled records are retained for audit.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(item.id);
+    try {
+      const result = await deleteDraftFlightCostSheet(item.id);
+      toast.success(result.message);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The draft flight cost sheet could not be deleted.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   async function cancelSheet(reason: string) {
     if (!sheet) return;
     setSaving(true);
@@ -336,7 +357,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
           <div>
             <h2 className="font-bold text-slate-950">Flight costs</h2>
-            <p className="mt-1 text-sm text-slate-600">One cost sheet per Operations Manifest.</p>
+            <p className="mt-1 text-sm text-slate-600">One cost sheet per flight. Choose a manifest already attached to that flight.</p>
           </div>
           <button
             onClick={() => void openNew()}
@@ -425,7 +446,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
                         {item.flightNumber} · {item.flightDate}
                       </p>
                     </td>
-                    <td className="px-4 py-3">{item.vendor.name ?? "—"}</td>
+                    <td className="px-4 py-3">{item.vendor.name ?? "-"}</td>
                     <td className="px-4 py-3">{item.destinationCountryName}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{item.billedWeightKg.toFixed(3)} kg</td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums">
@@ -436,18 +457,32 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
                       {formatCreditMoney(item.totals.grossProfitMinor, "INR")}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {item.totals.marginBasisPoints == null ? "—" : `${(item.totals.marginBasisPoints / 100).toFixed(2)}%`}
+                      {item.totals.marginBasisPoints == null ? "-" : `${(item.totals.marginBasisPoints / 100).toFixed(2)}%`}
                     </td>
                     <td className="px-4 py-3">
                       <Status value={item.status} />
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => void openExisting(item.id)}
-                        className="inline-flex h-11 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-[#0D1282] hover:bg-slate-50"
-                      >
-                        <FiEdit3 /> Open
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => void openExisting(item.id)}
+                          className="inline-flex h-11 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-[#0D1282] hover:bg-slate-50"
+                        >
+                          <FiEdit3 /> Open
+                        </button>
+                        {canDeleteDrafts && item.status === "DRAFT" ? (
+                          <button
+                            type="button"
+                            onClick={() => void deleteDraft(item)}
+                            disabled={deletingId === item.id}
+                            aria-label={`Delete draft cost sheet ${item.manifestNumber}`}
+                            title="Delete draft cost sheet"
+                            className="inline-flex h-11 items-center gap-1 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
+                          >
+                            <FiTrash2 /> {deletingId === item.id ? "Deleting…" : "Delete"}
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -520,11 +555,11 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
           {(
             [
               ["Operations Manifest", preview?.manifestNumber ?? sheet?.manifestNumber ?? "Select below"],
-              ["MAWB", preview?.header.mawbNumber ?? sheet?.mawbNumber ?? "—"],
-              ["Airline", draft.airlineName || "—"],
-              ["Flight", preview?.header.flightNumber ?? sheet?.flightNumber ?? "—"],
-              ["Date", preview?.header.departureDate ?? sheet?.flightDate ?? "—"],
-              ["Destination", preview?.header.destinationCountryName ?? sheet?.destinationCountryName ?? "—"],
+              ["MAWB", preview?.header.mawbNumber ?? sheet?.mawbNumber ?? "-"],
+              ["Airline", draft.airlineName || "-"],
+              ["Flight", preview?.header.flightNumber ?? sheet?.flightNumber ?? "-"],
+              ["Date", preview?.header.departureDate ?? sheet?.flightDate ?? "-"],
+              ["Destination", preview?.header.destinationCountryName ?? sheet?.destinationCountryName ?? "-"],
               ["Status", preview?.status ?? sheet?.status ?? "DRAFT"],
             ] as const
           ).map(([label, value]) => (
@@ -635,13 +670,13 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               label="Air freight"
               basis="Per kg"
               quantity={`${billedWeight.toFixed(3)} kg`}
-              rate={calculationRate ? formatCreditMoney(calculationRate.airFreightRateMinorPerKg, "INR") : "—"}
+              rate={calculationRate ? formatCreditMoney(calculationRate.airFreightRateMinorPerKg, "INR") : "-"}
               amount={totals?.airFreightBaseMinor}
             />
             <CostLine
               label="GST on air freight"
               basis="On base"
-              quantity={calculationRate ? `${(calculationRate.gstBasisPoints / 100).toFixed(2)}%` : "—"}
+              quantity={calculationRate ? `${(calculationRate.gstBasisPoints / 100).toFixed(2)}%` : "-"}
               rate=""
               amount={totals?.airFreightGstMinor}
             />
@@ -649,7 +684,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               label="EICF"
               basis="Per kg"
               quantity={`${billedWeight.toFixed(3)} kg`}
-              rate={calculationRate ? formatCreditMoney(calculationRate.eicfRateMinorPerKg, "INR") : "—"}
+              rate={calculationRate ? formatCreditMoney(calculationRate.eicfRateMinorPerKg, "INR") : "-"}
               amount={totals?.eicfMinor}
             />
             <SectionTitle title="India charges" />
@@ -660,7 +695,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               label="CFL"
               basis="Per bag"
               quantity={`${facts.totalBags} bags`}
-              rate={calculationRate ? `£${(calculationRate.cflMinorPerBagGbp / 100).toFixed(2)}` : "—"}
+              rate={calculationRate ? `£${(calculationRate.cflMinorPerBagGbp / 100).toFixed(2)}` : "-"}
               amount={totals?.cflInrMinor}
               foreignAmount={totals?.cflGbpMinor}
             />
@@ -668,7 +703,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               label="DPD labels"
               basis="Per label"
               quantity={`${facts.billableLabels} labels`}
-              rate={calculationRate ? `£${(calculationRate.dpdLabelMinorGbp / 100).toFixed(2)}` : "—"}
+              rate={calculationRate ? `£${(calculationRate.dpdLabelMinorGbp / 100).toFixed(2)}` : "-"}
               amount={totals?.dpdLabelsInrMinor}
               foreignAmount={totals?.dpdLabelsGbpMinor}
             />
@@ -728,7 +763,7 @@ export default function FlightCostsPanel({ branchId }: { branchId: string }) {
               <div className="flex items-center justify-between pt-2">
                 <span className="text-sm font-semibold text-slate-700">Margin</span>
                 <span className={`text-lg font-bold tabular-nums ${(totals?.marginBasisPoints ?? 0) < 0 ? "text-red-700" : "text-slate-950"}`}>
-                  {totals?.marginBasisPoints == null ? "—" : `${(totals.marginBasisPoints / 100).toFixed(2)}%`}
+                  {totals?.marginBasisPoints == null ? "-" : `${(totals.marginBasisPoints / 100).toFixed(2)}%`}
                 </span>
               </div>
             </div>
@@ -799,7 +834,7 @@ function CostLine({
       <span className="tabular-nums text-slate-600">{quantity}</span>
       <span className="tabular-nums text-slate-600">{rate}</span>
       <span className="text-right font-semibold tabular-nums text-slate-900">
-        {amount === undefined ? "—" : formatCreditMoney(amount, "INR")}
+        {amount === undefined ? "-" : formatCreditMoney(amount, "INR")}
         {foreignAmount !== undefined ? <small className="block font-normal text-slate-500">£{(foreignAmount / 100).toFixed(2)}</small> : null}
       </span>
     </div>
@@ -812,7 +847,7 @@ function SummaryRow({ label, value, foreignValue, strong = false, profit = false
       <span
         className={`tabular-nums ${profit && (value ?? 0) < 0 ? "font-bold text-red-700" : profit ? "font-bold text-emerald-700" : strong ? "text-base" : "font-medium"}`}
       >
-        {value === undefined ? "—" : formatCreditMoney(value, "INR")}
+        {value === undefined ? "-" : formatCreditMoney(value, "INR")}
         {foreignValue !== undefined ? <small className="block font-normal text-slate-500">£{(foreignValue / 100).toFixed(2)}</small> : null}
       </span>
     </div>

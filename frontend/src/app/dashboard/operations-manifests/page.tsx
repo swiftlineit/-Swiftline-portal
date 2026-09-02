@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { FiArrowRight, FiPlus, FiChevronDown, FiTrash2 } from "react-icons/fi";
 import { toast } from "react-toastify";
 import { DashboardLoading } from "@/components/DashboardShell";
@@ -16,6 +17,7 @@ import {
 } from "@/lib/operationsManifests";
 import { OPERATIONS_AREA } from "@/lib/roles";
 import { useAdminUser } from "@/lib/useAdminUser";
+import { normalizeFlightNumber } from "@/lib/flightNumber";
 
 const statuses: ManifestStatus[] = [
   "DRAFT",
@@ -26,10 +28,11 @@ const statuses: ManifestStatus[] = [
   "CANCELLED",
 ];
 
-export default function OperationsManifestListPage() {
+function OperationsManifestListPageContent() {
   const { user, loading } = useAdminUser(OPERATIONS_AREA);
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<OperationsManifest[]>([]);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(() => searchParams.get("status") ?? "");
   const [dateRange, setDateRange] = useState(emptyDateRange);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
@@ -173,7 +176,7 @@ export default function OperationsManifestListPage() {
                         ? `${item.header.originIataCode} - ${item.header.destinationIataCode}`
                         : "Route pending"}
                       <p className="text-xs text-slate-500">
-                        {item.header.flightNumber || "Flight pending"}
+                        {item.header.flightNumber ? normalizeFlightNumber(item.header.flightNumber) : "Flight pending"}
                       </p>
                     </td>
                     <td className="px-5 py-4 text-center">{item.totalBags}</td>
@@ -259,5 +262,13 @@ export default function OperationsManifestListPage() {
           />
         ) : null}
       </div>
+  );
+}
+
+export default function OperationsManifestListPage() {
+  return (
+    <Suspense fallback={<DashboardLoading />}>
+      <OperationsManifestListPageContent />
+    </Suspense>
   );
 }

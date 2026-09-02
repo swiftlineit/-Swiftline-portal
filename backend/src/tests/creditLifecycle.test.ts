@@ -84,6 +84,16 @@ describe("credit utilization warning", () => {
     assert.equal(below.warningActive, false);
   });
 
+  it("does not flag a low absolute balance against a 70 percent threshold", () => {
+    const below = getCreditUtilization(utilizationAccount({
+      approvedCreditLimitMinor: 100000000,
+      unbilledCreditMinor: 1008600,
+      invoicedOutstandingMinor: 70000
+    }), now);
+    assert.equal(below.utilizationPercent, 1);
+    assert.equal(below.warningActive, false);
+  });
+
   it("never flags when the window is closed", () => {
     const expired = getCreditUtilization(utilizationAccount({
       unbilledCreditMinor: 90000,

@@ -65,7 +65,6 @@ const schema = new mongoose.Schema<IFlightOffload>(
 );
 
 schema.index({ flightLinehaulId: 1, createdAt: -1 });
-schema.index({ replacementFlightId: 1 });
 schema.index({ "affectedParcels.shipmentDraftId": 1, createdAt: -1 });
 
 export const FlightOffload = mongoose.model<IFlightOffload>("FlightOffload", schema);

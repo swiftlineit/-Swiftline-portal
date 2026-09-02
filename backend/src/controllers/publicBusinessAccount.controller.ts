@@ -59,7 +59,7 @@ const PUBLIC_OTP_RESEND_INTERVAL_MS = 60 * 1000;
 const PUBLIC_OTP_MAX_ATTEMPTS = 5;
 const PUBLIC_VERIFICATION_TTL_MS = 30 * 60 * 1000;
 
-// Strict captcha for public — fail-closed when secret configured
+// Strict captcha for public - fail-closed when secret configured
 async function verifyPublicRecaptcha(token: string | undefined, remoteIp?: string): Promise<boolean> {
   // import env lazily to avoid circular
   const { env } = await import("../config/env.js");
@@ -86,7 +86,7 @@ function loginOtpMatches(email: string, code: string, storedHash: string) {
   }
 }
 
-// Shared zod schemas — copied from businessAccount.controller for parity
+// Shared zod schemas - copied from businessAccount.controller for parity
 const shipmentTypeSchema = z.enum(["international_cargo", "international_courier"]);
 const companyTypeSchema = z.enum(["pvt_ltd", "llp", "enterprise", "proprietorship"]).or(z.literal(""));
 const registrationCountrySchema = z.enum([
@@ -483,7 +483,7 @@ export async function requestPublicBusinessAccountEmailOtp(request: Request, res
     const ok = await verifyRecaptcha(recaptchaToken, request.ip);
     if (!ok) return response.status(400).json({ success: false, message: "Captcha verification failed. Please try again." });
   }
-  // Hard block if email already owns a live business account — don't send code, don't leak via OTP
+  // Hard block if email already owns a live business account - don't send code, don't leak via OTP
   const liveExists = await BusinessAccount.exists({
     "contact.email": email,
     status: { $in: businessAccountStatuses.filter((s) => s !== "rejected") }
@@ -516,7 +516,7 @@ export async function requestPublicBusinessAccountEmailOtp(request: Request, res
     await sendBusinessAccountOtpEmail({ to: email, name: email.split("@")[0] ?? email, code, expiresAt });
   } catch (error) {
     console.error("Public business account OTP email could not be sent.", { email, message: error instanceof Error ? error.message : "Unknown error" });
-    // Still return 200 — don't leak delivery failure to allow enumeration difference
+    // Still return 200 - don't leak delivery failure to allow enumeration difference
   }
   return response.status(200).json({ success: true, message: "Verification code sent to your email.", expiresInSeconds: PUBLIC_OTP_TTL_MS / 1000, resendInSeconds: PUBLIC_OTP_RESEND_INTERVAL_MS / 1000 });
 }
@@ -572,7 +572,7 @@ export async function validatePublicBusinessAccountUniqueness(request: Request, 
   const isSensitiveTaxId = isUsTaxIdType(registrationIdType) && isSensitiveUsTaxIdType(registrationIdType);
   const registrationId = isSensitiveTaxId ? "" : compactRegistrationId(rawRegistrationId);
   const checks: Record<string, boolean> = { email: false, mobileNumber: false, registrationId: false };
-  // Only live accounts block reuse — rejected can re-apply (matches uniq_live indexes)
+  // Only live accounts block reuse - rejected can re-apply (matches uniq_live indexes)
   const liveFilter = { status: { $in: businessAccountStatuses.filter((s) => s !== "rejected") } };
   const mobileFilter = countryCode
     ? { ...liveFilter, "contact.countryCode": countryCode, "contact.mobileNumber": mobileNumber }

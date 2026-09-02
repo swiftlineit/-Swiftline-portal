@@ -1468,7 +1468,7 @@ export default function ClientDpdDraftReviewPage() {
               <section className="border border-slate-200 bg-white p-4 rounded-2xl">
                 {isCurrentCountryPaused ? (
                   <div className="mb-3 rounded-xl border border-[#D71313]/20 bg-[#FFF1F1] px-3 py-2 text-xs font-semibold text-[#991B1B]">
-                    Bookings for this destination are paused — booking is disabled.
+                    Bookings for this destination are paused - booking is disabled.
                   </div>
                 ) : null}
                 <button

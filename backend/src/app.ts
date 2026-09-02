@@ -139,7 +139,7 @@ app.use("/api/v1/public/rate-cards", publicRateCardRouter);
 // and has no portal account, so the AWB on the label is the only credential
 // there is. Its payload is limited to what that label already shows.
 app.use("/api/v1/public/tracking", publicTrackingRouter);
-// Public business account self-serve — no session, email OTP + captcha gated.
+// Public business account self-serve - no session, email OTP + captcha gated.
 app.use("/api/v1/public/business-accounts", publicBusinessAccountRouter);
 app.use("/api/v1/dpd-shipments", dpdShipmentRouter);
 app.use("/api/v1/shipment-imports", shipmentImportRouter);

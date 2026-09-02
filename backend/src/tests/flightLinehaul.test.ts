@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { FlightLinehaul } from "../models/flightLinehaul.model.js";
+import { portalNotificationTypeValues } from "../models/portalNotification.model.js";
 import {
+  calculateConnectionRisk,
   flightAllocationParcelDetails,
+  formatFlightLinehaulNumber,
   remainingFlightAllocationTotals
 } from "../services/flightLinehaul.service.js";
+import { getEmailPolicy, isEmailEnabledType } from "../services/email/catalog.js";
+import { comparableFlightNumber, normalizeFlightNumber } from "../utils/flightNumber.js";
+import { describeMissingPrerequisites, findMissingPrerequisites } from "../services/shipmentStatusSequence.service.js";
 
 function bookingSnapshot() {
   return {
@@ -55,4 +62,106 @@ test("chargeable weight falls back to the greater physical measure when absent",
   const snapshot = bookingSnapshot() as { pricing: { parcels: Array<Record<string, unknown>> } };
   delete snapshot.pricing.parcels[0]!.chargeableWeightKg;
   assert.equal(flightAllocationParcelDetails(snapshot)[0]?.chargeableWeightKg, 3);
+});
+
+test("chargeable weight never trusts a stale value below actual or volumetric weight", () => {
+  const snapshot = bookingSnapshot() as { pricing: { parcels: Array<Record<string, unknown>> } };
+  snapshot.pricing.parcels[0]!.chargeableWeightKg = 1;
+  assert.equal(flightAllocationParcelDetails(snapshot)[0]?.chargeableWeightKg, 3);
+});
+
+test("rejects malformed snapshots and invalid parcel measurements", () => {
+  assert.deepEqual(flightAllocationParcelDetails(null), []);
+  assert.deepEqual(flightAllocationParcelDetails({ version: 1, source: {}, tracking: {}, payment: {}, pricing: {}, parcels: [] }), []);
+
+  const snapshot = bookingSnapshot() as {
+    parcels: Array<Record<string, unknown>>;
+    pricing: { parcels: Array<Record<string, unknown>> };
+  };
+  snapshot.parcels.push(
+    { sequence: 3, swiftlineParcelNumber: "", actualWeightKg: 4 },
+    { sequence: 4, swiftlineParcelNumber: "PKG-4", actualWeightKg: 0 },
+    { sequence: 5, swiftlineParcelNumber: "PKG-5", actualWeightKg: 4 },
+    { sequence: 6, swiftlineParcelNumber: "PKG-6", actualWeightKg: 4 }
+  );
+  snapshot.pricing.parcels.push(
+    { sequence: 3, volumetricWeightKg: 4, chargeableWeightKg: 4 },
+    { sequence: 4, volumetricWeightKg: 4, chargeableWeightKg: 4 },
+    { sequence: 5, volumetricWeightKg: -1, chargeableWeightKg: 4 },
+    { sequence: 6, volumetricWeightKg: Number.NaN, chargeableWeightKg: 4 }
+  );
+
+  assert.deepEqual(flightAllocationParcelDetails(snapshot).map((parcel) => parcel.parcelNumber), ["PKG-1", "PKG-2"]);
+});
+
+test("normalizes remaining parcel identifiers and ignores unknown selections", () => {
+  const parcels = flightAllocationParcelDetails(bookingSnapshot());
+  assert.deepEqual(remainingFlightAllocationTotals(parcels, [" pkg-1 ", "NOT-IN-SNAPSHOT", "PKG-1"]), {
+    actualWeightKg: 2,
+    volumetricWeightKg: 3,
+    chargeableWeightKg: 3,
+    pieces: 1
+  });
+});
+
+test("connection risk uses the exact operational thresholds", () => {
+  assert.equal(calculateConnectionRisk(null), "LOW");
+  assert.equal(calculateConnectionRisk(-1), "MISSED");
+  assert.equal(calculateConnectionRisk(0), "CRITICAL");
+  assert.equal(calculateConnectionRisk(89), "CRITICAL");
+  assert.equal(calculateConnectionRisk(90), "HIGH");
+  assert.equal(calculateConnectionRisk(119), "HIGH");
+  assert.equal(calculateConnectionRisk(120), "MEDIUM");
+  assert.equal(calculateConnectionRisk(179), "MEDIUM");
+  assert.equal(calculateConnectionRisk(180), "LOW");
+});
+
+test("flight linehaul numbers are stable and padded", () => {
+  assert.equal(formatFlightLinehaulNumber(1), "FLH0001");
+  assert.equal(formatFlightLinehaulNumber(42), "FLH0042");
+  assert.equal(formatFlightLinehaulNumber(10000), "FLH10000");
+});
+
+test("flight numbers use EY-219 display format while matching legacy EY219 values", () => {
+  assert.equal(normalizeFlightNumber(" ey219 "), "EY-219");
+  assert.equal(normalizeFlightNumber("EY-219"), "EY-219");
+  assert.equal(comparableFlightNumber("EY219"), comparableFlightNumber("EY-219"));
+});
+
+test("flight departure prerequisites identify the missing shipment milestones", () => {
+  const missing = findMissingPrerequisites("ORIGIN_HUB_DISPATCHED", ["ORIGIN_HUB_PROCESSED"]);
+  assert.deepEqual(missing, ["WAREHOUSE_SCAN_IN", "READY_FOR_EXPORT"]);
+  assert.match(describeMissingPrerequisites("ORIGIN_HUB_DISPATCHED", missing), /Ready For Export/);
+});
+
+test("urgent flight notifications are registered for email and status notices remain in-app", () => {
+  for (const type of ["FLIGHT_DELAY", "FLIGHT_OFFLOAD", "FLIGHT_CONNECTION_RISK", "FLIGHT_EXCEPTION", "FLIGHT_CUSTOMS_HOLD"] as const) {
+    assert.ok((portalNotificationTypeValues as readonly string[]).includes(type), `${type} is missing from the notification enum`);
+    assert.ok(isEmailEnabledType(type), `${type} is missing from the email catalogue`);
+    assert.equal(getEmailPolicy(type)?.category, "OPERATIONAL");
+  }
+  for (const type of ["FLIGHT_DEPARTED", "FLIGHT_ARRIVED", "FLIGHT_FINAL_MILE_HANDOVER"] as const) {
+    assert.ok((portalNotificationTypeValues as readonly string[]).includes(type), `${type} is missing from the notification enum`);
+    assert.equal(isEmailEnabledType(type), false, `${type} should remain in-app only`);
+  }
+});
+
+test("flight schema declares an active-only unique MAWB index", () => {
+  const index = (FlightLinehaul.schema.indexes() as Array<[Record<string, unknown>, Record<string, unknown>]>).find((entry) => (
+    entry[1].name === "uniq_active_flight_mawb"
+  ));
+  const options = index?.[1] as {
+    unique?: boolean;
+    partialFilterExpression?: unknown;
+  } | undefined;
+  assert.ok(index, "active MAWB index is missing");
+  assert.equal(options?.unique, true);
+  assert.deepEqual(options?.partialFilterExpression, {
+    mawbNumber: { $gt: "" },
+    status: { $in: [
+      "PLANNED", "BOOKING_CONFIRMED", "CARGO_ALLOCATED", "MANIFEST_READY",
+      "HANDED_TO_AIRLINE", "DEPARTED", "IN_TRANSIT", "CONNECTION",
+      "ARRIVED_DESTINATION", "CUSTOMS", "HANDED_TO_FINAL_MILE"
+    ] }
+  });
 });

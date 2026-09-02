@@ -7,6 +7,7 @@ import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { DpdShipment, dpdShipmentStatusValues } from "../models/dpdShipment.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
+import { ShipmentEvent } from "../models/shipmentEvent.model.js";
 import { ManualShipmentDraftError } from "../services/manualShipmentDraft.service.js";
 import { rebookShipmentDraft } from "../services/rebookShipmentDraft.service.js";
 import {
@@ -91,7 +92,8 @@ before(async () => {
     Branch.init(),
     BusinessAccount.init(),
     DpdShipment.init(),
-    ShipmentDraft.init()
+    ShipmentDraft.init(),
+    ShipmentEvent.init()
   ]);
 
   branchId = await createBranch("Rebook Home Branch");
@@ -131,6 +133,25 @@ describe("shipment rebook", () => {
     }
   });
 
+  test("allows rebooking held, cancelled, and delivered source timelines", async () => {
+    for (const status of ["ON_HOLD", "SHIPMENT_CANCELLED", "DELIVERED"] as const) {
+      const source = await createSource("LABEL_RECEIVED");
+      const carrier = await DpdShipment.findOne({ shipmentDraftId: source._id }).lean().exec();
+      await ShipmentEvent.create({
+        shipmentDraftId: source._id,
+        dpdShipmentId: carrier?._id,
+        status,
+        note: status,
+        createdBy: adminId,
+        eventAt: new Date()
+      });
+
+      const draft = await rebook(source._id as mongoose.Types.ObjectId);
+      assert.equal(String(draft.rebookedFromDraftId), String(source._id));
+      assert.equal(draft.bookingState, "EDITABLE");
+    }
+  });
+
   test("returns the same draft for a repeated request key", async () => {
     const source = await createSource("LABEL_RECEIVED");
     const key = `REBOOK-${new mongoose.Types.ObjectId()}`;
@@ -140,6 +161,125 @@ describe("shipment rebook", () => {
     assert.equal(String(second._id), String(first._id));
     assert.equal(await ShipmentDraft.countDocuments({ rebookedFromDraftId: source._id, rebookIdempotencyKey: key }), 1);
     assert.equal(await AuditLog.countDocuments({ action: "SHIPMENT_DRAFT_REBOOKED", entityId: first._id }), 1);
+  });
+
+  test("copies booking data while resetting the new shipment identity", async () => {
+    const source = await createSource("DPD_STATUS_UNKNOWN");
+    source.csbType = "CSB_V";
+    source.insuranceOptIn = true;
+    source.forceGst = true;
+    source.declarationNote = "HANDLE WITH CARE";
+    source.serviceCode = "EXPRESS-TEST";
+    source.consignorAddress = {
+      companyName: "Source Sender",
+      contactName: "Source Contact",
+      email: "source@example.com",
+      mobileCountryCode: "+91",
+      mobileNumber: "9111111111",
+      countryCode: "IN",
+      countryName: "India",
+      postcode: "110001",
+      addressLine1: "Source Street",
+      townOrCity: "Delhi",
+      county: "Delhi",
+      aadhaarNumber: ""
+    } as never;
+    source.parcelList[0]!.items = [{
+      description: "Books",
+      hsnCode: "4901",
+      unitType: "PCS",
+      quantity: 2,
+      unitRate: 12
+    }];
+    await source.save();
+
+    const draft = await rebook(source._id as mongoose.Types.ObjectId);
+
+    assert.notEqual(String(draft._id), String(source._id));
+    assert.equal(String(draft.rebookedFromDraftId), String(source._id));
+    assert.equal(draft.businessAccountId?.toString(), source.businessAccountId?.toString());
+    assert.equal(draft.branchId?.toString(), source.branchId?.toString());
+    assert.equal(draft.csbType, source.csbType);
+    assert.equal(draft.insuranceOptIn, source.insuranceOptIn);
+    assert.equal(draft.forceGst, source.forceGst);
+    assert.equal(draft.declarationNote, source.declarationNote);
+    assert.equal(draft.serviceCode, source.serviceCode);
+    // The parcel-item schema normalizes descriptions to uppercase on write;
+    // rebook preserves the normalized stored value.
+    assert.equal(draft.parcelList[0]?.items?.[0]?.description, "BOOKS");
+    assert.equal(draft.parcelList[0]?.items?.[0]?.quantity, 2);
+    assert.equal(draft.bookingState, "EDITABLE");
+    assert.equal(draft.bookingAttemptId, "");
+    assert.equal(draft.allocatedTrackingNumber, "");
+    assert.equal(draft.deletedAt, null);
+    assert.equal(await DpdShipment.countDocuments({ shipmentDraftId: draft._id }), 0);
+  });
+
+  test("accepts a legacy booked draft even when its carrier row is missing", async () => {
+    const source = await createSource("LABEL_RECEIVED");
+    await DpdShipment.deleteMany({ shipmentDraftId: source._id });
+    source.bookingState = "BOOKED";
+    await source.save();
+
+    const draft = await rebook(source._id as mongoose.Types.ObjectId);
+    assert.equal(String(draft.rebookedFromDraftId), String(source._id));
+  });
+
+  test("rejects an unbooked draft without creating anything", async () => {
+    const source = await createSource("LABEL_RECEIVED");
+    await DpdShipment.deleteMany({ shipmentDraftId: source._id });
+
+    await assert.rejects(
+      () => rebook(source._id as mongoose.Types.ObjectId),
+      (error: unknown) => error instanceof ManualShipmentDraftError && error.statusCode === 409
+    );
+    assert.equal(await ShipmentDraft.countDocuments({ rebookedFromDraftId: source._id }), 0);
+  });
+
+  test("rejects invalid source identifiers and request keys before database mutation", async () => {
+    await assert.rejects(
+      () => rebookShipmentDraft({
+        sourceDraftId: "not-an-object-id",
+        createdBy: adminId,
+        allowedBranchIds: null,
+        idempotencyKey: "valid-key-123"
+      }),
+      (error: unknown) => error instanceof ManualShipmentDraftError && error.statusCode === 404
+    );
+
+    await assert.rejects(
+      () => rebookShipmentDraft({
+        sourceDraftId: new mongoose.Types.ObjectId().toString(),
+        createdBy: adminId,
+        allowedBranchIds: null,
+        idempotencyKey: "short"
+      }),
+      (error: unknown) => error instanceof ManualShipmentDraftError && error.statusCode === 400
+    );
+  });
+
+  test("keeps idempotency keys scoped to their source shipment", async () => {
+    const firstSource = await createSource("LABEL_RECEIVED");
+    const secondSource = await createSource("LABEL_RECEIVED");
+    const key = `REBOOK-${new mongoose.Types.ObjectId()}`;
+
+    const first = await rebook(firstSource._id as mongoose.Types.ObjectId, key);
+    const second = await rebook(secondSource._id as mongoose.Types.ObjectId, key);
+
+    assert.notEqual(String(first._id), String(second._id));
+    assert.equal(await ShipmentDraft.countDocuments({ rebookIdempotencyKey: key }), 2);
+  });
+
+  test("rechecks the business account branch assignment at rebook time", async () => {
+    const source = await createSource("LABEL_RECEIVED");
+    await BusinessAccount.updateOne({ _id: accountId }, { $set: { assignedBranch: otherBranchId } });
+
+    await assert.rejects(
+      () => rebook(source._id as mongoose.Types.ObjectId),
+      (error: unknown) => error instanceof ManualShipmentDraftError && error.statusCode === 403
+    );
+
+    await BusinessAccount.updateOne({ _id: accountId }, { $set: { assignedBranch: branchId } });
   });
 
   test("copies KYC to an independent storage key", async () => {

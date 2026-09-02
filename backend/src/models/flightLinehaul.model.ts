@@ -131,7 +131,6 @@ const schema = new mongoose.Schema<IFlightLinehaul>(
 
 schema.index({ branchId: 1, status: 1, scheduledDepartureAt: -1 });
 schema.index({ branchId: 1, flightNumber: 1, scheduledDepartureAt: 1 }, { unique: false });
-schema.index({ mawbNumber: 1 }, { partialFilterExpression: { mawbNumber: { $type: "string", $gt: "" } }, unique: false });
 schema.index({ "connection.transitAirportCode": 1 });
 // A MAWB identifies one active physical air-cargo movement. Empty legacy
 // values are excluded so older draft records remain readable, while closed or

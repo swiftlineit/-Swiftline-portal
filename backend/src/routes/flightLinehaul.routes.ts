@@ -43,7 +43,7 @@ flightLinehaulRouter.post("/:flightId/documents", requireFlightBranch, flightDoc
 flightLinehaulRouter.get("/:flightId/documents/:documentId/download", requireFlightBranch, controller.downloadDocument);
 flightLinehaulRouter.delete("/:flightId/documents/:documentId", requireFlightBranch, controller.deleteDocument);
 
-// Exceptions — flight scoped and global
+// Exceptions - flight scoped and global
 flightLinehaulRouter.get("/:flightId/exceptions", requireFlightBranch, controller.listExceptions);
 flightLinehaulRouter.post("/exceptions/:exceptionId/acknowledge", controller.acknowledgeException);
 flightLinehaulRouter.patch("/exceptions/:exceptionId", controller.updateException);

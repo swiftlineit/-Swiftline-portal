@@ -434,7 +434,7 @@ export default function ProfitabilityPage() {
       ) : null}
 
       {!dataLoading && tab === "FLIGHTS" ? (
-        <FlightCostsPanel branchId={branchId} />
+        <FlightCostsPanel branchId={branchId} canDeleteDrafts={user.role === "admin" || user.role === "operations"} />
       ) : null}
 
       {!dataLoading && tab === "SHIPMENTS" ? (

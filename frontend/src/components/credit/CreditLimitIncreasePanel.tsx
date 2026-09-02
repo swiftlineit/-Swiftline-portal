@@ -97,7 +97,8 @@ export default function CreditLimitIncreasePanel({
     );
   }
 
-  // Surfaced once the account is close to its ceiling, or already restricted by it.
+  // Surface this only when the server says the configured warning threshold was
+  // reached, or when no credit remains. The server owns the threshold decision.
   const nearLimit = account.warningActive
     || (account.availableCreditMinor !== undefined && account.availableCreditMinor <= 0);
   if (!nearLimit && !open) return null;
@@ -163,7 +164,9 @@ export default function CreditLimitIncreasePanel({
           <span className="font-semibold text-amber-900">
             {account.availableCreditMinor === 0
               ? "You have used your full credit limit."
-              : "You are close to your credit limit."}
+              : account.creditWarningThresholdPercent
+                ? `Credit usage has reached your ${account.creditWarningThresholdPercent}% warning level.`
+                : "Credit usage has reached the configured warning level."}
           </span>
           <button
             type="button"

@@ -952,6 +952,21 @@ export async function reconcileDpdShipmentDocuments(dpdShipmentId: string) {
   }>(response);
 }
 
+/** Generate the DPD carrier document for an already-booked Swiftline shipment. */
+export async function generateExistingDpdLabel(dpdShipmentId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/dpd-shipments/${dpdShipmentId}/generate-label`), {
+    method: "POST"
+  });
+
+  return parseApiResponse<{
+    success: true;
+    reused: boolean;
+    message: string;
+    dpdShipment: DpdShipmentHistoryItem["dpdShipment"];
+    labels: DpdShipmentHistoryItem["labels"];
+  }>(response);
+}
+
 export function createRebookIdempotencyKey() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `rebook-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -1011,10 +1026,11 @@ export async function getDpdLabelAccessUrl(
  * tracking searches one number and wants it, the dashboard feeds pull many rows
  * and never read it.
  */
-export async function listDpdShipments(limit = 25, trackingNumber = "", withEstimate = false) {
+export async function listDpdShipments(limit = 25, trackingNumber = "", withEstimate = false, withJourney = false) {
   const url = new URL(apiUrl("/api/v1/dpd-shipments"));
   url.searchParams.set("limit", String(limit));
   if (withEstimate) url.searchParams.set("withEstimate", "1");
+  if (withJourney) url.searchParams.set("withJourney", "1");
   if (trackingNumber.trim()) url.searchParams.set("trackingNumber", trackingNumber.trim());
   const response = await fetchWithAuth(url.toString());
 

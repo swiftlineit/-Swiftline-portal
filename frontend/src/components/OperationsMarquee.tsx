@@ -97,8 +97,8 @@ export default function OperationsMarquee({
         key: `pause:${pause.id}`,
         label: "Booking paused",
         title: pause.countries.includes("ALL")
-          ? `Bookings paused for all destinations — ${formatPauseWindow(pause)}`
-          : `Bookings paused for ${pause.countryLabels.join(", ")} — ${formatPauseWindow(pause)}`,
+          ? `Bookings paused for all destinations - ${formatPauseWindow(pause)}`
+          : `Bookings paused for ${pause.countryLabels.join(", ")} - ${formatPauseWindow(pause)}`,
         detail: pause.reason,
         dotClass: "bg-[#D71313]",
         isNew: isNewAdvisory(pause.createdAt, now),
@@ -350,7 +350,7 @@ function AdvisorySlide({ item }: { item: MarqueeItem }) {
           </h3>
 
           <span className="hidden shrink-0 text-[#B6B9C9] sm:inline">
-            —
+            -
           </span>
 
           <p className="hidden min-w-0 flex-1 truncate text-[13px] font-medium leading-5 text-[#666B82] sm:block lg:text-sm">

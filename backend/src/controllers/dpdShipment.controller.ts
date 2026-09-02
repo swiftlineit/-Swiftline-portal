@@ -54,6 +54,7 @@ import {
   DpdLabelUnavailableError,
   DpdShipmentServiceError,
   createLabelForShipmentDraft,
+  generateDpdLabelForExistingShipment,
   reconcileShipmentDocuments,
   resetBookingForDevelopment
 } from "../services/dpdShipment.service.js";
@@ -680,6 +681,53 @@ export async function reconcileDpdShipmentDocuments(request: Request, response: 
   }
 }
 
+export async function generateExistingDpdLabel(request: Request, response: Response): Promise<Response> {
+  const userId = getAuthenticatedUserId(request);
+  if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
+
+  const dpdShipmentId = typeof request.params.id === "string" ? request.params.id : "";
+  if (!mongoose.Types.ObjectId.isValid(dpdShipmentId)) {
+    return response.status(404).json({ success: false, message: "Shipment booking not found." });
+  }
+
+  const shipment = await DpdShipment.findById(dpdShipmentId).select("shipmentDraftId").lean().exec();
+  if (!shipment) return response.status(404).json({ success: false, message: "Shipment booking not found." });
+  const draft = await ShipmentDraft.findById(shipment.shipmentDraftId).select("branchId").lean().exec();
+  if (!draft) return response.status(404).json({ success: false, message: "Shipment draft not found." });
+  if (!canAccessBranch(request, draft.branchId)) {
+    return response.status(403).json({ success: false, message: "You do not have access to this branch." });
+  }
+
+  try {
+    const result = await generateDpdLabelForExistingShipment(dpdShipmentId, userId);
+    return response.status(result.reused ? 200 : 201).json({
+      success: true,
+      reused: result.reused,
+      message: result.reused
+        ? "The existing DPD label is already available."
+        : "The DPD carrier label was generated for the existing shipment.",
+      dpdShipment: serializeDpdShipment(result.dpdShipment),
+      labels: result.labels.map(serializeLabel)
+    });
+  } catch (error) {
+    if (error instanceof DpdLabelUnavailableError) {
+      return response.status(error.statusCode).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+        ...(error.carrierErrors.length ? { carrierErrors: error.carrierErrors } : {})
+      });
+    }
+    if (error instanceof DpdShipmentServiceError) {
+      return response.status(error.statusCode).json({ success: false, message: error.message, ...error.details });
+    }
+    return response.status(502).json({
+      success: false,
+      message: "The DPD carrier label could not be generated. Check the shipment audit history before retrying."
+    });
+  }
+}
+
 export async function resetDevelopmentShipmentBooking(request: Request, response: Response): Promise<Response> {
   const userId = getAuthenticatedUserId(request);
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });
@@ -817,7 +865,8 @@ export async function listDpdShipments(request: Request, response: Response): Pr
    */
   const estimatesByDraftId = new Map<string, Awaited<ReturnType<typeof buildDeliveryEstimate>>>();
   const journeysByDraftId = new Map<string, TrackingJourney>();
-  if (request.query.withEstimate === "1") {
+  const includeJourney = request.query.withEstimate === "1" || request.query.withJourney === "1";
+  if (includeJourney) {
     await Promise.all(shipments.map(async (shipment) => {
       const draft = draftsById.get(String(shipment.shipmentDraftId));
       if (!draft) return;
@@ -832,10 +881,12 @@ export async function listDpdShipments(request: Request, response: Response): Pr
         originHubFallback: branch?.address?.city ? `${branch.address.city} Hub` : ""
       });
       journeysByDraftId.set(String(shipment.shipmentDraftId), journey);
-      estimatesByDraftId.set(
-        String(shipment.shipmentDraftId),
-        await buildDeliveryEstimate({ draft, events })
-      );
+      if (request.query.withEstimate === "1") {
+        estimatesByDraftId.set(
+          String(shipment.shipmentDraftId),
+          await buildDeliveryEstimate({ draft, events })
+        );
+      }
     }));
   }
 

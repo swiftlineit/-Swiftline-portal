@@ -22,7 +22,7 @@ export function businessAccountOtpTemplate(context: EmailTemplateContext): Email
       },
       {
         kind: "note",
-        text: "This is an automated email — please do not reply. For help, contact Info@swiftlinefreight.com or +91 70271 16600."
+        text: "This is an automated email - please do not reply. For help, contact Info@swiftlinefreight.com or +91 70271 16600."
       }
     ]
   };

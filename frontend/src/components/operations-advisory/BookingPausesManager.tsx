@@ -248,7 +248,7 @@ export default function BookingPausesManager() {
               rows={3}
               value={form.reason}
               onChange={(e) => updateField("reason", e.target.value)}
-              placeholder="e.g. Bookings to UK, US, Canada and Europe closed for operational reasons — 29 Aug to 30 Aug 2026"
+              placeholder="e.g. Bookings to UK, US, Canada and Europe closed for operational reasons - 29 Aug to 30 Aug 2026"
               className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-blue-900 focus:ring-2 focus:ring-blue-100"
             />
             <span className="mt-1 block text-right text-[11px] text-slate-400">{form.reason.length}/500</span>

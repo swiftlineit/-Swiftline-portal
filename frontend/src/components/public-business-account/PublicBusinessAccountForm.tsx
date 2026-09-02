@@ -16,6 +16,7 @@ import {
   FiArrowRight,
   FiAlertCircle,
   FiLoader,
+  FiChevronDown
 } from "react-icons/fi";
 import {
   BusinessAccountFiles,
@@ -204,6 +205,87 @@ function loadPublicDraft(): Partial<{
   }
 }
 
+const PUBLIC_FILES_DB = "public-business-account-draft";
+const PUBLIC_FILES_STORE = "files";
+const FILES_TTL_MS = 30 * 60 * 1000;
+
+function openDraftDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(PUBLIC_FILES_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(PUBLIC_FILES_STORE)) db.createObjectStore(PUBLIC_FILES_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveFilesToStorage(files: BusinessAccountFiles) {
+  try {
+    const entries: [string, { name: string; type: string; buffer: ArrayBuffer }][] = [];
+    for (const [key, file] of Object.entries(files)) {
+      if (!(file instanceof File)) continue;
+      const buffer = await (file as File).arrayBuffer();
+      entries.push([key, { name: (file as File).name, type: (file as File).type, buffer }]);
+    }
+    const db = await openDraftDB();
+    const tx = db.transaction(PUBLIC_FILES_STORE, "readwrite");
+    const store = tx.objectStore(PUBLIC_FILES_STORE);
+    if (entries.length === 0) {
+      store.delete("draftFiles");
+    } else {
+      store.put({ files: Object.fromEntries(entries), timestamp: Date.now() }, "draftFiles");
+    }
+    await new Promise<void>((res, rej) => {
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+  } catch {}
+}
+
+async function loadFilesFromStorage(): Promise<BusinessAccountFiles | null> {
+  try {
+    const db = await openDraftDB();
+    const tx = db.transaction(PUBLIC_FILES_STORE, "readonly");
+    const store = tx.objectStore(PUBLIC_FILES_STORE);
+    const req = store.get("draftFiles");
+    const result: any = await new Promise((res, rej) => {
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => rej(req.error);
+    });
+    db.close();
+    if (!result) return null;
+    if (Date.now() - result.timestamp > FILES_TTL_MS) {
+      await clearFilesFromStorage();
+      return null;
+    }
+    const restored: BusinessAccountFiles = {};
+    for (const [key, meta] of Object.entries(result.files as Record<string, any>)) {
+      const blob = new Blob([meta.buffer], { type: meta.type });
+      const file = new File([blob], meta.name, { type: meta.type });
+      (restored as any)[key] = file;
+    }
+    return restored;
+  } catch {
+    return null;
+  }
+}
+
+async function clearFilesFromStorage() {
+  try {
+    const db = await openDraftDB();
+    const tx = db.transaction(PUBLIC_FILES_STORE, "readwrite");
+    tx.objectStore(PUBLIC_FILES_STORE).delete("draftFiles");
+    await new Promise<void>((res, rej) => {
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+  } catch {}
+}
+
 export default function PublicBusinessAccountPage() {
   const [step, setStep] = useState(0);
   const [formData, setFormData] =
@@ -246,20 +328,23 @@ export default function PublicBusinessAccountPage() {
   const [otpNotice, setOtpNotice] = useState("");
   const idempotencyKeyRef = useRef("");
 
-  // Hydrate from localStorage after mount (avoids SSR mismatch) â€” files not restored
+  // Hydrate from storage after mount (avoids SSR mismatch)
   useEffect(() => {
     const draft = loadPublicDraft();
-    if (!draft) return;
-    if (draft.formData) setFormData(draft.formData);
-    if (typeof draft.step === "number") setStep(draft.step);
-    if (draft.touched) setTouched(draft.touched);
-    if (draft.verifiedEmail) setVerifiedEmail(draft.verifiedEmail);
-    if (draft.verificationToken) setVerificationToken(draft.verificationToken);
-    if (draft.verificationExpiresAt)
-      setVerificationExpiresAt(draft.verificationExpiresAt);
+    if (draft) {
+      if (draft.formData) setFormData(draft.formData);
+      if (typeof draft.step === "number") setStep(draft.step);
+      if (draft.touched) setTouched(draft.touched);
+      if (draft.verifiedEmail) setVerifiedEmail(draft.verifiedEmail);
+      if (draft.verificationToken) setVerificationToken(draft.verificationToken);
+      if (draft.verificationExpiresAt) setVerificationExpiresAt(draft.verificationExpiresAt);
+    }
+    void loadFilesFromStorage().then((stored) => {
+      if (stored && Object.keys(stored).length) setFiles(stored);
+    });
   }, []);
 
-  // Persist public draft across refresh â€” files not persisted (File can't be serialized)
+  // Persist public draft across refresh
   useEffect(() => {
     if (typeof window === "undefined") return;
     const payload = {
@@ -286,10 +371,18 @@ export default function PublicBusinessAccountPage() {
   ]);
 
   useEffect(() => {
+    const id = window.setTimeout(() => {
+      void saveFilesToStorage(files);
+    }, 400);
+    return () => window.clearTimeout(id);
+  }, [files]);
+
+  useEffect(() => {
     if (success && typeof window !== "undefined") {
       try {
         window.localStorage.removeItem(PUBLIC_DRAFT_KEY);
       } catch {}
+      void clearFilesFromStorage();
     }
   }, [success]);
 
@@ -1006,6 +1099,7 @@ export default function PublicBusinessAccountPage() {
     try {
       window.localStorage.removeItem(PUBLIC_DRAFT_KEY);
     } catch {}
+    void clearFilesFromStorage();
     setFormData(defaultFormData);
     setStep(0);
     setTouched({});
@@ -1132,21 +1226,21 @@ export default function PublicBusinessAccountPage() {
     return (
       <>
         <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-          <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-            <div className="bg-gradient-to-br from-[#0D1282] via-[#0D1282] to-[#1e1bff] px-8 py-10 text-white sm:px-10 sm:py-12">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-white ring-1 ring-white/20">
+          <div className="overflow-hidden rounded-xl border border-[#C7DADD] bg-white shadow-[0_12px_32px_rgba(15,23,42,0.06)]">
+            <div className="border-t-4 border-t-[#FF0000] bg-[#DFF1F1] px-8 py-10 text-slate-950 sm:px-10 sm:py-12">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-white text-[#0D1282] ring-1 ring-[#C7DADD]">
                 <FiCheckCircle className="h-7 w-7" />
               </div>
               <h1 className="mt-6 text-center text-2xl font-bold tracking-tight sm:text-3xl">
                 Request submitted
               </h1>
-              <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-6 text-white/80 sm:text-[15px]">
+              <p className="mx-auto mt-3 max-w-xl text-center text-sm leading-6 text-slate-600 sm:text-[15px]">
                 Your business account request is now under review. Our team will
                 verify your details and documents and notify you by email.
               </p>
             </div>
             <div className="px-6 py-8 sm:px-10">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-5 sm:px-6">
+              <div className="rounded-lg border border-[#C7DADD] bg-[#F7FAFA] px-5 py-5 sm:px-6">
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                   Your reference
                 </p>
@@ -1178,7 +1272,7 @@ export default function PublicBusinessAccountPage() {
                   href="https://swiftlinefreight.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#0D1282] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0a0f6b]"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#0D1282] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#0A0F6D]"
                 >
                   Visit Swiftline <FiArrowRight className="h-4 w-4" />
                 </a>
@@ -1187,14 +1281,14 @@ export default function PublicBusinessAccountPage() {
                 Need help?{" "}
                 <a
                   href="mailto:Info@swiftlinefreight.com"
-                  className="font-semibold text-[#0D1282] hover:underline"
+                  className="font-semibold text-[#0D1282] hover:text-[#FF0000] hover:underline"
                 >
                   Info@swiftlinefreight.com
                 </a>{" "}
                 ·{" "}
                 <a
                   href="tel:+917027116600"
-                  className="font-semibold text-[#0D1282] hover:underline"
+                  className="font-semibold text-[#0D1282] hover:text-[#FF0000] hover:underline"
                 >
                   +91 70271 16600
                 </a>
@@ -1247,14 +1341,15 @@ export default function PublicBusinessAccountPage() {
   return (
     <>
       {/* Page content theme */}
-      <div className="bg-[#EEF3F8]">
+      <div className="bg-[#F4F7F7]">
         <div className="mx-auto w-full max-w-[1450px] px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
           <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start xl:grid-cols-[350px_minmax(0,1fr)] xl:gap-8 2xl:grid-cols-[390px_minmax(0,952px)] 2xl:justify-center">
           {/* Desktop business account hero */}
           <aside className="hidden lg:sticky lg:top-6 lg:block lg:self-start">
-            <div className="overflow-hidden rounded-lg border border-[#CCD7E4] bg-[#FBFCFF]">
+            <div className="flex h-[720px] flex-col overflow-hidden rounded-xl border border-[#C7DADD] bg-white shadow-[0_12px_32px_rgba(15,23,42,0.06)] xl:h-[760px]">
               {/* Hero illustration */}
-              <div className="flex h-[250px] items-center justify-center border-b border-[#CCD7E4] bg-red-500 px-4 py-5 xl:h-[280px]">
+              <div className="relative flex h-[270px] shrink-0 items-center justify-center border-b border-[#C7DADD] bg-[#DFF1F1] px-4 py-5 xl:h-[300px]">
+                <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-[#FF0000]" />
                 <img
                   src="https://www.dhl.com/discover/content/dam/icons-and-logos/Group%207753.svg"
                   alt="Business logistics"
@@ -1263,7 +1358,7 @@ export default function PublicBusinessAccountPage() {
               </div>
 
               {/* Hero copy */}
-              <div className="bg-[#FBFCFF] px-6 py-6 xl:px-7 xl:py-7">
+              <div className="flex min-h-0 flex-1 flex-col bg-white px-6 py-6 xl:px-7 xl:py-7">
                 <p className="text-xs font-semibold text-[#0D1282]">
                   Swiftline Business Account
                 </p>
@@ -1277,9 +1372,9 @@ export default function PublicBusinessAccountPage() {
                 </p>
 
                 {/* Application essentials */}
-                <div className="mt-6 divide-y divide-[#DCE4EE] border-y border-[#DCE4EE]">
+                <div className="mt-6 divide-y divide-[#D6E5E7] border-y border-[#D6E5E7]">
                   <div className="flex items-center gap-3 py-3.5">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#E9EEFB] text-[#0D1282]">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#DFF1F1] text-[#0D1282]">
                       <FiClock className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
@@ -1289,7 +1384,7 @@ export default function PublicBusinessAccountPage() {
                   </div>
 
                   <div className="flex items-center gap-3 py-3.5">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#E9EEFB] text-[#0D1282]">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#DFF1F1] text-[#0D1282]">
                       <FiFileText className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
@@ -1305,22 +1400,28 @@ export default function PublicBusinessAccountPage() {
           </aside>
 
           {/* Right application workspace */}
-          <div className="min-w-0 w-full rounded-xl border border-[#D9E2EC] bg-red-950 p-4 xl:max-w-[952px] xl:p-5 2xl:max-w-none">
+          <div
+            className={`min-w-0 w-full rounded-xl border border-[#C7DADD] border-t-2 bg-[#F3F2EC] p-4 shadow-[0_12px_32px_rgba(15,23,42,0.05)] xl:max-w-[952px] xl:p-5 2xl:max-w-none ${
+              step === 2
+                ? "lg:flex lg:h-[720px] lg:flex-col xl:h-[760px]"
+                : ""
+            }`}
+          >
             {/* Mobile / tablet step timeline */}
-            <nav
+            {/* <nav
               aria-label="Application progress"
-              className="rounded-lg border border-[#D7E0EA] bg-[#FBFCFE] px-4 py-3 lg:hidden"
+              className="rounded-lg border border-[#C7DADD] bg-white px-4 py-3 lg:hidden"
             >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-white">
+                  <p className="text-xs font-medium text-slate-600">
                     Step {step + 1} of 4
                   </p>
                   <p className="truncate text-sm font-semibold text-slate-900">
                     {businessAccountSteps[step]}
                   </p>
                 </div>
-                <span className="text-xs font-semibold text-[#0D1282]">
+                <span className="text-xs font-semibold text-slate-700">
                   {Math.round(((step + 1) / 4) * 100)}%
                 </span>
               </div>
@@ -1363,11 +1464,15 @@ export default function PublicBusinessAccountPage() {
                   );
                 })}
               </div>
-            </nav>
+            </nav> */}
 
-            <main className="mt-4 lg:mt-0">
+            <main
+              className={`mt-4 lg:mt-0 ${
+                step === 2 ? "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col" : ""
+              }`}
+            >
               {error ? (
-                <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-[#B0121A]">
+                <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-[#FF0000]">
                   <FiAlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{" "}
                   <span>{error}</span>
                 </div>
@@ -1376,10 +1481,10 @@ export default function PublicBusinessAccountPage() {
               {/* Current step heading */}
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-white">
+                  <p className="text-xs font-semibold text-[#0D1282]">
                     Step {step + 1} of 4
                   </p>
-                  <h2 className="mt-0.5 text-xl font-bold tracking-[-0.02em] text-white sm:text-[22px]">
+                  <h2 className="mt-0.5 text-xl font-bold tracking-[-0.02em] text-slate-950 sm:text-[22px]">
                     {businessAccountSteps[step]}
                   </h2>
                   <p className="mt-1 mb-6 max-w-2xl text-sm leading-5 text-slate-600">
@@ -1407,15 +1512,26 @@ export default function PublicBusinessAccountPage() {
               <form
                 noValidate
                 onSubmit={handleContinue}
-                className="public-business-form overflow-hidden rounded-lg border border-[#CFD9E5] bg-[#FBFCFE]"
+                className={`public-business-form overflow-hidden rounded-lg  ${
+                  step === 2
+                    ? "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"
+                    : ""
+                }`}
               >
                 {step === 2 ? (
-                  <div className="border-b border-[#DCE4EE] bg-[#EEF3F8] px-5 py-2.5 text-xs text-slate-500 sm:px-6">
-                    Files are not retained after a page refresh.
+                  <div className="flex shrink-0 items-center gap-2 border-b border-[#C7DADD] bg-[#F1F8F8] px-5 py-2.5 text-xs text-slate-500 sm:px-6">
+                    <FiClock className="h-3.5 w-3.5 shrink-0 text-[#0D1282]" />
+                    Uploaded files are kept temporarily on this device while you complete the application.
                   </div>
                 ) : null}
 
-                <div className="bg-[#FBFCFE] px-5 py-5 sm:px-6 sm:py-6">
+                <div
+                  className={`bg-white px-3 py-5 sm:px-8 sm:py-6 ${
+                    step === 2
+                      ? "lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
+                      : ""
+                  }`}
+                >
                   {/* Step 1: contact details */}
                   {step === 0 ? (
                     <div className="space-y-5">
@@ -1458,8 +1574,8 @@ export default function PublicBusinessAccountPage() {
                         />
                       </div>
                       {/* Work email and OTP verification */}
-                      <div className="rounded-lg border border-[#D6E0EA] bg-[#F0F4F8] p-4 sm:p-5">
-                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-end">
+                      <div className="rounded-lg border border-[#C7DADD] bg-[#F7FAFA] p-4 sm:p-5">
+                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-start">
                           <div className="min-w-0">
                             <Field
                               label="Email Address"
@@ -1486,42 +1602,44 @@ export default function PublicBusinessAccountPage() {
                             />
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => void handleSendOtp()}
-                            disabled={
-                              sendingOtp ||
-                              isEmailVerified ||
-                              !isValidBusinessContactEmail(
-                                formData.contact.email.trim(),
-                              )
-                            }
-                            className={`inline-flex h-13 shrink-0 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition disabled:cursor-not-allowed ${
-                              isEmailVerified
-                                ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : "bg-[#0D1282] text-white hover:bg-[#0A0F6D] disabled:bg-slate-300"
-                            }`}
-                          >
-                            {sendingOtp ? (
-                              <>
-                                <FiLoader className="h-4 w-4 animate-spin" />
-                                Sending…
-                              </>
-                            ) : isEmailVerified ? (
-                              <>
-                                <FiCheckCircle className="h-4 w-4" />
-                                Verified
-                              </>
-                            ) : otpSent ? (
-                              "Resend code"
-                            ) : (
-                              "Send verification code"
-                            )}
-                          </button>
+                          <div className="sm:pt-[1.375rem]">
+                            <button
+                              type="button"
+                              onClick={() => void handleSendOtp()}
+                              disabled={
+                                sendingOtp ||
+                                isEmailVerified ||
+                                !isValidBusinessContactEmail(
+                                  formData.contact.email.trim(),
+                                )
+                              }
+                              className={`inline-flex h-13 shrink-0 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition disabled:cursor-not-allowed ${
+                                isEmailVerified
+                                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                                  : "bg-[#0D1282] text-white hover:bg-[#0A0F6D] disabled:bg-slate-300"
+                              }`}
+                            >
+                              {sendingOtp ? (
+                                <>
+                                  <FiLoader className="h-4 w-4 animate-spin" />
+                                  Sending…
+                                </>
+                              ) : isEmailVerified ? (
+                                <>
+                                  <FiCheckCircle className="h-4 w-4" />
+                                  Verified
+                                </>
+                              ) : otpSent ? (
+                                "Resend code"
+                              ) : (
+                                "Send verification code"
+                              )}
+                            </button>
+                          </div>
                         </div>
 
                         {otpError && !(validationErrors.email || fieldErrors.email) ? (
-                          <p className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-xs font-medium text-[#B0121A]">
+                          <p className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-xs font-medium text-[#FF0000]">
                             <FiAlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                             {otpError}
                           </p>
@@ -1534,7 +1652,7 @@ export default function PublicBusinessAccountPage() {
                         ) : null}
 
                         {otpSent && !isEmailVerified ? (
-                          <div className="mt-4 border-t border-[#DCE3EC] pt-4">
+                          <div className="mt-4 border-t border-[#BBD5DA] pt-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <p className="text-sm font-semibold text-slate-900">
                                 Enter the 6-digit code
@@ -1542,7 +1660,7 @@ export default function PublicBusinessAccountPage() {
                               <span className="text-xs text-slate-500">
                                 {secondsToExpiry > 0
                                   ? `Expires in ${formatCountdown(secondsToExpiry)}`
-                                  : "Code expired — request a new one"}
+                                  : "Code expired - request a new one"}
                               </span>
                             </div>
                             <p className="mt-1 truncate text-xs text-slate-500">
@@ -1565,7 +1683,7 @@ export default function PublicBusinessAccountPage() {
                                 type="button"
                                 disabled={secondsToResend > 0 || sendingOtp}
                                 onClick={() => void handleSendOtp()}
-                                className="text-xs font-semibold text-[#0D1282] transition hover:underline disabled:text-slate-400"
+                                className="text-xs font-semibold text-slate-700 transition hover:underline disabled:text-slate-400"
                               >
                                 {secondsToResend > 0
                                   ? `Resend in ${secondsToResend}s`
@@ -1705,7 +1823,7 @@ export default function PublicBusinessAccountPage() {
                   {step === 1 ? (
                     <div className="space-y-6">
                       {/* Registration details */}
-                      <section className="border-b border-[#E4E9F0] pb-6">
+                      <section className="border-b border-[#BBD5DA] pb-6">
                         <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
                           Company registration{" "}
                           <InfoTooltip text={sectionTooltips.registration} />
@@ -1929,7 +2047,7 @@ export default function PublicBusinessAccountPage() {
                               placeholder={`e.g. ${GSTIN_EXAMPLE}`}
                               helper={
                                 gstinStateName
-                                  ? `State code ${(formData.company.gstin ?? "").slice(0, 2)} — ${gstinStateName}`
+                                  ? `State code ${(formData.company.gstin ?? "").slice(0, 2)} - ${gstinStateName}`
                                   : undefined
                               }
                               disabled={noCompanyChecked || gstExemptChecked}
@@ -1966,39 +2084,49 @@ export default function PublicBusinessAccountPage() {
                       </section>
 
                       {/* GST treatment + address */}
-                      <section className="border-b border-[#E4E9F0] pb-6">
-                        <h4 className="text-sm font-bold text-slate-900">
+                      <section className="border-b border-[#BBD5DA] pb-6">
+                        {/* <h4 className="text-sm font-bold text-slate-900">
                           Shipment billing
-                        </h4>
+                        </h4> */}
                         <div className="mt-3 grid gap-4 md:grid-cols-2 md:items-start">
-                          <div>
-                            <label
-                              htmlFor="gst-billing-treatment"
-                              className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600"
-                            >
-                              GST treatment{" "}
-                              <span className="normal-case text-slate-400">
-                                — billed with GST unless approved
-                              </span>
-                            </label>
-                            <select
-                              id="gst-billing-treatment"
-                              value={formData.gstBilling.requestedTreatment}
-                              onChange={(e) => {
-                                const value = e.target
-                                  .value as BusinessAccountFormData["gstBilling"]["requestedTreatment"];
-                                updateGstBilling("requestedTreatment", value);
-                                if (value === "GST_APPLICABLE")
-                                  updateGstBilling("requestReason", "");
-                              }}
-                              className="block h-13 w-full rounded-lg border border-[#D8E0EA] bg-white px-3.5 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
-                            >
-                              <option value="GST_APPLICABLE">
-                                GST applicable
-                              </option>
-                              <option value="NO_GST">No GST requested</option>
-                            </select>
-                          </div>
+                       <div>
+  <label
+    htmlFor="gst-billing-treatment"
+    className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600"
+  >
+    GST treatment{" "}
+    <span className="normal-case text-slate-400">
+      - billed with GST unless approved
+    </span>
+  </label>
+
+  <div className="relative">
+    <select
+      id="gst-billing-treatment"
+      value={formData.gstBilling.requestedTreatment}
+      onChange={(e) => {
+        const value =
+          e.target
+            .value as BusinessAccountFormData["gstBilling"]["requestedTreatment"];
+
+        updateGstBilling("requestedTreatment", value);
+
+        if (value === "GST_APPLICABLE") {
+          updateGstBilling("requestReason", "");
+        }
+      }}
+      className="block h-13 w-full appearance-none rounded-lg border border-[#BBD5DA] bg-[#F5F5F5] py-2 pl-3.5 pr-11 text-sm text-slate-900 outline-none transition focus:border-[#FF0000] focus:ring-2 focus:ring-[#FF0000]/10"
+    >
+      <option value="GST_APPLICABLE">GST applicable</option>
+      <option value="NO_GST">No GST requested</option>
+    </select>
+
+    <FiChevronDown
+      aria-hidden="true"
+      className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+    />
+  </div>
+</div>
                           {formData.gstBilling.requestedTreatment ===
                           "NO_GST" ? (
                             <Field
@@ -2258,10 +2386,10 @@ export default function PublicBusinessAccountPage() {
                       </section>
 
                       {/* Business profile and requested credit */}
-                      <div className="border-t border-[#E4E9F0] pt-6">
-                        <h4 className="text-sm font-bold text-slate-900">
+                      <div className="border-t border-[#BBD5DA] pt-2">
+                        {/* <h4 className="text-sm font-bold text-slate-900">
                           Business profile
-                        </h4>
+                        </h4> */}
                         <div className="mt-4 grid gap-4 md:grid-cols-2 md:items-start">
                           <Field
                             label="Company Website"
@@ -2339,30 +2467,172 @@ export default function PublicBusinessAccountPage() {
 
                   {/* Step 3: KYC document uploads */}
                   {step === 2 ? (
-                    <div className="space-y-3">
-                      {documentFields.map((df) => (
-                        <DocumentCard
-                          key={df.type}
-                          type={df.type as DocumentType}
-                          required={df.required}
-                          helper={df.helper}
-                          info={df.info}
-                          file={files[df.type as DocumentType] ?? null}
-                          error={documentErrors[df.type as DocumentType]}
-                          onChange={(f) =>
-                            handleDocumentChange(df.type as DocumentType, f)
-                          }
-                        />
-                      ))}
+                    <div>
+                      {/* Document upload overview */}
+                      <div className="mb-4 flex flex-col gap-3 rounded-lg border border-[#D6E5E7] bg-[#F8FBFB] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#DFF1F1] text-[#0D1282]">
+                            <FiFileText className="h-4 w-4" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900">
+                              KYC & supporting documents
+                            </p>
+                            <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                              Aadhaar and PAN are required. Add the remaining certificates only when applicable.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-2 text-[11px] font-medium text-slate-500">
+                          <span className="rounded-md border border-[#D6E5E7] bg-white px-2.5 py-1.5">
+                            PDF, JPG, PNG
+                          </span>
+                          <span className="rounded-md border border-[#D6E5E7] bg-white px-2.5 py-1.5">
+                            Max 5 MB
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Two documents per row on tablet and desktop */}
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {documentFields.map((df) => (
+                          <DocumentCard
+                            key={df.type}
+                            type={df.type as DocumentType}
+                            required={df.required}
+                            helper={df.helper}
+                            info={df.info}
+                            file={files[df.type as DocumentType] ?? null}
+                            error={documentErrors[df.type as DocumentType]}
+                            onChange={(f) =>
+                              handleDocumentChange(df.type as DocumentType, f)
+                            }
+                          />
+                        ))}
+                      </div>
                     </div>
                   ) : null}
 
                   {/* Step 4: final review */}
                   {step === 3 ? (
-                    <div className="space-y-4">
+                    <div className="space-y-5">
+                      {/* Review readiness overview */}
+                      {/* <section className="overflow-hidden rounded-xl border border-[#C7DADD] bg-white shadow-[0_4px_16px_rgba(15,23,42,0.04)]">
+                        <div className="flex flex-col gap-4 border-b border-[#D7E5E7] bg-[#F1F8F8] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-[#0D1282] ring-1 ring-[#C7DADD]">
+                              <FiShield className="h-5 w-5" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-950">
+                                Final application check
+                              </p>
+                              <p className="mt-1 max-w-xl text-xs leading-5 text-slate-600">
+                                Review the key details below. You can return to any
+                                section to make a correction before submitting.
+                              </p>
+                            </div>
+                          </div>
+
+                          <span
+                            className={`inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                              outstandingIssues.length
+                                ? "border-amber-200 bg-amber-50 text-amber-800"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            }`}
+                          >
+                            {outstandingIssues.length ? (
+                              <>
+                                <FiAlertCircle className="h-3.5 w-3.5" />
+                                {outstandingIssues.length} item
+                                {outstandingIssues.length === 1 ? "" : "s"} to check
+                              </>
+                            ) : (
+                              <>
+                                <FiCheckCircle className="h-3.5 w-3.5" />
+                                Ready to submit
+                              </>
+                            )}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 divide-x divide-y divide-[#E2EBEC] sm:grid-cols-4 sm:divide-y-0">
+                          <div className="flex items-center gap-2.5 px-4 py-3.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#EAF4F4] text-[#0D1282]">
+                              <FiUsers className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-medium text-slate-500">
+                                Contact
+                              </p>
+                              <p className="mt-0.5 text-xs font-semibold text-slate-900">
+                                Added
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2.5 px-4 py-3.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#EAF4F4] text-[#0D1282]">
+                              <FiBriefcase className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-medium text-slate-500">
+                                Company
+                              </p>
+                              <p className="mt-0.5 text-xs font-semibold text-slate-900">
+                                Added
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2.5 px-4 py-3.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#EAF4F4] text-[#0D1282]">
+                              <FiFileText className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-medium text-slate-500">
+                                Documents
+                              </p>
+                              <p
+                                className={`mt-0.5 text-xs font-semibold ${
+                                  documentsComplete
+                                    ? "text-emerald-700"
+                                    : "text-amber-700"
+                                }`}
+                              >
+                                {documentsComplete ? "Complete" : "Check required"}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2.5 px-4 py-3.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#EAF4F4] text-[#0D1282]">
+                              <FiCheckCircle className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-medium text-slate-500">
+                                Email
+                              </p>
+                              <p
+                                className={`mt-0.5 text-xs font-semibold ${
+                                  isEmailVerified
+                                    ? "text-emerald-700"
+                                    : "text-amber-700"
+                                }`}
+                              >
+                                {isEmailVerified ? "Verified" : "Not verified"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </section> */}
+
                       {/* Contact summary */}
                       <ReviewCard
-                        title="Contact"
+                        kind="contact"
+                        title="Contact details"
+                        description="Primary contact, verification and shipment preferences"
                         onEdit={() => setStep(0)}
                         rows={[
                           ["Title", formData.contact.title],
@@ -2372,7 +2642,7 @@ export default function PublicBusinessAccountPage() {
                           ],
                           [
                             "Email",
-                            `${formData.contact.email} ${isEmailVerified ? "✓ verified" : "— not verified"}`,
+                            `${formData.contact.email} ${isEmailVerified ? "✓ verified" : "- not verified"}`,
                           ],
                           [
                             "Phone",
@@ -2389,7 +2659,10 @@ export default function PublicBusinessAccountPage() {
 
                       {/* Company summary */}
                       <ReviewCard
-                        title="Company"
+                        kind="company"
+                        title="Company details"
+                        description="Registration, address, billing and account preferences"
+                        columns={3}
                         onEdit={() => setStep(1)}
                         rows={[
                           [
@@ -2398,14 +2671,14 @@ export default function PublicBusinessAccountPage() {
                           ],
                           [
                             "Registration ID",
-                            formData.company.registrationId || "—",
+                            formData.company.registrationId || "-",
                           ],
                           ...(requiresSecondaryRegistration
                             ? ([
                                 [
                                   "Additional code",
                                   formData.company.secondaryRegistrationId ||
-                                    "—",
+                                    "-",
                                 ],
                               ] as any)
                             : []),
@@ -2413,8 +2686,8 @@ export default function PublicBusinessAccountPage() {
                             "GSTIN",
                             formData.company.gstin ||
                               (formData.company.gstExempt
-                                ? `Exempt — ${formData.company.gstExemptReason}`
-                                : "—"),
+                                ? `Exempt - ${formData.company.gstExemptReason}`
+                                : "-"),
                           ],
                           [
                             "Company",
@@ -2425,15 +2698,15 @@ export default function PublicBusinessAccountPage() {
                           [
                             "Address",
                             `${formData.company.registeredAddress} ${formData.company.addressLine2 ?? ""}`.trim() ||
-                              "—",
+                              "-",
                           ],
                           [
                             "City / State",
-                            `${formData.company.city} — ${formData.company.stateOrProvince}`,
+                            `${formData.company.city} - ${formData.company.stateOrProvince}`,
                           ],
                           [
                             "Postal / Country",
-                            `${formData.company.postalCode} — ${formData.company.addressCountry}`,
+                            `${formData.company.postalCode} - ${formData.company.addressCountry}`,
                           ],
                           [
                             "Billing",
@@ -2444,87 +2717,183 @@ export default function PublicBusinessAccountPage() {
                           [
                             "Operating countries",
                             formData.company.operatingCountries.join(", ") ||
-                              "—",
+                              "-",
                           ],
-                          ["Website", formData.company.website || "—"],
-                          ["Industry", formData.company.industry || "—"],
+                          ["Website", formData.company.website || "-"],
+                          ["Industry", formData.company.industry || "-"],
                           [
                             "Monthly volume",
-                            formData.company.monthlyShipmentVolume || "—",
+                            formData.company.monthlyShipmentVolume || "-",
                           ],
                           [
                             "Credit",
-                            `${formData.company.requestedCreditCurrency} ${formData.company.requestedCreditLimit || "—"}`,
+                            `${formData.company.requestedCreditCurrency} ${formData.company.requestedCreditLimit || "-"}`,
                           ],
                           [
                             "GST treatment",
                             formData.gstBilling.requestedTreatment === "NO_GST"
-                              ? `No GST — ${formData.gstBilling.requestReason}`
+                              ? `No GST - ${formData.gstBilling.requestReason}`
                               : "GST applicable",
                           ],
                         ]}
                       />
 
                       {/* Document summary */}
-                      <div className="rounded-lg border border-slate-200 bg-white p-4">
-                        <p className="text-sm font-bold text-slate-900">
-                          Documents
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Aadhaar and PAN must be attached.
-                        </p>
-                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <section className="overflow-hidden rounded-xl border border-[#C7DADD] bg-white shadow-[0_4px_16px_rgba(15,23,42,0.04)]">
+                        <div className="flex flex-col gap-3 border-b border-[#DCE8E9] bg-[#F8FBFB] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#EAF4F4] text-[#0D1282]">
+                              <FiFileText className="h-4.5 w-4.5" />
+                            </span>
+                            <div>
+                              <p className="text-sm font-bold text-slate-950">
+                                Documents
+                              </p>
+                              <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                                Aadhaar and PAN are required. Supporting documents
+                                are shown for reference.
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setStep(2)}
+                            className="inline-flex min-h-9 w-fit items-center justify-center rounded-lg border border-[#C7DADD] bg-white px-3 text-xs font-semibold text-[#0D1282] transition hover:border-[#AFC8CD] hover:bg-[#EAF4F4]"
+                          >
+                            Edit documents
+                          </button>
+                        </div>
+
+                        <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
                           {documentFields.map((df) => {
                             const f = files[df.type as DocumentType] as
                               | File
                               | null
                               | undefined;
+
+                            const documentLabel =
+                              df.type === "aadhaarCard"
+                                ? "Aadhaar Card"
+                                : df.type === "panCard"
+                                  ? "PAN Card"
+                                  : df.type === "adCertificate"
+                                    ? "AD Certificate"
+                                    : df.type === "msmeCertificate"
+                                      ? "MSME Certificate"
+                                      : df.type === "tanCertificate"
+                                        ? "TAN Certificate"
+                                        : df.type === "gstCertificate"
+                                          ? "GST Certificate"
+                                          : df.type === "iecCertificate"
+                                            ? "IEC Certificate"
+                                            : "Other Certificate";
+
                             return (
                               <div
                                 key={df.type}
-                                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"
-                              >
-                                <span className="text-xs font-semibold text-slate-700">
-                                  {df.type === "aadhaarCard"
-                                    ? "Aadhaar"
-                                    : df.type === "panCard"
-                                      ? "PAN"
-                                      : df.type}
-                                </span>
-                                <span
-                                  className={`text-xs font-bold ${f ? "text-emerald-700" : df.required ? "text-amber-700" : "text-slate-400"}`}
-                                >
-                                  {f
-                                    ? f.name.slice(0, 22)
+                                className={`flex min-w-0 items-center gap-3 rounded-lg border px-3.5 py-3 ${
+                                  f
+                                    ? "border-emerald-200 bg-emerald-50/40"
                                     : df.required
-                                      ? "Missing"
-                                      : "—"}
+                                      ? "border-amber-200 bg-amber-50/40"
+                                      : "border-[#DEE8E9] bg-[#FAFCFC]"
+                                }`}
+                              >
+                                <span
+                                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
+                                    f
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "bg-white text-slate-500 ring-1 ring-slate-200"
+                                  }`}
+                                >
+                                  {f ? (
+                                    <FiCheck className="h-4 w-4" />
+                                  ) : (
+                                    <FiFileText className="h-4 w-4" />
+                                  )}
                                 </span>
+
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <p className="truncate text-xs font-semibold text-slate-800">
+                                      {documentLabel}
+                                    </p>
+                                    {df.required ? (
+                                      <span className="shrink-0 rounded-full bg-[#EEF3F8] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                                        Required
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p
+                                    className={`mt-1 truncate text-[11px] ${
+                                      f
+                                        ? "font-medium text-emerald-700"
+                                        : df.required
+                                          ? "font-medium text-amber-700"
+                                          : "text-slate-400"
+                                    }`}
+                                    title={f?.name}
+                                  >
+                                    {f
+                                      ? f.name
+                                      : df.required
+                                        ? "Document still required"
+                                        : "Not attached"}
+                                  </p>
+                                </div>
                               </div>
                             );
                           })}
                         </div>
-                      </div>
+                      </section>
 
                       {/* Final confirmation */}
-                      <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
-                        <input
-                          type="checkbox"
-                          checked={confirmation}
-                          onChange={(e) => {
-                            setConfirmation(e.target.checked);
-                            markTouched("confirmation");
-                          }}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-[#0D1282]"
-                        />
-                        <span className="text-sm leading-6 text-slate-700">
-                          I confirm the information above is accurate and the
-                          documents are genuine. I understand the account will
-                          be reviewed before activation.{" "}
+                      <label
+                        className={`group flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-4 transition sm:px-5 ${
+                          validationErrors.confirmation
+                            ? "border-red-200 bg-red-50/50"
+                            : confirmation
+                              ? "border-emerald-200 bg-emerald-50/40"
+                              : "border-[#C7DADD] bg-[#F8FBFB] hover:border-[#AFC8CD] hover:bg-[#F1F8F8]"
+                        }`}
+                      >
+                        {/* <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-[#0D1282] ring-1 ring-[#D3E1E3]">
+                          <FiShield className="h-4.5 w-4.5" />
+                        </span> */}
+
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={confirmation}
+                              onChange={(e) => {
+                                setConfirmation(e.target.checked);
+                                markTouched("confirmation");
+                              }}
+                              className="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 accent-[#0D1282]"
+                            />
+
+                            <span className="min-w-0">
+                              <span className="block text-sm font-bold text-slate-900">
+                                Confirm and submit for review
+                              </span>
+                              <span className="mt-1 block text-xs leading-5 text-slate-600">
+                                I confirm the information above is accurate and
+                                the documents are genuine. I understand the
+                                account will be reviewed before activation.
+                              </span>
+                            </span>
+                          </span>
+
                           {validationErrors.confirmation ? (
-                            <span className="font-bold text-[#D71313]">
-                              {" "}
-                              — {validationErrors.confirmation}
+                            <span className="mt-2 block pl-8 text-xs font-semibold text-[#D71313]">
+                              {validationErrors.confirmation}
+                            </span>
+                          ) : confirmation ? (
+                            <span className="mt-2 inline-flex items-center gap-1.5 pl-8 text-xs font-semibold text-emerald-700">
+                              <FiCheckCircle className="h-3.5 w-3.5" />
+                              Confirmation completed
                             </span>
                           ) : null}
                         </span>
@@ -2559,7 +2928,7 @@ export default function PublicBusinessAccountPage() {
                 </div>
 
                 {/* Step navigation */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#D7E0EA] bg-[#F1F5F9] px-5 py-4 sm:px-7">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#C7DADD] bg-[#F1F8F8] px-5 py-4 sm:px-7">
                   <button
                     type="button"
                     onClick={() => setStep((c) => Math.max(c - 1, 0))}
@@ -2608,16 +2977,7 @@ export default function PublicBusinessAccountPage() {
                 </div>
               </form>
 
-              <p className="mt-4 text-center text-xs leading-5 text-slate-500">
-                By submitting, you agree to Swiftline’s{" "}
-                <Link
-                  href="/privacy-policy"
-                  className="font-semibold text-slate-700 hover:text-[#0D1282]"
-                >
-                  Privacy Policy
-                </Link>
-                .
-              </p>
+              
             </main>
           </div>
         </div>
@@ -2642,14 +3002,15 @@ export default function PublicBusinessAccountPage() {
         /* Slightly stronger default field borders on the public form only. */
         .public-business-form input:not([type="checkbox"]):not([type="file"]):not([aria-invalid="true"]),
         .public-business-form select:not([aria-invalid="true"]),
-        .public-business-form button[aria-expanded]:not([class*="border-[#D71313]"]) {
-          border-color: #cbd5e1 !important;
+        .public-business-form button[aria-expanded]:not([class*="border-[#FF0000]"]) {
+          border-color: #BBD5DA !important;
         }
 
         .public-business-form input:not([type="checkbox"]):not([type="file"]):focus,
         .public-business-form select:focus,
         .public-business-form button[aria-expanded]:focus {
-          box-shadow: 0 0 0 3px rgba(13, 18, 130, 0.08) !important;
+          border-color: #0D1282 !important;
+          box-shadow: 0 0 0 3px rgba(13, 18, 130, 0.10) !important;
         }
       `}</style>
 
@@ -2665,39 +3026,76 @@ export default function PublicBusinessAccountPage() {
 
 function ReviewCard({
   title,
+  description,
+  kind,
   rows,
   onEdit,
+  columns = 2,
 }: {
   title: string;
+  description: string;
+  kind: "contact" | "company";
   rows: [string, string][];
   onEdit: () => void;
+  columns?: 2 | 3;
 }) {
+  const Icon = kind === "contact" ? FiUsers : FiBriefcase;
+
   return (
-    <section className="overflow-hidden rounded-lg border border-[#D7E0EA] bg-[#FBFCFE]">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3.5">
-        <p className="text-sm font-bold text-slate-900">{title}</p>
+    <section className="overflow-hidden rounded-xl border border-[#C7DADD] bg-white shadow-[0_4px_16px_rgba(15,23,42,0.04)]">
+      <div className="flex flex-col gap-3 border-b border-[#DCE8E9] bg-[#F8FBFB] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#EAF4F4] text-[#0D1282]">
+            <Icon className="h-4.5 w-4.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-950">{title}</p>
+            <p className="mt-0.5 text-xs leading-5 text-slate-500">
+              {description}
+            </p>
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-lg px-3 py-1.5 text-xs font-semibold text-[#0D1282] hover:bg-[#0D1282]/[0.05]"
+          className="inline-flex min-h-9 w-fit items-center justify-center rounded-lg border border-[#C7DADD] bg-white px-3 text-xs font-semibold text-[#0D1282] transition hover:border-[#AFC8CD] hover:bg-[#EAF4F4]"
         >
-          Edit
+          Edit section
         </button>
       </div>
-      <dl className="grid gap-0 sm:grid-cols-2">
-        {rows.map(([label, value]) => (
-          <div
-            key={label}
-            className="border-b border-slate-100 px-4 py-3.5 last:border-0 sm:border-r sm:last:border-r-0 even:sm:border-r-0"
-          >
-            <dt className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-              {label}
-            </dt>
-            <dd className="mt-1 break-words text-sm font-semibold text-slate-900">
-              {value || "—"}
-            </dd>
-          </div>
-        ))}
+
+      <dl
+        className={`grid ${
+          columns === 3
+            ? "sm:grid-cols-2 xl:grid-cols-3"
+            : "sm:grid-cols-2"
+        }`}
+      >
+        {rows.map(([label, value], index) => {
+          const isVerifiedEmail =
+            label === "Email" && value.toLowerCase().includes("verified");
+
+          return (
+            <div
+              key={label}
+              className={`min-w-0 border-b border-[#EDF2F2] px-4 py-3.5 sm:px-5 ${
+                index % 2 === 1 ? "bg-[#FCFDFD]" : "bg-white"
+              }`}
+            >
+              <dt className="text-[11px] font-semibold text-slate-500">
+                {label}
+              </dt>
+              <dd
+                className={`mt-1.5 wrap-break-words text-sm font-semibold leading-5 ${
+                  isVerifiedEmail ? "text-emerald-700" : "text-slate-900"
+                }`}
+              >
+                {value || "-"}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
     </section>
   );
@@ -2723,78 +3121,135 @@ function DocumentCard({
 }) {
   const inputId = `public-doc-${type}`;
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const documentLabel: Record<DocumentType, string> = {
+    aadhaarCard: "Aadhaar Card",
+    panCard: "PAN Card Copy",
+    adCertificate: "AD Certificate",
+    msmeCertificate: "MSME Certificate",
+    tanCertificate: "TAN Certificate",
+    gstCertificate: "GST Certificate",
+    iecCertificate: "IEC Certificate",
+    otherCertificate: "Other Certificate",
+  };
+
   return (
     <div
-      className={`rounded-lg border p-4 ${error ? "border-red-200 bg-red-50/30" : "border-[#D7E0EA] bg-[#FBFCFE]"}`}
+      className={`min-w-0 overflow-hidden rounded-xl border transition ${
+        error
+          ? "border-red-200 bg-red-50/30"
+          : file
+            ? "border-emerald-200 bg-white"
+            : "border-[#D6E5E7] bg-white hover:border-[#B8D0D4]"
+      }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
-            {type === "aadhaarCard"
-              ? "Aadhaar Card"
-              : type === "panCard"
-                ? "PAN Card Copy"
-                : type}{" "}
+      {/* Document identity */}
+      <div className="flex items-start gap-3 px-3.5 pb-3 pt-3.5">
+        <span
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+            file
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-[#EEF6F6] text-[#0D1282]"
+          }`}
+        >
+          {file ? (
+            <FiCheckCircle className="h-4.5 w-4.5" />
+          ) : (
+            <FiFileText className="h-4.5 w-4.5" />
+          )}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <p className="text-sm font-bold text-slate-900">
+              {documentLabel[type]}
+            </p>
+
             {required ? (
-              <span className="text-[#D71313]">*</span>
+              <span className="rounded-md bg-[#0D1282]/[0.07] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#0D1282]">
+                Required
+              </span>
             ) : (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-500">
                 Optional
               </span>
             )}
+
             {info ? <InfoTooltip text={info} /> : null}
+          </div>
+
+          <p className="mt-1 line-clamp-2 text-[11px] leading-4.5 text-slate-500">
+            {helper}
           </p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">{helper}</p>
         </div>
-        {file ? (
-          <span className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200 sm:inline-flex">
-            <FiCheckCircle className="h-3.5 w-3.5" /> Ready
-          </span>
-        ) : null}
       </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_220px] sm:items-center">
-        <label
-          htmlFor={inputId}
-          onClick={(e) => {
-            e.preventDefault();
-            fileRef.current?.click();
-          }}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed px-4 py-5 text-center transition ${error ? "border-red-300 bg-red-50" : "border-[#C7D3E0] bg-[#F2F6FA] hover:border-[#0D1282]/40 hover:bg-[#EAF0F8]"}`}
-        >
-          <span className="rounded-lg bg-[#0D1282] px-3 py-1.5 text-xs font-semibold text-white">
-            {file ? "Replace file" : "Browse file"}
-          </span>
-          <span className="mt-2 text-xs text-slate-500">
-            {file ? file.name.slice(0, 36) : "Choose a file to upload"}
-          </span>
-        </label>
-        <div className="rounded-lg bg-[#EEF3F8] px-3 py-3 text-center ring-1 ring-[#D7E0EA]">
-          {file ? (
-            <>
-              <p className="truncate text-xs font-bold text-slate-900">
+
+      {/* File action */}
+      <div className="border-t border-[#E8EFEF] bg-[#FAFCFC] px-3.5 py-3">
+        {file ? (
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p
+                className="truncate text-xs font-semibold text-slate-800"
+                title={file.name}
+              >
                 {file.name}
               </p>
-              <p className="mt-1 text-[11px] text-slate-500">
-                {(file.size / 1024).toFixed(0)} KB · {file.type || "file"}
+              <p className="mt-0.5 text-[10px] text-slate-500">
+                {(file.size / 1024).toFixed(0)} KB · Ready to submit
               </p>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex h-8 items-center justify-center rounded-md border border-[#C7DADD] bg-white px-2.5 text-[11px] font-semibold text-[#0D1282] transition hover:bg-[#EEF6F6]"
+              >
+                Replace
+              </button>
               <button
                 type="button"
                 onClick={() => onChange(null)}
-                className="mt-2 text-xs font-semibold text-[#D71313] hover:underline"
+                className="inline-flex h-8 items-center justify-center rounded-md px-2 text-[11px] font-semibold text-[#D71313] transition hover:bg-red-50"
               >
                 Remove
               </button>
-            </>
-          ) : (
-            <p className="py-6 text-xs font-medium text-slate-400">
-              No file selected
-            </p>
-          )}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border border-dashed px-3 text-left transition ${
+              error
+                ? "border-red-300 bg-red-50"
+                : "border-[#BBD5DA] bg-white hover:border-[#0D1282]/40 hover:bg-[#F1F8F8]"
+            }`}
+          >
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-slate-700">
+                Choose document
+              </span>
+              <span className="mt-0.5 block text-[10px] text-slate-400">
+                PDF, JPG or PNG · up to 5 MB
+              </span>
+            </span>
+
+            <span className="shrink-0 rounded-md bg-[#0D1282] px-2.5 py-1.5 text-[10px] font-semibold text-white">
+              Browse
+            </span>
+          </button>
+        )}
+
+        {error ? (
+          <p className="mt-2 flex items-start gap-1.5 text-[11px] font-semibold text-[#D71313]">
+            <FiAlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {error}
+          </p>
+        ) : null}
       </div>
-      {error ? (
-        <p className="mt-2 text-xs font-semibold text-[#D71313]">{error}</p>
-      ) : null}
+
       <input
         ref={fileRef}
         id={inputId}

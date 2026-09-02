@@ -334,7 +334,7 @@ export async function createLabelForShipmentDraft(
     });
   }
 
-  // Booking pauses — must be checked before any financial or carrier side-effects.
+  // Booking pauses - must be checked before any financial or carrier side-effects.
   // Blocks every audience (client/admin) and INDIVIDUAL walk-ins alike.
   const destinationCode =
     draft.consigneeEnteredAddress?.countryCode ||
@@ -348,7 +348,7 @@ export async function createLabelForShipmentDraft(
       const fmt = (d: Date) => new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
       const labels = (pause.countries ?? []).join(", ");
       throw new DpdShipmentServiceError(
-        `Bookings to ${destinationCode.trim().toUpperCase()} are temporarily paused from ${fmt(pause.startAt)} to ${fmt(pause.endAt)} — ${pause.reason}`,
+        `Bookings to ${destinationCode.trim().toUpperCase()} are temporarily paused from ${fmt(pause.startAt)} to ${fmt(pause.endAt)} - ${pause.reason}`,
         423,
         {
           code: "BOOKING_PAUSED",
@@ -882,6 +882,22 @@ export async function reconcileShipmentDocuments(
     );
   }
 
+  // A carrier reference means ALS already accepted a label-only request. It is
+  // not safe to turn that into LABEL_RECEIVED while the carrier document is
+  // missing locally, because that would hide an operational document failure.
+  if (dpdShipment.dpdShipmentId?.trim()) {
+    const carrierLabels = await LabelDocument.countDocuments({
+      dpdShipmentId: dpdShipment._id,
+      labelType: "DPD"
+    }).exec();
+    if (!carrierLabels) {
+      throw new DpdShipmentServiceError(
+        "The carrier booking already exists, but its DPD label is not stored. Do not submit it again; contact Swiftline Operations.",
+        409
+      );
+    }
+  }
+
   const snapshot = readShipmentBookingSnapshot(dpdShipment.currentShipmentSnapshot)
     ?? readShipmentBookingSnapshot(dpdShipment.bookingSnapshot);
   if (!snapshot) {
@@ -952,6 +968,209 @@ export async function reconcileShipmentDocuments(
   );
 
   return { dpdShipment, labels, shipmentInvoice, reused: false };
+}
+
+/**
+ * Requests the carrier label for a booking that was deliberately created on
+ * Swiftline labels only.
+ *
+ * This is deliberately separate from createLabelForShipmentDraft: the shipment
+ * and its invoice already exist, so this action must never allocate another
+ * Swiftline AWB, create another DpdShipment, reserve money, or create another
+ * invoice. The status claim also makes two staff clicks safe against each other.
+ */
+export async function generateDpdLabelForExistingShipment(
+  dpdShipmentId: string,
+  userId: mongoose.Types.ObjectId
+) {
+  if (!mongoose.Types.ObjectId.isValid(dpdShipmentId)) {
+    throw new DpdShipmentServiceError("Shipment booking not found.", 404);
+  }
+
+  const shipmentId = new mongoose.Types.ObjectId(dpdShipmentId);
+  const initialShipment = await DpdShipment.findById(shipmentId).exec();
+  if (!initialShipment) throw new DpdShipmentServiceError("Shipment booking not found.", 404);
+
+  const existingLabels = await LabelDocument.find({ dpdShipmentId: shipmentId }).exec();
+  const hasDpdLabel = existingLabels.some((label) => label.labelType === "DPD");
+  const isInternalLabelOnly = !initialShipment.dpdShipmentId?.trim() && !hasDpdLabel;
+  if (hasDpdLabel || (initialShipment.status === "LABEL_RECEIVED" && !isInternalLabelOnly)) {
+    return { dpdShipment: initialShipment, labels: existingLabels, reused: true };
+  }
+  if (initialShipment.status !== "DPD_CREATED" && !isInternalLabelOnly) {
+    throw new DpdShipmentServiceError(
+      initialShipment.status === "DPD_CREATING"
+        ? "A DPD label request is already processing for this shipment. Refresh before trying again."
+        : initialShipment.status === "DPD_STATUS_UNKNOWN"
+          ? "The DPD label request has an uncertain result. Do not submit it again; confirm the carrier outcome with Operations."
+          : "This shipment is not available for a new DPD label request.",
+      409
+    );
+  }
+
+  // A prior successful carrier response with a local storage failure is kept
+  // non-retryable. The carrier AWB proves the request already created a
+  // consignment, so calling create_docket again could duplicate it.
+  if (initialShipment.dpdShipmentId?.trim()) {
+    throw new DpdShipmentServiceError(
+      "The DPD booking already has a carrier reference, but its label still needs reconciliation. Do not submit it again; contact Swiftline Operations.",
+      409
+    );
+  }
+
+  const draft = await ShipmentDraft.findById(initialShipment.shipmentDraftId).exec();
+  if (!draft) throw new DpdShipmentServiceError("Shipment draft not found.", 404);
+  if (!isDpdLabelDestination(draft.consigneeEnteredAddress.countryCode)) {
+    throw new DpdShipmentServiceError(
+      "A DPD carrier label is only available for a supported DPD destination.",
+      409
+    );
+  }
+  const trackingNumber = initialShipment.swiftlineTrackingNumber?.trim();
+  if (!trackingNumber) {
+    throw new DpdShipmentServiceError(
+      "This shipment does not have a Swiftline tracking number, so a DPD label cannot be requested safely.",
+      409
+    );
+  }
+
+  // Only one request may move this booking into the carrier-requesting state.
+  // A second request re-reads the outcome and never calls ALS concurrently.
+  const claimedShipment = await DpdShipment.findOneAndUpdate(
+    { _id: shipmentId, status: { $in: ["DPD_CREATED", "LABEL_RECEIVED"] }, dpdShipmentId: { $in: ["", null] } },
+    { $set: { status: "DPD_CREATING" } },
+    { returnDocument: "after" }
+  ).exec();
+  if (!claimedShipment) {
+    const current = await DpdShipment.findById(shipmentId).exec();
+    if (current?.status === "LABEL_RECEIVED") {
+      const labels = await LabelDocument.find({ dpdShipmentId: shipmentId }).exec();
+      const currentHasDpdLabel = labels.some((label) => label.labelType === "DPD");
+      if (current.dpdShipmentId?.trim() || currentHasDpdLabel) {
+        return { dpdShipment: current, labels, reused: true };
+      }
+    }
+    throw new DpdShipmentServiceError(
+      current?.status === "DPD_CREATING"
+        ? "A DPD label request is already processing for this shipment. Refresh before trying again."
+        : "This shipment is not available for a new DPD label request.",
+      409
+    );
+  }
+
+  let carrierAccepted = false;
+  try {
+    await writeDpdAuditLog(
+      "DPD_REQUEST_INITIATED",
+      shipmentId,
+      "DPD_SHIPMENT",
+      userId,
+      { stage: "DPD_LABEL_ONLY", shipmentDraftId: draft._id, swiftlineTrackingNumber: trackingNumber }
+    );
+
+    const docket = await createAlsDocket({ draft, trackingNumber, bookedAt: new Date() });
+    carrierAccepted = true;
+
+    // Persist the carrier identity before storing the document. If local object
+    // storage fails after this point, the non-empty carrier AWB prevents a
+    // second carrier call on a later click.
+    claimedShipment.dpdShipmentId = docket.awbNumber;
+    claimedShipment.dpdTransactionId = docket.docketId;
+    claimedShipment.forwardingNumber = docket.forwardingNumber;
+    claimedShipment.entryNumber = docket.entryNumber;
+    claimedShipment.parcelNumbers = docket.parcelNumbers;
+    claimedShipment.requestSnapshot = docket.requestSnapshot;
+    claimedShipment.responseSnapshot = docket.rawResponse;
+    claimedShipment.status = "DPD_CREATED";
+    await claimedShipment.save();
+
+    for (const [index, dpdLabel] of docket.labels.entries()) {
+      await storeGeneratedLabel({
+        dpdShipmentId: shipmentId,
+        parcelNumber: docket.awbNumber
+          ? `${docket.awbNumber}${index > 0 ? `-${index + 1}` : ""}`
+          : trackingNumber,
+        labelType: "DPD",
+        buffer: dpdLabel.content,
+        format: dpdLabel.format
+      });
+    }
+
+    claimedShipment.status = "LABEL_RECEIVED";
+    await claimedShipment.save();
+    const labels = await LabelDocument.find({ dpdShipmentId: shipmentId }).exec();
+    await writeDpdAuditLog(
+      "DPD_REQUEST_SUCCEEDED",
+      shipmentId,
+      "DPD_SHIPMENT",
+      userId,
+      {
+        stage: "DPD_LABEL_ONLY",
+        shipmentDraftId: draft._id,
+        swiftlineTrackingNumber: trackingNumber,
+        dpdAwbNumber: docket.awbNumber,
+        dpdLabelCount: docket.labels.length
+      }
+    );
+    return { dpdShipment: claimedShipment, labels, reused: false };
+  } catch (error) {
+    if (error instanceof AlsUncertainError) {
+      claimedShipment.status = "DPD_STATUS_UNKNOWN";
+      claimedShipment.responseSnapshot = {
+        ...claimedShipment.responseSnapshot,
+        stage: "DPD_LABEL_ONLY",
+        message: error.message
+      };
+      await claimedShipment.save();
+      await writeDpdAuditLog(
+        "DPD_REQUEST_FAILED",
+        shipmentId,
+        "DPD_SHIPMENT",
+        userId,
+        { stage: "DPD_LABEL_ONLY", status: "DPD_STATUS_UNKNOWN", message: error.message }
+      );
+      throw new DpdShipmentServiceError(error.message, 409);
+    }
+
+    if (carrierAccepted) {
+      claimedShipment.status = "DPD_CREATED";
+      claimedShipment.responseSnapshot = {
+        ...claimedShipment.responseSnapshot,
+        localLabelError: error instanceof Error ? error.message : "Unknown local label error",
+        stage: "DPD_LABEL_ONLY"
+      };
+      await claimedShipment.save();
+      await writeDpdAuditLog(
+        "DPD_REQUEST_FAILED",
+        shipmentId,
+        "DPD_SHIPMENT",
+        userId,
+        {
+          stage: "DPD_LABEL_ONLY",
+          status: "DPD_CREATED",
+          message: "DPD accepted the booking, but the carrier label could not be stored locally."
+        }
+      );
+      throw new DpdShipmentServiceError(
+        "DPD accepted this shipment, but the carrier label could not be stored locally. Do not submit it again; contact Swiftline Operations.",
+        409
+      );
+    }
+
+    claimedShipment.status = "DPD_CREATED";
+    await claimedShipment.save();
+    await writeDpdAuditLog(
+      "DPD_REQUEST_FAILED",
+      shipmentId,
+      "DPD_SHIPMENT",
+      userId,
+      { stage: "DPD_LABEL_ONLY", status: "DPD_CREATED", reason: error instanceof Error ? error.message : String(error) }
+    );
+    if (error instanceof AlsRequestError) {
+      throw new DpdLabelUnavailableError(error.message, error.statusCode, error.carrierErrors);
+    }
+    throw error;
+  }
 }
 
 /**

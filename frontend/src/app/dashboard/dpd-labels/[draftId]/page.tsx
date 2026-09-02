@@ -1595,7 +1595,7 @@ export default function DpdLabelDraftPage() {
               ) : null}
               {isCurrentCountryPaused ? (
                 <div className="mb-3 rounded-xl border border-[#D71313]/20 bg-[#FFF1F1] px-3 py-2 text-xs font-semibold text-[#991B1B]">
-                  Bookings for this destination are paused — booking is disabled.
+                  Bookings for this destination are paused - booking is disabled.
                 </div>
               ) : null}
               <button

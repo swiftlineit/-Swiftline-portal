@@ -4,6 +4,7 @@ import {
   correctDpdShipmentGateway,
   downloadDpdLabel,
   downloadDpdLabelWithToken,
+  generateExistingDpdLabel,
   getDpdShipment,
   holdDpdShipment,
   listDpdShipmentAudit,
@@ -63,6 +64,7 @@ dpdShipmentRouter.post("/:id/charge-verification/finalize", requireChargeVerific
 dpdShipmentRouter.post("/:id/hold", requireOperations, holdDpdShipment);
 dpdShipmentRouter.post("/:id/release", requireOperations, releaseDpdShipment);
 dpdShipmentRouter.post("/:id/reconcile-documents", requireOperations, reconcileDpdShipmentDocuments);
+dpdShipmentRouter.post("/:id/generate-label", requireOperations, generateExistingDpdLabel);
 dpdShipmentRouter.post("/:id/status-events", requireOperations, updateDpdShipmentOperationalStatus);
 dpdShipmentRouter.patch("/:id/gateway", requireOperations, correctDpdShipmentGateway);
 dpdShipmentRouter.get("/:id/label-access", requireOperations, createDpdLabelAccessUrl);

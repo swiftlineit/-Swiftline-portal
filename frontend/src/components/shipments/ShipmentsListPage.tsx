@@ -12,7 +12,7 @@ import DateRangeFilter from "@/components/ui/DateRangeFilter";
 import { SortableHeader, TableToolbar, defaultPageSizeOptions, type TableColumnOption } from "@/components/ui/TableToolbar";
 import { ScheduleChip } from "@/components/shipments/ShipmentJourney";
 import GatewayIataInput, { isValidGatewayIata } from "@/components/shipments/GatewayIataInput";
-import { emptyDateRange } from "@/lib/dateRange";
+import { emptyDateRange, type DateRange } from "@/lib/dateRange";
 import { currentDateTimeLocal, dateTimeLocalToIso, formatDashboardDate, formatDashboardDateTime } from "@/lib/dateFormat";
 import { formatCsbType } from "@/lib/csbType";
 import { createBulkShipmentManifest, manifestsHref } from "@/lib/shipmentManifests";
@@ -38,6 +38,78 @@ import {
 } from "@/lib/shipmentsList";
 
 const emptyPagination: ShipmentListPagination = { page: 1, limit: 20, total: 0, totalPages: 1 };
+const REBOOKED_FILTER_VALUE = "__REBOOKED__";
+// One-time namespace bump prevents an earlier saved test filter from hiding
+// the normal list after this persistence behavior is introduced.
+const shipmentViewStorageVersion = "v2";
+const shipmentViewQueryKeys = [
+  "search",
+  "status",
+  "attention",
+  "bookedDate",
+  "rebooked",
+  "dateFrom",
+  "dateTo",
+  "businessAccountId",
+  "page",
+  "limit",
+  "sort"
+] as const;
+
+type ShipmentViewState = {
+  search: string;
+  status: string;
+  attentionOnly: boolean;
+  bookedDate: string;
+  rebookedOnly: boolean;
+  dateRange: DateRange;
+  businessAccountId: string;
+  page: number;
+  limit: number;
+  sort: string;
+};
+
+function parsePositiveInteger(value: string | null, fallback: number) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parsePageSize(value: string | null) {
+  const parsed = Number(value);
+  return defaultPageSizeOptions.includes(parsed) ? parsed : defaultPageSizeOptions[0];
+}
+
+function parseShipmentSort(value: string | null) {
+  return value === "booked:asc" || value === "booked:desc" ? value : "booked:desc";
+}
+
+function readShipmentViewState(value: string | null): ShipmentViewState | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return null;
+    const savedDateRange = parsed.dateRange as Record<string, unknown> | undefined;
+    return {
+      search: typeof parsed.search === "string" ? parsed.search : "",
+      status: typeof parsed.status === "string" ? parsed.status : "",
+      attentionOnly: parsed.attentionOnly === true,
+      bookedDate: typeof parsed.bookedDate === "string" ? parsed.bookedDate : "",
+      rebookedOnly: parsed.rebookedOnly === true,
+      dateRange: {
+        from: typeof savedDateRange?.from === "string" ? savedDateRange.from : "",
+        to: typeof savedDateRange?.to === "string" ? savedDateRange.to : ""
+      },
+      businessAccountId: typeof parsed.businessAccountId === "string" ? parsed.businessAccountId : "",
+      page: typeof parsed.page === "number" && Number.isInteger(parsed.page) && parsed.page > 0 ? parsed.page : 1,
+      limit: typeof parsed.limit === "number" && defaultPageSizeOptions.includes(parsed.limit)
+        ? parsed.limit
+        : defaultPageSizeOptions[0],
+      sort: parsed.sort === "booked:asc" || parsed.sort === "booked:desc" ? parsed.sort : "booked:desc"
+    };
+  } catch {
+    return null;
+  }
+}
 
 function formatMoney(shipment: ShipmentListItem) {
   if (!shipment.shipmentInvoice) return "-";
@@ -98,7 +170,18 @@ function isStatusUpdateEligible(shipment: ShipmentListItem) {
 export default function ShipmentsListPage({ audience, role }: { audience: ShipmentAudience; role?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const attentionOnly = searchParams.get("attention") === "1" || searchParams.get("attention") === "true";
+  const attentionOnlyFromQuery = searchParams.get("attention") === "1" || searchParams.get("attention") === "true";
+  const bookedDateFromQuery = searchParams.get("bookedDate") ?? "";
+  const statusFromQuery = searchParams.get("status") ?? "";
+  const rebookedFromQuery = searchParams.get("rebooked") === "1" || searchParams.get("rebooked") === "true";
+  const dateFromQuery = searchParams.get("dateFrom") ?? "";
+  const dateToQuery = searchParams.get("dateTo") ?? "";
+  const searchFromQuery = searchParams.get("search")?.trim() ?? "";
+  const businessAccountFromQuery = searchParams.get("businessAccountId") ?? "";
+  const pageFromQuery = parsePositiveInteger(searchParams.get("page"), 1);
+  const limitFromQuery = parsePageSize(searchParams.get("limit"));
+  const sortFromQuery = parseShipmentSort(searchParams.get("sort"));
+  const hasShipmentViewQuery = shipmentViewQueryKeys.some((key) => searchParams.has(key));
   const [shipments, setShipments] = useState<ShipmentListItem[]>([]);
   const [pagination, setPagination] = useState<ShipmentListPagination>(emptyPagination);
   // Keyed by shipment id so a selection survives moving to another page - only
@@ -107,10 +190,13 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   // Which bulk action the selection bar is serving, if any. Holds the two flows
   // apart: the manifest checks account/branch, the status update does not.
   const [activeFlow, setActiveFlow] = useState<"manifest" | "status" | null>(null);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(rebookedFromQuery ? "" : statusFromQuery);
+  const [rebookedOnly, setRebookedOnly] = useState(rebookedFromQuery);
+  const [bookedDate, setBookedDate] = useState(bookedDateFromQuery);
+  const [attentionOnly, setAttentionOnly] = useState(attentionOnlyFromQuery);
   // Business-account filter, staff only. Clients are already scoped to the
   // accounts they belong to, so the dropdown would only ever offer one row.
-  const [businessAccountId, setBusinessAccountId] = useState("");
+  const [businessAccountId, setBusinessAccountId] = useState(businessAccountFromQuery);
   const [accounts, setAccounts] = useState<BusinessAccount[]>([]);
   const [bulkStatus, setBulkStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [bulkStatusNote, setBulkStatusNote] = useState("");
@@ -133,15 +219,18 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
    * every keystroke- this is a server-side search across every page, not a
    * filter over the rows already on screen.
    */
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [dateRange, setDateRange] = useState(emptyDateRange);
-  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState(searchFromQuery);
+  const [search, setSearch] = useState(searchFromQuery);
+  const [dateRange, setDateRange] = useState(() => ({
+    from: dateFromQuery || bookedDateFromQuery,
+    to: dateToQuery || bookedDateFromQuery
+  }));
+  const [page, setPage] = useState(pageFromQuery);
   // Rows per page. 20 is what this table has always opened at; the toolbar
   // offers the larger sizes for working a whole day's shipments in one screen.
-  const [limit, setLimit] = useState(defaultPageSizeOptions[0]);
+  const [limit, setLimit] = useState(limitFromQuery);
   // Newest booking first, the order this table has always opened in.
-  const [sort, setSort] = useState("booked:desc");
+  const [sort, setSort] = useState(sortFromQuery);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -152,8 +241,10 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   // prompt can name the shipment the operator is about to remove.
   const [pendingDelete, setPendingDelete] = useState<ShipmentListItem | null>(null);
   const [deleting, setDeleting] = useState(false);
-  // Single rebook in flight — tracks which booked shipment is being cloned.
+  // Single rebook in flight - tracks which booked shipment is being cloned.
   const [rebookingId, setRebookingId] = useState<string | null>(null);
+  const [restoringView, setRestoringView] = useState(true);
+  const restoredView = useRef(false);
 
   // A selection may span pages, but it must never survive a change to the
   // query that defines those pages. Otherwise hidden rows from an earlier
@@ -161,9 +252,11 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   const selectionScope = JSON.stringify({
     audience,
     attentionOnly,
+    bookedDate,
     businessAccountId,
     dateFrom: dateRange.from,
     dateTo: dateRange.to,
+    rebookedOnly,
     search,
     sort,
     status
@@ -208,9 +301,23 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     setLoading(true);
     setError("");
     try {
-      const data = await listShipments(audience, { page, limit, status, search, dateRange, businessAccountId, sort, attention: attentionOnly });
+      const data = await listShipments(audience, {
+        page,
+        limit,
+        status,
+        search,
+        dateRange: bookedDate ? emptyDateRange : dateRange,
+        bookedDate,
+        rebooked: rebookedOnly,
+        businessAccountId,
+        sort,
+        attention: attentionOnly
+      });
       setShipments(data.shipments);
       setPagination(data.pagination);
+      // The API clamps a page that no longer exists after data changes. Keep
+      // local state and the persisted URL aligned with that server decision.
+      setPage((current) => current === data.pagination.page ? current : data.pagination.page);
       // Refresh or drop only the selections that belong to this page - a shipment
       // manifested elsewhere in the meantime is no longer eligible and falls out,
       // but selections on other pages are left untouched so they survive paging.
@@ -230,14 +337,98 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     } finally {
       setLoading(false);
     }
-  }, [attentionOnly, audience, businessAccountId, dateRange, limit, page, search, sort, status]);
+  }, [attentionOnly, audience, bookedDate, businessAccountId, dateRange, limit, page, rebookedOnly, search, sort, status]);
+
+  // The URL wins when it contains a dashboard drill-down or an explicit
+  // filter. Otherwise restore only this audience's last view from the tab
+  // session, then fetch the current rows from the server.
+  useEffect(() => {
+    if (restoredView.current) return;
+    restoredView.current = true;
+
+    const saved = !hasShipmentViewQuery
+      ? readShipmentViewState(
+        window.sessionStorage.getItem(`swiftline:shipments:${shipmentViewStorageVersion}:${audience}`)
+      )
+      : null;
+    const timer = window.setTimeout(() => {
+      if (saved) {
+        setSearchInput(saved.search);
+        setSearch(saved.search);
+        setStatus(saved.rebookedOnly ? "" : saved.status);
+        setRebookedOnly(saved.rebookedOnly);
+        setAttentionOnly(saved.attentionOnly);
+        setBookedDate(saved.bookedDate);
+        setDateRange(saved.dateRange);
+        setBusinessAccountId(audience === "admin" ? saved.businessAccountId : "");
+        setPage(saved.page);
+        setLimit(saved.limit);
+        setSort(saved.sort);
+      }
+      setRestoringView(false);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [audience, hasShipmentViewQuery]);
 
   // Deferred so the fetch's setState lands after the first paint rather than
   // cascading a render, matching the other listing screens.
   useEffect(() => {
+    if (restoringView) return;
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
-  }, [load]);
+  }, [load, restoringView]);
+
+  // Keep the view addressable for refreshes/browser history and keep a
+  // tab-scoped fallback for navigation links that return to the bare list
+  // route. Only controls are saved; shipment rows are always reloaded.
+  useEffect(() => {
+    if (restoringView) return;
+
+    const savedState: ShipmentViewState = {
+      search,
+      status: rebookedOnly ? "" : status,
+      attentionOnly,
+      bookedDate,
+      rebookedOnly,
+      dateRange: { from: dateRange.from, to: dateRange.to },
+      businessAccountId: audience === "admin" ? businessAccountId : "",
+      page,
+      limit,
+      sort
+    };
+    try {
+      window.sessionStorage.setItem(
+        `swiftline:shipments:${shipmentViewStorageVersion}:${audience}`,
+        JSON.stringify(savedState)
+      );
+    } catch {
+      // Private browsing or a full storage quota should not block the table.
+    }
+
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (status && !rebookedOnly) params.set("status", status);
+    if (attentionOnly) params.set("attention", "1");
+    if (bookedDate) {
+      params.set("bookedDate", bookedDate);
+    } else {
+      if (dateRange.from) params.set("dateFrom", dateRange.from);
+      if (dateRange.to) params.set("dateTo", dateRange.to);
+    }
+    if (rebookedOnly) params.set("rebooked", "1");
+    if (audience === "admin" && businessAccountId) params.set("businessAccountId", businessAccountId);
+    if (page > 1) params.set("page", String(page));
+    if (limit !== defaultPageSizeOptions[0]) params.set("limit", String(limit));
+    if (sort !== "booked:desc") params.set("sort", sort);
+
+    const nextSearch = params.toString();
+    if (window.location.search.slice(1) !== nextSearch) {
+      router.replace(
+        `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}`,
+        { scroll: false }
+      );
+    }
+  }, [attentionOnly, audience, bookedDate, businessAccountId, dateRange.from, dateRange.to, limit, page, rebookedOnly, restoringView, router, search, sort, status]);
 
   useEffect(() => {
     if (previousSelectionScope.current === selectionScope) return;
@@ -261,6 +452,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   // Applies the typed term once typing settles, and returns to page one- the
   // page you were on rarely exists in a narrower result set.
   useEffect(() => {
+    if (restoringView) return;
     const timer = window.setTimeout(() => {
       setSearch((current) => {
         if (current === searchInput.trim()) return current;
@@ -270,7 +462,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     }, 350);
 
     return () => window.clearTimeout(timer);
-  }, [searchInput]);
+  }, [restoringView, searchInput]);
 
   // Staff may select anything they could act on; a client's rows are still
   // gated on manifest eligibility because the manifest is their only action.
@@ -456,7 +648,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
               {attentionOnly ? (
               <span className="ml-4 inline-flex items-center gap-2 rounded-full bg-amber-50 px-2.5 py-1 text-sm font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
                 Attention needed only
-                <Link href={audience === "client" ? "/client/shipments" : "/dashboard/shipments"} aria-label="Clear attention filter" className="rounded-full p-0.5 hover:bg-amber-100">
+                <Link href={`${audience === "client" ? "/client/shipments" : "/dashboard/shipments"}?attention=0`} aria-label="Clear attention filter" className="rounded-full p-0.5 hover:bg-amber-100">
                   <FiX aria-hidden="true" className="h-3 w-3" />
                 </Link>
               </span>
@@ -520,7 +712,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
               <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Date Range</span>
               <DateRangeFilter
                 value={dateRange}
-                onChange={(value) => { setDateRange(value); setPage(1); }}
+                onChange={(value) => { setBookedDate(""); setDateRange(value); setPage(1); }}
               />
             </div>
 
@@ -547,14 +739,21 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
               <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Status</span>
               <div className="relative">
                 <select
-                  value={status}
-                  onChange={(event) => { setStatus(event.target.value); setPage(1); }}
+                  value={rebookedOnly ? REBOOKED_FILTER_VALUE : status}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    const isRebooked = value === REBOOKED_FILTER_VALUE;
+                    setRebookedOnly(isRebooked);
+                    setStatus(isRebooked ? "" : value);
+                    setPage(1);
+                  }}
                   className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
                 >
                   <option value="">All Status</option>
                   {shipmentStatusOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
+                  {audience === "admin" ? <option value={REBOOKED_FILTER_VALUE}>Rebooked</option> : null}
                 </select>
                 <FiArrowDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               </div>
@@ -910,7 +1109,16 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
       <div className="mb-3 flex justify-end">
         <TableToolbar
           exportPath={shipmentListPath(audience)}
-          exportParams={shipmentListParams({ status, search, dateRange, businessAccountId, sort, attention: attentionOnly })}
+          exportParams={shipmentListParams({
+            status,
+            search,
+            dateRange: bookedDate ? emptyDateRange : dateRange,
+            bookedDate,
+            rebooked: rebookedOnly,
+            businessAccountId,
+            sort,
+            attention: attentionOnly
+          })}
           exportName="shipments"
           rowCount={pagination.total}
           columns={columnOptions}

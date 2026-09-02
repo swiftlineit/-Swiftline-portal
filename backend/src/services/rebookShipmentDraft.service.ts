@@ -17,8 +17,8 @@ import {
 /**
  * Rebooks a previously booked shipment into a new EDITABLE draft.
  *
- * Copies every field staff sees on the booking form — consignor, consignee,
- * parcels (with items + per-parcel Aadhaar/KYC), CSB/insurance/GST/service —
+ * Copies every field staff sees on the booking form - consignor, consignee,
+ * parcels (with items + per-parcel Aadhaar/KYC), CSB/insurance/GST/service -
  * while keeping the *same* `businessAccountId` + `branchId` + `customerType`.
  * KYC documents are copied to new storage keys so the rebook does not share
  * deletable files with the source shipment. Per request, INDIVIDUAL walk-ins
@@ -95,9 +95,9 @@ export async function rebookShipmentDraft(input: {
     }
   } else {
     // INDIVIDUAL walk-ins use the sentinel; they keep the original branch exactly
-    // — no account-grade assigned-branch check applies.
+    // - no account-grade assigned-branch check applies.
     if (String(source.branchId) !== String(branch._id)) {
-      // Defensive — source.branchId and loaded branch already aligned.
+      // Defensive - source.branchId and loaded branch already aligned.
       throw new ManualShipmentDraftError("Sender branch not found.", 404);
     }
   }
@@ -207,7 +207,7 @@ export async function rebookShipmentDraft(input: {
       const draft = new ShipmentDraft({
         _id: targetDraftId,
         creationSource: source.creationSource === "INDIVIDUAL" ? "INDIVIDUAL" : "MANUAL",
-        // Never carry an import linkage — rebook is a manual copy.
+        // Never carry an import linkage - rebook is a manual copy.
         shipmentImportEntryId: null,
         rebookedFromDraftId: source._id,
         rebookIdempotencyKey: idempotencyKey,

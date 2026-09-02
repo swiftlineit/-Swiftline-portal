@@ -3,7 +3,7 @@ import { Branch } from "../models/branch.model.js";
 import { BusinessAccount } from "../models/businessAccount.model.js";
 import { DpdShipment, type DpdShipmentStatus } from "../models/dpdShipment.model.js";
 import { ShipmentDraft } from "../models/shipmentDraft.model.js";
-import { ShipmentEvent } from "../models/shipmentEvent.model.js";
+import { ShipmentEvent, shipmentOperationalStatusValues } from "../models/shipmentEvent.model.js";
 import { buildDeliveryEstimates } from "./shipmentTracking.service.js";
 import { ShipmentInvoice } from "../models/shipmentInvoice.model.js";
 import { ShipmentManifest } from "../models/shipmentManifest.model.js";
@@ -30,6 +30,10 @@ export type ShipmentListingFilter = {
   search?: string;
   dateFrom?: string;
   dateTo?: string;
+  /** Carrier booking calendar day used by the dashboard's Booked today KPI. */
+  bookedDate?: string;
+  /** Keeps only booked drafts created through the rebooking flow. */
+  rebookedOnly?: boolean;
   /** When true, keep only shipments with a current exception or unresolved carrier booking. */
   attention?: boolean;
   page: number;
@@ -101,6 +105,31 @@ export const allShipmentStatuses: DpdShipmentStatus[] = [
   "DPD_REJECTED"
 ];
 
+// The dashboard's In transit KPI includes every operational milestone from
+// collection through out-for-delivery. Legacy flight/customs names are kept in
+// this set because old event rows are still the source of the current stage.
+export const inTransitEventStatuses = [
+  "RELEASED_FROM_HOLD",
+  ...shipmentOperationalStatusValues.filter((status) => status !== "DELIVERED"),
+  "IN_TRANSIT",
+  "EXPORT_CUSTOMS_CLEARED",
+  "FLIGHT_ASSIGNED",
+  "FLIGHT_DEPARTED"
+];
+
+function indiaBookingDayCondition(value?: string) {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const [, year, month, day] = match;
+  const indiaOffsetMs = (5 * 60 + 30) * 60 * 1000;
+  const dayStartUtc = Date.UTC(Number(year), Number(month) - 1, Number(day));
+  return {
+    $gte: new Date(dayStartUtc - indiaOffsetMs),
+    $lte: new Date(dayStartUtc + 86_400_000 - indiaOffsetMs - 1)
+  };
+}
+
 export function formatBookingStatusLabel(status: DpdShipmentStatus) {
   if (status === "LABEL_RECEIVED") return "Booked";
   if (status === "DPD_CREATED") return "Awaiting Documents";
@@ -109,9 +138,119 @@ export function formatBookingStatusLabel(status: DpdShipmentStatus) {
   return "Rejected";
 }
 
-export function formatShipmentStatusLabel(value?: string | null) {
+export function formatShipmentStatusLabel(value?: string | null, event?: {
+  gatewayCode?: string;
+  gatewayName?: string;
+  location?: string;
+  statusLabel?: string;
+} | null) {
   if (!value) return "Shipment Booked";
+  if (canonicalShipmentStatus(value) === "DESTINATION_ARRIVED") {
+    const storedLabel = event?.statusLabel?.trim();
+    if (storedLabel && !/^destination arrived$/i.test(storedLabel)) return storedLabel;
+    const gatewayCode = event?.gatewayCode?.trim().toUpperCase() || event?.location?.trim().toUpperCase();
+    if (gatewayCode) {
+      const name = event?.gatewayName?.trim() || (gatewayCode === "LHR" ? "London" : "Destination");
+      return `Arrived at ${name} Gateway (${gatewayCode})`;
+    }
+  }
   return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+export type ShipmentDashboardSummary = {
+  bookedToday: number;
+  bookedYesterday: number;
+  inTransit: number;
+  delivered: number;
+  onHold: number;
+  exceptions: number;
+};
+
+function indiaDayString(value: Date, offsetDays = 0) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(value);
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  const day = Number(parts.find((part) => part.type === "day")?.value);
+  const shifted = new Date(Date.UTC(year, month - 1, day) + offsetDays * 86_400_000);
+  return [
+    shifted.getUTCFullYear(),
+    String(shifted.getUTCMonth() + 1).padStart(2, "0"),
+    String(shifted.getUTCDate()).padStart(2, "0")
+  ].join("-");
+}
+
+/**
+ * Exact dashboard shipment totals. The drill-down table uses the same booked
+ * scope and latest-event rules; keeping these totals here prevents a capped
+ * recent-history feed from disagreeing with the table's pagination total.
+ */
+export async function summarizeBookedShipments(filter: Pick<ShipmentListingFilter, "actorRole" | "businessAccountIds" | "branchIds" | "bookingStatuses">): Promise<ShipmentDashboardSummary> {
+  const bookingStatuses = filter.bookingStatuses ?? bookedShipmentStatuses;
+  const bookings = await DpdShipment.find({ status: { $in: bookingStatuses } })
+    .select("shipmentDraftId")
+    .lean()
+    .exec();
+  const bookedDraftIds = bookings.map((booking) => booking.shipmentDraftId);
+  if (!bookedDraftIds.length) {
+    return { bookedToday: 0, bookedYesterday: 0, inTransit: 0, delivered: 0, onHold: 0, exceptions: 0 };
+  }
+
+  const draftFilter: Record<string, unknown> = {
+    _id: { $in: bookedDraftIds },
+    deletedAt: null
+  };
+  if (filter.businessAccountIds) draftFilter.businessAccountId = { $in: filter.businessAccountIds };
+  if (filter.branchIds) draftFilter.branchId = { $in: filter.branchIds };
+
+  const candidates = await ShipmentDraft.find(draftFilter).select("_id").lean().exec();
+  const candidateIds = candidates.map((draft) => draft._id);
+  if (!candidateIds.length) {
+    return { bookedToday: 0, bookedYesterday: 0, inTransit: 0, delivered: 0, onHold: 0, exceptions: 0 };
+  }
+
+  const eventVisibilityFilter = filter.actorRole === "client" ? { customerVisible: true } : {};
+  const now = new Date();
+  const [bookedToday, bookedYesterday, latest, unresolvedBookings] = await Promise.all([
+    DpdShipment.countDocuments({
+      shipmentDraftId: { $in: candidateIds },
+      status: { $in: bookingStatuses },
+      createdAt: indiaBookingDayCondition(indiaDayString(now))
+    }).exec(),
+    DpdShipment.countDocuments({
+      shipmentDraftId: { $in: candidateIds },
+      status: { $in: bookingStatuses },
+      createdAt: indiaBookingDayCondition(indiaDayString(now, -1))
+    }).exec(),
+    ShipmentEvent.aggregate<{ _id: mongoose.Types.ObjectId; status: string }>([
+      { $match: { shipmentDraftId: { $in: candidateIds }, ...eventVisibilityFilter } },
+      { $sort: { eventAt: -1, createdAt: -1 } },
+      { $group: { _id: "$shipmentDraftId", status: { $first: "$status" } } }
+    ]).exec(),
+    DpdShipment.find({
+      shipmentDraftId: { $in: candidateIds },
+      status: { $in: ["DPD_REJECTED", "DPD_STATUS_UNKNOWN"] }
+    }).select("shipmentDraftId").lean().exec()
+  ]);
+
+  const latestByDraft = new Map(latest.map((item) => [String(item._id), item.status]));
+  const inTransitStatuses = new Set<string>(inTransitEventStatuses);
+  const inTransit = [...latestByDraft.values()].filter((status) => inTransitStatuses.has(status)).length;
+  const deliveredStatuses = new Set(equivalentCurrentStatusValues("DELIVERED"));
+  const delivered = [...latestByDraft.values()].filter((status) => deliveredStatuses.has(status)).length;
+  const onHold = [...latestByDraft.values()].filter((status) => status === "ON_HOLD").length;
+  const exceptionIds = new Set(
+    [...latestByDraft.entries()]
+      .filter(([, status]) => ["ON_HOLD", "RETURNED", "LOST", "DAMAGED", "SHIPMENT_CANCELLED"].includes(status))
+      .map(([draftId]) => draftId)
+  );
+  for (const booking of unresolvedBookings) exceptionIds.add(String(booking.shipmentDraftId));
+
+  return { bookedToday, bookedYesterday, inTransit, delivered, onHold, exceptions: exceptionIds.size };
 }
 
 function joinPlace(values: Array<string | undefined>) {
@@ -129,11 +268,16 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   const draftFilter: Record<string, unknown> = { deletedAt: null };
   if (filter.businessAccountIds) draftFilter.businessAccountId = { $in: filter.businessAccountIds };
   if (filter.branchIds) draftFilter.branchId = { $in: filter.branchIds };
+  if (filter.rebookedOnly) {
+    draftFilter.rebookedFromDraftId = { $exists: true, $ne: null };
+  }
   const createdAt = dateRangeCondition(filter.dateFrom, filter.dateTo);
   if (createdAt) draftFilter.createdAt = createdAt;
 
+  const bookingCreatedAt = indiaBookingDayCondition(filter.bookedDate);
   const bookedDraftIds = await DpdShipment.find({
-    status: { $in: filter.bookingStatuses ?? bookedShipmentStatuses }
+    status: { $in: filter.bookingStatuses ?? bookedShipmentStatuses },
+    ...(bookingCreatedAt ? { createdAt: bookingCreatedAt } : {})
   })
     .select("shipmentDraftId")
     .lean()
@@ -217,7 +361,15 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
       { $match: { shipmentDraftId: { $in: candidates.map((draft) => draft._id) }, ...eventVisibilityFilter } },
       { $sort: { eventAt: -1, createdAt: -1 } },
       { $group: { _id: "$shipmentDraftId", status: { $first: "$status" } } },
-      { $match: { status: { $in: equivalentCurrentStatusValues(filter.status) } } }
+      {
+        $match: {
+          status: {
+            $in: filter.status === "IN_TRANSIT"
+              ? inTransitEventStatuses
+              : equivalentCurrentStatusValues(filter.status)
+          }
+        }
+      }
     ]).exec();
     matchingIds = latest.map((item) => item._id);
   }
@@ -261,7 +413,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
     DpdShipment.find({ shipmentDraftId: { $in: draftIds } }).lean().exec(),
     ShipmentEvent.find({ shipmentDraftId: { $in: draftIds }, ...eventVisibilityFilter })
       .sort({ eventAt: -1, createdAt: -1 })
-      .select("shipmentDraftId status eventAt location")
+      .select("shipmentDraftId status statusLabel eventAt location gatewayCode gatewayName")
       .lean()
       .exec(),
     Branch.find({ _id: { $in: drafts.map((draft) => draft.branchId) } }).select("name code address").lean().exec(),
@@ -378,7 +530,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
         ? parcels.reduce((sum, parcel) => sum + parcel.actualWeightKg, 0)
         : draft.parcelList.reduce((sum, parcel) => sum + (parcel.weightKg || 0), 0)).toFixed(3)),
       status: currentStatus,
-      statusLabel: formatShipmentStatusLabel(currentStatus),
+      statusLabel: formatShipmentStatusLabel(currentStatus, currentEvent),
       // The newest scan, so a support agent can see where the shipment last was
       // without opening it. Null until Operations records one.
       // When it should arrive and whether it is going to, so the list answers
@@ -386,7 +538,7 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
       deliveryEstimate: estimateByDraft.get(draftId) ?? null,
       lastScan: currentEvent
         ? {
-          statusLabel: formatShipmentStatusLabel(currentStatus),
+          statusLabel: formatShipmentStatusLabel(currentStatus, currentEvent),
           location: currentEvent.location ?? "",
           at: currentEvent.eventAt
         }

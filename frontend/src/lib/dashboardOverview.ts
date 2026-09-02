@@ -3,6 +3,7 @@ import { listBusinessAccounts, type BusinessAccount } from "@/lib/businessAccoun
 import { listAdminCreditAccounts } from "@/lib/creditAccounts";
 import { countCreditAccountsAtRisk } from "@/lib/creditPaymentStatus";
 import { listDpdShipments, listShipmentAmendments, type DpdShipmentHistoryItem } from "@/lib/dpdLabels";
+import { getShipmentDashboardSummary, type ShipmentDashboardSummary } from "@/lib/shipmentsList";
 import { listOperationsManifests, type ManifestStatus, type OperationsManifest } from "@/lib/operationsManifests";
 import { listShipmentCancellations } from "@/lib/shipmentCancellations";
 import { listShipmentQuotes } from "@/lib/shipmentQuotes";
@@ -17,10 +18,8 @@ import {
 } from "@/lib/roles";
 import type { AuthenticatedUser } from "@/lib/useAdminUser";
 
-// The admin shipment history endpoint caps at 100 rows and reports no grand
-// total, so every shipment figure on this dashboard describes that window of
-// recent bookings. `windowSaturated` tells the UI when the window is a slice of
-// a longer history rather than the whole of it, so it can say so.
+// Recent shipment rows power the trend, pipeline, and activity feed. KPI totals
+// come from the exact shipment-list summary so they match their drill-downs.
 const SHIPMENT_WINDOW = 100;
 const TREND_DAYS = 14;
 const ACTIVITY_LIMIT = 12;
@@ -295,9 +294,7 @@ function buildTrend(items: DpdShipmentHistoryItem[], saturated: boolean): { poin
   return { points, days };
 }
 
-function buildShipmentOverview(items: DpdShipmentHistoryItem[]): ShipmentOverview {
-  const today = startOfDay(new Date());
-  const yesterday = today - DAY_MS;
+function buildShipmentOverview(items: DpdShipmentHistoryItem[], summary: ShipmentDashboardSummary): ShipmentOverview {
   const tally = new Map<string, number>();
 
   for (const item of items) {
@@ -323,25 +320,19 @@ function buildShipmentOverview(items: DpdShipmentHistoryItem[]): ShipmentOvervie
     step: shipmentStages.length
   }));
 
-  const bookedOn = (day: number) => items.filter((item) => {
-    const createdAt = item.dpdShipment.createdAt;
-    return Boolean(createdAt) && startOfDay(new Date(createdAt as string)) === day;
-  }).length;
-
   const saturated = items.length >= SHIPMENT_WINDOW;
   const trend = buildTrend(items, saturated);
   const invoiced = items.map((item) => item.shipmentInvoice).filter(Boolean);
-  const stageCount = (key: string) => stages.find((stage) => stage.key === key)?.count ?? 0;
 
   return {
     windowSize: items.length,
     windowSaturated: saturated,
-    bookedToday: bookedOn(today),
-    bookedYesterday: bookedOn(yesterday),
-    inTransit: stageCount("COLLECTED") + stageCount("IN_TRANSIT") + stageCount("OUT_FOR_DELIVERY"),
-    delivered: stageCount("DELIVERED"),
-    onHold: countOf(["ON_HOLD"]),
-    exceptions: exceptions.reduce((sum, stage) => sum + stage.count, 0),
+    bookedToday: summary.bookedToday,
+    bookedYesterday: summary.bookedYesterday,
+    inTransit: summary.inTransit,
+    delivered: summary.delivered,
+    onHold: summary.onHold,
+    exceptions: summary.exceptions,
     stages: [...stages, ...exceptions],
     trend: trend.points,
     trendCoversDays: trend.days,
@@ -512,6 +503,7 @@ export async function loadDashboardOverview(role?: string): Promise<DashboardOve
 
   const [
     shipmentHistory,
+    shipmentSummary,
     accountsPage,
     activeAccounts,
     pendingAccounts,
@@ -524,6 +516,7 @@ export async function loadDashboardOverview(role?: string): Promise<DashboardOve
     creditAccounts
   ] = await Promise.all([
     can("shipments") ? load("Shipments", () => listDpdShipments(SHIPMENT_WINDOW)) : null,
+    can("shipments") ? load("Shipment totals", getShipmentDashboardSummary) : null,
     can("accounts") ? load("Business accounts", () => listBusinessAccounts("", "", 1, 5)) : null,
     can("accounts") ? load("Business accounts", () => listBusinessAccounts("", "", 1, 1, "active")) : null,
     can("accounts") ? load("Business accounts", () => listBusinessAccounts("", "", 1, 1, "pending_review")) : null,
@@ -537,14 +530,14 @@ export async function loadDashboardOverview(role?: string): Promise<DashboardOve
   ]);
 
   const unavailable = [
-    shipmentHistory, accountsPage, activeAccounts, pendingAccounts, activeBranches,
+    shipmentHistory, shipmentSummary, accountsPage, activeAccounts, pendingAccounts, activeBranches,
     manifests, amendments, cancellations, quotes, tickets, creditAccounts
   ]
     .map((result) => result?.failed)
     .filter((label): label is string => Boolean(label));
 
-  const shipments = shipmentHistory?.value
-    ? buildShipmentOverview(shipmentHistory.value.shipments)
+  const shipments = shipmentHistory?.value && shipmentSummary?.value
+    ? buildShipmentOverview(shipmentHistory.value.shipments, shipmentSummary.value)
     : null;
 
   const accounts: AccountOverview | null = accountsPage?.value

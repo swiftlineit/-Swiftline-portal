@@ -6,6 +6,7 @@ import {
   formatCompactMoney,
   formatCount,
 } from "@/lib/dashboardOverview";
+import { toRangeDay } from "@/lib/dateRange";
 
 type KpiTone = "primary" | "secondary" | "soft" | "attention";
 
@@ -150,6 +151,7 @@ export default function AdminKpiGrid({
   const manifests = overview?.manifests ?? null;
   const accounts = overview?.accounts ?? null;
   const finance = overview?.finance ?? null;
+  const today = toRangeDay(new Date());
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -166,8 +168,8 @@ export default function AdminKpiGrid({
           <KpiCard
             label="Booked today"
             value={formatCount(shipments.bookedToday)}
-            description="Shipments created since midnight"
-            href="/dashboard/shipments"
+            description="Carrier bookings made today"
+            href={`/dashboard/shipments?bookedDate=${today}`}
             tone="primary"
             aside={`${formatCount(shipments.bookedYesterday)} yesterday`}
           />
@@ -176,15 +178,15 @@ export default function AdminKpiGrid({
             label="In transit"
             value={formatCount(shipments.inTransit)}
             description="Collected through to out for delivery"
-            href="/dashboard/tracking"
+            href="/dashboard/shipments?status=IN_TRANSIT"
             tone="secondary"
           />
 
           <KpiCard
             label="Delivered"
             value={formatCount(shipments.delivered)}
-            description={`Of the ${shipments.windowSize} most recent bookings`}
-            href="/dashboard/tracking"
+            description="All shipments matching this status"
+            href="/dashboard/shipments?status=DELIVERED"
             tone="soft"
           />
 
@@ -245,7 +247,7 @@ export default function AdminKpiGrid({
             label="Ready to seal"
             value={formatCount(manifests.readyToSeal)}
             description="Bags closed and scans reconciled"
-            href="/dashboard/operations-manifests"
+            href="/dashboard/operations-manifests?status=READY_TO_SEAL"
             tone={
               manifests.readyToSeal > 0
                 ? "attention"
@@ -257,7 +259,7 @@ export default function AdminKpiGrid({
             label="Awaiting dispatch"
             value={formatCount(manifests.sealed)}
             description="Sealed and waiting on a flight"
-            href="/dashboard/operations-manifests"
+            href="/dashboard/operations-manifests?status=SEALED"
             tone="secondary"
           />
 
@@ -265,7 +267,7 @@ export default function AdminKpiGrid({
             label="Dispatched"
             value={formatCount(manifests.dispatched)}
             description="Handed to the carrier to date"
-            href="/dashboard/operations-manifests"
+            href="/dashboard/operations-manifests?status=DISPATCHED"
             tone="primary"
           />
         </>
@@ -279,7 +281,7 @@ export default function AdminKpiGrid({
           label="Awaiting dispatch"
           value={formatCount(manifests.sealed)}
           description={`${manifests.readyToSeal} more ready to seal`}
-          href="/dashboard/operations-manifests"
+          href="/dashboard/operations-manifests?status=SEALED"
           tone="secondary"
         />
       ) : null}

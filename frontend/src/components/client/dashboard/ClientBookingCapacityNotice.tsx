@@ -53,12 +53,14 @@ export default function ClientBookingCapacityNotice({
               <h2 className="text-sm font-semibold text-slate-900">
                 {availableCreditMinor <= 0
                   ? "You have used your full credit limit"
-                  : "Your credit limit is running low"}
+                  : credit.creditWarningThresholdPercent
+                    ? `Credit usage has reached your ${credit.creditWarningThresholdPercent}% warning level`
+                    : "Credit usage has reached the configured warning level"}
               </h2>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-700">
                 {availableCreditMinor <= 0
                   ? "New bookings need available credit or a Customer Advance balance. Ask for a higher limit, or add an advance to keep shipping."
-                  : "You are close to your approved credit limit. Request a higher limit now so your bookings are not interrupted."}
+                  : "Your configured utilization warning has been reached. Request a higher limit if you expect upcoming bookings to use more credit."}
               </p>
             </div>
           </div>

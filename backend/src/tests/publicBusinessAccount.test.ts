@@ -49,7 +49,7 @@ function mockRequest(overrides: any = {}): any {
 // Store originals to restore
 const originals: any = {};
 
-describe("public business account — OTP request", () => {
+describe("public business account - OTP request", () => {
   let originalRecaptcha: string | undefined;
   beforeEach(() => {
     originalRecaptcha = (env as any).RECAPTCHA_SECRET_KEY;
@@ -165,7 +165,7 @@ describe("public business account — OTP request", () => {
   });
 });
 
-describe("public business account — OTP verify", () => {
+describe("public business account - OTP verify", () => {
   it("hashes and compares OTP in constant time", async () => {
     const email = "verify@example.com";
     const code = "123456";
@@ -194,7 +194,7 @@ describe("public business account — OTP verify", () => {
   });
 });
 
-describe("public business account — validate-unique live filter", () => {
+describe("public business account - validate-unique live filter", () => {
   it("live filter excludes rejected", async () => {
     const liveStatuses = (businessAccountStatuses as readonly string[]).filter((s) => s !== "rejected");
     assert.ok(!liveStatuses.includes("rejected"));
@@ -221,7 +221,7 @@ describe("public business account — validate-unique live filter", () => {
   });
 });
 
-describe("public business account — validation edge cases (shared with internal)", () => {
+describe("public business account - validation edge cases (shared with internal)", () => {
   it("rejects firstName >22 chars", async () => {
     // Use backend's businessAccountBodySchema via public controller indirectly
     // Instead test the frontend validation directly if available, else test email rule
@@ -260,7 +260,7 @@ describe("public business account — validation edge cases (shared with interna
   it("US tax ID", async () => {
     const { getUsTaxIdError, isMaskedUsTaxId } = await import("../services/usTaxId.js");
     assert.equal(getUsTaxIdError("12-3456789", "ein"), "");
-    // EIN only checks length — 00-0000000 is technically 9 digits so passes, malformed length should fail
+    // EIN only checks length - 00-0000000 is technically 9 digits so passes, malformed length should fail
     const malformed = getUsTaxIdError("12-34567", "ein");
     assert.ok(malformed.length > 0);
     assert.equal(isMaskedUsTaxId("•••-••-6789"), true);
@@ -312,7 +312,7 @@ describe("public business account — validation edge cases (shared with interna
   });
 });
 
-describe("public business account — edge cases", () => {
+describe("public business account - edge cases", () => {
   it("email lowercasing and trimming", async () => {
     const email = "  Test@Example.COM  ";
     const normalized = email.trim().toLowerCase();

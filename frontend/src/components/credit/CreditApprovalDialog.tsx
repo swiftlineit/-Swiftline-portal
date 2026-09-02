@@ -165,7 +165,12 @@ export default function CreditApprovalDialog({ account, onClose, onSaved }: {
               </Field>
               <Field label="Grace Period (Days)"><input type="number" min="0" max="90" value={form.gracePeriodDays} onChange={(event) => setForm({ ...form, gracePeriodDays: event.target.value })} className={inputClass} /></Field>
               <Field label="Max Overdue Days"><input type="number" min="0" max="365" value={form.maxOverdueDays} onChange={(event) => setForm({ ...form, maxOverdueDays: event.target.value })} className={inputClass} /></Field>
-              <Field label="Warning Threshold (%)"><input type="number" min="1" max="100" value={form.warningPercent} onChange={(event) => setForm({ ...form, warningPercent: event.target.value })} className={inputClass} /></Field>
+              <Field label="Warning Threshold (%)">
+                <input type="number" min="1" max="100" value={form.warningPercent} onChange={(event) => setForm({ ...form, warningPercent: event.target.value })} className={inputClass} />
+                <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                  Show a warning when this percentage of the approved credit is used. For example, 70 means 70% used.
+                </p>
+              </Field>
               <Field label="Required Deposit (INR)"><input type="number" min="0" step="0.01" value={form.depositRupees} onChange={(event) => setForm({ ...form, depositRupees: event.target.value })} className={inputClass} /></Field>
             </Section>
 
