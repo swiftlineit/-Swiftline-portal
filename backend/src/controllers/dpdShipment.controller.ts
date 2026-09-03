@@ -1003,6 +1003,92 @@ export async function getDpdShipment(request: Request, response: Response): Prom
   });
 }
 
+/**
+ * Loads the complete staff shipment detail by the identifier used by the
+ * shipments table. The table is draft-backed, so the detail page must not
+ * rediscover its booking by taking a capped slice of the DPD list.
+ */
+export async function getAdminShipmentDetails(request: Request, response: Response): Promise<Response> {
+  const draftId = typeof request.params.draftId === "string" ? request.params.draftId : "";
+  if (!mongoose.Types.ObjectId.isValid(draftId)) {
+    return response.status(404).json({ success: false, message: "Shipment not found" });
+  }
+
+  const shipmentDraftId = new mongoose.Types.ObjectId(draftId);
+  const [shipment, draft] = await Promise.all([
+    DpdShipment.findOne({ shipmentDraftId }).lean().exec(),
+    ShipmentDraft.findById(shipmentDraftId).lean().exec()
+  ]);
+  if (!draft || !shipment) {
+    return response.status(404).json({ success: false, message: "Booked shipment not found" });
+  }
+
+  const [labels, events, branch, shipmentInvoice, parcelActivities] = await Promise.all([
+    LabelDocument.find({
+      dpdShipmentId: shipment._id,
+      labelVersion: shipment.snapshotRevision || 1
+    }).lean().exec(),
+    ShipmentEvent.find({ shipmentDraftId })
+      .sort({ eventAt: -1, createdAt: -1 })
+      .lean()
+      .exec(),
+    Branch.findById(draft.branchId).lean().exec(),
+    ShipmentInvoice.findOne({ shipmentDraftId })
+      .select("invoiceNumber currency totalAmountMinor status revision")
+      .lean()
+      .exec(),
+    loadShipmentParcelActivities(shipmentDraftId)
+  ]);
+
+  const journey = await loadShipmentJourney({
+    shipmentDraftId,
+    destinationCountryCode: draft.consigneeEnteredAddress?.countryCode ?? "",
+    destinationCountryName: draft.consigneeEnteredAddress?.countryName ?? "",
+    service: draft.serviceType === "CARGO" ? "CARGO" : "COURIER",
+    events,
+    originHubFallback: branch?.address?.city ? `${branch.address.city} Hub` : ""
+  });
+  const currentEvent = getCurrentShipmentEvent(events);
+
+  return response.status(200).json({
+    success: true,
+    shipment: {
+      dpdShipment: serializeDpdShipment(shipment),
+      bookingConfirmation: serializeShipmentBookingConfirmation(shipment.bookingSnapshot),
+      shipmentDraft: serializeShipmentDraftSummary(
+        draft,
+        (shipmentInvoice?.revision ?? 1) <= (shipment.snapshotRevision || 1)
+          ? shipment.currentShipmentSnapshot || shipment.bookingSnapshot
+          : null
+      ),
+      branch: serializeBranchSummary(branch),
+      shipmentInvoice: shipmentInvoice ? {
+        invoiceNumber: shipmentInvoice.invoiceNumber,
+        currency: shipmentInvoice.currency,
+        totalAmountMinor: shipmentInvoice.totalAmountMinor,
+        chargeableAmountMinor: shipmentInvoice.totalAmountMinor,
+        status: shipmentInvoice.status,
+        revision: shipmentInvoice.revision
+      } : null,
+      labels: labels.map(serializeLabel),
+      currentEvent: currentEvent ? serializeShipmentEvent(currentEvent, journey) : null,
+      events: normalizeVisibleTrackingHistory(events, journey)
+        .map((event) => serializeShipmentEvent(event, journey)),
+      trackingJourney: journey,
+      deliveryEstimate: await buildDeliveryEstimate({ draft, events }),
+      trackingSummary: buildTrackingSummary({ draft, dpdShipment: shipment, events }),
+      trackingAttention: buildTrackingAttention(events),
+      parcelActivities,
+      trackingPosition: buildTrackingPosition({
+        events,
+        journey,
+        destinationCity: draft.consigneeEnteredAddress?.townOrCity ?? "",
+        audience: "AUTHENTICATED"
+      })
+    }
+  });
+}
+
 export async function holdDpdShipment(request: Request, response: Response): Promise<Response> {
   const userId = getAuthenticatedUserId(request);
   if (!userId) return response.status(401).json({ success: false, message: "Unauthorized" });

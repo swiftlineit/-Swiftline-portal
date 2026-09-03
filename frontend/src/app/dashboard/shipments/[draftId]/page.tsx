@@ -30,11 +30,11 @@ import {
   findRecordedLaterStatusMilestones,
   firstAllowedOperationalStatus,
   generateExistingDpdLabel,
+  getAdminShipmentDetails,
   hasRecordedOperationalStatus,
   getDpdLabelAccessUrl,
   getShipmentDraft,
   holdDpdShipment,
-  listDpdShipments,
   openShipmentKycDocument,
   openShipmentParcelKycDocument,
   previewShipmentAmendment,
@@ -292,13 +292,12 @@ export default function AdminShipmentDetailsPage() {
     try {
       const [draftData, shipmentData, cancellationData] = await Promise.all([
         getShipmentDraft(params.draftId),
-        listDpdShipments(100, "", false, true),
+        getAdminShipmentDetails(params.draftId),
         getAdminShipmentCancellation(params.draftId)
       ]);
-      const matchingShipment = shipmentData.shipments.find((item) => item.shipmentDraft?.id === params.draftId) ?? null;
 
       setDraft(draftData.shipmentDraft);
-      setHistory(matchingShipment);
+      setHistory(shipmentData.shipment);
       setCancellation(cancellationData.cancellation);
     } catch (caughtError) {
       setLoadError(caughtError instanceof Error ? caughtError.message : "Unable to load shipment.");

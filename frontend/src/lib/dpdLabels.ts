@@ -952,6 +952,16 @@ export async function reconcileDpdShipmentDocuments(dpdShipmentId: string) {
   }>(response);
 }
 
+/** Load the complete admin detail by the draft id used in the shipments table. */
+export async function getAdminShipmentDetails(shipmentDraftId: string) {
+  const response = await fetchWithAuth(apiUrl(`/api/v1/dpd-shipments/drafts/${shipmentDraftId}/details`));
+
+  return parseApiResponse<{
+    success: true;
+    shipment: DpdShipmentHistoryItem;
+  }>(response);
+}
+
 /** Generate the DPD carrier document for an already-booked Swiftline shipment. */
 export async function generateExistingDpdLabel(dpdShipmentId: string) {
   const response = await fetchWithAuth(apiUrl(`/api/v1/dpd-shipments/${dpdShipmentId}/generate-label`), {

@@ -5,6 +5,7 @@ import {
   downloadDpdLabel,
   downloadDpdLabelWithToken,
   generateExistingDpdLabel,
+  getAdminShipmentDetails,
   getDpdShipment,
   holdDpdShipment,
   listDpdShipmentAudit,
@@ -57,6 +58,7 @@ dpdShipmentRouter.get("/drafts/:draftId/shipment-invoice/pdf", downloadCustomsIn
 dpdShipmentRouter.get("/drafts/:draftId/shipment-invoice/xlsx", downloadCustomsInvoiceWorkbook);
 dpdShipmentRouter.get("/drafts/:draftId/audit", requireOperations, listDpdShipmentAudit);
 dpdShipmentRouter.post("/drafts/:draftId/reset-development-booking", requireOperations, resetDevelopmentShipmentBooking);
+dpdShipmentRouter.get("/drafts/:draftId/details", getAdminShipmentDetails);
 dpdShipmentRouter.get("/:id", getDpdShipment);
 dpdShipmentRouter.get("/:id/charge-verification", requireChargeVerification, getShipmentChargeVerification);
 dpdShipmentRouter.post("/:id/charge-verification/preview", requireChargeVerification, previewFinalShipmentCharge);
