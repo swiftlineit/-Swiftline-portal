@@ -26,6 +26,11 @@ import {
 } from "@/lib/dpdLabels";
 import { listBusinessAccounts, type BusinessAccount } from "@/lib/businessAccounts";
 import {
+  parseShipmentDestinationRegions,
+  shipmentDestinationRegionOptions,
+  type ShipmentDestinationRegionCode
+} from "@/lib/shipmentDestinationRegions";
+import {
   deleteBookedShipment,
   listShipments,
   shipmentDetailsHref,
@@ -51,6 +56,7 @@ const shipmentViewQueryKeys = [
   "dateFrom",
   "dateTo",
   "businessAccountId",
+  "destinationRegions",
   "page",
   "limit",
   "sort"
@@ -64,6 +70,7 @@ type ShipmentViewState = {
   rebookedOnly: boolean;
   dateRange: DateRange;
   businessAccountId: string;
+  destinationRegions: ShipmentDestinationRegionCode[];
   page: number;
   limit: number;
   sort: string;
@@ -100,6 +107,11 @@ function readShipmentViewState(value: string | null): ShipmentViewState | null {
         to: typeof savedDateRange?.to === "string" ? savedDateRange.to : ""
       },
       businessAccountId: typeof parsed.businessAccountId === "string" ? parsed.businessAccountId : "",
+      destinationRegions: Array.isArray(parsed.destinationRegions)
+        ? parseShipmentDestinationRegions(
+          parsed.destinationRegions.filter((value): value is string => typeof value === "string").join(",")
+        )
+        : [],
       page: typeof parsed.page === "number" && Number.isInteger(parsed.page) && parsed.page > 0 ? parsed.page : 1,
       limit: typeof parsed.limit === "number" && defaultPageSizeOptions.includes(parsed.limit)
         ? parsed.limit
@@ -122,6 +134,12 @@ function formatMoney(shipment: ShipmentListItem) {
 
 function getAccountLabel(account: BusinessAccount) {
   return `${account.accountId} - ${account.company.companyName || account.contact.email}`;
+}
+
+function truncateBusinessAccountName(value: string, maxLength = 14) {
+  const name = value.trim();
+  if (!name) return "Not available";
+  return name.length > maxLength ? `${name.slice(0, maxLength).trimEnd()}…` : name;
 }
 
 /**
@@ -178,6 +196,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   const dateToQuery = searchParams.get("dateTo") ?? "";
   const searchFromQuery = searchParams.get("search")?.trim() ?? "";
   const businessAccountFromQuery = searchParams.get("businessAccountId") ?? "";
+  const destinationRegionsFromQuery = parseShipmentDestinationRegions(searchParams.get("destinationRegions"));
   const pageFromQuery = parsePositiveInteger(searchParams.get("page"), 1);
   const limitFromQuery = parsePageSize(searchParams.get("limit"));
   const sortFromQuery = parseShipmentSort(searchParams.get("sort"));
@@ -197,6 +216,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
   // Business-account filter, staff only. Clients are already scoped to the
   // accounts they belong to, so the dropdown would only ever offer one row.
   const [businessAccountId, setBusinessAccountId] = useState(businessAccountFromQuery);
+  const [destinationRegions, setDestinationRegions] = useState<ShipmentDestinationRegionCode[]>(destinationRegionsFromQuery);
   const [accounts, setAccounts] = useState<BusinessAccount[]>([]);
   const [bulkStatus, setBulkStatus] = useState<ShipmentOperationalStatus>("PARCEL_COLLECTED");
   const [bulkStatusNote, setBulkStatusNote] = useState("");
@@ -256,6 +276,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     businessAccountId,
     dateFrom: dateRange.from,
     dateTo: dateRange.to,
+    destinationRegions: [...destinationRegions].sort(),
     rebookedOnly,
     search,
     sort,
@@ -310,6 +331,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
         bookedDate,
         rebooked: rebookedOnly,
         businessAccountId,
+        destinationRegions: audience === "admin" ? destinationRegions : [],
         sort,
         attention: attentionOnly
       });
@@ -337,14 +359,13 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     } finally {
       setLoading(false);
     }
-  }, [attentionOnly, audience, bookedDate, businessAccountId, dateRange, limit, page, rebookedOnly, search, sort, status]);
+  }, [attentionOnly, audience, bookedDate, businessAccountId, dateRange, destinationRegions, limit, page, rebookedOnly, search, sort, status]);
 
   // The URL wins when it contains a dashboard drill-down or an explicit
   // filter. Otherwise restore only this audience's last view from the tab
   // session, then fetch the current rows from the server.
   useEffect(() => {
     if (restoredView.current) return;
-    restoredView.current = true;
 
     const saved = !hasShipmentViewQuery
       ? readShipmentViewState(
@@ -352,6 +373,11 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
       )
       : null;
     const timer = window.setTimeout(() => {
+      // Mark this complete only when the deferred callback actually runs. In
+      // React Strict Mode the first effect pass is cleaned up immediately;
+      // marking it before the callback would cancel the timer and leave the
+      // shipment fetch gated forever.
+      restoredView.current = true;
       if (saved) {
         setSearchInput(saved.search);
         setSearch(saved.search);
@@ -361,6 +387,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
         setBookedDate(saved.bookedDate);
         setDateRange(saved.dateRange);
         setBusinessAccountId(audience === "admin" ? saved.businessAccountId : "");
+        setDestinationRegions(audience === "admin" ? saved.destinationRegions : []);
         setPage(saved.page);
         setLimit(saved.limit);
         setSort(saved.sort);
@@ -392,6 +419,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
       rebookedOnly,
       dateRange: { from: dateRange.from, to: dateRange.to },
       businessAccountId: audience === "admin" ? businessAccountId : "",
+      destinationRegions: audience === "admin" ? destinationRegions : [],
       page,
       limit,
       sort
@@ -417,6 +445,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
     }
     if (rebookedOnly) params.set("rebooked", "1");
     if (audience === "admin" && businessAccountId) params.set("businessAccountId", businessAccountId);
+    if (audience === "admin" && destinationRegions.length) params.set("destinationRegions", destinationRegions.join(","));
     if (page > 1) params.set("page", String(page));
     if (limit !== defaultPageSizeOptions[0]) params.set("limit", String(limit));
     if (sort !== "booked:desc") params.set("sort", sort);
@@ -428,7 +457,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
         { scroll: false }
       );
     }
-  }, [attentionOnly, audience, bookedDate, businessAccountId, dateRange.from, dateRange.to, limit, page, rebookedOnly, restoringView, router, search, sort, status]);
+  }, [attentionOnly, audience, bookedDate, businessAccountId, dateRange.from, dateRange.to, destinationRegions, limit, page, rebookedOnly, restoringView, router, search, sort, status]);
 
   useEffect(() => {
     if (previousSelectionScope.current === selectionScope) return;
@@ -682,116 +711,196 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
           </div>
         </div>
 
-        <div className="px-5 py-4">
-          <div className={`grid gap-3 md:grid-cols-2 ${audience === "admin" ? "xl:grid-cols-[minmax(260px,1.3fr)_auto_minmax(220px,1fr)_minmax(180px,0.8fr)]" : "xl:grid-cols-[minmax(280px,1.4fr)_auto_minmax(200px,0.8fr)]"}`}>
-            <label className="block min-w-0">
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Search</span>
-              <div className="relative">
-                <FiSearch aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  maxLength={80}
-                  placeholder="Search AWB, consignee, destination, or reference"
-                  className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-9 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
-                />
-                {searchInput ? (
-                  <button
-                    type="button"
-                    onClick={() => setSearchInput("")}
-                    aria-label="Clear search"
-                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                  >
-                    <FiX aria-hidden="true" className="h-4 w-4" />
-                  </button>
-                ) : null}
-              </div>
-            </label>
-
-            <div className="min-w-0">
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Date Range</span>
-              <DateRangeFilter
-                value={dateRange}
-                onChange={(value) => { setBookedDate(""); setDateRange(value); setPage(1); }}
-              />
-            </div>
-
-            {audience === "admin" ? (
-              <label className="block min-w-0">
-                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Business Account</span>
-                <div className="relative">
-                  <select
-                    value={businessAccountId}
-                    onChange={(event) => { setBusinessAccountId(event.target.value); setPage(1); }}
-                    className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
-                  >
-                    <option value="">All Business Accounts</option>
-                    {accounts.map((account) => (
-                      <option key={account._id} value={account._id}>{getAccountLabel(account)}</option>
-                    ))}
-                  </select>
-                  <FiArrowDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                </div>
-              </label>
-            ) : null}
-
-            <label className="block min-w-0">
-              <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Status</span>
-              <div className="relative">
-                <select
-                  value={rebookedOnly ? REBOOKED_FILTER_VALUE : status}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    const isRebooked = value === REBOOKED_FILTER_VALUE;
-                    setRebookedOnly(isRebooked);
-                    setStatus(isRebooked ? "" : value);
-                    setPage(1);
-                  }}
-                  className="h-10 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
-                >
-                  <option value="">All Status</option>
-                  {shipmentStatusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                  {audience === "admin" ? <option value={REBOOKED_FILTER_VALUE}>Rebooked</option> : null}
-                </select>
-                <FiArrowDown aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              </div>
-            </label>
-          </div>
-
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-            <button
-              type="button"
-              onClick={() => setActiveFlow((current) => current === "manifest" ? null : "manifest")}
-              className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
-                activeFlow === "manifest"
-                  ? "border-[#0D1282] bg-[#0D1282] text-white"
-                  : "border-slate-300 bg-white text-[#0D1282] hover:border-[#0D1282]/40 hover:bg-[#0D1282]/5"
+        <div className="px-5 py-5 sm:px-6">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5">
+            <div
+              className={`grid gap-4 ${
+                audience === "admin"
+                  ? "md:grid-cols-2 xl:grid-cols-12"
+                  : "md:grid-cols-2 xl:grid-cols-8"
               }`}
             >
-              <FiArchive aria-hidden="true" className="h-4 w-4" />
-              Create Manifest
-            </button>
-            {audience === "admin" ? (
-              <button
-                type="button"
-                onClick={() => setActiveFlow((current) => current === "status" ? null : "status")}
-                className={`inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
-                  activeFlow === "status"
-                    ? "border-[#0D1282] bg-[#0D1282] text-white"
-                    : "border-slate-300 bg-white text-[#0D1282] hover:border-[#0D1282]/40 hover:bg-[#0D1282]/5"
+              {/* Search */}
+              <label
+                className={`block min-w-0 ${
+                  audience === "admin"
+                    ? "xl:col-span-4"
+                    : "xl:col-span-3"
                 }`}
               >
-                <FiArrowDown aria-hidden="true" className="h-4 w-4" />
-                Update Status
+                <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+                  Search
+                </span>
+
+                <div className="relative">
+                  <FiSearch
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                  />
+
+                  <input
+                    value={searchInput}
+                    onChange={(event) => setSearchInput(event.target.value)}
+                    maxLength={80}
+                    placeholder="Search AWB, consignee, destination, or reference"
+                    className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-10 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+                  />
+
+                  {searchInput ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearchInput("")}
+                      aria-label="Clear search"
+                      className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      <FiX aria-hidden="true" className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+              </label>
+
+              {/* Date range */}
+              <div
+                className={`min-w-0 ${
+                  audience === "admin"
+                    ? "xl:col-span-4"
+                    : "xl:col-span-3"
+                }`}
+              >
+                <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+                  Date range
+                </span>
+
+                <div className="[&_*]:rounded-lg">
+                  <DateRangeFilter
+                    value={dateRange}
+                    onChange={(value) => {
+                      setBookedDate("");
+                      setDateRange(value);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Business account */}
+              {audience === "admin" ? (
+                <label className="block min-w-0 xl:col-span-2">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+                    Business account
+                  </span>
+
+                  <div className="relative">
+                    <select
+                      value={businessAccountId}
+                      onChange={(event) => {
+                        setBusinessAccountId(event.target.value);
+                        setPage(1);
+                      }}
+                      className="h-11 w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition hover:border-slate-400 focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+                    >
+                      <option value="">All Business Accounts</option>
+                      {accounts.map((account) => (
+                        <option key={account._id} value={account._id}>
+                          {getAccountLabel(account)}
+                        </option>
+                      ))}
+                    </select>
+
+                    <FiArrowDown
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400/70"
+                    />
+                  </div>
+                </label>
+              ) : null}
+
+              {/* Status */}
+              <label className="block min-w-0 xl:col-span-2">
+                <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+                  Status
+                </span>
+
+                <div className="relative">
+                  <select
+                    value={rebookedOnly ? REBOOKED_FILTER_VALUE : status}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const isRebooked = value === REBOOKED_FILTER_VALUE;
+                      setRebookedOnly(isRebooked);
+                      setStatus(isRebooked ? "" : value);
+                      setPage(1);
+                    }}
+                    className="h-11 w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 pr-10 text-sm font-medium text-slate-900 outline-none transition hover:border-slate-400 focus:border-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/10"
+                  >
+                    <option value="">All Status</option>
+                    {shipmentStatusOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                    {audience === "admin" ? (
+                      <option value={REBOOKED_FILTER_VALUE}>Rebooked</option>
+                    ) : null}
+                  </select>
+
+                  <FiArrowDown
+                    aria-hidden="true"
+                    className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400/70"
+                  />
+                </div>
+              </label>
+
+            </div>
+          </div>
+
+          {/* Bulk actions */}
+          <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-h-6">
+              {selectedList.length ? (
+                <span className="inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                  {selectedList.length} selected
+                </span>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveFlow((current) =>
+                    current === "manifest" ? null : "manifest",
+                  )
+                }
+                className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3.5 text-sm font-semibold transition ${
+                  activeFlow === "manifest"
+                    ? "border-[#0D1282] bg-[#0D1282] text-white"
+                    : "border-slate-300 bg-white text-[#0D1282] hover:border-[#0D1282]/30 hover:bg-[#0D1282]/5"
+                }`}
+              >
+                <FiArchive aria-hidden="true" className="h-3.5 w-3.5" />
+                Create Manifest
               </button>
-            ) : null}
-            {selectedList.length ? (
-              <span className="ml-auto rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                {selectedList.length} selected
-              </span>
-            ) : null}
+
+              {audience === "admin" ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveFlow((current) =>
+                      current === "status" ? null : "status",
+                    )
+                  }
+                  className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3.5 text-sm font-semibold transition ${
+                    activeFlow === "status"
+                      ? "border-[#0D1282] bg-[#0D1282] text-white"
+                      : "border-slate-300 bg-white text-[#0D1282] hover:border-[#0D1282]/30 hover:bg-[#0D1282]/5"
+                  }`}
+                >
+                  <FiArrowDown aria-hidden="true" className="h-3.5 w-3.5" />
+                  Update Status
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       </section>
@@ -1106,8 +1215,60 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
 
       {/* Export carries the same filters as the table, built from one helper so
           a downloaded file can never disagree with what is on screen. */}
-      <div className="mb-3 flex justify-end">
-        <TableToolbar
+      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        {audience === "admin" ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+         
+
+            {shipmentDestinationRegionOptions.map((option) => {
+              const checked = destinationRegions.includes(option.code);
+
+              return (
+                <label
+                  key={option.code}
+                  className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition ${
+                    checked
+                      ? "border-[#0D1282]/25 bg-[#0D1282]/[0.06] text-[#0D1282]"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => {
+                      setDestinationRegions((current) =>
+                        event.target.checked
+                          ? [...current, option.code]
+                          : current.filter((value) => value !== option.code),
+                      );
+                      setPage(1);
+                    }}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-[#0D1282] focus:ring-2 focus:ring-[#0D1282]/20"
+                  />
+                  {option.label}
+                </label>
+              );
+            })}
+
+            {destinationRegions.length ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setDestinationRegions([]);
+                  setPage(1);
+                }}
+                className="h-9 px-1 text-xs font-semibold text-[#0D1282] transition hover:text-[#090d62]"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <div />
+        )}
+
+        <div className="flex justify-end">
+          <TableToolbar
           exportPath={shipmentListPath(audience)}
           exportParams={shipmentListParams({
             status,
@@ -1116,6 +1277,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
             bookedDate,
             rebooked: rebookedOnly,
             businessAccountId,
+            destinationRegions: audience === "admin" ? destinationRegions : [],
             sort,
             attention: attentionOnly
           })}
@@ -1132,6 +1294,7 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
             setPage(1);
           }}
         />
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1184,21 +1347,39 @@ export default function ShipmentsListPage({ audience, role }: { audience: Shipme
                       className="h-4 w-4 accent-[#0D1282] disabled:opacity-40"
                     />
                   </td>
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-950">
-                      {shipment.swiftlineTrackingNumber || "AWB Pending"}
-                    </p>
-                    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span>
-                        {shipment.shipmentInvoice?.invoiceNumber
-                          ? `Tax Invoice: ${shipment.shipmentInvoice.invoiceNumber}`
-                          : "Tax Invoice Pending"}
-                      </span>
-                      {/* Customs route, so CSB-V shipments are identifiable at a glance. */}
-                      <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
-                        {formatCsbType(shipment.csbType)}
-                      </span>
-                    </p>
+                  <td className="w-56 max-w-56 px-4 py-3 align-top">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-950">
+                        {shipment.swiftlineTrackingNumber || "AWB Pending"}
+                      </p>
+                      <div
+                        className="mt-1 flex min-w-0 items-center gap-1.5 text-xs"
+                        aria-label={`Business account ${shipment.businessAccountName || "not available"}; ${shipment.pieces} pieces`}
+                      >
+                        <span className="shrink-0 text-slate-400">Account</span>
+                        <span
+                          className="max-w-[14ch] min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-medium text-slate-700"
+                          title={shipment.businessAccountName || "Business account not available"}
+                        >
+                          {truncateBusinessAccountName(shipment.businessAccountName)}
+                        </span>
+                        <span aria-hidden="true" className="text-slate-300">·</span>
+                        <span className="shrink-0 whitespace-nowrap text-slate-600">
+                          <span className="text-slate-400">Pcs</span> {shipment.pieces}
+                        </span>
+                      </div>
+                      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <span>
+                          {shipment.shipmentInvoice?.invoiceNumber
+                            ? `Tax Invoice: ${shipment.shipmentInvoice.invoiceNumber}`
+                            : "Tax Invoice Pending"}
+                        </span>
+                        {/* Customs route, so CSB-V shipments are identifiable at a glance. */}
+                        <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 font-semibold text-slate-600">
+                          {formatCsbType(shipment.csbType)}
+                        </span>
+                      </p>
+                    </div>
                   </td>
                   {shows("consignee") ? (
                     <td className="px-4 py-3">

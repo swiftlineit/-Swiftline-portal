@@ -75,6 +75,14 @@ export function getPostalCodeFormat(country: string) {
   return postalCodeFormats[country] ?? postalCodeFormats.Other;
 }
 
+const postalCodePlaceholders: Record<string, string> = {
+  India: "110001"
+};
+
+export function getPostalCodePlaceholder(country: string) {
+  return postalCodePlaceholders[country] ?? getPostalCodeFormat(country);
+}
+
 export function isValidPostalCodeForCountry(country: string, postalCode: string) {
   const value = postalCode.trim().toUpperCase();
 

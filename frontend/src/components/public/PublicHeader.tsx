@@ -38,10 +38,10 @@ export default function PublicHeader() {
 
           <div className="hidden border-l border-white/15 pl-3 sm:block">
             <p className="text-[11px] font-bold tracking-[0.08em] text-white">
-              SWIFTLINE
+              SWIFTLINE CARGO
             </p>
             <p className="mt-0.5 text-[11px] text-white/65">
-              Cargo & Express
+              and express logistic pvt. ltd.
             </p>
           </div>
         </Link>

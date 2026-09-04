@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { FiChevronDown } from "react-icons/fi";
 import {
   CheckboxField,
   ComboBoxField,
@@ -20,17 +21,41 @@ import {
   registrationConfig,
   shipmentVolumes,
   toOptions,
-  getCurrencyCode
+  getCurrencyCode,
 } from "@/components/business-accounts/FormFieldControls";
 import { AddressAutocompleteField } from "@/components/business-accounts/AddressAutocompleteField";
-import { emptyBusinessAddress, type BusinessAccountFormData, type BusinessAddress } from "@/lib/businessAccounts";
+import {
+  emptyBusinessAddress,
+  type BusinessAccountFormData,
+  type BusinessAddress,
+} from "@/lib/businessAccounts";
 import type { LookupAddress } from "@/lib/addressLookup";
-import { getPostalCodeFormat } from "@/lib/businessAccountPostalCodes";
-import { GSTIN_EXAMPLE, GSTIN_LENGTH, getGstinStateName, normalizeGstin } from "@/lib/gstin";
-import { GST_EXEMPT_REASON_MAX, collectsGstin } from "@/lib/businessAccountValidation";
-import { companyTooltips, sectionTooltips } from "@/lib/businessAccountTooltips";
+import {
+  getPostalCodeFormat,
+  getPostalCodePlaceholder,
+} from "@/lib/businessAccountPostalCodes";
+import {
+  GSTIN_EXAMPLE,
+  GSTIN_LENGTH,
+  getGstinStateName,
+  normalizeGstin,
+} from "@/lib/gstin";
+import {
+  GST_EXEMPT_REASON_MAX,
+  collectsGstin,
+} from "@/lib/businessAccountValidation";
+import {
+  companyTooltips,
+  sectionTooltips,
+} from "@/lib/businessAccountTooltips";
 import InfoTooltip from "@/components/ui/InfoTooltip";
-import { fetchCities, fetchStates, findStateCode, matchStateName, type GeographyState } from "@/lib/geography";
+import {
+  fetchCities,
+  fetchStates,
+  findStateCode,
+  matchStateName,
+  type GeographyState,
+} from "@/lib/geography";
 import {
   defaultUsTaxIdType,
   formatUsTaxId,
@@ -38,11 +63,11 @@ import {
   isUsTaxIdType,
   usTaxIdExamples,
   usTaxIdLabels,
-  type UsTaxIdType
+  type UsTaxIdType,
 } from "@/lib/usTaxId";
 import {
   getPrimaryRegistrationRule,
-  getSecondaryRegistrationRule
+  getSecondaryRegistrationRule,
 } from "@/lib/businessAccountRegistrationRules";
 import { BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX } from "@/lib/businessAccountContactRules";
 
@@ -57,7 +82,8 @@ export function CompanyStep({
   onCompanyChange,
   onGstBillingChange,
   onValidateUniqueField,
-  onFieldBlur
+  onFieldBlur,
+  hideGstTreatmentSection = false,
 }: {
   formData: BusinessAccountFormData;
   validationErrors: Record<string, string>;
@@ -66,25 +92,46 @@ export function CompanyStep({
   fieldErrors: Partial<Record<UniqueField, string>>;
   validatingFields: Partial<Record<UniqueField, boolean>>;
   onCompanyChange: CompanyUpdater;
-  onGstBillingChange: <Key extends keyof BusinessAccountFormData["gstBilling"]>(key: Key, value: BusinessAccountFormData["gstBilling"][Key]) => void;
+  onGstBillingChange?: <Key extends keyof BusinessAccountFormData["gstBilling"]>(
+    key: Key,
+    value: BusinessAccountFormData["gstBilling"][Key],
+  ) => void;
   onValidateUniqueField: (field: UniqueField) => Promise<boolean>;
   onFieldBlur: (...keys: string[]) => void;
+  hideGstTreatmentSection?: boolean;
 }) {
   const selectedRegistrationCountry = formData.company.registrationCountry;
-  const selectedRegistrationConfig = registrationConfig[selectedRegistrationCountry];
-  const showsRegistrationField = Boolean(selectedRegistrationConfig) || selectedRegistrationCountry === "Canada";
-  const requiresSecondaryRegistration = Boolean(selectedRegistrationConfig?.secondaryLabel);
+  const selectedRegistrationConfig =
+    registrationConfig[selectedRegistrationCountry];
+  const showsRegistrationField =
+    Boolean(selectedRegistrationConfig) ||
+    selectedRegistrationCountry === "Canada";
+  const requiresSecondaryRegistration = Boolean(
+    selectedRegistrationConfig?.secondaryLabel,
+  );
   const noRegistrationChecked = Boolean(formData.company.noCompanyRegistration);
   const noCompanyChecked = Boolean(formData.company.noCompany);
-  const primaryRegistrationRule = getPrimaryRegistrationRule(selectedRegistrationCountry, formData.company.registrationIdType);
-  const secondaryRegistrationRule = getSecondaryRegistrationRule(selectedRegistrationCountry);
-  const selectedAddressCountry = formData.company.addressCountry ?? formData.company.registrationCountry;
+  const primaryRegistrationRule = getPrimaryRegistrationRule(
+    selectedRegistrationCountry,
+    formData.company.registrationIdType,
+  );
+  const secondaryRegistrationRule = getSecondaryRegistrationRule(
+    selectedRegistrationCountry,
+  );
+  const selectedAddressCountry =
+    formData.company.addressCountry ?? formData.company.registrationCountry;
   const isUnitedStates = selectedRegistrationCountry === "United States";
-  const registrationTypeOptions = registrationTypeOptionsByCountry[selectedRegistrationCountry] ?? null;
-  const selectedRegistrationType = formData.company.registrationIdType
-    || (isUnitedStates ? defaultUsTaxIdType(noCompanyChecked) : registrationTypeOptions?.[0]?.value)
-    || "";
-  const usTaxIdType: UsTaxIdType = isUsTaxIdType(selectedRegistrationType) ? selectedRegistrationType : "ein";
+  const registrationTypeOptions =
+    registrationTypeOptionsByCountry[selectedRegistrationCountry] ?? null;
+  const selectedRegistrationType =
+    formData.company.registrationIdType ||
+    (isUnitedStates
+      ? defaultUsTaxIdType(noCompanyChecked)
+      : registrationTypeOptions?.[0]?.value) ||
+    "";
+  const usTaxIdType: UsTaxIdType = isUsTaxIdType(selectedRegistrationType)
+    ? selectedRegistrationType
+    : "ein";
   // Each cache records which country or state its contents belong to, so
   // "loading" is derived from that mismatch rather than toggled in an effect-
   // no synchronous setState, and the spinner is already showing on the render
@@ -96,9 +143,12 @@ export function CompanyStep({
 
   const selectedState = formData.company.stateOrProvince;
   const selectedStateCode = findStateCode(states, selectedState);
-  const wantedCitiesKey = selectedStateCode ? `${selectedAddressCountry}:${selectedStateCode}` : "";
+  const wantedCitiesKey = selectedStateCode
+    ? `${selectedAddressCountry}:${selectedStateCode}`
+    : "";
   const loadingStates = statesCountry !== selectedAddressCountry;
-  const loadingCities = Boolean(wantedCitiesKey) && citiesKey !== wantedCitiesKey;
+  const loadingCities =
+    Boolean(wantedCitiesKey) && citiesKey !== wantedCitiesKey;
 
   useEffect(() => {
     let cancelled = false;
@@ -111,7 +161,9 @@ export function CompanyStep({
       setStatesCountry(selectedAddressCountry);
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedAddressCountry]);
 
   useEffect(() => {
@@ -119,22 +171,35 @@ export function CompanyStep({
 
     let cancelled = false;
 
-    void fetchCities(selectedAddressCountry, selectedStateCode).then((result) => {
-      if (cancelled) return;
-      setCities(result);
-      setCitiesKey(wantedCitiesKey);
-    });
+    void fetchCities(selectedAddressCountry, selectedStateCode).then(
+      (result) => {
+        if (cancelled) return;
+        setCities(result);
+        setCitiesKey(wantedCitiesKey);
+      },
+    );
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [wantedCitiesKey, selectedAddressCountry, selectedStateCode]);
 
   const stateOptions = useMemo(() => {
-    const options = states.map((state) => ({ value: state.name, label: state.name }));
+    const options = states.map((state) => ({
+      value: state.name,
+      label: state.name,
+    }));
 
     // A stored state that is not on the list (an older record, or a spelling the
     // dataset does not use) stays selectable rather than being silently dropped.
-    if (selectedState && !states.some((state) => state.name === selectedState)) {
-      return [...options, { value: selectedState, label: `${selectedState} (current)` }];
+    if (
+      selectedState &&
+      !states.some((state) => state.name === selectedState)
+    ) {
+      return [
+        ...options,
+        { value: selectedState, label: `${selectedState} (current)` },
+      ];
     }
 
     return options;
@@ -142,18 +207,27 @@ export function CompanyStep({
 
   // Only offer cities that belong to the state currently selected; a stale list
   // from the previous state would suggest places in the wrong region.
-  const cityOptions = wantedCitiesKey && citiesKey === wantedCitiesKey ? cities : [];
+  const cityOptions =
+    wantedCitiesKey && citiesKey === wantedCitiesKey ? cities : [];
 
-  const usesCompanyAddressForBilling = Boolean(formData.company.useCompanyAddressAsBillingAddress);
-  const billingAddress = formData.company.billingAddress ?? emptyBusinessAddress;
+  const usesCompanyAddressForBilling = Boolean(
+    formData.company.useCompanyAddressAsBillingAddress,
+  );
+  const billingAddress =
+    formData.company.billingAddress ?? emptyBusinessAddress;
 
   const [billingStates, setBillingStates] = useState<GeographyState[]>([]);
   const [billingStatesCountry, setBillingStatesCountry] = useState("");
   const [billingCities, setBillingCities] = useState<string[]>([]);
   const [billingCitiesKey, setBillingCitiesKey] = useState("");
 
-  const billingStateCode = findStateCode(billingStates, billingAddress.stateOrProvince);
-  const wantedBillingCitiesKey = billingStateCode ? `${billingAddress.country}:${billingStateCode}` : "";
+  const billingStateCode = findStateCode(
+    billingStates,
+    billingAddress.stateOrProvince,
+  );
+  const wantedBillingCitiesKey = billingStateCode
+    ? `${billingAddress.country}:${billingStateCode}`
+    : "";
 
   useEffect(() => {
     if (usesCompanyAddressForBilling || !billingAddress.country) return;
@@ -166,7 +240,9 @@ export function CompanyStep({
       setBillingStatesCountry(billingAddress.country);
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [usesCompanyAddressForBilling, billingAddress.country]);
 
   useEffect(() => {
@@ -174,19 +250,26 @@ export function CompanyStep({
 
     let cancelled = false;
 
-    void fetchCities(billingAddress.country, billingStateCode).then((result) => {
-      if (cancelled) return;
-      setBillingCities(result);
-      setBillingCitiesKey(wantedBillingCitiesKey);
-    });
+    void fetchCities(billingAddress.country, billingStateCode).then(
+      (result) => {
+        if (cancelled) return;
+        setBillingCities(result);
+        setBillingCitiesKey(wantedBillingCitiesKey);
+      },
+    );
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [wantedBillingCitiesKey, billingAddress.country, billingStateCode]);
 
   const billingStateOptions = useMemo(() => {
     if (billingStatesCountry !== billingAddress.country) return [];
 
-    const options = billingStates.map((state) => ({ value: state.name, label: state.name }));
+    const options = billingStates.map((state) => ({
+      value: state.name,
+      label: state.name,
+    }));
     const stored = billingAddress.stateOrProvince;
 
     if (stored && !billingStates.some((state) => state.name === stored)) {
@@ -194,9 +277,17 @@ export function CompanyStep({
     }
 
     return options;
-  }, [billingStates, billingStatesCountry, billingAddress.country, billingAddress.stateOrProvince]);
+  }, [
+    billingStates,
+    billingStatesCountry,
+    billingAddress.country,
+    billingAddress.stateOrProvince,
+  ]);
 
-  const billingCityOptions = wantedBillingCitiesKey && billingCitiesKey === wantedBillingCitiesKey ? billingCities : [];
+  const billingCityOptions =
+    wantedBillingCitiesKey && billingCitiesKey === wantedBillingCitiesKey
+      ? billingCities
+      : [];
 
   function updateBillingAddress(patch: Partial<BusinessAddress>) {
     onCompanyChange("billingAddress", { ...billingAddress, ...patch });
@@ -210,13 +301,21 @@ export function CompanyStep({
       postalCode: address.postalCode,
       stateOrProvince: matchStateName(billingStates, address.state),
       city: address.city,
-      country
+      country,
     });
 
-    onFieldBlur("billingAddressLine1", "billingPostalCode", "billingState", "billingCity");
+    onFieldBlur(
+      "billingAddressLine1",
+      "billingPostalCode",
+      "billingState",
+      "billingCity",
+    );
   }
   const gstExemptChecked = Boolean(formData.company.gstExempt);
-  const collectsGst = collectsGstin(selectedRegistrationCountry, noCompanyChecked);
+  const collectsGst = collectsGstin(
+    selectedRegistrationCountry,
+    noCompanyChecked,
+  );
   const gstinStateName = getGstinStateName(formData.company.gstin ?? "");
 
   const countryCurrencyMap: Record<string, string> = {
@@ -238,7 +337,7 @@ export function CompanyStep({
     Qatar: "QAR",
     Oman: "OMR",
     Bahrain: "BHD",
-    "New Zealand": "NZD"
+    "New Zealand": "NZD",
   };
 
   /**
@@ -251,7 +350,10 @@ export function CompanyStep({
    * does not.
    */
   function applyLookupToCompanyAddress(address: LookupAddress) {
-    onCompanyChange("registeredAddress", address.addressLine1 || formData.company.registeredAddress);
+    onCompanyChange(
+      "registeredAddress",
+      address.addressLine1 || formData.company.registeredAddress,
+    );
     onCompanyChange("postalCode", address.postalCode);
 
     const matchedState = matchStateName(states, address.state);
@@ -273,7 +375,7 @@ export function CompanyStep({
         ? "business_number"
         : country === "United States"
           ? defaultUsTaxIdType(formData.company.noCompany)
-          : nextConfig?.primaryTypeValue ?? ""
+          : (nextConfig?.primaryTypeValue ?? ""),
     );
     onCompanyChange("registrationId", "");
     onCompanyChange("secondaryRegistrationId", "");
@@ -286,12 +388,17 @@ export function CompanyStep({
     onCompanyChange("gstExemptReason", "");
     onCompanyChange("operatingCountries", [country]);
     onCompanyChange("addressCountry", country);
-    onCompanyChange("requestedCreditCurrency", countryCurrencyMap[country] ?? "INR");
+    onCompanyChange(
+      "requestedCreditCurrency",
+      countryCurrencyMap[country] ?? "INR",
+    );
   }
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-5 border border-slate-200 bg-white p-5 shadow-sm">
+    <div
+      className={`space-y-8 ${hideGstTreatmentSection ? "public-company-step" : "mt-5"}`}
+    >
+      <section className="space-y-5 border border-slate-200 bg-white p-5 rounded-xl shadow-sm">
         <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-950">
           Company registration
           <InfoTooltip text={sectionTooltips.registration} />
@@ -305,7 +412,13 @@ export function CompanyStep({
         />
 
         {showsRegistrationField ? (
-          <div className={registrationTypeOptions ? "grid gap-5 md:grid-cols-[minmax(220px,280px)_1fr]" : "grid gap-5"}>
+          <div
+            className={
+              registrationTypeOptions
+                ? "grid gap-5 md:grid-cols-[minmax(220px,280px)_1fr]"
+                : "grid gap-5"
+            }
+          >
             {registrationTypeOptions ? (
               <SearchableSelect
                 label={isUnitedStates ? "Tax ID Type" : "Registration ID Type"}
@@ -318,55 +431,96 @@ export function CompanyStep({
                 }}
                 options={registrationTypeOptions}
                 error={validationErrors.registrationIdType}
-                info={isUnitedStates
-                  ? companyTooltips.usTaxIdType
-                  : undefined}
+                info={isUnitedStates ? companyTooltips.usTaxIdType : undefined}
                 // A US account needs a taxpayer ID whether or not there is a
                 // company behind it, so neither tick disables the picker.
                 disabled={isUnitedStates ? false : noCompanyChecked}
-                required={isUnitedStates || (!noRegistrationChecked && !noCompanyChecked)}
+                required={
+                  isUnitedStates ||
+                  (!noRegistrationChecked && !noCompanyChecked)
+                }
               />
             ) : null}
 
             <Field
-              label={registrationTypeOptions
-                ? isUnitedStates
-                  ? usTaxIdLabels[usTaxIdType]
-                  : registrationTypeOptions.find((option) => option.value === selectedRegistrationType)?.label ?? "Registration ID"
-                : selectedRegistrationConfig?.primaryLabel ?? "Registration ID"}
+              label={
+                registrationTypeOptions
+                  ? isUnitedStates
+                    ? usTaxIdLabels[usTaxIdType]
+                    : (registrationTypeOptions.find(
+                        (option) => option.value === selectedRegistrationType,
+                      )?.label ?? "Registration ID")
+                  : (selectedRegistrationConfig?.primaryLabel ??
+                    "Registration ID")
+              }
               value={formData.company.registrationId}
-              onChange={(value) => onCompanyChange(
-                "registrationId",
-                // US identifiers are digits with fixed punctuation, inserted as
-                // the user types; every other country is free-form uppercase.
-                isUnitedStates
-                  ? (isMaskedUsTaxId(value) ? value : formatUsTaxId(value, usTaxIdType))
-                  : value.toUpperCase()
-              )}
+              onChange={(value) =>
+                onCompanyChange(
+                  "registrationId",
+                  // US identifiers are digits with fixed punctuation, inserted as
+                  // the user types; every other country is free-form uppercase.
+                  isUnitedStates
+                    ? isMaskedUsTaxId(value)
+                      ? value
+                      : formatUsTaxId(value, usTaxIdType)
+                    : value.toUpperCase(),
+                )
+              }
               onBlur={() => {
                 onFieldBlur("registrationId");
                 void onValidateUniqueField("registrationId");
               }}
-              error={validationErrors.registrationId || fieldErrors.registrationId}
+              error={
+                validationErrors.registrationId || fieldErrors.registrationId
+              }
               warning={fieldWarnings.registrationId}
               status={fieldStatus.registrationId}
-              placeholder={isUnitedStates ? `e.g. ${usTaxIdExamples[usTaxIdType]}` : undefined}
-              helper={validatingFields.registrationId ? "Checking registration ID..." : undefined}
-              info={primaryRegistrationRule?.info ?? selectedRegistrationConfig?.primaryInfo ?? "Enter the selected Canadian company registration number."}
-              disabled={isUnitedStates ? false : (noRegistrationChecked || noCompanyChecked)}
+              placeholder={
+                isUnitedStates
+                  ? `e.g. ${usTaxIdExamples[usTaxIdType]}`
+                  : undefined
+              }
+              helper={
+                validatingFields.registrationId
+                  ? "Checking registration ID..."
+                  : undefined
+              }
+              info={
+                primaryRegistrationRule?.info ??
+                selectedRegistrationConfig?.primaryInfo ??
+                "Enter the selected Canadian company registration number."
+              }
+              disabled={
+                isUnitedStates
+                  ? false
+                  : noRegistrationChecked || noCompanyChecked
+              }
               maxLength={primaryRegistrationRule?.maxLength}
-              required={isUnitedStates || (!noRegistrationChecked && !noCompanyChecked)}
+              required={
+                isUnitedStates || (!noRegistrationChecked && !noCompanyChecked)
+              }
             />
 
             {requiresSecondaryRegistration ? (
               <Field
-                label={selectedRegistrationConfig.secondaryLabel ?? "Additional Registration Code"}
+                label={
+                  selectedRegistrationConfig.secondaryLabel ??
+                  "Additional Registration Code"
+                }
                 value={formData.company.secondaryRegistrationId ?? ""}
-                onChange={(value) => onCompanyChange("secondaryRegistrationId", value.toUpperCase())}
+                onChange={(value) =>
+                  onCompanyChange(
+                    "secondaryRegistrationId",
+                    value.toUpperCase(),
+                  )
+                }
                 onBlur={() => onFieldBlur("secondaryRegistrationId")}
                 error={validationErrors.secondaryRegistrationId}
                 status={fieldStatus.secondaryRegistrationId}
-                info={secondaryRegistrationRule?.info ?? selectedRegistrationConfig.secondaryInfo}
+                info={
+                  secondaryRegistrationRule?.info ??
+                  selectedRegistrationConfig.secondaryInfo
+                }
                 disabled={noRegistrationChecked || noCompanyChecked}
                 maxLength={secondaryRegistrationRule?.maxLength}
                 required={!noRegistrationChecked && !noCompanyChecked}
@@ -379,50 +533,60 @@ export function CompanyStep({
             legitimate case for skipping it- and offering the tick would be a
             one-click bypass of a mandatory field. */}
         {isUnitedStates ? null : (
-        <CheckboxField
-          label="I don't have a company registration no. for this country"
-          info={companyTooltips.noCompanyRegistration}
-          checked={noRegistrationChecked}
-          onChange={(checked) => {
-            onCompanyChange("noCompanyRegistration", checked);
-            if (checked) {
-              onCompanyChange("registrationId", "");
-              onCompanyChange("secondaryRegistrationId", "");
-            }
-          }}
-        />
+          <CheckboxField
+            label="I don't have a company registration no. for this country"
+            info={companyTooltips.noCompanyRegistration}
+            checked={noRegistrationChecked}
+            onChange={(checked) => {
+              onCompanyChange("noCompanyRegistration", checked);
+              if (checked) {
+                onCompanyChange("registrationId", "");
+                onCompanyChange("secondaryRegistrationId", "");
+              }
+            }}
+          />
         )}
 
         {noRegistrationChecked ? (
           <div className="border border-yellow-300 bg-yellow-50 px-3 py-3 text-sm leading-6 text-slate-900">
-            We will not be able to process your account number creation immediately without the registration number. Please enter your company details manually and submit your request.
+            We will not be able to process your account number creation
+            immediately without the registration number. Please enter your
+            company details manually and submit your request.
           </div>
         ) : null}
       </section>
 
-      <section className="space-y-5 px-5">
-        <h2 className="flex items-center gap-1.5 text-xl font-bold text-slate-950">Company details<InfoTooltip text={sectionTooltips.companyDetails} /></h2>
-        <CheckboxField
-          label="I don't have any company"
-          info={companyTooltips.noCompany}
-          checked={noCompanyChecked}
-          onChange={(checked) => {
-            onCompanyChange("noCompany", checked);
-            if (checked) {
-              onCompanyChange("noCompanyRegistration", true);
-              onCompanyChange("registrationId", "");
-              onCompanyChange("secondaryRegistrationId", "");
-            }
+      <section className="space-y-5 px-5 bg-blue-100/50 rounded-xl py-5">
+        <h2 className="flex items-center gap-1.5 text-xl font-bold text-slate-950">
+          Company details
+          <InfoTooltip text={sectionTooltips.companyDetails} />
+        </h2>
+        <div className="rounded-xl border border-[#D6E5E7] bg-white px-4 py-3.5">
+          <CheckboxField
+            label="I don't have any company"
+            info={companyTooltips.noCompany}
+            checked={noCompanyChecked}
+            onChange={(checked) => {
+              onCompanyChange("noCompany", checked);
+              if (checked) {
+                onCompanyChange("noCompanyRegistration", true);
+                onCompanyChange("registrationId", "");
+                onCompanyChange("secondaryRegistrationId", "");
+              }
 
-            // A US account still needs a taxpayer ID either way, but which one
-            // changes: a business holds an EIN, an individual an SSN or ITIN.
-            if (isUnitedStates) {
-              onCompanyChange("registrationIdType", defaultUsTaxIdType(checked));
-              onCompanyChange("registrationId", "");
-            }
-          }}
-        />
-        <div className="grid gap-5 md:grid-cols-2">
+              // A US account still needs a taxpayer ID either way, but which one
+              // changes: a business holds an EIN, an individual an SSN or ITIN.
+              if (isUnitedStates) {
+                onCompanyChange(
+                  "registrationIdType",
+                  defaultUsTaxIdType(checked),
+                );
+                onCompanyChange("registrationId", "");
+              }
+            }}
+          />
+        </div>
+        <div className="grid gap-5 rounded-xl border border-[#D6E5E7] bg-white p-4 md:grid-cols-2">
           <Field
             label="Company Name"
             value={formData.company.companyName}
@@ -451,47 +615,59 @@ export function CompanyStep({
         </div>
 
         {collectsGst ? (
-          <div className="grid gap-4">
+          <div className="grid gap-4 rounded-xl border border-[#D6E5E7] bg-white p-4">
             <Field
               label="GSTIN"
               value={formData.company.gstin ?? ""}
-              onChange={(value) => onCompanyChange("gstin", normalizeGstin(value))}
+              onChange={(value) =>
+                onCompanyChange("gstin", normalizeGstin(value))
+              }
               onBlur={() => onFieldBlur("gstin")}
               error={validationErrors.gstin}
               warning={fieldWarnings.gstin}
               status={fieldStatus.gstin}
               placeholder={`e.g. ${GSTIN_EXAMPLE}`}
-              helper={gstinStateName ? `State code ${(formData.company.gstin ?? "").slice(0, 2)}- ${gstinStateName}` : undefined}
+              helper={
+                gstinStateName
+                  ? `State code ${(formData.company.gstin ?? "").slice(0, 2)}- ${gstinStateName}`
+                  : undefined
+              }
               info={companyTooltips.gstin}
               disabled={noCompanyChecked || gstExemptChecked}
               maxLength={GSTIN_LENGTH}
               required={!gstExemptChecked}
             />
 
-            <CheckboxField
-              label="GST Exempt / Not Registered"
-              info={companyTooltips.gstExempt}
-              checked={gstExemptChecked}
-              disabled={noCompanyChecked}
-              onChange={(checked) => {
-                onCompanyChange("gstExempt", checked);
-                // The two are mutually exclusive, so claiming exemption clears
-                // any GSTIN that was typed before the tick.
-                if (checked) onCompanyChange("gstin", "");
-                else onCompanyChange("gstExemptReason", "");
-              }}
-            />
+            <div className="rounded-lg bg-[#F8FBFB] px-3.5 py-3">
+              <CheckboxField
+                label="GST Exempt / Not Registered"
+                info={companyTooltips.gstExempt}
+                checked={gstExemptChecked}
+                disabled={noCompanyChecked}
+                onChange={(checked) => {
+                  onCompanyChange("gstExempt", checked);
+                  // The two are mutually exclusive, so claiming exemption clears
+                  // any GSTIN that was typed before the tick.
+                  if (checked) onCompanyChange("gstin", "");
+                  else onCompanyChange("gstExemptReason", "");
+                }}
+              />
+            </div>
 
             {gstExemptChecked ? (
               <div className="grid gap-4 rounded-2xl border border-yellow-300 bg-yellow-50 px-4 py-4">
                 <p className="text-sm leading-6 text-slate-900">
-                  This account will be submitted as exempt from GST registration. An administrator must approve the
-                  exemption during KYC review before the account can be approved or activated.
+                  This account will be submitted as exempt from GST
+                  registration. An administrator must approve the exemption
+                  during KYC review before the account can be approved or
+                  activated.
                 </p>
                 <Field
                   label="Reason for GST Exemption"
                   value={formData.company.gstExemptReason ?? ""}
-                  onChange={(value) => onCompanyChange("gstExemptReason", value)}
+                  onChange={(value) =>
+                    onCompanyChange("gstExemptReason", value)
+                  }
                   onBlur={() => onFieldBlur("gstExemptReason")}
                   error={validationErrors.gstExemptReason}
                   status={fieldStatus.gstExemptReason}
@@ -506,48 +682,68 @@ export function CompanyStep({
         ) : null}
       </section>
 
-      <section className="space-y-5 border-slate-200 px-5">
-        <h3 className="text-sm font-bold text-slate-950">Shipment billing</h3>
-        <div className="grid gap-5 md:grid-cols-2">
-          <FieldShell
-            label="GST treatment"
-            labelFor="gst-billing-treatment"
-            helper="No GST remains subject to administrator approval. Pending or rejected requests are billed with normal GST."
-          >
-            <select
-              id="gst-billing-treatment"
-              value={formData.gstBilling.requestedTreatment}
-              onChange={(event) => {
-                const value = event.target.value as BusinessAccountFormData["gstBilling"]["requestedTreatment"];
-                onGstBillingChange("requestedTreatment", value);
-                if (value === "GST_APPLICABLE") onGstBillingChange("requestReason", "");
-              }}
-              className="block h-14 w-full rounded-xl border border-[#EEEDED] bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#F0DE36]/35"
+      {hideGstTreatmentSection ? null : (
+        <section className="space-y-5 rounded-xl border border-slate-200 bg-amber-400/10 px-5 py-5">
+          <div>
+            <p className="text-sm leading-6 text-slate-900">
+              No GST billing is subject to administrator approval. Pending or
+              rejected requests are billed with normal GST.
+            </p>
+          </div>
+          <div className="w-full">
+            <FieldShell
+              label="GST treatment"
+              labelFor="gst-billing-treatment"
             >
-              <option value="GST_APPLICABLE">GST applicable</option>
-              <option value="NO_GST">No GST requested</option>
-            </select>
-          </FieldShell>
-          {formData.gstBilling.requestedTreatment === "NO_GST" ? (
-            <Field
-              label="Reason for no-GST billing"
-              value={formData.gstBilling.requestReason}
-              onChange={(value) => onGstBillingChange("requestReason", value)}
-              onBlur={() => onFieldBlur("gstBillingRequestReason")}
-              error={validationErrors.gstBillingRequestReason}
-              status={fieldStatus.gstBillingRequestReason}
-              maxLength={500}
-              required
-            />
-          ) : null}
-        </div>
-      </section>
+              <div className="relative">
+                <select
+                  id="gst-billing-treatment"
+                  value={formData.gstBilling.requestedTreatment}
+                  onChange={(event) => {
+                    const value = event.target
+                      .value as BusinessAccountFormData["gstBilling"]["requestedTreatment"];
+                    onGstBillingChange?.("requestedTreatment", value);
+                    if (value === "GST_APPLICABLE")
+                      onGstBillingChange?.("requestReason", "");
+                  }}
+                  className="block h-14 mb-4 w-full appearance-none rounded-xl border border-[#EEEDED] bg-white px-4 pr-11 text-sm text-slate-900 outline-none transition focus:border-[#0D1282] focus:ring-2 focus:ring-[#F0DE36]/35"
+                >
+                  <option value="GST_APPLICABLE">GST applicable</option>
+                  <option value="NO_GST">No GST requested</option>
+                </select>
+                <FiChevronDown
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#0D1282]"
+                />
+              </div>
+            </FieldShell>
+            {formData.gstBilling.requestedTreatment === "NO_GST" ? (
+              <Field
+                label="Reason for no-GST billing"
+                value={formData.gstBilling.requestReason}
+                onChange={(value) => onGstBillingChange?.("requestReason", value)}
+                onBlur={() => onFieldBlur("gstBillingRequestReason")}
+                error={validationErrors.gstBillingRequestReason}
+                status={fieldStatus.gstBillingRequestReason}
+                maxLength={500}
+                placeholder="Enter the reason for requesting no-GST billing"
+                required
+              />
+            ) : null}
+          </div>
+        </section>
+      )}
 
-      <section className="space-y-5 border-slate-200 px-5">
-        <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-950">Company address<InfoTooltip text={sectionTooltips.companyAddress} /></h3>
+      <section className="space-y-5 border-slate-200 px-5 bg-amber-100/10 py-5 rounded-xl">
+        {/* <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-950">
+          Company address
+          <InfoTooltip text={sectionTooltips.companyAddress} />
+        </h3> */}
         {selectedRegistrationCountry === "United States" ? (
           <div className="border border-yellow-300 bg-yellow-50 px-3 py-3 text-sm leading-6 text-slate-900">
-            SWIFTLINE does not open accounts at USPS, retail postal locations or PO boxes. Please provide the physical address of the company within the US. You must be age 19 or older to open an account.
+            SWIFTLINE does not open accounts at USPS, retail postal locations or
+            PO boxes. Please provide the physical address of the company within
+            the US. You must be age 19 or older to open an account.
           </div>
         ) : null}
         <div className="grid gap-5 md:grid-cols-2">
@@ -634,7 +830,7 @@ export function CompanyStep({
               onBlur={() => onFieldBlur("postalCode")}
               error={validationErrors.postalCode}
               status={fieldStatus.postalCode}
-              placeholder={getPostalCodeFormat(selectedAddressCountry)}
+              placeholder={getPostalCodePlaceholder(selectedAddressCountry)}
               info={`Expected format for ${selectedAddressCountry}: ${getPostalCodeFormat(selectedAddressCountry)}`}
               disabled={noCompanyChecked}
               required={!noCompanyChecked}
@@ -680,14 +876,20 @@ export function CompanyStep({
           info={companyTooltips.useCompanyAddressAsBillingAddress}
           checked={usesCompanyAddressForBilling}
           disabled={noCompanyChecked}
-          onChange={(checked) => onCompanyChange("useCompanyAddressAsBillingAddress", checked)}
+          onChange={(checked) =>
+            onCompanyChange("useCompanyAddressAsBillingAddress", checked)
+          }
         />
 
         {!usesCompanyAddressForBilling && !noCompanyChecked ? (
           <div className="grid gap-5 rounded-2xl border border-[#EEEDED] bg-[#EEEDED]/25 p-5 md:grid-cols-2">
             <div className="md:col-span-2">
-              <h4 className="text-sm font-bold text-slate-950">Billing address</h4>
-              <p className="mt-1 text-xs text-slate-500">Where invoices for this account are issued.</p>
+              <h4 className="text-sm font-bold text-slate-950">
+                Billing address
+              </h4>
+              <p className="mt-1 text-xs text-slate-500">
+                Where invoices for this account are issued.
+              </p>
             </div>
 
             <div className="md:col-span-2">
@@ -695,7 +897,9 @@ export function CompanyStep({
                 label="Billing Address"
                 value={billingAddress.addressLine1}
                 countryName={billingAddress.country || selectedAddressCountry}
-                onChange={(value) => updateBillingAddress({ addressLine1: value })}
+                onChange={(value) =>
+                  updateBillingAddress({ addressLine1: value })
+                }
                 onBlur={() => onFieldBlur("billingAddressLine1")}
                 onAddressSelected={applyLookupToBillingAddress}
                 error={validationErrors.billingAddressLine1}
@@ -707,7 +911,9 @@ export function CompanyStep({
               <Field
                 label="Billing Address Line 2"
                 value={billingAddress.addressLine2}
-                onChange={(value) => updateBillingAddress({ addressLine2: value })}
+                onChange={(value) =>
+                  updateBillingAddress({ addressLine2: value })
+                }
                 placeholder="Building, floor, unit or landmark"
                 maxLength={200}
               />
@@ -740,7 +946,9 @@ export function CompanyStep({
               <Field
                 label="Billing State or Province"
                 value={billingAddress.stateOrProvince}
-                onChange={(value) => updateBillingAddress({ stateOrProvince: value })}
+                onChange={(value) =>
+                  updateBillingAddress({ stateOrProvince: value })
+                }
                 onBlur={() => onFieldBlur("billingState")}
                 error={validationErrors.billingState}
                 status={fieldStatus.billingState}
@@ -754,7 +962,9 @@ export function CompanyStep({
               onBlur={() => onFieldBlur("billingPostalCode")}
               error={validationErrors.billingPostalCode}
               status={fieldStatus.billingPostalCode}
-              placeholder={getPostalCodeFormat(billingAddress.country || selectedAddressCountry)}
+              placeholder={getPostalCodePlaceholder(
+                billingAddress.country || selectedAddressCountry,
+              )}
               required
             />
             <SearchableSelect
@@ -764,7 +974,11 @@ export function CompanyStep({
                 onFieldBlur("billingCountry");
                 // A state and city from the previous country cannot be valid
                 // for the new one.
-                updateBillingAddress({ country: value, stateOrProvince: "", city: "" });
+                updateBillingAddress({
+                  country: value,
+                  stateOrProvince: "",
+                  city: "",
+                });
               }}
               options={countryOptions}
               error={validationErrors.billingCountry}
@@ -776,7 +990,10 @@ export function CompanyStep({
       </section>
 
       <section className="space-y-5 px-5">
-        <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-950">Additional information<InfoTooltip text={sectionTooltips.additionalInformation} /></h3>
+        {/* <h3 className="flex items-center gap-1.5 text-sm font-bold text-slate-950">
+          Additional information
+          <InfoTooltip text={sectionTooltips.additionalInformation} />
+        </h3> */}
         <div className="grid gap-5 md:grid-cols-2">
           <Field
             label="Company Website"
@@ -825,7 +1042,10 @@ export function CompanyStep({
               value={formData.company.requestedCreditCurrency}
               onChange={(value) => {
                 onFieldBlur("requestedCreditCurrency");
-                onCompanyChange("requestedCreditCurrency", getCurrencyCode(value));
+                onCompanyChange(
+                  "requestedCreditCurrency",
+                  getCurrencyCode(value),
+                );
               }}
               options={currencyOptions}
               error={validationErrors.requestedCreditCurrency}
@@ -834,11 +1054,13 @@ export function CompanyStep({
               required
             />
             <Field
-              label="Requested Credit Limit"
+              label="Requested Credit "
               placeholder={`Max ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}`}
               type="number"
               value={formData.company.requestedCreditLimit}
-              onChange={(value) => onCompanyChange("requestedCreditLimit", value)}
+              onChange={(value) =>
+                onCompanyChange("requestedCreditLimit", value)
+              }
               onBlur={() => onFieldBlur("requestedCreditLimit")}
               error={validationErrors.requestedCreditLimit}
               status={fieldStatus.requestedCreditLimit}

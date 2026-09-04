@@ -3,7 +3,7 @@ import Link from "next/link";
 export default function PublicFooter() {
   return (
     <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-8xl flex-col gap-3 px-4 py-5 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-12">
         <p className="leading-5">
           © {new Date().getFullYear()} Swiftline Cargo and Express Logistics Pvt Ltd. All rights reserved.
         </p>

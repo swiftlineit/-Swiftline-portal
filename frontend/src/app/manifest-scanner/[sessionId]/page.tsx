@@ -32,6 +32,8 @@ type BarcodeDetectorConstructor = {
 };
 
 const SCAN_OUTPUT_WIDTH = 960;
+const OPERATIONS_BAG_MAX_WEIGHT_KG = 32;
+const UK_OPERATIONS_BAG_MAX_PIECES = 5;
 
 /**
  * Copies exactly the camera area visible inside the yellow frame. The video is
@@ -408,15 +410,18 @@ export default function ManifestPhoneScannerPage() {
         <div className="rounded-2xl bg-white/10 px-4 py-3">
           <div className="flex items-center justify-between text-xs">
             <span className="text-white/70">{session?.activeBag?.bagNumber ?? "Awaiting first scan"}</span>
-            <strong>{session?.activeBag ? `${session.activeBag.totalWeightKg.toFixed(3)} / 31.000 kg` : "--"}</strong>
+            <strong>{session?.activeBag ? `${session.activeBag.totalWeightKg.toFixed(3)} / ${OPERATIONS_BAG_MAX_WEIGHT_KG.toFixed(3)} kg` : "--"}</strong>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15">
             <div
               className="h-full rounded-full bg-[#F0DE36] transition-all"
-              style={{ width: `${Math.min(100, ((session?.activeBag?.totalWeightKg ?? 0) / 31) * 100)}%` }}
+              style={{ width: `${Math.min(100, ((session?.activeBag?.totalWeightKg ?? 0) / OPERATIONS_BAG_MAX_WEIGHT_KG) * 100)}%` }}
             />
           </div>
-          <p className="mt-2 text-[11px] text-white/60">The server selects the fullest suitable bag and never exceeds 31 kg.</p>
+          <p className="mt-2 text-[11px] text-white/60">The server selects the fullest suitable bag and never exceeds {OPERATIONS_BAG_MAX_WEIGHT_KG} kg.</p>
+          {session?.manifest?.destinationCountryCode === "GB" ? (
+            <p className="mt-1 text-[11px] text-white/60">UK bags are also limited to {UK_OPERATIONS_BAG_MAX_PIECES} parcels.</p>
+          ) : null}
         </div>
 
         <form onSubmit={submitManual} className="flex gap-2">

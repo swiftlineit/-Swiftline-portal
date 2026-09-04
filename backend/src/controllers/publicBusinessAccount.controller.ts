@@ -111,25 +111,15 @@ const documentTypeSchema = z.enum([
   "iecCertificate"
 ]);
 type DocumentType = z.infer<typeof documentTypeSchema>;
-const gstBillingRequestSchema = z.object({
-  requestedTreatment: z.enum(["GST_APPLICABLE", "NO_GST"]).optional().default("GST_APPLICABLE"),
-  requestReason: z.string().trim().max(500).optional().default("")
-}).superRefine((value, context) => {
-  if (value.requestedTreatment === "NO_GST" && value.requestReason.length < 3) {
-    context.addIssue({ code: "custom", path: ["requestReason"], message: "Enter a reason for requesting no-GST shipment billing." });
-  }
-});
 const nullableCreditLimitSchema = z.preprocess(
   (value) => typeof value === "string" && value.trim() === "" ? null : value,
   z.coerce.number().nonnegative().max(BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX, `Requested credit limit cannot exceed ${BUSINESS_ACCOUNT_CREDIT_LIMIT_MAX}.`).nullable().optional()
 );
-const gstBillingPreferenceValues = ["GST_APPLICABLE", "NO_GST"] as const;
-
 const businessAccountBodySchema = z.object({
   contact: z.object({
     title: z.enum(["mr.", "mrs.", "ms.", "dr.", "prof."]),
-    firstName: z.string().trim().min(2).max(22),
-    lastName: z.string().trim().min(1).max(22),
+    firstName: z.string().trim().min(3, "First name must be at least 3 characters.").max(22),
+    lastName: z.string().trim().min(3, "Last name must be at least 3 characters.").max(22),
     email: z.string().trim().email().toLowerCase().refine(isValidBusinessContactEmail, emailValidationMessage),
     mobileType: z.enum(["mobile", "office"]),
     countryCode: z.string().trim().min(1).max(8),
@@ -171,8 +161,7 @@ const businessAccountBodySchema = z.object({
     monthlyShipmentVolume: z.string().trim().max(80).optional().default(""),
     requestedCreditCurrency: z.string().trim().min(3).max(3).default("INR"),
     requestedCreditLimit: nullableCreditLimitSchema
-  }),
-  gstBilling: gstBillingRequestSchema.optional()
+  })
 }).superRefine((data, context) => {
   if (!isValidPhoneForCountryCode(data.contact.countryCode, data.contact.mobileNumber)) {
     context.addIssue({ code: "custom", path: ["contact", "mobileNumber"], message: phoneValidationMessage });
@@ -300,8 +289,7 @@ function parseBusinessAccountBody(request: Request) {
   const body = request.body as Record<string, unknown>;
   const payload = {
     contact: parseJsonField(body.contact),
-    company: parseJsonField(body.company),
-    gstBilling: parseJsonField(body.gstBilling)
+    company: parseJsonField(body.company)
   };
   return businessAccountBodySchema.safeParse(payload);
 }
@@ -400,10 +388,6 @@ function buildAccountPayload(data: BusinessAccountBody, existingEncryptedRegistr
 }
 function normalGstBilling(version = 1): any {
   return { requestedTreatment: "GST_APPLICABLE", status: "NOT_REQUIRED", requestReason: "", requestedAt: null, requestedBy: null, reviewedAt: null, reviewedBy: null, decisionReason: "", effectiveFrom: null, effectiveUntil: null, version };
-}
-function initialGstBilling(request: BusinessAccountBody["gstBilling"], requestedBy: null) {
-  if (!request || request.requestedTreatment === "GST_APPLICABLE") return normalGstBilling();
-  return { ...normalGstBilling(), requestedTreatment: "NO_GST", status: "PENDING", requestReason: request.requestReason, requestedAt: new Date(), requestedBy };
 }
 function generateAccountId(): string {
   const year = new Date().getFullYear();
@@ -643,7 +627,7 @@ export async function createPublicBusinessAccount(request: Request, response: Re
       status: "pending_review",
       origin: "PUBLIC",
       ...buildAccountPayload(parsed.data),
-      gstBilling: initialGstBilling(parsed.data.gstBilling, null),
+      gstBilling: normalGstBilling(),
       documents,
       kycReview: applyDerivedKycStatus({ documents, company: parsed.data.company }),
       createdBy: null,

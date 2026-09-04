@@ -308,6 +308,19 @@ describe("operations manifest safeguards", () => {
     assert.deepEqual(dataRows.map((row) => row.bag), ["SLC00101", "SLC00102", "SLC00101"]);
   });
 
+  it("expands the Excel description row for wrapped contents", async () => {
+    const manifest = sealedManifest();
+    const snapshot = manifest.sealedSnapshot as Record<string, unknown>;
+    const consignments = snapshot.consignments as Array<Record<string, unknown>>;
+    consignments[0]!.description = "RAKHI, CHOCOLATE, DOODH, DAHI, LASSI, PANEER, KHOYA, CHEENI, CHAIPATTI, TISSUE, DYES, TOOTHPASTE, LEMONS, TEA, LOCKS";
+
+    const sheet = await manifestSheetRows(manifest);
+    const descriptionCell = sheet.getCell(15, 7);
+
+    assert.equal(descriptionCell.value, consignments[0]!.description);
+    assert.ok((sheet.getRow(15).height ?? 0) > 26, "the description row must grow with wrapped content");
+  });
+
   it("ends every parcel block on an empty line instead of a separator row", async () => {
     const sheet = await manifestSheetRows(sealedMultiParcelManifest());
     const serialRowNumbers: number[] = [];
@@ -339,7 +352,7 @@ describe("operations manifest safeguards", () => {
         { parcelNumber: "P02", weightKg: 20 }
       ]
     }];
-    // A 40 kg shipment cannot fit one 31 kg bag, but each 20 kg parcel fits its own.
+    // A 40 kg shipment cannot fit one 32 kg bag, but each 20 kg parcel fits its own.
     const composition = summarizeBagComposition([
       { bagId: bagOne, parcelNumber: "P01", consignmentId },
       { bagId: bagTwo, parcelNumber: "P02", consignmentId }
@@ -360,7 +373,7 @@ describe("operations manifest safeguards", () => {
     // The parcel itself fits a bag, so it is packed rather than rejected.
     assert.equal(isOperationsBagWeightAllowed(parcelWeightKg), true);
     // Only a parcel heavier than a whole bag can never be packed.
-    assert.equal(isOperationsBagWeightAllowed(31.5), false);
+    assert.equal(isOperationsBagWeightAllowed(32.5), false);
   });
 
   it("automatically packs 10, 10, 20, 10 kg as Bag 01, 01, 02, 01", () => {
@@ -436,8 +449,8 @@ describe("operations manifest safeguards", () => {
     assert.equal(calculateScannedParcelWeight({ scannedParcelNumbers: ["P01"], parcelWeightSnapshots: parcelWeights }), 5);
     assert.equal(calculateScannedParcelWeight({ scannedParcelNumbers: ["P01", "P02"], parcelWeightSnapshots: parcelWeights }), 10);
 
-    assert.equal(isOperationsBagWeightAllowed(31), true);
-    assert.equal(isOperationsBagWeightAllowed(31.001), false);
+    assert.equal(isOperationsBagWeightAllowed(32), true);
+    assert.equal(isOperationsBagWeightAllowed(32.001), false);
   });
 
   it("marks the counter update as an aggregation pipeline", async () => {

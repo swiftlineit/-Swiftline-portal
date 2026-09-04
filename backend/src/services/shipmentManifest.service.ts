@@ -338,6 +338,48 @@ const manifestBorder: Partial<ExcelJS.Borders> = {
   right: { style: "thin", color: { argb: manifestColours.border } }
 };
 
+// ExcelJS enables wrapping but does not calculate the row height that Excel
+// needs to display the wrapped value. Keep these widths in sync with the
+// worksheet columns so long first-row descriptions get enough vertical space.
+const manifestColumnWidths = [7, 25, 9, 13, 44, 44, 32, 14, 11, 14, 14];
+
+function wrappedManifestLineCount(value: unknown, width: number) {
+  return String(value ?? "").split(/\r?\n/).reduce<number>((total, line) => {
+    const words = line.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return total + 1;
+
+    let lines = 1;
+    let currentLength = 0;
+    for (const word of words) {
+      if (word.length > width) {
+        lines += Math.ceil(word.length / width) - (currentLength ? 0 : 1);
+        currentLength = word.length % width;
+        continue;
+      }
+      if (currentLength && currentLength + word.length + 1 > width) {
+        lines += 1;
+        currentLength = word.length;
+      } else {
+        currentLength += (currentLength ? 1 : 0) + word.length;
+      }
+    }
+    return total + lines;
+  }, 0);
+}
+
+function manifestBodyRowHeight(values: unknown[], minimum: number) {
+  const wrappedLines = values.reduce<number>(
+    (tallest, value, index) => Math.max(
+      tallest,
+      wrappedManifestLineCount(value, manifestColumnWidths[index] ?? 10),
+    ),
+    1,
+  );
+  // 18 points matches the existing address-row rhythm, with a small amount of
+  // breathing room so the last wrapped line is not clipped by Excel.
+  return Math.max(minimum, wrappedLines * 18 + 4);
+}
+
 function solidFill(argb: string): ExcelJS.Fill {
   return { type: "pattern", pattern: "solid", fgColor: { argb } };
 }
@@ -547,9 +589,8 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
 
     for (let offset = 0; offset < blockSize; offset += 1) {
       const row = worksheet.addRow([]);
-      row.height = offset === 0 ? 26 : 18;
       if (offset === 0) {
-        row.values = [
+        const values: Array<string | number> = [
           index + 1,
           formatManifestConsignmentNumber(line.consignmentNumber),
           line.pieces,
@@ -562,9 +603,12 @@ export async function buildShipmentManifestWorkbook(manifest: IShipmentManifest)
           line.bagNumber,
           line.serviceInfo
         ];
+        row.values = values;
+        row.height = manifestBodyRowHeight(values, 26);
       } else {
         row.getCell(5).value = consignorLines[offset] ?? "";
         row.getCell(6).value = consigneeLines[offset] ?? "";
+        row.height = 18;
       }
 
       for (let column = 1; column <= 11; column += 1) {

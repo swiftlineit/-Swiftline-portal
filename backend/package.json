@@ -101,7 +101,7 @@
     "test:address-book": "tsx --test src/tests/addressBookImport.test.ts src/tests/addressBook.test.ts",
     "test:document-centre": "tsx --test src/tests/clientDocumentCentre.test.ts",
     "test:support-tickets": "tsx --test src/tests/supportTicket.integration.test.ts",
-    "test:operations-manifests": "tsx --test src/tests/operationsManifest.test.ts",
+    "test:operations-manifests": "tsx --test src/tests/operationsManifest.test.ts src/tests/operationsManifestUk.test.ts",
     "test:profile": "tsx --test src/tests/profileValidation.test.ts",
     "test:profile:password": "tsx --test src/tests/profilePassword.integration.test.ts",
     "test:prepaid:daily-limit": "tsx --test src/tests/dailyTopUpLimit.integration.test.ts",

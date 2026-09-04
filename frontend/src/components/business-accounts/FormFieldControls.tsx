@@ -267,7 +267,8 @@ export function FieldShell({
   error,
   warning,
   helper,
-  children
+  hideLabel = false,
+  children,
 }: {
   label: string;
   labelFor?: string;
@@ -278,11 +279,18 @@ export function FieldShell({
   // showing, so the field never carries two competing messages.
   warning?: string;
   helper?: string;
+  hideLabel?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="block min-w-0">
-      <span className="mb-1.5 flex items-center gap-1.5">
+    <div data-field-shell className="block min-w-0">
+      <span
+        className={
+          hideLabel
+            ? "sr-only"
+            : "mb-1.5 flex items-center gap-1.5"
+        }
+      >
         <label htmlFor={labelFor} className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           {label}
           {required ? <span className="ml-0.5 text-[#D71313]">*</span> : null}
@@ -290,14 +298,16 @@ export function FieldShell({
         {info ? <InfoTooltip text={info} /> : null}
       </span>
       {children}
-      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
+      {error ? <p className="mt-3  text-xs font-semibold text-[#D71313]">{error}</p> : null}
       {!error && warning ? (
         <p className="mt-1 flex items-start gap-1.5 text-xs font-semibold text-amber-700">
           <FiAlertTriangle aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{warning}</span>
         </p>
       ) : null}
-      {!error && !warning && helper ? <p className="mt-1 text-xs font-medium text-slate-500">{helper}</p> : null}
+      {!hideLabel && !error && !warning && helper ? (
+        <p className="mt-1 text-xs font-medium text-slate-500">{helper}</p>
+      ) : null}
     </div>
   );
 }
@@ -327,7 +337,8 @@ export function Field({
   info,
   disabled = false,
   required = false,
-  status = "idle"
+  status = "idle",
+  hideLabel = false,
 }: {
   label: string;
   value: string;
@@ -344,14 +355,16 @@ export function Field({
   disabled?: boolean;
   required?: boolean;
   status?: FieldStatus;
+  hideLabel?: boolean;
 }) {
   const inputId = useId();
   const inputPlaceholder = placeholder ?? label;
   const fieldStatus: FieldStatus = error ? "invalid" : status;
   const showsStatusIcon = fieldStatus !== "idle";
+  const inputCaseClass = type === "email" ? "" : "uppercase [&::placeholder]:normal-case";
 
   return (
-    <FieldShell label={label} labelFor={inputId} required={required} info={info} error={error} warning={warning} helper={helper}>
+    <FieldShell label={label} labelFor={inputId} required={required} info={info} error={error} warning={warning} helper={helper} hideLabel={hideLabel}>
       <span className="relative block">
         <input
           id={inputId}
@@ -365,7 +378,7 @@ export function Field({
           disabled={disabled}
           placeholder={inputPlaceholder}
           aria-invalid={fieldStatus === "invalid"}
-          className={`block h-14 w-full rounded-xl border bg-white py-0 pl-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
+          className={`block h-14 w-full rounded-xl border bg-white py-0 pl-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${inputCaseClass} ${
             showsStatusIcon ? "pr-11" : "pr-3"
           } ${controlBorderClasses(fieldStatus)}`}
         />
@@ -530,7 +543,7 @@ export function CountryRegistrationSelect({
         </div>
       ) : null}
 
-      {error ? <p className="mt-1 text-xs font-semibold text-[#D71313]">{error}</p> : null}
+      {error ? <p className="mt-3  text-xs font-semibold text-[#D71313]">{error}</p> : null}
     </div>
   );
 }
@@ -905,7 +918,7 @@ export function ComboBoxField({
           onFocus={() => setOpen(true)}
           onBlur={onBlur}
           onKeyDown={handleKeyDown}
-          className={`block h-14 w-full rounded-xl border bg-white py-0 pl-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 ${
+          className={`block h-14 w-full rounded-xl border bg-white py-0 pl-4 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:ring-2 disabled:cursor-not-allowed disabled:bg-[#EEEDED]/60 disabled:text-slate-500 uppercase [&::placeholder]:normal-case ${
             showsStatusIcon ? "pr-11" : "pr-3"
           } ${controlBorderClasses(fieldStatus)}`}
         />
@@ -1231,7 +1244,7 @@ export function DocumentInput({
             </span>
             <span className="mt-1 text-sm text-slate-500">Choose one PDF or image document.</span>
           </label>
-          {error ? <p className="mt-2 text-xs font-semibold text-[#D71313]">{error}</p> : null}
+          {error ? <p className="mt-3 text-xs font-semibold text-[#D71313]">{error}</p> : null}
           <input
             ref={fileInputRef}
             id={inputId}
@@ -1381,7 +1394,7 @@ export function ReviewSection({
               <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#0D1282]/55">
                 {label}
               </dt>
-              <dd className="mt-2 wrap-break-words text-sm font-semibold leading-6 text-slate-800">
+              <dd className={`mt-2 wrap-break-words text-sm font-semibold leading-6 text-slate-800 ${label.toLowerCase() === "email" ? "" : "uppercase"}`}>
                 {value || "Not provided"}
               </dd>
             </div>

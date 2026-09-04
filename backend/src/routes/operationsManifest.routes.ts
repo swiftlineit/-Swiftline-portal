@@ -37,4 +37,5 @@ operationsManifestRouter.post("/:manifestId/cancel", controller.cancelManifest);
 operationsManifestRouter.get("/:manifestId/export.xlsx", controller.exportExcel);
 operationsManifestRouter.get("/:manifestId/export.pdf", controller.exportPdf);
 operationsManifestRouter.get("/:manifestId/export-edi.xlsx", controller.exportEdi);
+operationsManifestRouter.get("/:manifestId/export-uk.xlsx", controller.exportUk);
 operationsManifestRouter.delete("/:manifestId", controller.deleteManifest);

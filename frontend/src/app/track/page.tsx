@@ -7,16 +7,16 @@ import { siteUrl } from "@/lib/siteUrl";
  * the design can be edited in one place without touching routing or metadata.
  */
 export const metadata: Metadata = {
-  title: "Track a Swiftline Cargo shipment",
+  title: "Track Shipment Online | Swiftline Cargo",
   description:
-    "Track your Swiftline Cargo shipment with the AWB number printed on your label. "
-    + "Live status, customs progress and estimated delivery - no sign-in needed.",
+    "Track a Swiftline Cargo or SLC shipment online with the AWB number printed on your label. "
+    + "See live status, customs progress and estimated delivery without signing in.",
   alternates: { canonical: "/track" },
   robots: { index: true, follow: true },
   openGraph: {
-    title: "Track a Swiftline Cargo shipment",
+    title: "Track Shipment Online | Swiftline Cargo",
     description:
-      "Enter your Swiftline tracking number to see where your parcel is and when it should arrive.",
+      "Enter your Swiftline or SLC tracking number to see shipment status and estimated delivery.",
     url: siteUrl("/track"),
     siteName: "Swiftline Cargo",
     type: "website"

@@ -237,8 +237,15 @@ export function formatOperationsBagNumber(manifestNumber: string, bagSequence: n
   return `${manifestNumber}${String(bagSequence).padStart(2, "0")}`;
 }
 
+export const OPERATIONS_BAG_MAX_WEIGHT_KG = 32;
+export const UK_OPERATIONS_BAG_MAX_PIECES = 5;
+
 export function isOperationsBagWeightAllowed(weightKg: number) {
-  return roundWeight(weightKg) <= 31;
+  return roundWeight(weightKg) <= OPERATIONS_BAG_MAX_WEIGHT_KG;
+}
+
+export function isUkOperationsManifest(header: { destinationCountryCode?: string }) {
+  return String(header.destinationCountryCode ?? "").trim().toUpperCase() === "GB";
 }
 
 export type OperationsBagAllocationCandidate = {
@@ -246,6 +253,7 @@ export type OperationsBagAllocationCandidate = {
   sequence: number;
   status: string;
   totalWeightKg: number;
+  totalPhysicalParcels?: number;
   containsConsignment?: boolean;
 };
 
@@ -256,11 +264,14 @@ export type OperationsBagAllocationCandidate = {
  */
 export function chooseOperationsBagForParcel(
   bags: OperationsBagAllocationCandidate[],
-  incomingWeightKg: number
+  incomingWeightKg: number,
+  options: { maxPhysicalParcels?: number } = {}
 ) {
   return bags
     .filter((bag) => ["OPEN", "REOPENED"].includes(bag.status))
     .filter((bag) => isOperationsBagWeightAllowed(roundWeight(bag.totalWeightKg + incomingWeightKg)))
+    .filter((bag) => options.maxPhysicalParcels == null
+      || (bag.totalPhysicalParcels ?? 0) < options.maxPhysicalParcels)
     .sort((left, right) =>
       Number(Boolean(right.containsConsignment)) - Number(Boolean(left.containsConsignment))
       || right.totalWeightKg - left.totalWeightKg
@@ -760,7 +771,7 @@ export async function scanOperationsParcel(input: {
       scanRequestId,
       userId: input.userId,
       ...scanMetadata,
-      message: `This parcel weighs ${incomingWeightKg.toFixed(3)} kg and cannot fit inside a 31 kg bag.`
+      message: `This parcel weighs ${incomingWeightKg.toFixed(3)} kg and cannot fit inside a ${OPERATIONS_BAG_MAX_WEIGHT_KG} kg bag.`
     });
   }
   const declaredValueFromSnapshot = snapshotDeclaredGoodsValueMinor(snapshot);
@@ -800,8 +811,13 @@ export async function scanOperationsParcel(input: {
             sequence: candidate.sequence,
             status: candidate.status,
             totalWeightKg: candidate.totalWeightKg,
+            totalPhysicalParcels: candidate.totalPhysicalParcels,
             containsConsignment: existingConsignmentBagIds.has(String(candidate._id))
-          })), incomingWeightKg);
+          })), incomingWeightKg, {
+            maxPhysicalParcels: isUkOperationsManifest(lockedManifest.header)
+              ? UK_OPERATIONS_BAG_MAX_PIECES
+              : undefined
+          });
           const openedBag = !selected;
           const packedBag = selected
             ? openBags.find((candidate) => String(candidate._id) === selected.id) ?? null
@@ -1079,7 +1095,11 @@ export async function moveOperationsConsignment(input: {
   const weightByParcel = new Map(consignment.parcelWeightSnapshots.map((parcel) => [parcel.parcelNumber, parcel.weightKg]));
   const relocatingWeightKg = roundWeight(relocatingScans.reduce((sum, scan) => sum + (weightByParcel.get(scan.parcelNumber) ?? 0), 0));
   if (!isOperationsBagWeightAllowed(roundWeight(target.totalWeightKg + relocatingWeightKg))) {
-    throw new OperationsManifestServiceError(`${target.bagNumber} cannot take another ${relocatingWeightKg.toFixed(3)} kg without passing the 31 kg limit.`, 409);
+    throw new OperationsManifestServiceError(`${target.bagNumber} cannot take another ${relocatingWeightKg.toFixed(3)} kg without passing the ${OPERATIONS_BAG_MAX_WEIGHT_KG} kg limit.`, 409);
+  }
+  if (isUkOperationsManifest(manifest.header)
+    && target.totalPhysicalParcels + relocatingScans.length > UK_OPERATIONS_BAG_MAX_PIECES) {
+    throw new OperationsManifestServiceError(`${target.bagNumber} cannot contain more than ${UK_OPERATIONS_BAG_MAX_PIECES} parcels for a UK manifest.`, 409);
   }
 
   consignment.bagId = target._id as mongoose.Types.ObjectId;
@@ -1138,7 +1158,7 @@ export async function cancelOperationsBag(manifestIdValue: string, bagIdValue: s
   }
 }
 
-function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: string; totalWeightKg?: number }>, consignments: Array<{ status: string; scannedParcelNumbers?: string[]; parcelWeightSnapshots?: ParcelValueSnapshot[] }>) {
+function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: string; totalWeightKg?: number; totalPhysicalParcels?: number }>, consignments: Array<{ status: string; scannedParcelNumbers?: string[]; parcelWeightSnapshots?: ParcelValueSnapshot[] }>) {
   const issues: string[] = [];
   const header = manifest.header;
   if (!header.destinationAgent) issues.push("Destination agent details are required.");
@@ -1151,7 +1171,13 @@ function sealingIssues(manifest: IOperationsManifest, bags: Array<{ status: stri
   if (!header.valueType) issues.push("Value type is required.");
   if (!bags.length) issues.push("Create and close at least one bag.");
   if (bags.some((bag) => bag.status !== "CLOSED")) issues.push("Every active bag must be closed.");
-  if (bags.some((bag) => !isOperationsBagWeightAllowed(bag.totalWeightKg ?? 0))) issues.push("Every bag must remain within the 31 kg maximum weight.");
+  if (bags.some((bag) => !isOperationsBagWeightAllowed(bag.totalWeightKg ?? 0))) {
+    issues.push(`Every bag must remain within the ${OPERATIONS_BAG_MAX_WEIGHT_KG} kg maximum weight.`);
+  }
+  if (isUkOperationsManifest(header)
+    && bags.some((bag) => (bag.totalPhysicalParcels ?? 0) > UK_OPERATIONS_BAG_MAX_PIECES)) {
+    issues.push(`Every UK bag must contain no more than ${UK_OPERATIONS_BAG_MAX_PIECES} parcels.`);
+  }
   if (!consignments.length) issues.push("Scan at least one consignment.");
   // A part-scanned consignment is a real outcome: a box can be held back or returned
   // before the flight. The manifest records what was actually packed, so the scanned

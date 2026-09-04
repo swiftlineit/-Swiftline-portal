@@ -169,6 +169,13 @@ function check(required: boolean, value: string, requiredMessage: string, format
   return { required, filled, error: formatError };
 }
 
+function getContactNameError(label: string, value: string) {
+  const length = value.trim().length;
+  if (length < 3) return `${label} must be at least 3 characters.`;
+  if (length > 22) return `${label} must be 22 characters or less.`;
+  return "";
+}
+
 export function validateBusinessAccountForm(formData: BusinessAccountFormData): BusinessAccountValidation {
   const { contact, company } = formData;
   const noCompany = Boolean(company.noCompany);
@@ -247,13 +254,13 @@ export function validateBusinessAccountForm(formData: BusinessAccountFormData): 
       true,
       contact.firstName,
       "First name is required.",
-      contact.firstName.trim().length > 22 ? "First name must be 22 characters or less." : ""
+      getContactNameError("First name", contact.firstName)
     ),
     lastName: check(
       true,
       contact.lastName,
       "Last name is required.",
-      contact.lastName.trim().length > 22 ? "Last name must be 22 characters or less." : ""
+      getContactNameError("Last name", contact.lastName)
     ),
     email: check(
       true,

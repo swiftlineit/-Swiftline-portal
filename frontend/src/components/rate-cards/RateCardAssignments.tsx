@@ -6,6 +6,7 @@ import {
   listRateCardAssignmentAccounts,
   type RateCardAssignmentAccount,
 } from "@/lib/countryRateCards";
+import { FiChevronDown } from "react-icons/fi";
 
 export default function RateCardAssignments() {
   const [accounts, setAccounts] = useState<RateCardAssignmentAccount[]>([]);
@@ -33,17 +34,35 @@ export default function RateCardAssignments() {
           <h2 className="text-base font-bold text-[#0D1282]">Business Account Assignments</h2>
           <p className="mt-1 text-sm text-slate-600">Finance and operations can change only accounts in their assigned branches; administrators can manage all branches.</p>
         </div>
-        <label className="min-w-72">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Business account</span>
-          <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-[#0D1282]">
-            {!accounts.length ? <option value="">No branch accounts available</option> : null}
-            {accounts.map((account) => (
-              <option key={account._id} value={account._id}>
-                {account.company.companyName || account.accountId} - {account.accountId}
-              </option>
-            ))}
-          </select>
-        </label>
+    <label className="min-w-72">
+  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+    Business account
+  </span>
+
+  <div className="relative mt-2">
+    <select
+      value={selectedId}
+      onChange={(event) => setSelectedId(event.target.value)}
+      className="h-11 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm font-semibold text-slate-900 outline-none focus:border-[#0D1282]"
+    >
+      {!accounts.length ? (
+        <option value="">No branch accounts available</option>
+      ) : null}
+
+      {accounts.map((account) => (
+        <option key={account._id} value={account._id}>
+          {account.company.companyName || account.accountId} -{" "}
+          {account.accountId}
+        </option>
+      ))}
+    </select>
+
+    <FiChevronDown
+      aria-hidden="true"
+      className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+    />
+  </div>
+</label>
       </div>
       {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
       {selected ? (

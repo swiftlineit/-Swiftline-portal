@@ -1,5 +1,5 @@
 import { apiUrl } from "@/lib/api";
-import type { BusinessAccount, BusinessAccountFormData, BusinessAccountFiles, DocumentType } from "@/lib/businessAccounts";
+import type { BusinessAccount, BusinessAccountFormData, BusinessAccountFiles } from "@/lib/businessAccounts";
 
 function findFirstApiError(value: unknown): string {
   if (!value || typeof value !== "object") return "";
@@ -64,7 +64,6 @@ function appendPayload(formData: FormData, data: BusinessAccountFormData, files:
     requestedCreditLimit: requestedCreditLimit ? Number(requestedCreditLimit) : null,
     website: data.company.website ?? ""
   }));
-  formData.append("gstBilling", JSON.stringify(data.gstBilling));
   formData.append("verificationToken", verificationToken);
   if (recaptchaToken) formData.append("recaptchaToken", recaptchaToken);
   for (const [key, file] of Object.entries(files)) {

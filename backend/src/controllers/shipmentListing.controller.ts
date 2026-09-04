@@ -12,6 +12,10 @@ import {
   listBookedShipments,
   summarizeBookedShipments
 } from "../services/shipmentListing.service.js";
+import {
+  normalizeShipmentDestinationRegions,
+  type ShipmentDestinationRegionCode
+} from "../services/shipmentDestinationRegions.js";
 import { dateRangeParams } from "../utils/dateRangeFilter.js";
 import { shipmentExportColumns } from "../services/export/exportColumns.js";
 import {
@@ -32,6 +36,16 @@ function getUserId(request: Request) {
 function objectIdParam(request: Request, key: string) {
   const value = typeof request.query[key] === "string" ? request.query[key] : "";
   return value && mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : null;
+}
+
+function destinationRegionsParam(request: Request): ShipmentDestinationRegionCode[] {
+  const raw = request.query.destinationRegions;
+  const values = Array.isArray(raw)
+    ? raw.flatMap((value) => String(value).split(","))
+    : typeof raw === "string"
+      ? raw.split(",")
+      : [];
+  return normalizeShipmentDestinationRegions(values);
 }
 
 function pagination(request: Request) {
@@ -83,6 +97,7 @@ export async function listAdminBookedShipments(request: Request, response: Respo
     rebookedOnly: request.query.rebooked === "1" || request.query.rebooked === "true",
     search: typeof request.query.search === "string" ? request.query.search.slice(0, 80) : "",
     sort: typeof request.query.sort === "string" ? request.query.sort : "",
+    destinationRegions: destinationRegionsParam(request),
     ...dateRangeParams(request.query),
     businessAccountIds: businessAccountId ? [businessAccountId] : undefined,
     branchIds: branchId ? [branchId] : undefined,

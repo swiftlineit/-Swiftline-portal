@@ -24,6 +24,10 @@ import {
   sealOperationsManifest,
   updateOperationsManifest
 } from "../services/operationsManifest.service.js";
+import {
+  buildOperationsManifestUkExcel,
+  ukOperationsManifestFilename
+} from "../services/operationsManifestUk.service.js";
 import { operationsBranchIds, operationsUser } from "../middleware/operationsBranchAccess.middleware.js";
 import {
   assertCameraScanSession,
@@ -241,7 +245,8 @@ const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreads
 const exportFormats = {
   xlsx: { build: buildOperationsManifestExcel, contentType: XLSX_CONTENT_TYPE, filename: (number: string) => `ops-manifest-${number}.xlsx` },
   pdf: { build: buildOperationsManifestPdf, contentType: "application/pdf", filename: (number: string) => `ops-manifest-${number}.pdf` },
-  edi: { build: buildOperationsManifestEdi, contentType: XLSX_CONTENT_TYPE, filename: (number: string) => `edi-${number}.xlsx` }
+  edi: { build: buildOperationsManifestEdi, contentType: XLSX_CONTENT_TYPE, filename: (number: string) => `edi-${number}.xlsx` },
+  uk: { build: buildOperationsManifestUkExcel, contentType: XLSX_CONTENT_TYPE, filename: ukOperationsManifestFilename }
 } as const;
 
 async function download(request: Request, response: Response, format: keyof typeof exportFormats) {
@@ -260,3 +265,4 @@ async function download(request: Request, response: Response, format: keyof type
 export const exportExcel = (request: Request, response: Response) => download(request, response, "xlsx");
 export const exportPdf = (request: Request, response: Response) => download(request, response, "pdf");
 export const exportEdi = (request: Request, response: Response) => download(request, response, "edi");
+export const exportUk = (request: Request, response: Response) => download(request, response, "uk");

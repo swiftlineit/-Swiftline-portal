@@ -2,6 +2,7 @@ import { apiUrl } from "@/lib/api";
 import { setDateRangeParams, type DateRange } from "@/lib/dateRange";
 import { getAccessToken, readJsonSafely, refreshAccessToken } from "@/lib/auth";
 import type { CsbType } from "@/lib/csbType";
+import type { ShipmentDestinationRegionCode } from "@/lib/shipmentDestinationRegions";
 
 export type ShipmentAudience = "admin" | "client";
 
@@ -169,6 +170,7 @@ export function shipmentListParams(input: {
   businessAccountId?: string;
   branchId?: string;
   sort?: string;
+  destinationRegions?: ShipmentDestinationRegionCode[];
 } = {}) {
   const params = new URLSearchParams();
   params.set("page", String(input.page ?? 1));
@@ -182,6 +184,7 @@ export function shipmentListParams(input: {
   if (input.businessAccountId) params.set("businessAccountId", input.businessAccountId);
   if (input.branchId) params.set("branchId", input.branchId);
   if (input.sort) params.set("sort", input.sort);
+  if (input.destinationRegions?.length) params.set("destinationRegions", input.destinationRegions.join(","));
   return params;
 }
 
@@ -199,6 +202,8 @@ export async function listShipments(audience: ShipmentAudience, input: {
   branchId?: string;
   /** `field:asc|desc`, limited to the columns the server can order by. */
   sort?: string;
+  /** Staff-only destination groups. */
+  destinationRegions?: ShipmentDestinationRegionCode[];
 } = {}) {
   const params = shipmentListParams(input);
   const base = shipmentListPath(audience);

@@ -152,8 +152,8 @@ const gstBillingReviewBodySchema = z.object({
 const businessAccountBodySchema = z.object({
   contact: z.object({
     title: z.enum(["mr.", "mrs.", "ms.", "dr.", "prof."]),
-    firstName: z.string().trim().min(2).max(22),
-    lastName: z.string().trim().min(1).max(22),
+    firstName: z.string().trim().min(3, "First name must be at least 3 characters.").max(22),
+    lastName: z.string().trim().min(3, "Last name must be at least 3 characters.").max(22),
     email: z.string().trim().email().toLowerCase().refine(isValidBusinessContactEmail, emailValidationMessage),
     mobileType: z.enum(["mobile", "office"]),
     countryCode: z.string().trim().min(1).max(8),
@@ -564,8 +564,8 @@ function parseJsonField(value: unknown): unknown {
 const businessAccountDraftBodySchema = z.object({
   contact: z.object({
     title: z.enum(["mr.", "mrs.", "ms.", "dr.", "prof."]).or(z.literal("")).optional().default(""),
-    firstName: z.string().trim().min(2).max(22),
-    lastName: z.string().trim().min(1).max(22),
+    firstName: z.string().trim().min(3, "First name must be at least 3 characters.").max(22),
+    lastName: z.string().trim().min(3, "Last name must be at least 3 characters.").max(22),
     email: z.string().trim().email().toLowerCase().refine(isValidBusinessContactEmail, emailValidationMessage),
     mobileType: z.enum(["mobile", "office"]).optional().default("mobile"),
     countryCode: z.string().trim().min(1).max(8),

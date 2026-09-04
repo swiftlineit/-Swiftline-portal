@@ -348,7 +348,7 @@ export const removeOperationsScan = (
 // The EDI export lives at its own path; xlsx and pdf share the export.<format> route.
 // `fileName` builds the download name from the manifest number.
 const manifestExportPaths: Record<
-  "xlsx" | "pdf" | "edi",
+  "xlsx" | "pdf" | "edi" | "uk",
   { path: string; fileName: (manifestNumber: string) => string }
 > = {
   xlsx: {
@@ -360,11 +360,15 @@ const manifestExportPaths: Record<
     fileName: (number) => `ops-manifest-${number}.pdf`,
   },
   edi: { path: "export-edi.xlsx", fileName: (number) => `edi-${number}.xlsx` },
+  uk: {
+    path: "export-uk.xlsx",
+    fileName: (number) => `${number.toUpperCase()}UKmanifest.xlsx`,
+  },
 };
 
 export async function downloadOperationsManifest(
   id: string,
-  format: "xlsx" | "pdf" | "edi",
+  format: "xlsx" | "pdf" | "edi" | "uk",
   view = false,
   manifestNumber = "",
 ) {

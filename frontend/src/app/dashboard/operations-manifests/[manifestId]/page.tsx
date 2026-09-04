@@ -42,6 +42,8 @@ import { IoMdSend } from "react-icons/io";
 
 const isEditable = (status?: string) =>
   ["DRAFT", "PACKING", "READY_TO_SEAL"].includes(status ?? "");
+const OPERATIONS_BAG_MAX_WEIGHT_KG = 32;
+const UK_OPERATIONS_BAG_MAX_PIECES = 5;
 const formatMoney = (minor?: number | null) =>
   typeof minor === "number"
     ? new Intl.NumberFormat("en-IN", {
@@ -264,7 +266,7 @@ export default function OperationsManifestWorkspace() {
     }
   }
 
-  async function exportFile(format: "xlsx" | "pdf" | "edi", view = false) {
+  async function exportFile(format: "xlsx" | "pdf" | "edi" | "uk", view = false) {
     try {
       await downloadOperationsManifest(
         manifestId,
@@ -499,14 +501,14 @@ export default function OperationsManifestWorkspace() {
                     </h2>
                   </div>
                   <span className="text-sm font-semibold text-slate-600">
-                    {activeBag?.totalWeightKg.toFixed(3) ?? "0.000"} / 31.000 kg
+                    {activeBag?.totalWeightKg.toFixed(3) ?? "0.000"} / {OPERATIONS_BAG_MAX_WEIGHT_KG.toFixed(3)} kg
                   </span>
                 </div>
                 <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-[#EEEDED]">
                   <div
                     className="h-full rounded-full bg-[#F0DE36] transition-all"
                     style={{
-                      width: `${Math.min(100, ((activeBag?.totalWeightKg ?? 0) / 31) * 100)}%`,
+                      width: `${Math.min(100, ((activeBag?.totalWeightKg ?? 0) / OPERATIONS_BAG_MAX_WEIGHT_KG) * 100)}%`,
                     }}
                   />
                 </div>
@@ -530,6 +532,9 @@ export default function OperationsManifestWorkspace() {
                 </form>
                 <p className="mt-2 text-xs text-slate-500">
                   Bags are selected automatically by available capacity and shipment grouping. Click a bag only to inspect it.
+                  {data.manifest.header.destinationCountryCode === "GB"
+                    ? ` UK bags also stop at ${UK_OPERATIONS_BAG_MAX_PIECES} parcels.`
+                    : ""}
                 </p>
               </section>
 
@@ -694,7 +699,7 @@ function ManifestHeader({
 }: {
   data: ManifestDetail;
   busy: boolean;
-  onExport: (format: "xlsx" | "pdf" | "edi", view?: boolean) => void;
+  onExport: (format: "xlsx" | "pdf" | "edi" | "uk", view?: boolean) => void;
   onSeal: () => void;
   onDispatch: () => void;
 }) {
@@ -702,17 +707,12 @@ function ManifestHeader({
   return (
     <div className="mb-5 flex flex-wrap items-start justify-between gap-4 rounded-lg border border-[#EEEDED] bg-white p-5 shadow-sm">
       <div>
-        <Link
-          href="/dashboard/operations-manifests"
-          className="text-sm font-semibold text-[#0D1282]"
-        >
-          Back to manifests
-        </Link>
-        <div className="mt-3 flex items-center gap-3">
+       
+        <div className=" flex items-center gap-3">
           <h1 className="text-2xl font-semibold text-slate-950">
             {manifest.manifestNumber}
           </h1>
-          <span className="rounded-2xl border border-[#0D1282]/25 bg-[#EEEDED] px-2.5 py-1 text-xs font-semibold text-[#0D1282]">
+          <span className="rounded border border-[#0D1282]/25 bg-[#EEEDED] px-2.5 py-1 text-xs font-semibold text-[#0D1282]">
             {manifest.status.replaceAll("_", " ")}
           </span>
         </div>
@@ -731,23 +731,30 @@ function ManifestHeader({
             <ActionButton
               onClick={() => onExport("pdf", true)}
               icon={<FiPrinter />}
-              label="View PDF"
+              label="View ManifestPDF"
             />
             <ActionButton
               onClick={() => onExport("xlsx")}
               icon={<FiDownload />}
-              label="Excel"
+              label="Manifest Excel"
             />
             <ActionButton
               onClick={() => onExport("pdf")}
               icon={<FiDownload />}
-              label="PDF"
+              label="Manifest PDF"
             />
             <ActionButton
               onClick={() => onExport("edi")}
               icon={<FiDownload />}
               label="EDI"
             />
+            {manifest.header.destinationCountryCode === "GB" ? (
+              <ActionButton
+                onClick={() => onExport("uk")}
+                icon={<FiDownload />}
+                label="UK Manifest"
+              />
+            ) : null}
           </>
         ) : null}
         {manifest.status === "READY_TO_SEAL" ? (
@@ -834,13 +841,13 @@ function BagButton({
           {bag.totalPhysicalParcels} parcels
         </p>
         <p className="text-xs font-semibold text-slate-800">
-          {bag.totalWeightKg.toFixed(3)} / 31 kg
+          {bag.totalWeightKg.toFixed(3)} / {OPERATIONS_BAG_MAX_WEIGHT_KG} kg
         </p>
         <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[#EEEDED]">
           <div
             className="h-full rounded-full bg-[#F0DE36]"
             style={{
-              width: `${Math.min(100, (bag.totalWeightKg / 31) * 100)}%`,
+              width: `${Math.min(100, (bag.totalWeightKg / OPERATIONS_BAG_MAX_WEIGHT_KG) * 100)}%`,
             }}
           />
         </div>

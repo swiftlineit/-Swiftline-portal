@@ -53,7 +53,7 @@ const defaultFormData: BusinessAccountFormData = {
     mobileNumber: "",
     jobTitle: "",
     department: "",
-    shipmentTypes: ["international_cargo"]
+    shipmentTypes: ["international_courier"]
   },
   company: {
     registrationCountry: "India",
@@ -649,7 +649,7 @@ export default function BusinessAccountForm({ account }: { account?: BusinessAcc
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-8xl">
       <div className="mb-6 flex items-center justify-between gap-4">
         <div className="border-l-4 border-[#F0DE36] pl-4">
           <h2 className="mb-2 text-3xl font-bold tracking-tight text-[#0D1282] sm:text-4xl">Let&apos;s Get Started</h2>

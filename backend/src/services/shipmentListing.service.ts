@@ -11,6 +11,10 @@ import { dateRangeCondition } from "../utils/dateRangeFilter.js";
 import { normalizeCsbType } from "./csbType.service.js";
 import { readShipmentBookingSnapshot } from "./shipmentBookingSnapshot.service.js";
 import {
+  shipmentDestinationRegionCondition,
+  type ShipmentDestinationRegionCode
+} from "./shipmentDestinationRegions.js";
+import {
   canonicalShipmentStatus,
   equivalentCurrentStatusValues
 } from "./shipmentStatusSequence.service.js";
@@ -36,6 +40,8 @@ export type ShipmentListingFilter = {
   rebookedOnly?: boolean;
   /** When true, keep only shipments with a current exception or unresolved carrier booking. */
   attention?: boolean;
+  /** Staff-only destination groups, matched against the effective consignee address. */
+  destinationRegions?: ShipmentDestinationRegionCode[];
   page: number;
   limit: number;
   /** Manifest assignments are per actor role, so eligibility is role-scoped. */
@@ -271,6 +277,8 @@ export async function listBookedShipments(filter: ShipmentListingFilter) {
   if (filter.rebookedOnly) {
     draftFilter.rebookedFromDraftId = { $exists: true, $ne: null };
   }
+  const destinationCondition = shipmentDestinationRegionCondition(filter.destinationRegions ?? []);
+  if (destinationCondition) Object.assign(draftFilter, destinationCondition);
   const createdAt = dateRangeCondition(filter.dateFrom, filter.dateTo);
   if (createdAt) draftFilter.createdAt = createdAt;
 

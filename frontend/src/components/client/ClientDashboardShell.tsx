@@ -103,16 +103,16 @@ const clientNavigation: Array<
         icon: FiPlusSquare,
         access: "booking",
       },
+       {
+        label: "My Shipments",
+        href: "/client/shipments",
+        icon: FiPackage,
+      },
       {
         label: "Address Book",
         href: "/client/address-book",
         icon: FiMapPin,
         access: "addressBook",
-      },
-      {
-        label: "My Shipments",
-        href: "/client/shipments",
-        icon: FiPackage,
       },
       {
         label: "Tracking",

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { FiSave } from "react-icons/fi";
+import { FiChevronDown, FiSave } from "react-icons/fi";
 import {
   assignBusinessAccountRateCard,
   getBusinessAccountRateCardHistory,
@@ -98,18 +98,33 @@ export default function RateCardAssignmentPanel({
 
       <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,220px)_1fr_auto] md:items-end">
         <label>
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assigned card</span>
-          <select
-            value={selection}
-            onChange={(event) => setSelection(event.target.value as RateCardBand | "")}
-            className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-[#0D1282]"
-          >
-            <option value="">Unassigned - pause pricing</option>
-            {rateCardBands.map((band) => (
-              <option key={band} value={band}>{formatRateCardBand(band)}</option>
-            ))}
-          </select>
-        </label>
+  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+    Assigned card
+  </span>
+
+  <div className="relative mt-2">
+    <select
+      value={selection}
+      onChange={(event) =>
+        setSelection(event.target.value as RateCardBand | "")
+      }
+      className="h-11 w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 pr-11 text-sm font-semibold text-slate-900 outline-none focus:border-[#0D1282]"
+    >
+      <option value="">Unassigned - pause pricing</option>
+
+      {rateCardBands.map((band) => (
+        <option key={band} value={band}>
+          {formatRateCardBand(band)}
+        </option>
+      ))}
+    </select>
+
+    <FiChevronDown
+      aria-hidden="true"
+      className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+    />
+  </div>
+</label>
         <label>
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reason for change</span>
           <input
