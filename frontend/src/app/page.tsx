@@ -726,9 +726,13 @@ export default function Home() {
 
           <div className="mt-3 border-t border-slate-100 pt-3 text-center">
             <p className="text-xs font-semibold text-slate-600">
-              New to Swiftline? {" "}
-              <Link href="/request/business-account" className="inline-flex items-center gap-1 font-bold text-[#0D1282] hover:underline">
+              <Link href="/request/business-account" className="inline-flex items-center tracking-wide gap-1 font-bold text-[#0D1282] hover:underline">
                 Create business account <FiArrowLeft className="h-3 w-3 rotate-180" aria-hidden="true" />
+              </Link>
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              <Link href="/track" className="font-semibold text-[#0D1282] tracking-wide hover:underline">
+                Track your shipment
               </Link>
             </p>
           </div>

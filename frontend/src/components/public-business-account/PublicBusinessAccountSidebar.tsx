@@ -14,9 +14,9 @@ export default function PublicBusinessAccountSidebar() {
 
         <div className="flex min-h-0 flex-1 flex-col bg-white px-6 py-6 xl:px-7 xl:py-7">
           <p className="text-xs font-semibold text-[#0D1282]">Swiftline Business Account</p>
-          <h1 className="mt-2 text-[26px] font-bold leading-[1.18] tracking-[-0.025em] text-slate-950 xl:text-[28px]">
+          <h2 className="mt-2 text-[26px] font-bold leading-[1.18] tracking-[-0.025em] text-slate-950 xl:text-[28px]">
             Create your business account
-          </h1>
+          </h2>
           <p className="mt-3 text-sm leading-6 text-slate-600">
             Set up your account for business shipping, billing and account support. Complete the application and submit your KYC details for review.
           </p>

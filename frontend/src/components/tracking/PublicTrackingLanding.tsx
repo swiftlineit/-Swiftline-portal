@@ -173,13 +173,11 @@ export default function PublicTrackingLanding() {
             </div>
 
             <h1 className="text-3xl font-semibold tracking-[-0.035em] text-white sm:text-5xl lg:text-6xl lg:leading-[1.08]">
-              Track Your Shipment
+              Track Your Swiftline Shipment
             </h1>
 
             <p className="mx-auto mt-5 max-w-2xl text-sm leading-6 text-white/70 sm:text-base sm:leading-7 lg:text-lg lg:leading-8">
-              Enter the AWB number printed on your shipping label to see where
-              your parcel is, what stage it has reached, and when it should
-              arrive.
+              Enter your Swiftline AWB or SLC tracking number to see your latest shipment status, customs progress and estimated delivery.
             </p>
 
             <div
